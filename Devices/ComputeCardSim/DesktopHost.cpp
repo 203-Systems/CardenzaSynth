@@ -226,6 +226,7 @@ public:
 
   bool Initialize()
   {
+    app::RegisterBuiltInApplications();
     application_ = app::CreateDefaultApplication();
     if (!application_)
     {

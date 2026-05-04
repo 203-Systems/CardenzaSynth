@@ -56,6 +56,7 @@ bool Begin(const BootOptions& options) {
     return false;
   }
 
+  app::RegisterBuiltInApplications();
   ActiveApplicationStorage() = app::CreateDefaultApplication();
   if (!ActiveApplicationStorage())
   {

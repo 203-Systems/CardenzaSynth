@@ -6,7 +6,14 @@ namespace app {
 
 void RegisterBuiltInApplications()
 {
+  static bool registered = false;
+  if (registered)
+  {
+    return;
+  }
+
   apps::RegisterSynthApplication();
+  registered = true;
 }
 
 const std::string& DefaultApplicationId()
@@ -17,7 +24,6 @@ const std::string& DefaultApplicationId()
 
 std::unique_ptr<Application> CreateDefaultApplication()
 {
-  RegisterBuiltInApplications();
   return CreateApplication(DefaultApplicationId());
 }
 
