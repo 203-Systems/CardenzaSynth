@@ -103,16 +103,6 @@ ContextMenuGrid BlankGrid()
   return ContextMenuGrid{};
 }
 
-std::size_t PageCountForTotal(std::size_t totalCount)
-{
-  return totalCount == 0 ? 1 : (totalCount + kPagedMenuItemCount - 1) / kPagedMenuItemCount;
-}
-
-std::string PageLabel(std::size_t currentPage, std::size_t pageCount)
-{
-  return std::to_string(currentPage + 1) + "/" + std::to_string(pageCount);
-}
-
 std::pair<std::string, std::string> MenuItemPresentation(UiModifier modifier,
                                                          const std::string& itemId,
                                                          const std::string& patchName,

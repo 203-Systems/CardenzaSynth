@@ -40,11 +40,7 @@ esp_err_t EnsureInitialized()
     }
 
     i2s_pdm_rx_config_t pdmConfig = {
-        .clk_cfg = {
-            .sample_rate_hz = kSampleRate,
-            .clk_src = I2S_CLK_SRC_DEFAULT,
-            .mclk_multiple = I2S_MCLK_MULTIPLE_256,
-        },
+        .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(kSampleRate),
         .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
             .clk = static_cast<gpio_num_t>(Pins::kMicWs),

@@ -45,7 +45,7 @@ bool PagedSynthEngine::Init(const SynthEngineInit& init)
 
 uint16_t PagedSynthEngine::PortId() const
 {
-  return port_ ? port_->Id() : midi::MIDI_PORT_INVALID;
+  return port_ ? port_->Id() : static_cast<uint16_t>(midi::MIDI_PORT_INVALID);
 }
 
 void PagedSynthEngine::DispatchPendingMessages()
