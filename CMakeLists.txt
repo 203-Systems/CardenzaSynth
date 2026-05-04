@@ -11,6 +11,8 @@ endif()
 
 project(ComputeCardOS LANGUAGES C CXX)
 
+include(${CMAKE_SOURCE_DIR}/cmake/ComputeCardOSSourceLists.cmake)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)

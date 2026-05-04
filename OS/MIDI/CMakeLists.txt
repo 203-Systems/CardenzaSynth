@@ -1,5 +1,8 @@
-add_library(ComputeCardMIDI
-    MIDI.cpp
+add_library(ComputeCardMIDI)
+
+ccos_collect_midi_cpp_sources(${PROJECT_SOURCE_DIR} computecard_midi_sources)
+target_sources(ComputeCardMIDI PRIVATE
+    ${computecard_midi_sources}
 )
 
 target_include_directories(ComputeCardMIDI PUBLIC

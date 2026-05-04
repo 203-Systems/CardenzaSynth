@@ -1,7 +1,26 @@
-function(ccos_collect_common_cpp_sources root_dir out_var)
+function(ccos_collect_builtin_application_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Applications/BuiltInApplications.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_synth_app_cpp_sources root_dir out_var)
+    set(sources
         ${root_dir}/Applications/Synth/SynthApp.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_synth_runtime_cpp_sources root_dir out_var)
+    set(sources
+        ${root_dir}/Library/Synth/SynthAudioRuntimeAmy.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_synth_core_cpp_sources root_dir out_var)
+    set(sources
         ${root_dir}/Library/Synth/Dx7SynthEngine.cpp
         ${root_dir}/Library/Synth/JunoSynthEngine.cpp
         ${root_dir}/Library/Synth/PagedSynthEngine.cpp
@@ -10,11 +29,34 @@ function(ccos_collect_common_cpp_sources root_dir out_var)
         ${root_dir}/Library/Synth/SynthRack.cpp
         ${root_dir}/Library/Synth/SynthUiRenderer.cpp
         ${root_dir}/Library/Synth/SynthUiModel.cpp
-        ${root_dir}/Library/Synth/SynthAudioRuntimeAmy.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_midi_framework_cpp_sources root_dir out_var)
+    set(sources
         ${root_dir}/OS/Framework/Midi/MidiPacket.cpp
         ${root_dir}/OS/Framework/Midi/MidiPort.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_midi_cpp_sources root_dir out_var)
+    set(sources
         ${root_dir}/OS/MIDI/MIDI.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_system_cpp_sources root_dir out_var)
+    set(sources
         ${root_dir}/OS/System/System.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_ui_cpp_sources root_dir out_var)
+    set(sources
         ${root_dir}/OS/UI/BuiltInFonts.cpp
         ${root_dir}/OS/UI/Canvas.cpp
         ${root_dir}/OS/UI/UI.cpp
@@ -22,10 +64,8 @@ function(ccos_collect_common_cpp_sources root_dir out_var)
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
-function(ccos_collect_computecard_device_cpp_sources root_dir out_var)
+function(ccos_collect_computecard_hal_cpp_sources root_dir out_var)
     set(sources
-        ${root_dir}/Devices/ComputeCard/Device.cpp
-        ${root_dir}/Devices/ComputeCard/DeviceAudio.cpp
         ${root_dir}/Devices/ComputeCard/main/hal/computecard/computecardHAL.cpp
         ${root_dir}/Devices/ComputeCard/main/hal/keyboard/keyboard.cpp
         ${root_dir}/Devices/ComputeCard/main/hal/computecard/audio/audio.cpp
@@ -35,6 +75,82 @@ function(ccos_collect_computecard_device_cpp_sources root_dir out_var)
         ${root_dir}/Devices/ComputeCard/main/hal/computecard/mic/mic.cpp
         ${root_dir}/Devices/ComputeCard/main/hal/computecard/storage/storage.cpp
         ${root_dir}/Devices/ComputeCard/main/hal/computecard/system/system.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_computecard_device_cpp_sources root_dir out_var)
+    set(sources
+        ${root_dir}/Devices/ComputeCard/Device.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_computecard_device_audio_cpp_sources root_dir out_var)
+    set(sources
+        ${root_dir}/Devices/ComputeCard/DeviceAudio.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_computecardsim_device_cpp_sources root_dir out_var)
+    set(sources
+        ${root_dir}/Devices/ComputeCardSim/Device.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_computecardsim_device_audio_cpp_sources root_dir out_var)
+    set(sources
+        ${root_dir}/Devices/ComputeCardSim/DeviceAudio.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_computecardsim_host_cpp_sources root_dir out_var)
+    set(sources
+        ${root_dir}/Devices/ComputeCardSim/main.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_computecardsim_desktop_cpp_sources root_dir out_var)
+    set(sources
+        ${root_dir}/Devices/ComputeCardSim/DesktopHost.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_common_cpp_sources root_dir out_var)
+    ccos_collect_builtin_application_cpp_sources(${root_dir} builtin_application_sources)
+    ccos_collect_synth_app_cpp_sources(${root_dir} synth_app_sources)
+    ccos_collect_synth_runtime_cpp_sources(${root_dir} synth_runtime_sources)
+    ccos_collect_synth_core_cpp_sources(${root_dir} synth_core_sources)
+    ccos_collect_midi_framework_cpp_sources(${root_dir} midi_framework_sources)
+    ccos_collect_midi_cpp_sources(${root_dir} midi_sources)
+    ccos_collect_system_cpp_sources(${root_dir} system_sources)
+    ccos_collect_ui_cpp_sources(${root_dir} ui_sources)
+    set(sources
+        ${builtin_application_sources}
+        ${synth_app_sources}
+        ${synth_runtime_sources}
+        ${synth_core_sources}
+        ${midi_framework_sources}
+        ${midi_sources}
+        ${system_sources}
+        ${ui_sources}
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(ccos_collect_computecard_firmware_cpp_sources root_dir out_var)
+    ccos_collect_computecard_device_cpp_sources(${root_dir} device_sources)
+    ccos_collect_computecard_device_audio_cpp_sources(${root_dir} device_audio_sources)
+    ccos_collect_computecard_hal_cpp_sources(${root_dir} hal_sources)
+    set(sources
+        ${device_sources}
+        ${device_audio_sources}
+        ${hal_sources}
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()

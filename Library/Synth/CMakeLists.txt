@@ -1,25 +1,10 @@
 set(AMY_SRC_DIR ${PROJECT_SOURCE_DIR}/third_party/amy/src)
 
-add_library(ComputeCardAmy
-    ${AMY_SRC_DIR}/algorithms.c
-    ${AMY_SRC_DIR}/amy.c
-    ${AMY_SRC_DIR}/api.c
-    ${AMY_SRC_DIR}/custom.c
-    ${AMY_SRC_DIR}/delay.c
-    ${AMY_SRC_DIR}/envelope.c
-    ${AMY_SRC_DIR}/examples.c
-    ${AMY_SRC_DIR}/filters.c
-    ${AMY_SRC_DIR}/instrument.c
-    ${AMY_SRC_DIR}/interp_partials.c
-    ${AMY_SRC_DIR}/log2_exp2.c
-    ${AMY_SRC_DIR}/midi_mappings.c
-    ${AMY_SRC_DIR}/oscillators.c
-    ${AMY_SRC_DIR}/parse.c
-    ${AMY_SRC_DIR}/patches.c
-    ${AMY_SRC_DIR}/pcm.c
-    ${AMY_SRC_DIR}/sequencer.c
-    ${AMY_SRC_DIR}/transfer.c
-    AmyEmbeddedStubs.c
+add_library(ComputeCardAmy)
+
+ccos_collect_amy_c_sources(${PROJECT_SOURCE_DIR} computecard_amy_sources)
+target_sources(ComputeCardAmy PRIVATE
+    ${computecard_amy_sources}
 )
 
 target_include_directories(ComputeCardAmy PUBLIC
@@ -55,8 +40,11 @@ else()
     target_link_libraries(ComputeCardAmy PUBLIC m pthread)
 endif()
 
-add_library(ComputeCardSynthRuntime
-    SynthAudioRuntimeAmy.cpp
+add_library(ComputeCardSynthRuntime)
+
+ccos_collect_synth_runtime_cpp_sources(${PROJECT_SOURCE_DIR} computecard_synth_runtime_sources)
+target_sources(ComputeCardSynthRuntime PRIVATE
+    ${computecard_synth_runtime_sources}
 )
 
 target_include_directories(ComputeCardSynthRuntime PUBLIC
@@ -67,15 +55,11 @@ target_link_libraries(ComputeCardSynthRuntime PUBLIC
     ComputeCardAmy
 )
 
-add_library(ComputeCardSynth
-    Dx7SynthEngine.cpp
-    JunoSynthEngine.cpp
-    PagedSynthEngine.cpp
-    SamplerSynthEngine.cpp
-    SynthEngineFactory.cpp
-    SynthRack.cpp
-    SynthUiRenderer.cpp
-    SynthUiModel.cpp
+add_library(ComputeCardSynth)
+
+ccos_collect_synth_core_cpp_sources(${PROJECT_SOURCE_DIR} computecard_synth_core_sources)
+target_sources(ComputeCardSynth PRIVATE
+    ${computecard_synth_core_sources}
 )
 
 target_include_directories(ComputeCardSynth PUBLIC

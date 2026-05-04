@@ -4,7 +4,12 @@ target_include_directories(ComputeCardAppInterface INTERFACE
 )
 
 add_library(ComputeCardApplications
-    BuiltInApplications.cpp
+    
+)
+
+ccos_collect_builtin_application_cpp_sources(${PROJECT_SOURCE_DIR} computecard_builtin_application_sources)
+target_sources(ComputeCardApplications PRIVATE
+    ${computecard_builtin_application_sources}
 )
 
 target_include_directories(ComputeCardApplications PUBLIC

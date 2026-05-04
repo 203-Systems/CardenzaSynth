@@ -1,13 +1,8 @@
-add_library(ComputeCardHAL
-    computecardHAL.cpp
-    ../keyboard/keyboard.cpp
-    audio/audio.cpp
-    display/display.cpp
-    ir/ir.cpp
-    keyboard/keyboard.cpp
-    mic/mic.cpp
-    storage/storage.cpp
-    system/system.cpp
+add_library(ComputeCardHAL)
+
+ccos_collect_computecard_hal_cpp_sources(${PROJECT_SOURCE_DIR} computecard_hal_sources)
+target_sources(ComputeCardHAL PRIVATE
+    ${computecard_hal_sources}
 )
 
 target_include_directories(ComputeCardHAL PUBLIC
