@@ -1,14 +1,17 @@
 #include "Devices/ComputeCard/main/hal/computecard/display/display.h"
 #include "Devices/ComputeCard/main/hal/computecard/board/pins.h"
 
-#if __has_include(<driver/gpio.h>) && __has_include(<driver/ledc.h>) && __has_include(<driver/spi_master.h>) && __has_include(<esp_lcd_panel_io.h>) && __has_include(<esp_lcd_panel_vendor.h>)
+#if __has_include(<driver/gpio.h>) && __has_include(<driver/ledc.h>) && __has_include(<driver/spi_master.h>) && __has_include(<esp_attr.h>) && __has_include(<esp_lcd_panel_io.h>) && __has_include(<esp_lcd_panel_vendor.h>) && __has_include(<freertos/FreeRTOS.h>) && __has_include(<freertos/semphr.h>)
 #include <driver/gpio.h>
 #include <driver/ledc.h>
 #include <driver/spi_master.h>
+#include <esp_attr.h>
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_commands.h>
 #include <esp_lcd_panel_vendor.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <cstring>
 #endif
 
@@ -20,7 +23,7 @@ esp_lcd_panel_handle_t panel = nullptr;
 esp_lcd_panel_io_handle_t panelIo = nullptr;
 uint8_t brightness = 255;
 
-#if __has_include(<driver/gpio.h>) && __has_include(<driver/ledc.h>) && __has_include(<driver/spi_master.h>) && __has_include(<esp_lcd_panel_io.h>) && __has_include(<esp_lcd_panel_vendor.h>)
+#if __has_include(<driver/gpio.h>) && __has_include(<driver/ledc.h>) && __has_include(<driver/spi_master.h>) && __has_include(<esp_attr.h>) && __has_include(<esp_lcd_panel_io.h>) && __has_include(<esp_lcd_panel_vendor.h>) && __has_include(<freertos/FreeRTOS.h>) && __has_include(<freertos/semphr.h>)
 
 constexpr spi_host_device_t kDisplaySpiHost = SPI3_HOST;
 constexpr ledc_mode_t kBacklightSpeedMode = LEDC_LOW_SPEED_MODE;
@@ -28,9 +31,34 @@ constexpr ledc_timer_t kBacklightTimer = LEDC_TIMER_0;
 constexpr ledc_channel_t kBacklightChannel = LEDC_CHANNEL_7;
 constexpr ledc_timer_bit_t kBacklightResolution = LEDC_TIMER_8_BIT;
 constexpr uint32_t kBacklightFrequencyHz = 256;
+constexpr TickType_t kTransferTimeoutTicks = pdMS_TO_TICKS(1000);
 
 bool spiBusInitialized = false;
 bool backlightInitialized = false;
+SemaphoreHandle_t frameTransferDone = nullptr;
+
+bool IRAM_ATTR OnColorTransferDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* user_ctx)
+{
+    if (user_ctx == nullptr)
+    {
+        return false;
+    }
+
+    BaseType_t highTaskWoken = pdFALSE;
+    xSemaphoreGiveFromISR(static_cast<SemaphoreHandle_t>(user_ctx), &highTaskWoken);
+    return highTaskWoken == pdTRUE;
+}
+
+esp_err_t InitTransferSync()
+{
+    if (frameTransferDone != nullptr)
+    {
+        return ESP_OK;
+    }
+
+    frameTransferDone = xSemaphoreCreateBinary();
+    return frameTransferDone != nullptr ? ESP_OK : ESP_ERR_NO_MEM;
+}
 
 esp_err_t ApplyBrightness(uint8_t value)
 {
@@ -113,8 +141,14 @@ esp_err_t InitSpiBus()
 
 esp_err_t Init()
 {
-#if __has_include(<driver/gpio.h>) && __has_include(<driver/ledc.h>) && __has_include(<driver/spi_master.h>) && __has_include(<esp_lcd_panel_io.h>) && __has_include(<esp_lcd_panel_vendor.h>)
+#if __has_include(<driver/gpio.h>) && __has_include(<driver/ledc.h>) && __has_include(<driver/spi_master.h>) && __has_include(<esp_attr.h>) && __has_include(<esp_lcd_panel_io.h>) && __has_include(<esp_lcd_panel_vendor.h>) && __has_include(<freertos/FreeRTOS.h>) && __has_include(<freertos/semphr.h>)
     esp_err_t status = InitBacklight();
+    if (status != ESP_OK)
+    {
+        return status;
+    }
+
+    status = InitTransferSync();
     if (status != ESP_OK)
     {
         return status;
@@ -136,6 +170,8 @@ esp_err_t Init()
         ioConfig.trans_queue_depth = 10;
         ioConfig.lcd_cmd_bits = 8;
         ioConfig.lcd_param_bits = 8;
+        ioConfig.on_color_trans_done = OnColorTransferDone;
+        ioConfig.user_ctx = frameTransferDone;
 
         status = esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kDisplaySpiHost), &ioConfig, &panelIo);
         if (status != ESP_OK)
@@ -231,7 +267,7 @@ esp_err_t SetBrightness(uint8_t value)
 {
     brightness = value;
 
-#if __has_include(<driver/gpio.h>) && __has_include(<driver/ledc.h>) && __has_include(<driver/spi_master.h>) && __has_include(<esp_lcd_panel_io.h>) && __has_include(<esp_lcd_panel_vendor.h>)
+#if __has_include(<driver/gpio.h>) && __has_include(<driver/ledc.h>) && __has_include(<driver/spi_master.h>) && __has_include(<esp_attr.h>) && __has_include(<esp_lcd_panel_io.h>) && __has_include(<esp_lcd_panel_vendor.h>) && __has_include(<freertos/FreeRTOS.h>) && __has_include(<freertos/semphr.h>)
     if (!backlightInitialized)
     {
         return ESP_OK;
@@ -250,7 +286,7 @@ uint8_t GetBrightness()
 
 esp_err_t PresentFrame(const std::uint16_t* pixels, int width, int height)
 {
-#if __has_include(<driver/gpio.h>) && __has_include(<driver/ledc.h>) && __has_include(<driver/spi_master.h>) && __has_include(<esp_lcd_panel_io.h>) && __has_include(<esp_lcd_panel_vendor.h>)
+#if __has_include(<driver/gpio.h>) && __has_include(<driver/ledc.h>) && __has_include(<driver/spi_master.h>) && __has_include(<esp_attr.h>) && __has_include(<esp_lcd_panel_io.h>) && __has_include(<esp_lcd_panel_vendor.h>) && __has_include(<freertos/FreeRTOS.h>) && __has_include(<freertos/semphr.h>)
     if (pixels == nullptr || width <= 0 || height <= 0)
     {
         return ESP_ERR_INVALID_ARG;
@@ -262,15 +298,17 @@ esp_err_t PresentFrame(const std::uint16_t* pixels, int width, int height)
         return status;
     }
 
+    while (xSemaphoreTake(frameTransferDone, 0) == pdTRUE)
+    {
+    }
+
     status = esp_lcd_panel_draw_bitmap(panel, 0, 0, width, height, pixels);
     if (status != ESP_OK)
     {
         return status;
     }
 
-    // esp_lcd queues SPI color DMA asynchronously; send a polling NOP so we don't
-    // start rendering into the shared framebuffer again until the transfer is done.
-    return esp_lcd_panel_io_tx_param(panelIo, LCD_CMD_NOP, nullptr, 0);
+    return xSemaphoreTake(frameTransferDone, kTransferTimeoutTicks) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
 #else
     (void)pixels;
     (void)width;
