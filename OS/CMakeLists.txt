@@ -1,5 +1,6 @@
 add_subdirectory(Framework)
 add_subdirectory(MIDI)
+add_subdirectory(System)
 add_subdirectory(UI)
 
 add_library(ComputeCardOSCore INTERFACE)

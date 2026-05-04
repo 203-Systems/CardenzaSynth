@@ -15,6 +15,7 @@ public:
   void Setup(const std::vector<std::string>& args) override;
   void Tick() override;
   void RenderFrame() override;
+  void HandleMatrixKeyEvent(std::size_t row, std::size_t col, bool pressed) override;
 
   std::string DebugView() const;
   synth::MatrixKeyHandling PressMatrixKey(std::size_t row, std::size_t col);

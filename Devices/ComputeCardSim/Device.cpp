@@ -28,6 +28,14 @@ void Present() {}
 
 }  // namespace Display
 
+namespace Keyboard {
+
+MatrixKeyState SnapshotState() {
+  return MatrixKeyState{};
+}
+
+}  // namespace Keyboard
+
 std::string Name() {
   return "ComputeCardSim";
 }
@@ -35,5 +43,11 @@ std::string Name() {
 std::string BackendName() {
   return "sim-host+webui";
 }
+
+bool Init() {
+  return true;
+}
+
+void Start() {}
 
 }  // namespace Device

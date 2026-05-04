@@ -16,7 +16,7 @@ uint8_t volume = 100;
 #if __has_include(<driver/gpio.h>) && __has_include(<driver/i2s_std.h>)
 
 constexpr i2s_port_t kAudioPort = I2S_NUM_1;
-constexpr uint32_t kSampleRate = 64000;
+constexpr uint32_t kSampleRate = 44100;
 constexpr size_t kDmaFrameCount = 256;
 constexpr size_t kDmaDescriptorCount = 8;
 

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "Applications/Application.h"
+#include "Applications/BuiltInApplications.h"
 #include "Applications/Synth/SynthApp.h"
 #include "Devices/Device.h"
 #include "Library/Synth/ISynthEngine.h"
@@ -225,8 +226,7 @@ public:
 
   bool Initialize()
   {
-    apps::RegisterSynthApplication();
-    application_ = app::CreateApplication(app::MakeApplicationId("ComputeCard", "Synth"));
+    application_ = app::CreateDefaultApplication();
     if (!application_)
     {
       MessageBoxA(nullptr, "Failed to create Synth application.", "ComputeCardSimDesktop", MB_ICONERROR | MB_OK);

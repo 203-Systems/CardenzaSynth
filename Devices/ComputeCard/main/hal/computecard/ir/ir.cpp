@@ -65,7 +65,8 @@ esp_err_t EnsureInitialized()
         return status;
     }
 
-    status = rmt_new_copy_encoder(nullptr, &irEncoder);
+    rmt_copy_encoder_config_t encoderConfig = {};
+    status = rmt_new_copy_encoder(&encoderConfig, &irEncoder);
     if (status != ESP_OK)
     {
         rmt_del_channel(irChannel);

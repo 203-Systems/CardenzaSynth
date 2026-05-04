@@ -14,6 +14,11 @@ public:
   virtual void Setup(const std::vector<std::string>& args) = 0;
   virtual void Tick() = 0;
   virtual void RenderFrame() = 0;
+  virtual void HandleMatrixKeyEvent(std::size_t row, std::size_t column, bool pressed) {
+    (void)row;
+    (void)column;
+    (void)pressed;
+  }
 };
 
 using ApplicationFactory = std::unique_ptr<Application> (*)();

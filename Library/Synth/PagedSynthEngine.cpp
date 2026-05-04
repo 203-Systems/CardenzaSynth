@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <sstream>
 
+#include "Library/Synth/SynthAudioRuntime.h"
 #include "OS/Framework/Midi/MidiPort.h"
 
 namespace synth {
@@ -23,17 +24,21 @@ PagedSynthEngine::~PagedSynthEngine() = default;
 
 bool PagedSynthEngine::Init(const SynthEngineInit& init)
 {
+  engineIndex_ = init.engineIndex;
   const std::string portName = init.portName.empty() ? "SynthTrack" + std::to_string(init.engineIndex + 1) : init.portName;
   port_ = std::make_unique<midi::MidiPort>(portName, init.portId, 128);
   if (!port_ || port_->Id() == midi::MIDI_PORT_INVALID)
   {
     port_.reset();
     audioBinding_ = {};
+    engineIndex_ = static_cast<std::size_t>(-1);
     lastEvent_ = "port offline";
     return false;
   }
 
+  audio::EnsureEngine(engineIndex_, descriptor_.kind);
   audioBinding_ = device::ConnectSynthAudioPipeline(init.engineIndex);
+  SyncRuntimeState();
   lastEvent_ = audioBinding_.connected ? "ready" : "ready (audio pending)";
   return true;
 }
@@ -127,11 +132,13 @@ void PagedSynthEngine::ProcessMidi(const midi::MidiPacket& packet)
         {
           --activeNotes_;
         }
+        audio::NoteOff(engineIndex_, packet.data[1]);
         lastEvent_ = "note off " + std::to_string(packet.data[1]);
       }
       else
       {
         ++activeNotes_;
+        audio::NoteOn(engineIndex_, packet.data[1], packet.data[2]);
         lastEvent_ = "note on " + std::to_string(packet.data[1]) + " vel " + std::to_string(packet.data[2]);
       }
       break;
@@ -140,9 +147,15 @@ void PagedSynthEngine::ProcessMidi(const midi::MidiPacket& packet)
       {
         --activeNotes_;
       }
+      audio::NoteOff(engineIndex_, packet.data[1]);
       lastEvent_ = "note off " + std::to_string(packet.data[1]);
       break;
     case midi::MidiStatus::ControlChange:
+      if (packet.data[1] == 120 || packet.data[1] == 123)
+      {
+        audio::AllNotesOff(engineIndex_);
+        activeNotes_ = 0;
+      }
       lastEvent_ = "cc " + std::to_string(packet.data[1]) + "=" + std::to_string(packet.data[2]);
       break;
     case midi::MidiStatus::ProgramChange:
@@ -317,12 +330,33 @@ std::string PagedSynthEngine::FormatParameterValue(const SynthParameterInfo& par
 
 void PagedSynthEngine::OnParameterChanged(const SynthParameterInfo& parameter)
 {
-  (void)parameter;
+  if (engineIndex_ == static_cast<std::size_t>(-1))
+  {
+    return;
+  }
+
+  audio::SetEngineParameter(engineIndex_, parameter.id, parameter.value);
 }
 
 void PagedSynthEngine::OnPresetLoaded(const std::string& presetId)
 {
   (void)presetId;
+  SyncRuntimeState();
+}
+
+void PagedSynthEngine::SyncRuntimeState()
+{
+  if (engineIndex_ == static_cast<std::size_t>(-1))
+  {
+    return;
+  }
+
+  audio::EnsureEngine(engineIndex_, descriptor_.kind);
+  audio::SetEnginePreset(engineIndex_, currentPresetId_);
+  for (const SynthParameterInfo& parameter : parameters_)
+  {
+    audio::SetEngineParameter(engineIndex_, parameter.id, parameter.value);
+  }
 }
 
 std::string PagedSynthEngine::NextUserPresetId() const

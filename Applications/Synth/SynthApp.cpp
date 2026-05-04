@@ -72,6 +72,16 @@ void SynthApp::RenderFrame() {
   synth::RenderSynthUiFrame(canvas, ui_, slot.engine.get(), activeKeys_[activeTrack]);
 }
 
+void SynthApp::HandleMatrixKeyEvent(std::size_t row, std::size_t col, bool pressed) {
+  if (pressed)
+  {
+    (void)PressMatrixKey(row, col);
+    return;
+  }
+
+  ReleaseMatrixKey(row, col);
+}
+
 synth::MatrixKeyHandling SynthApp::PressMatrixKey(std::size_t row, std::size_t col) {
   const auto handling = ui_.PressMatrixKey(ActiveEngineMutable(), row, col);
   SyncUiTracks();

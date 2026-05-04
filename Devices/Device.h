@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -52,6 +53,10 @@ struct MatrixKeyEvent {
   bool pressed = false;
 };
 
+using MatrixKeyState = std::array<bool, kKeyCount>;
+
+MatrixKeyState SnapshotState();
+
 }  // namespace Keyboard
 
 namespace Audio {
@@ -77,5 +82,7 @@ struct FileHandleView {
 
 std::string Name();
 std::string BackendName();
+bool Init();
+void Start();
 
 }  // namespace Device

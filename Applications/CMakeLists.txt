@@ -3,6 +3,18 @@ target_include_directories(ComputeCardAppInterface INTERFACE
     ${PROJECT_SOURCE_DIR}
 )
 
+add_library(ComputeCardApplications
+    BuiltInApplications.cpp
+)
+
+target_include_directories(ComputeCardApplications PUBLIC
+    ${PROJECT_SOURCE_DIR}
+)
+
+target_link_libraries(ComputeCardApplications PUBLIC
+    ComputeCardAppInterface
+)
+
 function(add_enabled_applications config_file)
     if(NOT EXISTS "${config_file}")
         message(WARNING "Application list file not found at ${config_file}")
@@ -29,3 +41,7 @@ function(add_enabled_applications config_file)
 endfunction()
 
 add_enabled_applications("${FAMILY_PATH}/ApplicationList.txt")
+
+target_link_libraries(ComputeCardApplications PUBLIC
+    ComputeCardSynthApp
+)

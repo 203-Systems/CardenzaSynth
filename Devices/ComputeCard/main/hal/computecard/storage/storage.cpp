@@ -51,7 +51,7 @@ esp_err_t Init()
     }
 
     sdspi_device_config_t slotConfig = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slotConfig.gpio_cs = Pins::kSdSpiCs;
+    slotConfig.gpio_cs = static_cast<gpio_num_t>(Pins::kSdSpiCs);
     slotConfig.host_id = static_cast<spi_host_device_t>(host.slot);
 
     esp_vfs_fat_sdmmc_mount_config_t mountConfig = {};

@@ -9,6 +9,7 @@ namespace ComputeCardHAL::Display {
     constexpr int HEIGHT = 135;
 
     esp_err_t Init();
+    esp_err_t PresentFrame(const std::uint16_t* pixels, int width, int height);
     esp_lcd_panel_handle_t GetPanel();
     esp_lcd_panel_io_handle_t GetPanelIO();
 

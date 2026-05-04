@@ -55,6 +55,7 @@ protected:
   virtual void OnPresetLoaded(const std::string& presetId);
 
 private:
+  void SyncRuntimeState();
   std::string NextUserPresetId() const;
 
   SynthDescriptor descriptor_;
@@ -66,6 +67,7 @@ private:
   std::string currentPresetName_ = "INIT";
   std::string lastEvent_ = "idle";
   int activeNotes_ = 0;
+  std::size_t engineIndex_ = static_cast<std::size_t>(-1);
 };
 
 }  // namespace synth

@@ -2,6 +2,12 @@ target_sources(ComputeCardDeviceAudio PRIVATE
     DeviceAudio.cpp
 )
 
+if(WIN32)
+    target_link_libraries(ComputeCardDeviceAudio PUBLIC
+        winmm
+    )
+endif()
+
 add_library(ComputeCardSimDevice
     Device.cpp
 )
@@ -24,7 +30,7 @@ target_include_directories(ComputeCardSimHost PRIVATE
 
 target_link_libraries(ComputeCardSimHost PRIVATE
     ComputeCardSimDevice
-    ComputeCardSynthApp
+    ComputeCardSystem
 )
 
 if(WIN32)
@@ -38,7 +44,7 @@ if(WIN32)
 
     target_link_libraries(ComputeCardSimDesktop PRIVATE
         ComputeCardSimDevice
-        ComputeCardSynthApp
+        ComputeCardSystem
         gdi32
         user32
     )

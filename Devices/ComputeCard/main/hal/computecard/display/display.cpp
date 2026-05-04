@@ -7,6 +7,7 @@
 #include <driver/spi_master.h>
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
+#include <esp_lcd_panel_commands.h>
 #include <esp_lcd_panel_vendor.h>
 #include <cstring>
 #endif
@@ -136,7 +137,7 @@ esp_err_t Init()
         ioConfig.lcd_cmd_bits = 8;
         ioConfig.lcd_param_bits = 8;
 
-        status = esp_lcd_new_panel_io_spi(reinterpret_cast<esp_lcd_spi_bus_handle_t>(kDisplaySpiHost), &ioConfig, &panelIo);
+        status = esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kDisplaySpiHost), &ioConfig, &panelIo);
         if (status != ESP_OK)
         {
             return status;
@@ -147,9 +148,8 @@ esp_err_t Init()
     {
         esp_lcd_panel_dev_config_t panelConfig = {};
         panelConfig.reset_gpio_num = Pins::kDisplayReset;
-#if defined(LCD_RGB_ELEMENT_ORDER_BGR)
-        panelConfig.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;
-#endif
+        panelConfig.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
+        panelConfig.data_endian = LCD_RGB_DATA_ENDIAN_LITTLE;
         panelConfig.bits_per_pixel = 16;
 
         status = esp_lcd_new_panel_st7789(panelIo, &panelConfig, &panel);
@@ -182,7 +182,7 @@ esp_err_t Init()
             return status;
         }
 
-        status = esp_lcd_panel_mirror(panel, true, false);
+        status = esp_lcd_panel_mirror(panel, false, true);
         if (status != ESP_OK)
         {
             return status;
@@ -246,6 +246,37 @@ esp_err_t SetBrightness(uint8_t value)
 uint8_t GetBrightness()
 {
     return brightness;
+}
+
+esp_err_t PresentFrame(const std::uint16_t* pixels, int width, int height)
+{
+#if __has_include(<driver/gpio.h>) && __has_include(<driver/ledc.h>) && __has_include(<driver/spi_master.h>) && __has_include(<esp_lcd_panel_io.h>) && __has_include(<esp_lcd_panel_vendor.h>)
+    if (pixels == nullptr || width <= 0 || height <= 0)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t status = Init();
+    if (status != ESP_OK)
+    {
+        return status;
+    }
+
+    status = esp_lcd_panel_draw_bitmap(panel, 0, 0, width, height, pixels);
+    if (status != ESP_OK)
+    {
+        return status;
+    }
+
+    // esp_lcd queues SPI color DMA asynchronously; send a polling NOP so we don't
+    // start rendering into the shared framebuffer again until the transfer is done.
+    return esp_lcd_panel_io_tx_param(panelIo, LCD_CMD_NOP, nullptr, 0);
+#else
+    (void)pixels;
+    (void)width;
+    (void)height;
+    return ESP_FAIL;
+#endif
 }
 
 }  // namespace ComputeCardHAL::Display
