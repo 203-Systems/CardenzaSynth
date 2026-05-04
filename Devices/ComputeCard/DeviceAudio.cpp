@@ -20,18 +20,28 @@ namespace {
 #if __has_include(<driver/i2s_std.h>) && __has_include(<freertos/FreeRTOS.h>) && __has_include(<freertos/task.h>)
 
 constexpr std::size_t kRenderFrameCount = 256;
+std::mutex g_audioPumpMutex;
+TaskHandle_t g_audioPumpTask = nullptr;
+
+void ResetAudioPumpState()
+{
+  std::lock_guard<std::mutex> lock(g_audioPumpMutex);
+  g_audioPumpTask = nullptr;
+}
 
 void AudioRenderTask(void*)
 {
   i2s_chan_handle_t channel = ComputeCardHAL::Audio::GetAudioChannel();
   if (channel == nullptr)
   {
+    ResetAudioPumpState();
     vTaskDelete(nullptr);
     return;
   }
 
   if (i2s_channel_enable(channel) != ESP_OK)
   {
+    ResetAudioPumpState();
     vTaskDelete(nullptr);
     return;
   }
@@ -60,28 +70,25 @@ void AudioRenderTask(void*)
 
 bool EnsureAudioPumpStarted()
 {
-  static std::mutex mutex;
-  static bool attempted = false;
-  static bool started = false;
-  std::lock_guard<std::mutex> lock(mutex);
+  std::lock_guard<std::mutex> lock(g_audioPumpMutex);
 
-  if (started)
+  if (g_audioPumpTask != nullptr)
   {
     return true;
   }
-  if (attempted)
-  {
-    return false;
-  }
-
-  attempted = true;
   if (ComputeCardHAL::Audio::Init() != ESP_OK || ComputeCardHAL::Audio::GetAudioChannel() == nullptr)
   {
     return false;
   }
 
-  started = xTaskCreate(AudioRenderTask, "synth_audio", 4096, nullptr, 5, nullptr) == pdPASS;
-  return started;
+  TaskHandle_t taskHandle = nullptr;
+  if (xTaskCreate(AudioRenderTask, "synth_audio", 4096, nullptr, 5, &taskHandle) != pdPASS)
+  {
+    return false;
+  }
+
+  g_audioPumpTask = taskHandle;
+  return true;
 }
 
 #else
