@@ -1,0 +1,32 @@
+.*/
+!.github/
+
+# JavaScript/Web build outputs
+**/node_modules/
+**/dist/
+
+# CMake and local build trees
+build/
+build-computecard/
+out/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+Testing/
+cmake_install.cmake
+install_manifest.txt
+CMakeUserPresets.json
+compile_commands.json
+
+# Visual Studio / Windows user state
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vcxproj.user
+*.VC.db
+*.VC.opendb
+*.opendb

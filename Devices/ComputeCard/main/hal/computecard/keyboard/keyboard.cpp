@@ -1,0 +1,111 @@
+#include "Devices/ComputeCard/main/hal/computecard/keyboard/keyboard.h"
+
+namespace ComputeCardHAL::Keyboard {
+
+namespace {
+
+KEYBOARD::Keyboard keyboard;
+
+}  // namespace
+
+void init()
+{
+    keyboard.init();
+}
+
+Point2D_t getKey()
+{
+    return keyboard.getKey();
+}
+
+uint8_t getKeyNum(Point2D_t keyCoor)
+{
+    return keyboard.getKeyNum(keyCoor);
+}
+
+void updateKeyList()
+{
+    keyboard.updateKeyList();
+}
+
+std::vector<KEYBOARD::Point2D_t>& keyList()
+{
+    return keyboard.keyList();
+}
+
+KeyValue_t getKeyValue(const Point2D_t& keyCoor)
+{
+    return keyboard.getKeyValue(keyCoor);
+}
+
+bool isKeyPressing(int keyNum)
+{
+    return keyboard.isKeyPressing(keyNum);
+}
+
+void updateKeysState()
+{
+    keyboard.updateKeysState();
+}
+
+KeysState& keysState()
+{
+    return keyboard.keysState();
+}
+
+bool capslocked()
+{
+    return keyboard.capslocked();
+}
+
+void setCapsLocked(bool isLocked)
+{
+    keyboard.setCapsLocked(isLocked);
+}
+
+bool isChanged()
+{
+    return keyboard.isChanged();
+}
+
+uint8_t isPressed()
+{
+    return keyboard.isPressed();
+}
+
+bool enableLED(bool enabled)
+{
+    return keyboard.enableLED(enabled);
+}
+
+void setLED(Point2D_t pos, uint8_t brightness)
+{
+    keyboard.setLED(pos, brightness);
+}
+
+void clearAllLEDs()
+{
+    keyboard.clearAllLEDs();
+}
+
+void setAllLEDs(uint8_t brightness)
+{
+    keyboard.setAllLEDs(brightness);
+}
+
+void setLEDGlobalBrightness(uint8_t level)
+{
+    keyboard.setLEDGlobalBrightness(level);
+}
+
+uint8_t ledGlobalBrightness()
+{
+    return keyboard.ledGlobalBrightness();
+}
+
+void updateLED()
+{
+    keyboard.updateLED();
+}
+
+}  // namespace ComputeCardHAL::Keyboard
