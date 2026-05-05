@@ -73,9 +73,9 @@ struct MatrixPosition {
 };
 
 constexpr std::array<std::array<KeyLegend, kKeyboardColumns>, kKeyboardRows> kKeyLegends = {{
-    {{{"SND", ""}, {"1", "!"}, {"2", "@"}, {"3", "#"}, {"4", "$"}, {"5", "%"}, {"6", "^"},
+    {{{"TRK", ""}, {"1", "!"}, {"2", "@"}, {"3", "#"}, {"4", "$"}, {"5", "%"}, {"6", "^"},
       {"7", "&"}, {"8", "*"}, {"9", "("}, {"0", ")"}, {"-", "_"}, {"=", "+"}, {"del", ""}}},
-    {{{"PAR", ""}, {"Q", ""}, {"W", ""}, {"E", ""}, {"R", ""}, {"T", ""}, {"Y", ""},
+    {{{"SND", ""}, {"Q", ""}, {"W", ""}, {"E", ""}, {"R", ""}, {"T", ""}, {"Y", ""},
       {"U", ""}, {"I", ""}, {"O", ""}, {"P", ""}, {"[", "{"}, {"]", "}"}, {"\\", "|"}}},
     {{{"LAY", ""}, {"Aa", ""}, {"A", ""}, {"S", ""}, {"D", ""}, {"F", ""}, {"G", ""},
       {"H", ""}, {"J", ""}, {"K", ""}, {"L", ""}, {";", ":"}, {"'", "\""}, {"ok", "enter"}}},
@@ -83,7 +83,7 @@ constexpr std::array<std::array<KeyLegend, kKeyboardColumns>, kKeyboardRows> kKe
       {"B", ""}, {"N", ""}, {"M", ""}, {",", "<"}, {".", ">"}, {"/", "?"}, {"space", ""}}},
 }};
 
-  constexpr std::array<const char*, 4> kLeftBarLabels = {"SND", "PAR", "LAY", "SYS"};
+  constexpr std::array<const char*, 4> kLeftBarLabels = {"TRK", "SND", "LAY", "SYS"};
 constexpr std::array<const char*, 4> kRightBarLabels = {"OCT+", "OCT-", "REC", "PLAY"};
 
 std::string NoteName(int midi)

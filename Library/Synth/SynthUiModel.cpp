@@ -11,7 +11,7 @@ namespace {
 constexpr std::size_t kPagedMenuItemCount = kContextMenuCellCount - 1;
 constexpr float kTransitionStep = 0.18f;
 constexpr auto kModifierHoldDelay = std::chrono::milliseconds(200);
-constexpr std::array<const char*, 4> kModifierBarLabels = {"SND", "PAR", "LAY", "SYS"};
+constexpr std::array<const char*, 4> kModifierBarLabels = {"TRK", "SND", "LAY", "SYS"};
 constexpr std::array<UiBarIcon, 4> kHomeActionBarIcons = {
   UiBarIcon::Plus,
   UiBarIcon::Minus,
@@ -24,9 +24,9 @@ const char* ModifierDisplayName(UiModifier modifier)
   switch (modifier)
   {
     case UiModifier::Sound:
-      return "Sound";
+      return "Track";
     case UiModifier::Parameter:
-      return "Parameter";
+      return "Sound";
     case UiModifier::Layout:
       return "Layout";
     case UiModifier::Other:
@@ -103,6 +103,180 @@ ContextMenuGrid BlankGrid()
   return ContextMenuGrid{};
 }
 
+bool ReadParameter(const ISynthEngine* engine, const std::string& parameterId, SynthParameterInfo& parameter)
+{
+  return engine != nullptr && engine->GetParameterInfo(parameterId, parameter);
+}
+
+int ParameterValueOrDefault(const ISynthEngine* engine, const std::string& parameterId, int fallback)
+{
+  SynthParameterInfo parameter;
+  return ReadParameter(engine, parameterId, parameter) ? parameter.value : fallback;
+}
+
+std::string DescribeParameterValueOrFallback(const ISynthEngine* engine,
+                                             const std::string& parameterId,
+                                             const std::string& fallback = "--")
+{
+  return engine != nullptr ? engine->DescribeParameterValue(parameterId) : fallback;
+}
+
+std::string FormatDx7OperatorSummary(const ISynthEngine* engine, int op)
+{
+  const std::string prefix = "op" + std::to_string(op) + ".";
+  return "OUT " + DescribeParameterValueOrFallback(engine, prefix + "output") +
+         " CRS " + DescribeParameterValueOrFallback(engine, prefix + "coarse");
+}
+
+std::string FormatDx7AlgorithmSummary(const ISynthEngine* engine)
+{
+  return DescribeParameterValueOrFallback(engine, "global.algorithm", "ALG --") +
+         " FB " + DescribeParameterValueOrFallback(engine, "global.feedback");
+}
+
+std::string FormatDx7GlobalSummary(const ISynthEngine* engine)
+{
+  return "TR " + DescribeParameterValueOrFallback(engine, "global.transpose") +
+         " LFO " + DescribeParameterValueOrFallback(engine, "global.lfo_speed");
+}
+
+bool IsDx7ParameterEngine(const ISynthEngine* engine)
+{
+  return engine != nullptr && engine->Descriptor().kind == SynthEngineKind::Dx7;
+}
+
+bool IsDx7ParameterGroupId(const std::string& itemId)
+{
+  return itemId == "par.dx7.group.op1" || itemId == "par.dx7.group.op2" || itemId == "par.dx7.group.op3" ||
+         itemId == "par.dx7.group.op4" || itemId == "par.dx7.group.op5" || itemId == "par.dx7.group.op6" ||
+         itemId == "par.dx7.group.alg" || itemId == "par.dx7.group.glb";
+}
+
+std::string Dx7GroupLabel(const std::string& groupId)
+{
+  if (groupId == "par.dx7.group.op1") return "Operator 1";
+  if (groupId == "par.dx7.group.op2") return "Operator 2";
+  if (groupId == "par.dx7.group.op3") return "Operator 3";
+  if (groupId == "par.dx7.group.op4") return "Operator 4";
+  if (groupId == "par.dx7.group.op5") return "Operator 5";
+  if (groupId == "par.dx7.group.op6") return "Operator 6";
+  if (groupId == "par.dx7.group.alg") return "Algorithm";
+  if (groupId == "par.dx7.group.glb") return "Global";
+  return "DX7";
+}
+
+std::string Dx7GroupSummary(const ISynthEngine* engine, const std::string& groupId)
+{
+  if (groupId == "par.dx7.group.op1") return FormatDx7OperatorSummary(engine, 1);
+  if (groupId == "par.dx7.group.op2") return FormatDx7OperatorSummary(engine, 2);
+  if (groupId == "par.dx7.group.op3") return FormatDx7OperatorSummary(engine, 3);
+  if (groupId == "par.dx7.group.op4") return FormatDx7OperatorSummary(engine, 4);
+  if (groupId == "par.dx7.group.op5") return FormatDx7OperatorSummary(engine, 5);
+  if (groupId == "par.dx7.group.op6") return FormatDx7OperatorSummary(engine, 6);
+  if (groupId == "par.dx7.group.alg") return FormatDx7AlgorithmSummary(engine);
+  if (groupId == "par.dx7.group.glb") return FormatDx7GlobalSummary(engine);
+  return "SELECT GROUP";
+}
+
+std::string Dx7ParameterMenuLabel(const SynthParameterInfo& parameter)
+{
+  if (parameter.id == "global.algorithm") return "ALG";
+  if (parameter.id == "global.feedback") return "FB";
+  if (parameter.id == "global.transpose") return "TRNS";
+  if (parameter.id == "global.lfo_speed") return "SPD";
+  if (parameter.id == "global.lfo_delay") return "DLY";
+  if (parameter.id == "global.lfo_pitch") return "PMOD";
+  if (parameter.id == "global.lfo_amp") return "AMOD";
+  if (parameter.label == "Output") return "OUT";
+  if (parameter.label == "Coarse") return "CRS";
+  if (parameter.label == "Fine") return "FINE";
+  if (parameter.label == "Detune") return "DTN";
+  if (parameter.label == "Attack") return "ATK";
+  if (parameter.label == "Decay") return "DEC";
+  if (parameter.label == "Sustain") return "SUS";
+  if (parameter.label == "Release") return "REL";
+  if (parameter.label == "Velocity") return "VEL";
+  if (parameter.label == "Amp Mod") return "AMOD";
+  return parameter.label;
+}
+
+std::vector<SynthParameterInfo> CollectDx7GroupParameters(const ISynthEngine* engine, const std::string& groupId)
+{
+  std::vector<SynthParameterInfo> parameters;
+  if (engine == nullptr)
+  {
+    return parameters;
+  }
+
+  auto appendIfPresent = [&](const std::string& parameterId) {
+    SynthParameterInfo parameter;
+    if (engine->GetParameterInfo(parameterId, parameter))
+    {
+      parameters.push_back(parameter);
+    }
+  };
+
+  if (groupId == "par.dx7.group.alg")
+  {
+    appendIfPresent("global.algorithm");
+    appendIfPresent("global.feedback");
+    return parameters;
+  }
+
+  if (groupId == "par.dx7.group.glb")
+  {
+    appendIfPresent("global.transpose");
+    appendIfPresent("global.lfo_speed");
+    appendIfPresent("global.lfo_delay");
+    appendIfPresent("global.lfo_pitch");
+    appendIfPresent("global.lfo_amp");
+    return parameters;
+  }
+
+  const SynthParameterPage page = engine->ListParameters({0, 128});
+  const std::string groupLabel = Dx7GroupLabel(groupId);
+  for (const SynthParameterInfo& parameter : page.items)
+  {
+    if (parameter.group == groupLabel)
+    {
+      parameters.push_back(parameter);
+    }
+  }
+  return parameters;
+}
+
+std::size_t Dx7ParameterPageCount(const ISynthEngine* engine, const std::string& groupId)
+{
+  constexpr std::size_t kPageCapacity = 6;
+  const std::size_t count = CollectDx7GroupParameters(engine, groupId).size();
+  return std::max<std::size_t>(1, (count + kPageCapacity - 1) / kPageCapacity);
+}
+
+std::size_t Dx7ParameterMenuIndex(const ISynthEngine* engine,
+                                  const std::string& groupId,
+                                  const std::string& parameterId,
+                                  std::size_t pageIndex)
+{
+  constexpr std::size_t kPageCapacity = 6;
+  const auto parameters = CollectDx7GroupParameters(engine, groupId);
+  const auto iterator = std::find_if(parameters.begin(), parameters.end(), [&](const SynthParameterInfo& parameter) {
+    return parameter.id == parameterId;
+  });
+  if (iterator == parameters.end())
+  {
+    return 0;
+  }
+
+  const std::size_t absoluteIndex = static_cast<std::size_t>(std::distance(parameters.begin(), iterator));
+  const std::size_t pageStart = pageIndex * kPageCapacity;
+  if (absoluteIndex < pageStart || absoluteIndex >= (pageStart + kPageCapacity))
+  {
+    return 0;
+  }
+
+  return absoluteIndex - pageStart;
+}
+
 std::pair<std::string, std::string> MenuItemPresentation(UiModifier modifier,
                                                          const std::string& itemId,
                                                          const std::string& patchName,
@@ -112,6 +286,14 @@ std::pair<std::string, std::string> MenuItemPresentation(UiModifier modifier,
 
   if (modifier == UiModifier::Sound)
   {
+    if (itemId == "snd.dx7.op1") return {"Operator 1", FormatDx7OperatorSummary(engine, 1)};
+    if (itemId == "snd.dx7.op2") return {"Operator 2", FormatDx7OperatorSummary(engine, 2)};
+    if (itemId == "snd.dx7.op3") return {"Operator 3", FormatDx7OperatorSummary(engine, 3)};
+    if (itemId == "snd.dx7.op4") return {"Operator 4", FormatDx7OperatorSummary(engine, 4)};
+    if (itemId == "snd.dx7.op5") return {"Operator 5", FormatDx7OperatorSummary(engine, 5)};
+    if (itemId == "snd.dx7.op6") return {"Operator 6", FormatDx7OperatorSummary(engine, 6)};
+    if (itemId == "snd.dx7.alg") return {"Algorithm", FormatDx7AlgorithmSummary(engine)};
+    if (itemId == "snd.dx7.glb") return {"Global", FormatDx7GlobalSummary(engine)};
     if (itemId == "snd.engine") return {"Engine", engineName};
     if (itemId == "snd.preset") return {"Preset", patchName};
     if (itemId == "snd.volume") return {"Volume", "92"};
@@ -337,6 +519,7 @@ void SynthUiModel::ExitToHome()
   activeMenuRow_ = 0;
   activeMenuColumn_ = 0;
   contextLatched_ = false;
+  selectedParameterGroupId_.clear();
   ClearContextSelection();
 }
 
@@ -439,8 +622,12 @@ ContextMenuGrid SynthUiModel::CurrentMenuCells(const ISynthEngine* engine) const
   switch (activeModifier_)
   {
     case UiModifier::Sound:
-      return BuildPresetMenu(engine);
+      return BuildSoundMenu(engine);
     case UiModifier::Parameter:
+      if (parameterAdjustMode_)
+      {
+        return BuildParameterAdjustMenu();
+      }
       return BuildParameterBrowseMenu(engine);
     case UiModifier::Layout:
       return BuildLayoutMenu();
@@ -469,7 +656,7 @@ bool SynthUiModel::IsModifierHighlighted(std::size_t row) const
 
 bool SynthUiModel::IsMenuCellActive(std::size_t row, std::size_t col) const
 {
-  return mode_ == UiMode::ContextMenu && hasContextSelection_ && row == activeMenuRow_ && col == activeMenuColumn_;
+  return mode_ == UiMode::ContextMenu && hasMenuHighlight_ && row == activeMenuRow_ && col == activeMenuColumn_;
 }
 
 std::string SynthUiModel::DebugSummary(const ISynthEngine* engine) const
@@ -524,7 +711,7 @@ UiBarSnapshot SynthUiModel::BuildContextBarSnapshot(const ISynthEngine* engine) 
     {
       const std::size_t index = columns == 1 ? row : row * kContextMenuColumns + column;
       items[index].label = menu[index].label;
-      items[index].active = hasContextSelection_ && row == activeMenuRow_ && column == activeMenuColumn_;
+      items[index].active = hasMenuHighlight_ && row == activeMenuRow_ && column == activeMenuColumn_;
     }
   }
   return items;
@@ -535,6 +722,10 @@ UiScreenSnapshot SynthUiModel::BuildScreenSnapshot(const ISynthEngine* engine) c
   UiScreenSnapshot snapshot;
   snapshot.mode = mode_;
   snapshot.modifier = activeModifier_;
+  snapshot.engineKind = engine != nullptr ? engine->Descriptor().kind : tracks_[activeTrack_].kind;
+  snapshot.focusItemId = selectedItemId_.empty() ? selectedParameterGroupId_ : selectedItemId_;
+  snapshot.dx7Algorithm = ParameterValueOrDefault(engine, "global.algorithm", 0);
+  snapshot.dx7Feedback = ParameterValueOrDefault(engine, "global.feedback", 0);
 
   if (mode_ == UiMode::Home)
   {
@@ -554,9 +745,31 @@ UiScreenSnapshot SynthUiModel::BuildScreenSnapshot(const ISynthEngine* engine) c
   }
 
   snapshot.headerPrimary = std::string(ModifierDisplayName(activeModifier_));
-  snapshot.primaryText = hasContextSelection_ ? ContextParameterName(engine) : std::string{"Settings"};
-  snapshot.secondaryText = hasContextSelection_ ? ContextValueText(engine) : std::string{};
-  snapshot.showSecondaryText = hasContextSelection_;
+  if (snapshot.engineKind == SynthEngineKind::Dx7 && activeModifier_ == UiModifier::Parameter)
+  {
+    if (parameterAdjustMode_ && hasContextSelection_)
+    {
+      snapshot.primaryText = ContextParameterName(engine);
+      snapshot.secondaryText = ContextValueText(engine);
+    }
+    else if (!selectedParameterGroupId_.empty())
+    {
+      snapshot.primaryText = Dx7GroupLabel(selectedParameterGroupId_);
+      snapshot.secondaryText = Dx7GroupSummary(engine, selectedParameterGroupId_);
+    }
+    else
+    {
+      snapshot.primaryText = "DX7";
+      snapshot.secondaryText = FormatDx7AlgorithmSummary(engine);
+    }
+    snapshot.showSecondaryText = true;
+  }
+  else
+  {
+    snapshot.primaryText = hasContextSelection_ ? ContextParameterName(engine) : std::string{"Settings"};
+    snapshot.secondaryText = hasContextSelection_ ? ContextValueText(engine) : std::string{};
+    snapshot.showSecondaryText = hasContextSelection_;
+  }
   snapshot.leftBarItems = BuildModifierBarSnapshot(activeModifier_);
   snapshot.leftBarVisible = false;
   snapshot.leftBarColumns = 1;
@@ -612,22 +825,25 @@ void SynthUiModel::ActivateModifier(UiModifier modifier)
   activeMenuRow_ = 0;
   activeMenuColumn_ = 0;
   contextLatched_ = false;
+  selectedParameterGroupId_.clear();
   ClearContextSelection();
 }
 
 void SynthUiModel::ClearContextSelection()
 {
   hasContextSelection_ = false;
+  hasMenuHighlight_ = false;
   parameterAdjustMode_ = false;
   selectionKind_ = ContextSelectionKind::None;
   selectedItemId_.clear();
   selectedItemLabel_.clear();
   selectedValueText_.clear();
-  selectedParameterDefaultValue_ = 0;
+  selectedParameterEntryValue_ = 0;
 }
 
 void SynthUiModel::HighlightMenuIndex(std::size_t index)
 {
+  hasMenuHighlight_ = true;
   if (ContextMenuColumnCount() == 1)
   {
     activeMenuRow_ = index;
@@ -639,10 +855,11 @@ void SynthUiModel::HighlightMenuIndex(std::size_t index)
   activeMenuColumn_ = index % kContextMenuColumns;
 }
 
-void SynthUiModel::SelectStatus(const std::string& label, const std::string& value)
+void SynthUiModel::SelectStatus(const std::string& label, const std::string& value, const std::string& itemId)
 {
   hasContextSelection_ = true;
   selectionKind_ = ContextSelectionKind::Status;
+  selectedItemId_ = itemId;
   selectedItemLabel_ = label;
   selectedValueText_ = value;
 }
@@ -654,9 +871,10 @@ void SynthUiModel::EnterParameterAdjustMode(const SynthParameterInfo& parameter,
   selectionKind_ = ContextSelectionKind::Parameter;
   selectedItemId_ = parameter.id;
   selectedItemLabel_ = parameter.label;
-  selectedParameterDefaultValue_ = parameter.defaultValue;
-  currentPage_ = 0;
+  selectedParameterEntryValue_ = parameter.value;
+  hasMenuHighlight_ = false;
   HighlightMenuIndex(menuIndex);
+  hasMenuHighlight_ = false;
 }
 
 void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& cell, std::size_t index)
@@ -681,8 +899,37 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
 
   if (cell.type == MenuCellType::Item)
   {
+    if (activeModifier_ == UiModifier::Parameter && IsDx7ParameterEngine(engine))
+    {
+      if (IsDx7ParameterGroupId(cell.itemId))
+      {
+        selectedParameterGroupId_ = cell.itemId;
+        currentPage_ = 0;
+        ClearContextSelection();
+        return;
+      }
+
+      if (cell.itemId == "par.dx7.back")
+      {
+        selectedParameterGroupId_.clear();
+        currentPage_ = 0;
+        ClearContextSelection();
+        return;
+      }
+
+      if (!selectedParameterGroupId_.empty() && engine != nullptr)
+      {
+        SynthParameterInfo parameter;
+        if (engine->GetParameterInfo(cell.itemId, parameter))
+        {
+          EnterParameterAdjustMode(parameter, index);
+          return;
+        }
+      }
+    }
+
     const auto presentation = MenuItemPresentation(activeModifier_, cell.itemId, tracks_[activeTrack_].patchName, engine);
-    SelectStatus(presentation.first, presentation.second);
+    SelectStatus(presentation.first, presentation.second, cell.itemId);
     return;
   }
 
@@ -748,12 +995,26 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
     case ContextActionId::ParameterReset:
       if (engine != nullptr)
       {
-        (void)engine->SetParameterValue(selectedItemId_, selectedParameterDefaultValue_);
+        (void)engine->SetParameterValue(selectedItemId_, selectedParameterEntryValue_);
       }
       break;
     case ContextActionId::Back:
-      currentPage_ = 0;
-      ClearContextSelection();
+      if (activeModifier_ == UiModifier::Parameter && parameterAdjustMode_)
+      {
+        parameterAdjustMode_ = false;
+        selectionKind_ = ContextSelectionKind::None;
+        hasContextSelection_ = false;
+        selectedItemId_.clear();
+        selectedItemLabel_.clear();
+        selectedValueText_.clear();
+        selectedParameterEntryValue_ = 0;
+        hasMenuHighlight_ = false;
+      }
+      else
+      {
+        currentPage_ = 0;
+        ClearContextSelection();
+      }
       break;
     case ContextActionId::SavePreset:
       if (engine != nullptr)
@@ -812,6 +1073,8 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
     default:
       break;
   }
+
+  hasMenuHighlight_ = false;
 }
 
 void SynthUiModel::ClearHeldModifiers()
@@ -833,7 +1096,15 @@ std::size_t SynthUiModel::PageCountForModifier(const ISynthEngine* engine) const
     case UiModifier::Sound:
       return 1;
     case UiModifier::Parameter:
-      return 2;
+      if (parameterAdjustMode_)
+      {
+        return 1;
+      }
+      if (IsDx7ParameterEngine(engine) && !selectedParameterGroupId_.empty())
+      {
+        return Dx7ParameterPageCount(engine, selectedParameterGroupId_);
+      }
+      return IsDx7ParameterEngine(engine) ? 1 : 2;
     case UiModifier::Layout:
       return 2;
     case UiModifier::Other:
@@ -844,7 +1115,7 @@ std::size_t SynthUiModel::PageCountForModifier(const ISynthEngine* engine) const
   }
 }
 
-ContextMenuGrid SynthUiModel::BuildPresetMenu(const ISynthEngine* engine) const
+ContextMenuGrid SynthUiModel::BuildSoundMenu(const ISynthEngine* engine) const
 {
   (void)engine;
   return ContextMenuGrid{
@@ -861,6 +1132,41 @@ ContextMenuGrid SynthUiModel::BuildPresetMenu(const ISynthEngine* engine) const
 
 ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engine) const
 {
+  if (IsDx7ParameterEngine(engine))
+  {
+    if (selectedParameterGroupId_.empty())
+    {
+      return ContextMenuGrid{
+          MakeItemCell("OP1", "par.dx7.group.op1"),
+          MakeItemCell("OP2", "par.dx7.group.op2"),
+          MakeItemCell("OP3", "par.dx7.group.op3"),
+          MakeItemCell("OP4", "par.dx7.group.op4"),
+          MakeItemCell("OP5", "par.dx7.group.op5"),
+          MakeItemCell("OP6", "par.dx7.group.op6"),
+          MakeItemCell("ALG", "par.dx7.group.alg"),
+          MakeItemCell("GLB", "par.dx7.group.glb"),
+      };
+    }
+
+    constexpr std::size_t kPageCapacity = 6;
+    ContextMenuGrid menu = BlankGrid();
+    const auto parameters = CollectDx7GroupParameters(engine, selectedParameterGroupId_);
+    const std::size_t pageCount = Dx7ParameterPageCount(engine, selectedParameterGroupId_);
+    const std::size_t pageStart = currentPage_ * kPageCapacity;
+    const std::size_t pageEnd = std::min(parameters.size(), pageStart + kPageCapacity);
+    std::size_t menuIndex = 0;
+    for (std::size_t parameterIndex = pageStart; parameterIndex < pageEnd && menuIndex < kPageCapacity; ++parameterIndex, ++menuIndex)
+    {
+      menu[menuIndex] = MakeItemCell(Dx7ParameterMenuLabel(parameters[parameterIndex]), parameters[parameterIndex].id);
+    }
+    menu[6] = MakeItemCell("BACK", "par.dx7.back");
+    if (pageCount > 1)
+    {
+      menu[7] = MakeNextPageCell(std::to_string(currentPage_ + 1) + "/" + std::to_string(pageCount));
+    }
+    return menu;
+  }
+
   (void)engine;
   if ((currentPage_ % 2) == 0)
   {
@@ -891,9 +1197,9 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
 ContextMenuGrid SynthUiModel::BuildParameterAdjustMenu() const
 {
   return ContextMenuGrid{
-      MakeActionCell("-10", ContextActionId::ParameterDecLarge),
       MakeActionCell("-1", ContextActionId::ParameterDecSmall),
       MakeActionCell("+1", ContextActionId::ParameterIncSmall),
+  MakeActionCell("-10", ContextActionId::ParameterDecLarge),
       MakeActionCell("+10", ContextActionId::ParameterIncLarge),
       MakeActionCell("MIN", ContextActionId::ParameterMin),
       MakeActionCell("MAX", ContextActionId::ParameterMax),
