@@ -133,12 +133,12 @@ constexpr std::uint8_t Dx7CarrierMask(Ops... ops)
 #define DX7_CARRIERS(...) Dx7CarrierMask(__VA_ARGS__)
 
 constexpr Dx7BoxLayout kDx7GridSlots = MakeDx7BoxLayout(
-    MakeDx7Box(16, 25),
+    MakeDx7Box(15, 25),
     MakeDx7Box(50, 25),
-    MakeDx7Box(84, 25),
-    MakeDx7Box(16, 75),
+    MakeDx7Box(85, 25),
+    MakeDx7Box(15, 75),
     MakeDx7Box(50, 75),
-    MakeDx7Box(84, 75));
+  MakeDx7Box(85, 75));
 
 constexpr Dx7BoxLayout MakeDx7BoxOrder(std::uint8_t slot1,
                                        std::uint8_t slot2,
@@ -446,7 +446,7 @@ std::array<ui::Rect, 6> MakeDx7OperatorRects(const ui::Rect& rect, const Dx7Algo
   for (std::size_t op = 0; op < operatorRects.size(); ++op)
   {
     const Dx7BoxPosition position = algorithm.boxLayout[op];
-    const int centerX = rect.x + std::clamp(rect.width * static_cast<int>(position.x) / 100,
+    const int centerX = rect.x + std::clamp((rect.width * static_cast<int>(position.x) + 50) / 100,
                                             halfWidth,
                                             std::max(halfWidth, rect.width - halfWidth));
     const int centerY = rect.y + std::clamp(rect.height * static_cast<int>(position.y) / 100,
