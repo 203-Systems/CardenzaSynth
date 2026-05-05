@@ -16,7 +16,7 @@ inline constexpr int kDisplayCs = 37;
 inline constexpr int kDisplayReset = 33;
 inline constexpr int kDisplayBacklight = 38;
 inline constexpr int kDisplayLandscapeGapX = 40;
-inline constexpr int kDisplayLandscapeGapY = 53;
+inline constexpr int kDisplayLandscapeGapY = 52;
 
 inline constexpr int kSpeakerBck = 41;
 inline constexpr int kSpeakerWs = 43;

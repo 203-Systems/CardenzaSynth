@@ -25,19 +25,6 @@ using namespace KEYBOARD;
 
 void Keyboard::_set_output(const std::vector<int>& pinList, uint8_t output)
 {
-    // Temp fix for computer card prototype 1. TODO remove
-    switch (output) {
-        case 0: output = 0; break;
-        case 1: output = 2; break;
-        case 2: output = 4; break;
-        case 3: output = 6; break;
-        case 4: output = 1; break;
-        case 5: output = 3; break;
-        case 6: output = 5; break;
-        case 7: output = 7; break;
-    }
-    // End temp fix
-
     output = output & 0B00000111;
 
     digitalWrite(pinList[0], (output & 0B00000001));

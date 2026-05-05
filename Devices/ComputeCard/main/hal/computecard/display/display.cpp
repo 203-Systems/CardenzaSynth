@@ -218,7 +218,7 @@ esp_err_t Init()
             return status;
         }
 
-        status = esp_lcd_panel_mirror(panel, false, true);
+        status = esp_lcd_panel_mirror(panel, true, false);
         if (status != ESP_OK)
         {
             return status;
