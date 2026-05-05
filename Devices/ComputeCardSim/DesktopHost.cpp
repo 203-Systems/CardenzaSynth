@@ -680,9 +680,6 @@ private:
 
   void DrawFrameBuffer(HDC dc)
   {
-    RECT bezelRect = screenRect_;
-    InflateRect(&bezelRect, ScreenPx(2), ScreenPx(2));
-    DrawRoundPanel(dc, bezelRect, RGB(10, 13, 16), kPanelEdgeColor, ScreenPx(5));
     FillRectColor(dc, screenRect_, kScreenColor);
 
     const auto frameBuffer = Device::Display::CurrentFrameBuffer();
@@ -724,8 +721,6 @@ private:
                   &bitmapInfo,
                   DIB_RGB_COLORS,
                   SRCCOPY);
-
-    FrameRectColor(dc, bezelRect, kPanelEdgeColor);
   }
 
   void DrawScaleButtons(HDC dc)

@@ -24,6 +24,11 @@ constexpr int kContextContentLeftPadding = 10;
 constexpr int kContextContentRightPadding = 8;
 constexpr int kLoopBarCount = 4;
 constexpr int kLoopBarGap = 3;
+constexpr int kMarqueePauseFrames = 24;
+constexpr int kMarqueeStepFrames = 2;
+constexpr int kMarqueeGapPixels = 12;
+
+std::uint32_t gMarqueeFrame = 0;
 
 enum class Dx7EdgePort : std::uint8_t {
   Auto,
@@ -314,6 +319,11 @@ constexpr std::array<Dx7AlgoVisual, 32> kDx7Algorithms = {{
 
 std::string TruncateText(const ui::Canvas& canvas, std::string value, int maxWidth, int scale);
 
+bool IsDx7AlgorithmSummaryText(std::string_view text)
+{
+  return text.rfind("ALG ", 0) == 0 && text.find(" FB ") != std::string_view::npos;
+}
+
 enum class BarAnchor {
   Left,
   Right,
@@ -369,6 +379,36 @@ ui::Color FadeColor(ui::Color color, float alpha)
   return MixColor(kBackground, color, alpha);
 }
 
+void DrawMarqueeTextInRect(ui::Canvas& canvas,
+                           const ui::Rect& rect,
+                           std::string_view text,
+                           ui::Color color,
+                           int scale = 1,
+                           ui::TextAlign fitAlign = ui::TextAlign::Left)
+{
+  if (rect.width <= 0 || rect.height <= 0 || text.empty())
+  {
+    return;
+  }
+
+  const int textWidth = canvas.MeasureTextWidth(text, scale);
+  if (textWidth <= rect.width)
+  {
+    canvas.DrawTextInRect(rect, text, color, scale, fitAlign, ui::VerticalAlign::Middle);
+    return;
+  }
+
+  const int gapWidth = std::max(kMarqueeGapPixels, canvas.MeasureTextWidth("   ", scale));
+  const std::uint32_t steppedFrame = gMarqueeFrame / kMarqueeStepFrames;
+  const int cycleWidth = textWidth + gapWidth;
+  const int phase = static_cast<int>(steppedFrame % static_cast<std::uint32_t>(kMarqueePauseFrames + cycleWidth));
+  const int offset = phase < kMarqueePauseFrames ? 0 : phase - kMarqueePauseFrames;
+  const int textY = rect.y + (rect.height - canvas.FontHeight(scale)) / 2;
+
+  canvas.DrawTextClipped(rect, rect.x - offset, textY, text, color, scale);
+  canvas.DrawTextClipped(rect, rect.x - offset + cycleWidth, textY, text, color, scale);
+}
+
 ui::Rect LerpRect(const ui::Rect& from, const ui::Rect& to, float t)
 {
   t = Clamp01(t);
@@ -411,6 +451,11 @@ float JunoNormalizedChoice(int value, int maxValue)
 bool IsJunoFocusedParameter(const UiScreenSnapshot& snapshot, const char* parameterId)
 {
   return snapshot.focusItemId == parameterId;
+}
+
+bool IsJunoDiscreteValuePage(const UiScreenSnapshot& snapshot)
+{
+  return snapshot.focusItemId == "dco.range" || snapshot.focusItemId == "dco.saw";
 }
 
 const Dx7AlgoVisual& LookupDx7Algorithm(int algorithm)
@@ -457,8 +502,8 @@ std::array<ui::Rect, 6> MakeDx7OperatorRects(const ui::Rect& rect, const Dx7Algo
 {
   const int columnWidth = std::max(1, rect.width / 3);
   const int rowHeight = std::max(1, rect.height / 2);
-  const int boxWidth = std::min(28, std::max(18, columnWidth - 16));
-  const int boxHeight = std::min(18, std::max(12, rowHeight - 10));
+  const int boxWidth = std::min(32, std::max(22, columnWidth - 10));
+  const int boxHeight = std::min(22, std::max(14, rowHeight - 6));
 
   std::array<ui::Rect, 6> operatorRects{};
   const int halfWidth = boxWidth / 2;
@@ -727,25 +772,24 @@ void DrawDx7OperatorPane(ui::Canvas& canvas, const ui::Rect& rect, const UiScree
   const bool showingParameterValue = snapshot.focusItemId.rfind("op", 0) == 0;
   const std::string parameterText = showingParameterValue ? snapshot.primaryText : "Parameters";
   const int valueScale = showingParameterValue ? 5 : 2;
-  const int horizontalPadding = 6;
 
-  canvas.DrawText(rect.x + horizontalPadding,
+  canvas.DrawText(rect.x,
                   rect.y + 10,
-                  TruncateText(canvas, title, rect.width - horizontalPadding * 2, 1),
+                  TruncateText(canvas, title, rect.width, 1),
                   accent,
                   1);
-  canvas.DrawTextInRect(MakeRect(rect.x + horizontalPadding, rect.y + 30, rect.width - horizontalPadding * 2, 24),
-                        TruncateText(canvas, parameterText, rect.width - horizontalPadding * 2, 2),
+  canvas.DrawTextInRect(MakeRect(rect.x, rect.y + 30, rect.width, 24),
+                        TruncateText(canvas, parameterText, rect.width, 2),
                         text,
                         2,
                         ui::TextAlign::Left,
                         ui::VerticalAlign::Middle);
-  canvas.DrawLine(rect.x + horizontalPadding, rect.y + 58, rect.x + rect.width - horizontalPadding, rect.y + 58, divider);
-  canvas.DrawTextInRect(MakeRect(rect.x + horizontalPadding,
+  canvas.DrawLine(rect.x, rect.y + 58, rect.x + rect.width - 1, rect.y + 58, divider);
+  canvas.DrawTextInRect(MakeRect(rect.x,
                                  rect.y + 64,
-                                 rect.width - horizontalPadding * 2,
+                                 rect.width,
                                  rect.height - 68),
-                        TruncateText(canvas, snapshot.secondaryText, rect.width - horizontalPadding * 2, valueScale),
+                        TruncateText(canvas, snapshot.secondaryText, rect.width, valueScale),
                         text,
                         valueScale,
                         ui::TextAlign::Left,
@@ -770,26 +814,58 @@ void DrawDx7ParameterContent(ui::Canvas& canvas, const ui::Rect& rect, const UiS
   }
 
   const int valueScale = showingParameterValue ? 4 : 2;
+  const bool showAlgorithmSummary = !showingParameterValue && IsDx7AlgorithmSummaryText(snapshot.secondaryText);
+  constexpr int kDx7AlgorithmSummaryHeight = 28;
   constexpr int kDx7SummaryHeight = 46;
   constexpr int kDx7EmptySummaryHeight = 34;
-  const int summaryHeight = snapshot.showSecondaryText ? kDx7SummaryHeight : kDx7EmptySummaryHeight;
-  const int graphTop = rect.y + 4;
+  const int summaryHeight = showAlgorithmSummary ? kDx7AlgorithmSummaryHeight
+                                                 : (snapshot.showSecondaryText ? kDx7SummaryHeight : kDx7EmptySummaryHeight);
+  const int graphTop = rect.y + 2;
   const int summaryTop = rect.y + rect.height - summaryHeight;
-  const ui::Rect graphRect = MakeRect(rect.x + 4,
+  const ui::Rect graphRect = MakeRect(rect.x,
                                       graphTop,
-                                      rect.width - 8,
-                                      std::max(0, summaryTop - graphTop - 6));
+                                      rect.width,
+                                      std::max(0, summaryTop - graphTop - 2));
   DrawDx7AlgorithmGraph(canvas, graphRect, snapshot, alpha);
 
-  canvas.DrawLine(rect.x + 10, summaryTop - 2, rect.x + rect.width - 10, summaryTop - 2, divider);
+  canvas.DrawLine(rect.x, summaryTop - 2, rect.x + rect.width - 1, summaryTop - 2, divider);
 
   if (!snapshot.showSecondaryText)
   {
     return;
   }
 
-  canvas.DrawTextInRect(MakeRect(rect.x + 10, summaryTop + 4, rect.width - 20, summaryHeight - 4),
-                        TruncateText(canvas, snapshot.secondaryText, rect.width - 20, valueScale),
+  if (showAlgorithmSummary)
+  {
+    const std::string algorithmText = "ALG " + std::to_string(snapshot.dx7Algorithm);
+    const std::string feedbackText = "FB " + std::to_string(snapshot.dx7Feedback);
+    const int columnGap = 4;
+    const int columnWidth = std::max(0, (rect.width - columnGap) / 2);
+    const ui::Rect leftRect = MakeRect(rect.x,
+                                       summaryTop + 2,
+                                       columnWidth,
+                                       summaryHeight - 2);
+    const ui::Rect rightRect = MakeRect(rect.x + rect.width - columnWidth,
+                                        summaryTop + 2,
+                                        columnWidth,
+                                        summaryHeight - 2);
+    canvas.DrawTextInRect(leftRect,
+                          algorithmText,
+                          text,
+                          2,
+                          ui::TextAlign::Center,
+                          ui::VerticalAlign::Middle);
+    canvas.DrawTextInRect(rightRect,
+                          feedbackText,
+                          text,
+                          2,
+                          ui::TextAlign::Center,
+                          ui::VerticalAlign::Middle);
+    return;
+  }
+
+  canvas.DrawTextInRect(MakeRect(rect.x, summaryTop + 4, rect.width, summaryHeight - 4),
+                        TruncateText(canvas, snapshot.secondaryText, rect.width, valueScale),
                         text,
                         valueScale,
                         ui::TextAlign::Left,
@@ -808,27 +884,116 @@ std::string JunoChorusText(int value)
   return kModes[static_cast<std::size_t>(std::clamp(value, 0, 2))];
 }
 
-void DrawJunoEnvGraphic(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha);
+std::string JunoToggleText(int value)
+{
+  return value > 0 ? "ON" : "OFF";
+}
 
-void DrawJunoOverviewCard(ui::Canvas& canvas,
+void DrawJunoEnvGraphic(ui::Canvas& canvas,
+                        const ui::Rect& rect,
+                        const UiScreenSnapshot& snapshot,
+                        float alpha,
+                        bool showValues);
+
+int JunoOverviewRowHeight(const ui::Canvas& canvas)
+{
+  return canvas.FontHeight(1) + 2;
+}
+
+ui::Rect JunoOverviewEnvRect(const ui::Canvas& canvas, const ui::Rect& rect)
+{
+  const int gap = 2;
+  const int rowHeight = JunoOverviewRowHeight(canvas);
+  const int lowerHeight = rowHeight * 3 + gap * 2;
+  const int topHeight = std::max(24, rect.height - lowerHeight - 4);
+  return MakeRect(rect.x + 2, rect.y, rect.width - 4, topHeight);
+}
+
+void DrawJunoEnvValueGrid(ui::Canvas& canvas,
                           const ui::Rect& rect,
-                          const std::string& label,
-                          const std::string& value,
-                          ui::Color accent,
-                          ui::Color divider,
-                          ui::Color text,
-                          ui::Color fill)
+                          const UiScreenSnapshot& snapshot,
+                          float alpha)
 {
   if (rect.width <= 0 || rect.height <= 0)
   {
     return;
   }
 
-  canvas.FillRect(InsetRect(rect, 1, 1), fill);
-  canvas.StrokeRect(rect, divider);
-  canvas.DrawText(rect.x + 4, rect.y + 4, TruncateText(canvas, label, rect.width - 8, 1), accent, 1);
-  canvas.DrawTextInRect(MakeRect(rect.x + 4, rect.y + 14, rect.width - 8, std::max(0, rect.height - 16)),
-                        TruncateText(canvas, value, rect.width - 8, 1),
+  const ui::Color accent = FadeColor(kAccent, alpha);
+  const ui::Color text = FadeColor(kText, alpha);
+  const std::array<std::pair<const char*, int>, 4> values = {{
+      {"ATK", snapshot.junoEnvAttack},
+      {"DEC", snapshot.junoEnvDecay},
+      {"SUS", snapshot.junoEnvSustain},
+      {"REL", snapshot.junoEnvRelease},
+  }};
+  const std::array<const char*, 4> ids = {"env.attack", "env.decay", "env.sustain", "env.release"};
+  const int gap = 2;
+  const int cellWidth = std::max(18, (rect.width - gap) / 2);
+  const int cellHeight = std::max(12, (rect.height - gap) / 2);
+
+  for (std::size_t index = 0; index < values.size(); ++index)
+  {
+    const int column = static_cast<int>(index % 2);
+    const int row = static_cast<int>(index / 2);
+    const ui::Rect cell = MakeRect(rect.x + column * (cellWidth + gap),
+                                   rect.y + row * (cellHeight + gap),
+                                   cellWidth,
+                                   cellHeight);
+    const bool focused = IsJunoFocusedParameter(snapshot, ids[index]);
+    const ui::Color valueColor = focused ? accent : text;
+    const ui::Rect textRect = MakeRect(cell.x + 2, cell.y + 1, std::max(0, cell.width - 4), std::max(0, cell.height - 2));
+    const std::string valueText = std::string(values[index].first) + " " + std::to_string(values[index].second);
+    const int textY = textRect.y + (textRect.height - canvas.FontHeight(1)) / 2;
+
+    canvas.DrawTextClipped(textRect, textRect.x, textY, valueText, valueColor, 1);
+  }
+}
+
+void DrawJunoEnvPage(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
+{
+  if (rect.width <= 0 || rect.height <= 0)
+  {
+    return;
+  }
+
+  const int gap = 4;
+  const ui::Rect envRect = JunoOverviewEnvRect(canvas, rect);
+  DrawJunoEnvGraphic(canvas, envRect, snapshot, alpha, false);
+
+  const int gridTop = envRect.y + envRect.height + gap;
+  const ui::Rect gridRect = MakeRect(rect.x,
+                                     gridTop,
+                                     rect.width,
+                                     std::max(0, rect.y + rect.height - gridTop));
+  DrawJunoEnvValueGrid(canvas, gridRect, snapshot, alpha);
+}
+
+void DrawJunoOverviewStrip(ui::Canvas& canvas,
+                           const ui::Rect& rect,
+                           const std::string& label,
+                           const std::string& value,
+                           ui::Color accent,
+                           ui::Color divider,
+                           ui::Color text,
+                           ui::Color fill)
+{
+  (void)fill;
+  (void)divider;
+  if (rect.width <= 0 || rect.height <= 0)
+  {
+    return;
+  }
+
+  const int labelScale = 1;
+  const int labelGap = 14;
+  const int labelWidth = canvas.MeasureTextWidth(label, labelScale);
+  const int valueX = rect.x + labelWidth + labelGap;
+  const int valueWidth = std::max(0, rect.width - (valueX - rect.x));
+
+  canvas.DrawText(rect.x, rect.y, TruncateText(canvas, label, 24, 1), accent, 1);
+  canvas.DrawTextInRect(MakeRect(valueX, rect.y - 1, valueWidth, rect.height + 2),
+                        TruncateText(canvas, value, std::max(0, valueWidth - 4), 1),
                         text,
                         1,
                         ui::TextAlign::Left,
@@ -841,59 +1006,50 @@ void DrawJunoOverview(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSn
   const ui::Color divider = FadeColor(kDivider, alpha);
   const ui::Color text = FadeColor(kText, alpha);
   const ui::Color fill = FadeColor(kAccent, alpha * 0.12f);
-  const int gap = 5;
-  const int topHeight = std::max(26, rect.height / 2 - 4);
-  const ui::Rect envRect = MakeRect(rect.x, rect.y, rect.width, topHeight);
-  DrawJunoEnvGraphic(canvas, envRect, snapshot, alpha);
-  canvas.DrawText(rect.x + 4, rect.y + 4, "ENV", accent, 1);
+  const int gap = 2;
+  const int rowHeight = JunoOverviewRowHeight(canvas);
+  const ui::Rect envRect = JunoOverviewEnvRect(canvas, rect);
+  DrawJunoEnvGraphic(canvas, envRect, snapshot, alpha, false);
 
   const int lowerTop = envRect.y + envRect.height + gap;
-  const int lowerHeight = std::max(0, rect.y + rect.height - lowerTop);
-  const int upperRowHeight = std::max(12, (lowerHeight - gap) / 2);
-  const int lowerRowHeight = std::max(12, lowerHeight - upperRowHeight - gap);
-  const int topCardWidth = std::max(0, (rect.width - gap * 2) / 3);
-  const int bottomCardWidth = std::max(0, (rect.width - gap) / 2);
 
-  DrawJunoOverviewCard(canvas,
-                       MakeRect(rect.x, lowerTop, topCardWidth, upperRowHeight),
-                       "DCO",
-                       JunoRangeText(snapshot.junoDcoRange) + " P" + std::to_string(snapshot.junoDcoPwm),
-                       accent,
-                       divider,
-                       text,
-                       fill);
-  DrawJunoOverviewCard(canvas,
-                       MakeRect(rect.x + topCardWidth + gap, lowerTop, topCardWidth, upperRowHeight),
-                       "VCF",
-                       "C" + std::to_string(snapshot.junoVcfCutoff) + " R" + std::to_string(snapshot.junoVcfResonance),
-                       accent,
-                       divider,
-                       text,
-                       fill);
-  DrawJunoOverviewCard(canvas,
-                       MakeRect(rect.x + (topCardWidth + gap) * 2, lowerTop, topCardWidth, upperRowHeight),
-                       "LFO",
-                       std::to_string(snapshot.junoLfoRate) + "/" + std::to_string(snapshot.junoLfoDelay),
-                       accent,
-                       divider,
-                       text,
-                       fill);
-  DrawJunoOverviewCard(canvas,
-                       MakeRect(rect.x, lowerTop + upperRowHeight + gap, bottomCardWidth, lowerRowHeight),
-                       "AMP",
-                       "LVL " + std::to_string(snapshot.junoVcaLevel),
-                       accent,
-                       divider,
-                       text,
-                       fill);
-  DrawJunoOverviewCard(canvas,
-                       MakeRect(rect.x + bottomCardWidth + gap, lowerTop + upperRowHeight + gap, bottomCardWidth, lowerRowHeight),
-                       "FX",
-                       JunoChorusText(snapshot.junoChorusMode),
-                       accent,
-                       divider,
-                       text,
-                       fill);
+  std::string osc = JunoRangeText(snapshot.junoDcoRange);
+  osc += snapshot.junoDcoSaw > 0 ? " SAW" : " PWM";
+
+  std::string filter = "C";
+  filter += std::to_string(snapshot.junoVcfCutoff);
+  filter += " R";
+  filter += std::to_string(snapshot.junoVcfResonance);
+
+  std::string mod = "E";
+  mod += std::to_string(snapshot.junoVcfEnv);
+  mod += " ";
+  mod += snapshot.junoChorusMode == 0 ? "-" : JunoChorusText(snapshot.junoChorusMode);
+
+  DrawJunoOverviewStrip(canvas,
+                        MakeRect(rect.x, lowerTop, rect.width, rowHeight),
+                        "OSC",
+                        osc,
+                        accent,
+                        divider,
+                        text,
+                        fill);
+  DrawJunoOverviewStrip(canvas,
+                        MakeRect(rect.x, lowerTop + rowHeight + gap, rect.width, rowHeight),
+                        "FIL",
+                        filter,
+                        accent,
+                        divider,
+                        text,
+                        fill);
+  DrawJunoOverviewStrip(canvas,
+                        MakeRect(rect.x, lowerTop + (rowHeight + gap) * 2, rect.width, rowHeight),
+                        "MOD",
+                        mod,
+                        accent,
+                        divider,
+                        text,
+                        fill);
 }
 
 void DrawJunoDcoGraphic(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
@@ -902,62 +1058,149 @@ void DrawJunoDcoGraphic(ui::Canvas& canvas, const ui::Rect& rect, const UiScreen
   const ui::Color divider = FadeColor(kDivider, alpha);
   const ui::Color text = FadeColor(kText, alpha);
   const ui::Color fill = FadeColor(kAccent, alpha * 0.18f);
-  const int left = rect.x + 4;
-  const int right = rect.x + rect.width - 4;
-  const int top = rect.y + 4;
-  const int bottom = rect.y + rect.height - 12;
+  const ui::Rect inner = InsetRect(rect, 2, 2);
+  if (inner.width <= 0 || inner.height <= 0)
+  {
+    return;
+  }
+
+  const int panelGap = 6;
+  const int rangeWidth = std::clamp(inner.width / 4, 34, 46);
+  const int detailX = inner.x + rangeWidth + panelGap;
+  const int detailWidth = std::max(0, inner.x + inner.width - detailX);
+  const int pwmHeight = std::clamp(inner.height / 2, 22, 30);
+  const ui::Rect rangeRect = MakeRect(inner.x, inner.y, rangeWidth, inner.height);
+  const ui::Rect pwmRect = MakeRect(detailX, inner.y, detailWidth, pwmHeight);
+  const ui::Rect statusRect = MakeRect(detailX,
+                                       pwmRect.y + pwmRect.height + panelGap,
+                                       detailWidth,
+                                       std::max(0, inner.y + inner.height - (pwmRect.y + pwmRect.height + panelGap)));
+
+  const auto drawValueCard = [&](const ui::Rect& card,
+                                 const char* label,
+                                 const std::string& value,
+                                 float normalizedValue,
+                                 bool focused) {
+    if (card.width <= 0 || card.height <= 0)
+    {
+      return;
+    }
+
+    const ui::Color cardColor = focused ? accent : text;
+    const ui::Color borderColor = focused ? accent : divider;
+    if (focused)
+    {
+      canvas.FillRect(InsetRect(card, 1, 1), fill);
+    }
+    canvas.StrokeRect(card, borderColor);
+    canvas.DrawTextInRect(MakeRect(card.x, card.y + 2, card.width, 8),
+                          label,
+                          cardColor,
+                          1,
+                          ui::TextAlign::Center,
+                          ui::VerticalAlign::Middle);
+    canvas.DrawTextInRect(MakeRect(card.x + 1, card.y + 10, std::max(0, card.width - 2), std::max(0, card.height - 18)),
+                          value,
+                          cardColor,
+                          value.size() > 2 ? 1 : 2,
+                          ui::TextAlign::Center,
+                          ui::VerticalAlign::Middle);
+
+    const ui::Rect meterRect = MakeRect(card.x + 3, card.y + card.height - 6, std::max(0, card.width - 6), 3);
+    if (meterRect.width > 0)
+    {
+      canvas.FillRect(meterRect, divider);
+      const int fillWidth = std::clamp(static_cast<int>(normalizedValue * static_cast<float>(meterRect.width) + 0.5f),
+                                       0,
+                                       meterRect.width);
+      if (fillWidth > 0)
+      {
+        canvas.FillRect(MakeRect(meterRect.x, meterRect.y, fillWidth, meterRect.height), focused ? accent : text);
+      }
+    }
+  };
+
+  const bool rangeFocused = IsJunoFocusedParameter(snapshot, "dco.range");
+  canvas.StrokeRect(rangeRect, rangeFocused ? accent : divider);
+  canvas.DrawTextInRect(MakeRect(rangeRect.x, rangeRect.y + 2, rangeRect.width, 8),
+                        "RNG",
+                        rangeFocused ? accent : text,
+                        1,
+                        ui::TextAlign::Center,
+                        ui::VerticalAlign::Middle);
 
   const std::array<const char*, 3> rangeLabels = {"16'", "8'", "4'"};
-  const int chipWidth = 22;
-  const int chipGap = 4;
-  const int chipTop = top;
-  const int chipStartX = right - static_cast<int>(rangeLabels.size()) * chipWidth - static_cast<int>(rangeLabels.size() - 1) * chipGap;
+  const int rangeChipGap = 4;
+  const int rangeChipTop = rangeRect.y + 12;
+  const int rangeChipHeight = std::max(10, (rangeRect.height - 16 - rangeChipGap * 2) / 3);
   for (std::size_t index = 0; index < rangeLabels.size(); ++index)
   {
-    const ui::Rect chip = MakeRect(chipStartX + static_cast<int>(index) * (chipWidth + chipGap), chipTop, chipWidth, 10);
-    if (snapshot.junoDcoRange == static_cast<int>(index))
+    const ui::Rect chip = MakeRect(rangeRect.x + 3,
+                                   rangeChipTop + static_cast<int>(index) * (rangeChipHeight + rangeChipGap),
+                                   std::max(0, rangeRect.width - 6),
+                                   rangeChipHeight);
+    const bool selected = snapshot.junoDcoRange == static_cast<int>(index);
+    if (selected)
     {
       canvas.FillRect(InsetRect(chip, 1, 1), fill);
     }
-    canvas.StrokeRect(chip, snapshot.junoDcoRange == static_cast<int>(index) ? accent : divider);
+    canvas.StrokeRect(chip, selected || rangeFocused ? accent : divider);
     canvas.DrawTextInRect(chip,
                           rangeLabels[index],
-                          snapshot.junoDcoRange == static_cast<int>(index) ? accent : text,
+                          selected || rangeFocused ? accent : text,
                           1,
                           ui::TextAlign::Center,
                           ui::VerticalAlign::Middle);
   }
 
-  const int railY = top + 18;
-  const int railLeft = left;
-  const int railRight = right;
-  canvas.DrawText(left, top + 2, "PWM", text, 1);
-  canvas.DrawLine(railLeft, railY, railRight, railY, divider);
-  const int pwmX = railLeft + static_cast<int>(JunoNormalizedContinuous(snapshot.junoDcoPwm) * static_cast<float>(railRight - railLeft));
-  const ui::Color pwmColor = IsJunoFocusedParameter(snapshot, "dco.pwm") ? accent : text;
-  canvas.DrawLine(pwmX, railY - 5, pwmX, railY + 5, pwmColor);
-
-  const std::array<const char*, 3> barLabels = {"SAW", "SUB", "NOI"};
-  const std::array<int, 3> barValues = {snapshot.junoDcoSaw > 0 ? 127 : 0, snapshot.junoDcoSub, snapshot.junoDcoNoise};
-  const std::array<const char*, 3> barIds = {"dco.saw", "dco.sub", "dco.noise"};
-  const int barAreaTop = railY + 8;
-  const int barAreaHeight = std::max(8, bottom - barAreaTop);
-  const int barWidth = 14;
-  const int barGap = std::max(8, (rect.width - 20 - static_cast<int>(barLabels.size()) * barWidth) / 4);
-  int barX = left + barGap;
-  for (std::size_t index = 0; index < barLabels.size(); ++index)
+  const bool pwmFocused = IsJunoFocusedParameter(snapshot, "dco.pwm");
+  if (pwmRect.width > 0 && pwmRect.height > 0)
   {
-    const int barHeight = static_cast<int>(JunoNormalizedContinuous(barValues[index]) * static_cast<float>(barAreaHeight));
-    const ui::Rect barRect = MakeRect(barX, barAreaTop, barWidth, barAreaHeight);
-    canvas.StrokeRect(barRect, divider);
-    if (barHeight > 0)
+    if (pwmFocused)
     {
-      const ui::Color barColor = IsJunoFocusedParameter(snapshot, barIds[index]) ? accent : fill;
-      canvas.FillRect(MakeRect(barX + 1, barAreaTop + barAreaHeight - barHeight, barWidth - 2, barHeight), barColor);
+      canvas.FillRect(InsetRect(pwmRect, 1, 1), fill);
     }
-    canvas.DrawText(barX - 1, bottom + 10, barLabels[index], IsJunoFocusedParameter(snapshot, barIds[index]) ? accent : text, 1);
-    barX += barWidth + barGap;
+    canvas.StrokeRect(pwmRect, pwmFocused ? accent : divider);
+    canvas.DrawText(pwmRect.x + 4, pwmRect.y + 3, "PWM", pwmFocused ? accent : text, 1);
+    canvas.DrawTextInRect(MakeRect(pwmRect.x, pwmRect.y + 2, pwmRect.width - 4, 10),
+                          std::to_string(snapshot.junoDcoPwm),
+                          pwmFocused ? accent : text,
+                          1,
+                          ui::TextAlign::Right,
+                          ui::VerticalAlign::Middle);
+
+    const int railLeft = pwmRect.x + 8;
+    const int railRight = pwmRect.x + pwmRect.width - 9;
+    const int railY = pwmRect.y + pwmRect.height - 10;
+    canvas.FillRect(MakeRect(railLeft, railY, std::max(0, railRight - railLeft + 1), 2), divider);
+
+    const float pwmNormalized = JunoNormalizedContinuous(snapshot.junoDcoPwm);
+    const int pwmX = railLeft + static_cast<int>(pwmNormalized * static_cast<float>(std::max(1, railRight - railLeft)) + 0.5f);
+    const int filledWidth = std::max(0, pwmX - railLeft);
+    if (filledWidth > 0)
+    {
+      canvas.FillRect(MakeRect(railLeft, railY, filledWidth, 2), pwmFocused ? accent : text);
+    }
+    canvas.DrawLine(pwmX, railY - 5, pwmX, railY + 5, pwmFocused ? accent : text);
   }
+
+  const int statusGap = 4;
+  const int statusWidth = std::max(18, (statusRect.width - statusGap * 2) / 3);
+  drawValueCard(MakeRect(statusRect.x, statusRect.y, statusWidth, statusRect.height),
+                "SAW",
+                JunoToggleText(snapshot.junoDcoSaw),
+                snapshot.junoDcoSaw > 0 ? 1.0f : 0.0f,
+                IsJunoFocusedParameter(snapshot, "dco.saw"));
+  drawValueCard(MakeRect(statusRect.x + statusWidth + statusGap, statusRect.y, statusWidth, statusRect.height),
+                "SUB",
+                std::to_string(snapshot.junoDcoSub),
+                JunoNormalizedContinuous(snapshot.junoDcoSub),
+                IsJunoFocusedParameter(snapshot, "dco.sub"));
+  drawValueCard(MakeRect(statusRect.x + (statusWidth + statusGap) * 2, statusRect.y, statusWidth, statusRect.height),
+                "NOI",
+                std::to_string(snapshot.junoDcoNoise),
+                JunoNormalizedContinuous(snapshot.junoDcoNoise),
+                IsJunoFocusedParameter(snapshot, "dco.noise"));
 }
 
 void DrawJunoVcfGraphic(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
@@ -965,47 +1208,64 @@ void DrawJunoVcfGraphic(ui::Canvas& canvas, const ui::Rect& rect, const UiScreen
   const ui::Color accent = FadeColor(kAccent, alpha);
   const ui::Color divider = FadeColor(kDivider, alpha);
   const ui::Color text = FadeColor(kText, alpha);
-  const int left = rect.x + 4;
-  const int right = rect.x + rect.width - 4;
-  const int top = rect.y + 4;
-  const int bottom = rect.y + rect.height - 14;
-  const int curveTop = top + 8;
-  const int cutoffX = left + static_cast<int>(JunoNormalizedContinuous(snapshot.junoVcfCutoff) * static_cast<float>(right - left));
-  const int resonancePeakY = curveTop + static_cast<int>((1.0f - JunoNormalizedContinuous(snapshot.junoVcfResonance)) * 14.0f);
+  const ui::Color fill = FadeColor(kAccent, alpha * 0.18f);
+  const int left = rect.x + 2;
+  const int right = rect.x + rect.width - 2;
+  const int top = rect.y + 2;
+  const int curveBaseY = top + 12;
+  const int curveBottomY = top + 22;
+  const int cutoffX = left + 8 + static_cast<int>(JunoNormalizedContinuous(snapshot.junoVcfCutoff) * static_cast<float>(std::max(1, right - left - 16)));
+  const int peakHeight = static_cast<int>(JunoNormalizedContinuous(snapshot.junoVcfResonance) * 10.0f);
+  const int peakY = curveBaseY - peakHeight;
 
-  canvas.DrawLine(left, curveTop + 4, cutoffX, resonancePeakY, IsJunoFocusedParameter(snapshot, "vcf.cutoff") ? accent : text);
-  canvas.DrawLine(cutoffX, resonancePeakY, right, bottom - 8, IsJunoFocusedParameter(snapshot, "vcf.resonance") ? accent : text);
-  canvas.DrawLine(cutoffX, resonancePeakY, cutoffX, bottom - 8, divider);
+  canvas.DrawLine(left, curveBaseY, cutoffX - 5, curveBaseY, IsJunoFocusedParameter(snapshot, "vcf.cutoff") ? accent : text);
+  canvas.DrawLine(cutoffX - 5, curveBaseY, cutoffX, peakY, IsJunoFocusedParameter(snapshot, "vcf.resonance") ? accent : text);
+  canvas.DrawLine(cutoffX, peakY, cutoffX + 5, curveBaseY, IsJunoFocusedParameter(snapshot, "vcf.resonance") ? accent : text);
+  canvas.DrawLine(cutoffX + 5, curveBaseY, right, curveBottomY, IsJunoFocusedParameter(snapshot, "vcf.cutoff") ? accent : text);
 
-  const int modY = bottom;
-  const int envWidth = static_cast<int>(JunoNormalizedContinuous(snapshot.junoVcfEnv) * 44.0f);
-  const int lfoWidth = static_cast<int>(JunoNormalizedContinuous(snapshot.junoVcfLfo) * 44.0f);
-  canvas.DrawText(left, modY - 2, "ENV", IsJunoFocusedParameter(snapshot, "vcf.env") ? accent : text, 1);
-  canvas.DrawLine(left + 22, modY, left + 66, modY, divider);
-  canvas.DrawLine(left + 22, modY, left + 22 + envWidth, modY, IsJunoFocusedParameter(snapshot, "vcf.env") ? accent : text);
-  canvas.DrawText(right - 56, modY - 2, "LFO", IsJunoFocusedParameter(snapshot, "vcf.lfo") ? accent : text, 1);
-  canvas.DrawLine(right - 34, modY, right + 10, modY, divider);
-  canvas.DrawLine(right - 34, modY, right - 34 + lfoWidth, modY, IsJunoFocusedParameter(snapshot, "vcf.lfo") ? accent : text);
+  const int valueY = top + 30;
+  const ui::Color cutColor = IsJunoFocusedParameter(snapshot, "vcf.cutoff") ? accent : text;
+  const ui::Color resColor = IsJunoFocusedParameter(snapshot, "vcf.resonance") ? accent : text;
+  const ui::Color envColor = IsJunoFocusedParameter(snapshot, "vcf.env") ? accent : text;
+  const ui::Color lfoColor = IsJunoFocusedParameter(snapshot, "vcf.lfo") ? accent : text;
+  canvas.DrawText(left, valueY, "C", cutColor, 1);
+  canvas.DrawText(left + 10, valueY, std::to_string(snapshot.junoVcfCutoff), cutColor, 1);
+  canvas.DrawText(left + 40, valueY, "R", resColor, 1);
+  canvas.DrawText(left + 50, valueY, std::to_string(snapshot.junoVcfResonance), resColor, 1);
+  canvas.DrawText(left, valueY + 10, "E", envColor, 1);
+  canvas.DrawText(left + 10, valueY + 10, std::to_string(snapshot.junoVcfEnv), envColor, 1);
+  canvas.DrawText(left + 40, valueY + 10, "L", lfoColor, 1);
+  canvas.DrawText(left + 50, valueY + 10, std::to_string(snapshot.junoVcfLfo), lfoColor, 1);
 
-  const int hpfY = bottom + 10;
-  const int hpfStartX = left;
+  const int chipY = valueY + 20;
+  canvas.DrawText(left, chipY + 1, "HPF", IsJunoFocusedParameter(snapshot, "hpf.mode") ? accent : text, 1);
+  const int chipWidth = 10;
+  const int chipGap = 4;
+  const int chipStartX = left + 26;
   for (int index = 0; index < 4; ++index)
   {
-    const int x = hpfStartX + index * 16;
-    const ui::Color modeColor = snapshot.junoHpfMode == index ? accent : divider;
-    canvas.DrawLine(x, hpfY, x + 10, hpfY, modeColor);
+    const ui::Rect chip = MakeRect(chipStartX + index * (chipWidth + chipGap), chipY, chipWidth, 8);
+    if (snapshot.junoHpfMode == index)
+    {
+      canvas.FillRect(InsetRect(chip, 1, 1), fill);
+    }
+    canvas.StrokeRect(chip, snapshot.junoHpfMode == index ? accent : divider);
   }
-  canvas.DrawText(right - 24, hpfY - 2, "HPF", IsJunoFocusedParameter(snapshot, "hpf.mode") ? accent : text, 1);
 }
 
-void DrawJunoEnvGraphic(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
+void DrawJunoEnvGraphic(ui::Canvas& canvas,
+                        const ui::Rect& rect,
+                        const UiScreenSnapshot& snapshot,
+                        float alpha,
+                        bool showValues)
 {
   const ui::Color accent = FadeColor(kAccent, alpha);
   const ui::Color divider = FadeColor(kDivider, alpha);
+  const ui::Color text = FadeColor(kText, alpha);
   const int left = rect.x + 4;
   const int right = rect.x + rect.width - 4;
   const int top = rect.y + 4;
-  const int bottom = rect.y + rect.height - 6;
+  const int bottom = rect.y + rect.height - (showValues ? 16 : 6);
   const int width = std::max(20, right - left);
   const int attackWidth = std::max(6, static_cast<int>(JunoNormalizedContinuous(snapshot.junoEnvAttack) * width * 0.22f));
   const int decayWidth = std::max(6, static_cast<int>(JunoNormalizedContinuous(snapshot.junoEnvDecay) * width * 0.24f));
@@ -1029,6 +1289,31 @@ void DrawJunoEnvGraphic(ui::Canvas& canvas, const ui::Rect& rect, const UiScreen
                   right,
                   bottom,
                   IsJunoFocusedParameter(snapshot, "env.release") ? accent : divider);
+
+  if (showValues)
+  {
+    const int valueY = rect.y + rect.height - 9;
+    const int cellWidth = std::max(1, rect.width / 4);
+    const std::array<std::pair<const char*, int>, 4> values = {{
+        {"A", snapshot.junoEnvAttack},
+        {"D", snapshot.junoEnvDecay},
+        {"S", snapshot.junoEnvSustain},
+        {"R", snapshot.junoEnvRelease},
+    }};
+    const std::array<const char*, 4> ids = {"env.attack", "env.decay", "env.sustain", "env.release"};
+    for (std::size_t index = 0; index < values.size(); ++index)
+    {
+      const ui::Color valueColor = IsJunoFocusedParameter(snapshot, ids[index]) ? accent : text;
+      const int x = rect.x + static_cast<int>(index) * cellWidth;
+      const std::string valueText = std::string(values[index].first) + std::to_string(values[index].second);
+      canvas.DrawTextInRect(MakeRect(x, valueY, cellWidth, 8),
+                            TruncateText(canvas, valueText, cellWidth - 2, 1),
+                            valueColor,
+                            1,
+                            ui::TextAlign::Center,
+                            ui::VerticalAlign::Middle);
+    }
+  }
 }
 
 void DrawJunoLfoGraphic(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
@@ -1038,10 +1323,10 @@ void DrawJunoLfoGraphic(ui::Canvas& canvas, const ui::Rect& rect, const UiScreen
   const ui::Color text = FadeColor(kText, alpha);
   const int left = rect.x + 4;
   const int right = rect.x + rect.width - 4;
-  const int top = rect.y + 6;
-  const int middleY = rect.y + rect.height / 2;
-  const int bottom = rect.y + rect.height - 8;
-  const int cycleWidth = std::max(18, 22 + static_cast<int>(JunoNormalizedContinuous(snapshot.junoLfoRate) * 20.0f));
+  const int top = rect.y + 4;
+  const int waveBottom = top + rect.height / 2 - 2;
+  const int middleY = (top + waveBottom) / 2;
+  const int cycleWidth = std::max(16, 18 + static_cast<int>(JunoNormalizedContinuous(snapshot.junoLfoRate) * 18.0f));
 
   for (int x = left; x + cycleWidth <= right; x += cycleWidth)
   {
@@ -1050,11 +1335,15 @@ void DrawJunoLfoGraphic(ui::Canvas& canvas, const ui::Rect& rect, const UiScreen
   }
 
   const int delayX = left + static_cast<int>(JunoNormalizedContinuous(snapshot.junoLfoDelay) * static_cast<float>(right - left));
-  canvas.DrawLine(delayX, top - 2, delayX, bottom, IsJunoFocusedParameter(snapshot, "lfo.delay") ? accent : text);
-  const int rateWidth = static_cast<int>(JunoNormalizedContinuous(snapshot.junoLfoRate) * 48.0f);
-  canvas.DrawText(left, bottom + 2, "RATE", IsJunoFocusedParameter(snapshot, "lfo.rate") ? accent : text, 1);
-  canvas.DrawLine(left + 28, bottom + 4, left + 76, bottom + 4, divider);
-  canvas.DrawLine(left + 28, bottom + 4, left + 28 + rateWidth, bottom + 4, IsJunoFocusedParameter(snapshot, "lfo.rate") ? accent : text);
+  canvas.DrawLine(delayX, top - 1, delayX, waveBottom + 2, IsJunoFocusedParameter(snapshot, "lfo.delay") ? accent : text);
+
+  const int rateY = waveBottom + 10;
+  const ui::Color rateColor = IsJunoFocusedParameter(snapshot, "lfo.rate") ? accent : text;
+  const ui::Color delayColor = IsJunoFocusedParameter(snapshot, "lfo.delay") ? accent : text;
+  canvas.DrawText(left, rateY, "RATE", rateColor, 1);
+  canvas.DrawText(left + 30, rateY, std::to_string(snapshot.junoLfoRate), rateColor, 1);
+  canvas.DrawText(left, rateY + 10, "DLY", delayColor, 1);
+  canvas.DrawText(left + 30, rateY + 10, std::to_string(snapshot.junoLfoDelay), delayColor, 1);
 }
 
 void DrawJunoAmpGraphic(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
@@ -1114,16 +1403,16 @@ void DrawJunoSimpleValuePage(ui::Canvas& canvas,
   const ui::Color divider = FadeColor(kDivider, alpha);
   const int valueScale = value.size() > 14 ? 2 : (value.size() > 8 ? 3 : 5);
 
-  canvas.DrawText(rect.x + 10, rect.y + 10, TruncateText(canvas, section, rect.width - 20, 1), accent, 1);
-  canvas.DrawTextInRect(MakeRect(rect.x + 10, rect.y + 30, rect.width - 20, 24),
-                        TruncateText(canvas, label, rect.width - 20, 2),
+  canvas.DrawText(rect.x, rect.y + 10, TruncateText(canvas, section, rect.width, 1), accent, 1);
+  canvas.DrawTextInRect(MakeRect(rect.x, rect.y + 30, rect.width, 24),
+                        TruncateText(canvas, label, rect.width, 2),
                         text,
                         2,
                         ui::TextAlign::Left,
                         ui::VerticalAlign::Middle);
-  canvas.DrawLine(rect.x + 10, rect.y + 58, rect.x + rect.width - 14, rect.y + 58, divider);
-  canvas.DrawTextInRect(MakeRect(rect.x + 10, rect.y + 66, rect.width - 20, rect.height - 72),
-                        TruncateText(canvas, value, rect.width - 20, valueScale),
+  canvas.DrawLine(rect.x, rect.y + 58, rect.x + rect.width - 1, rect.y + 58, divider);
+  canvas.DrawTextInRect(MakeRect(rect.x, rect.y + 66, rect.width, rect.height - 72),
+                        TruncateText(canvas, value, rect.width, valueScale),
                         text,
                         valueScale,
                         ui::TextAlign::Left,
@@ -1140,33 +1429,53 @@ void DrawJunoParameterContent(ui::Canvas& canvas, const ui::Rect& rect, const Ui
   const std::string section = snapshot.headerPrimary.empty() ? std::string{"Juno"} : snapshot.headerPrimary;
   if (snapshot.focusItemId.empty())
   {
-    DrawJunoOverview(canvas, MakeRect(rect.x + 10, rect.y + 8, rect.width - 20, rect.height - 14), snapshot, alpha);
+    DrawJunoOverview(canvas, rect, snapshot, alpha);
     return;
   }
 
-  if ((section == "AMP" && snapshot.focusItemId == "vca.level") ||
-      (section == "FX" && (snapshot.focusItemId == "chorus.mode" || snapshot.focusItemId == "par.juno.group.fx")))
+  if ((section == "VCA" && snapshot.focusItemId == "vca.level") ||
+      (section == "CHO" && (snapshot.focusItemId == "chorus.mode" || snapshot.focusItemId == "par.juno.group.fx")) ||
+      (section == "HPF" && (snapshot.focusItemId == "hpf.mode" || snapshot.focusItemId == "par.juno.group.hpf")))
   {
     DrawJunoSimpleValuePage(canvas, rect, section, snapshot.primaryText, snapshot.secondaryText, alpha);
+    return;
+  }
+
+  if (section == "DCO" && IsJunoDiscreteValuePage(snapshot))
+  {
+    DrawJunoSimpleValuePage(canvas, rect, section, snapshot.primaryText, snapshot.secondaryText, alpha);
+    return;
+  }
+
+  if (section == "ENV")
+  {
+    DrawJunoEnvPage(canvas, rect, snapshot, alpha);
     return;
   }
 
   const ui::Color accent = FadeColor(kAccent, alpha);
   const ui::Color text = FadeColor(kText, alpha);
   const ui::Color divider = FadeColor(kDivider, alpha);
+  const bool compactGraphicPage = section == "DCO" || section == "VCF" || section == "LFO";
 
-  canvas.DrawText(rect.x + 10, rect.y + 10, TruncateText(canvas, section, rect.width - 20, 1), accent, 1);
-  canvas.DrawTextInRect(MakeRect(rect.x + 10, rect.y + 26, rect.width - 20, 18),
-                        TruncateText(canvas, snapshot.primaryText, rect.width - 20, 2),
-                        text,
-                        2,
-                        ui::TextAlign::Left,
-                        ui::VerticalAlign::Middle);
+  canvas.DrawText(rect.x, rect.y + 10, TruncateText(canvas, section, rect.width, 1), accent, 1);
+  if (!compactGraphicPage)
+  {
+    canvas.DrawTextInRect(MakeRect(rect.x, rect.y + 26, rect.width, 18),
+                          TruncateText(canvas, snapshot.primaryText, rect.width, 2),
+                          text,
+                          2,
+                          ui::TextAlign::Left,
+                          ui::VerticalAlign::Middle);
+  }
 
-  const int dividerY = rect.y + 50;
-  canvas.DrawLine(rect.x + 10, dividerY, rect.x + rect.width - 14, dividerY, divider);
+  const int dividerY = compactGraphicPage ? rect.y + 24 : rect.y + 46;
+  canvas.DrawLine(rect.x, dividerY, rect.x + rect.width - 1, dividerY, divider);
 
-  const ui::Rect graphRect = MakeRect(rect.x + 10, dividerY + 6, rect.width - 20, std::max(24, rect.height - 84));
+  const ui::Rect graphRect = MakeRect(rect.x,
+                                      dividerY + 6,
+                                      rect.width,
+                                      std::max(24, rect.height - (compactGraphicPage ? 36 : 80)));
   if (section == "DCO")
   {
     DrawJunoDcoGraphic(canvas, graphRect, snapshot, alpha);
@@ -1175,19 +1484,15 @@ void DrawJunoParameterContent(ui::Canvas& canvas, const ui::Rect& rect, const Ui
   {
     DrawJunoVcfGraphic(canvas, graphRect, snapshot, alpha);
   }
-  else if (section == "ENV")
-  {
-    DrawJunoEnvGraphic(canvas, graphRect, snapshot, alpha);
-  }
   else if (section == "LFO")
   {
     DrawJunoLfoGraphic(canvas, graphRect, snapshot, alpha);
   }
-  else if (section == "AMP")
+  else if (section == "VCA")
   {
     DrawJunoAmpGraphic(canvas, graphRect, snapshot, alpha);
   }
-  else if (section == "FX")
+  else if (section == "CHO")
   {
     DrawJunoFxGraphic(canvas, graphRect, snapshot, alpha);
   }
@@ -1196,13 +1501,16 @@ void DrawJunoParameterContent(ui::Canvas& canvas, const ui::Rect& rect, const Ui
     DrawJunoOverview(canvas, graphRect, snapshot, alpha);
   }
 
-  const int footerScale = section == "Juno" ? 2 : (snapshot.secondaryText.size() > 12 ? 2 : 3);
-  canvas.DrawTextInRect(MakeRect(rect.x + 10, rect.y + rect.height - 24, rect.width - 20, 18),
-                        TruncateText(canvas, snapshot.secondaryText, rect.width - 20, footerScale),
-                        text,
-                        footerScale,
-                        ui::TextAlign::Center,
-                        ui::VerticalAlign::Middle);
+  if (section != "DCO" && section != "VCF" && section != "LFO")
+  {
+    const int footerScale = snapshot.secondaryText.size() > 18 ? 1 : (snapshot.secondaryText.size() > 10 ? 2 : 3);
+    canvas.DrawTextInRect(MakeRect(rect.x, rect.y + rect.height - 24, rect.width, 18),
+                          TruncateText(canvas, snapshot.secondaryText, rect.width, footerScale),
+                          text,
+                          footerScale,
+                          ui::TextAlign::Left,
+                          ui::VerticalAlign::Middle);
+  }
 }
 
 void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
@@ -1218,9 +1526,13 @@ void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiS
 
   if (!snapshot.showSecondaryText)
   {
-    canvas.DrawText(rect.x + 10, rect.y + 10, TruncateText(canvas, snapshot.headerPrimary, rect.width - 20, 1), accent, 1);
-    canvas.DrawTextInRect(MakeRect(rect.x + 10, rect.y + 34, rect.width - 20, 34),
-                          TruncateText(canvas, snapshot.primaryText, rect.width - 20, 3),
+    canvas.DrawText(rect.x,
+                    rect.y + 10,
+                    TruncateText(canvas, snapshot.headerPrimary, rect.width, 1),
+                    accent,
+                    1);
+    canvas.DrawTextInRect(MakeRect(rect.x, rect.y + 34, rect.width, 34),
+                          TruncateText(canvas, snapshot.primaryText, rect.width, 3),
                           text,
                           3,
                           ui::TextAlign::Left,
@@ -1230,8 +1542,16 @@ void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiS
 
   if (snapshot.showPresetBrowser)
   {
-    canvas.DrawText(rect.x + 10, rect.y + 10, TruncateText(canvas, snapshot.primaryText, rect.width - 20, 2), accent, 2);
-    canvas.DrawLine(rect.x + 10, rect.y + 34, rect.x + rect.width - 26, rect.y + 34, divider);
+    canvas.DrawText(rect.x,
+                    rect.y + 10,
+                    TruncateText(canvas, snapshot.primaryText, rect.width, 2),
+                    accent,
+                    2);
+    canvas.DrawLine(rect.x,
+                    rect.y + 34,
+            rect.x + rect.width - 1,
+                    rect.y + 34,
+                    divider);
 
     const int lineScale = 1;
     const int lineHeight = canvas.FontHeight(lineScale) + 2;
@@ -1248,9 +1568,9 @@ void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiS
                                    ? encodedLine.substr(1)
                                    : encodedLine;
       const ui::Color lineColor = selected ? accent : text;
-      canvas.DrawText(rect.x + 10,
+                      canvas.DrawText(rect.x,
                       lineY,
-                      TruncateText(canvas, line, rect.width - 20, lineScale),
+                              TruncateText(canvas, line, rect.width, lineScale),
                       lineColor,
                       lineScale);
       if (newline == std::string::npos)
@@ -1264,21 +1584,30 @@ void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiS
     return;
   }
 
-  canvas.DrawText(rect.x + 10, rect.y + 10, TruncateText(canvas, snapshot.headerPrimary, rect.width - 20, 1), accent, 1);
+  canvas.DrawText(rect.x,
+                  rect.y + 10,
+                  TruncateText(canvas, snapshot.headerPrimary, rect.width, 1),
+                  accent,
+                  1);
 
-  canvas.DrawTextInRect(MakeRect(rect.x + 10, rect.y + 30, rect.width - 20, 24),
-                        TruncateText(canvas, snapshot.primaryText, rect.width - 20, 2),
+  canvas.DrawTextInRect(MakeRect(rect.x, rect.y + 30, rect.width, 24),
+                        TruncateText(canvas, snapshot.primaryText, rect.width, 2),
                         text,
                         2,
                         ui::TextAlign::Left,
                         ui::VerticalAlign::Middle);
-  canvas.DrawLine(rect.x + 10, rect.y + 58, rect.x + rect.width - 26, rect.y + 58, divider);
-  canvas.DrawTextInRect(MakeRect(rect.x + 10, rect.y + 64, rect.width - 20, 42),
-                        TruncateText(canvas, snapshot.secondaryText, rect.width - 20, 5),
+  canvas.DrawLine(rect.x,
+                  rect.y + 58,
+                  rect.x + rect.width - 1,
+                  rect.y + 58,
+                  divider);
+  const int presetScale = canvas.MeasureTextWidth(snapshot.secondaryText, 5) <= rect.width ? 5 : 4;
+  DrawMarqueeTextInRect(canvas,
+                        MakeRect(rect.x, rect.y + 64, rect.width, 42),
+                        snapshot.secondaryText,
                         text,
-                        5,
-                        ui::TextAlign::Left,
-                        ui::VerticalAlign::Middle);
+                        presetScale,
+                        ui::TextAlign::Left);
 }
 
 void DrawHomeTrackLabel(ui::Canvas& canvas, const ui::Rect& rect, const std::string& trackLabel, float alpha)
@@ -1563,16 +1892,30 @@ void DrawHomeContent(ui::Canvas& canvas,
   const ui::Color accent = FadeColor(kAccent, alpha);
   const ui::Color text = FadeColor(kText, alpha);
   const ui::Color divider = FadeColor(kDivider, alpha);
+  const int headerX = rect.x + 4;
+  const int headerY = rect.y + 8;
+  const int headerGap = 8;
+  const int trackLabelWidth = std::min(std::max(56, canvas.MeasureTextWidth(snapshot.headerSecondary, 1) + 6),
+                                       std::max(56, rect.width / 2));
+  const int trackLabelX = rect.x + rect.width - 4 - trackLabelWidth;
+  const int titleWidth = std::max(0, trackLabelX - headerGap - headerX);
 
-  canvas.DrawText(rect.x + 4, rect.y + 8, TruncateText(canvas, snapshot.headerPrimary, rect.width - 92, 1), accent, 1);
-  DrawHomeTrackLabel(canvas, MakeRect(rect.x + rect.width - 86, rect.y + 8, 82, 10), snapshot.headerSecondary, alpha);
+  canvas.DrawText(headerX,
+                  headerY,
+                  TruncateText(canvas, snapshot.headerPrimary, titleWidth, 1),
+                  accent,
+                  1);
+  DrawHomeTrackLabel(canvas,
+                     MakeRect(trackLabelX, headerY, trackLabelWidth, 10),
+                     snapshot.headerSecondary,
+                     alpha);
   canvas.DrawLine(rect.x + 4, rect.y + 24, rect.x + rect.width - 5, rect.y + 24, divider);
-  canvas.DrawTextInRect(MakeRect(rect.x + 4, rect.y + 34, rect.width - 8, 34),
-                        TruncateText(canvas, snapshot.primaryText, rect.width - 12, 3),
+  DrawMarqueeTextInRect(canvas,
+                        MakeRect(rect.x + 4, rect.y + 34, rect.width - 8, 34),
+                        snapshot.primaryText,
                         text,
                         3,
-                        ui::TextAlign::Center,
-                        ui::VerticalAlign::Middle);
+                        ui::TextAlign::Center);
 
   DrawMiniKeyboard(canvas, MakeRect(rect.x + 16, rect.y + 74, rect.width - 32, 28), activeKeys, alpha);
   DrawThinLooperBar(canvas, MakeRect(rect.x + 4, rect.y + rect.height - 11, rect.width - 8, 4), snapshot.looperProgress, alpha);
@@ -1593,19 +1936,7 @@ void DrawContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreen
 
   if (IsJunoParameterSnapshot(snapshot))
   {
-    if (snapshot.focusItemId.empty())
-    {
-      DrawJunoParameterContent(canvas, rect, snapshot, alpha);
-    }
-    else
-    {
-      DrawJunoSimpleValuePage(canvas,
-                              rect,
-                              snapshot.headerPrimary.empty() ? std::string{"Sound"} : snapshot.headerPrimary,
-                              snapshot.primaryText,
-                              snapshot.secondaryText,
-                              alpha);
-    }
+    DrawJunoParameterContent(canvas, rect, snapshot, alpha);
     return;
   }
 
@@ -1623,22 +1954,25 @@ void DrawContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreen
   const int titleY = rect.y + 10;
   const int titleHeight = canvas.FontHeight(titleScale);
   const std::string title = snapshot.primaryText.empty() ? snapshot.headerPrimary : snapshot.primaryText;
-  canvas.DrawText(rect.x + 10,
+  canvas.DrawText(rect.x,
                   titleY,
-                  TruncateText(canvas, title, rect.width - 20, titleScale),
+                  TruncateText(canvas, title, rect.width, titleScale),
                   accent,
                   titleScale);
 
   const int dividerY = titleY + titleHeight + 6;
-  canvas.DrawLine(rect.x + 10, dividerY, rect.x + rect.width - 14, dividerY, divider);
+  canvas.DrawLine(rect.x, dividerY, rect.x + rect.width - 1, dividerY, divider);
 
   if (!snapshot.showSecondaryText)
   {
     return;
   }
 
-  canvas.DrawTextInRect(MakeRect(rect.x + 10, dividerY + 8, rect.width - 20, rect.height - (dividerY - rect.y) - 12),
-                        TruncateText(canvas, snapshot.secondaryText, rect.width - 20, 5),
+  canvas.DrawTextInRect(MakeRect(rect.x,
+                                 dividerY + 8,
+                                 rect.width,
+                                 rect.height - (dividerY - rect.y) - 12),
+                        TruncateText(canvas, snapshot.secondaryText, rect.width, 5),
                         text,
                         5,
                         ui::TextAlign::Left,
@@ -1695,6 +2029,7 @@ void RenderSynthUiFrame(ui::Canvas& canvas,
                         const ISynthEngine* engine,
                         const std::array<bool, kKeyboardMatrixRows * kKeyboardMatrixColumns>& activeKeys)
 {
+  ++gMarqueeFrame;
   canvas.Clear(kBackground);
 
   if (model.Transition().active)

@@ -119,9 +119,23 @@ void Canvas::DrawLine(int x0, int y0, int x1, int y1, Color color)
 
 void Canvas::DrawText(int x, int y, std::string_view text, Color color, int scale)
 {
+  DrawTextClipped(Rect{0, 0, Width(), Height()}, x, y, text, color, scale);
+}
+
+void Canvas::DrawTextClipped(const Rect& clipRect, int x, int y, std::string_view text, Color color, int scale)
+{
   if (scale < 1)
   {
     scale = 1;
+  }
+
+  const int clipLeft = std::max(0, clipRect.x);
+  const int clipTop = std::max(0, clipRect.y);
+  const int clipRight = std::min(Width(), clipRect.x + clipRect.width);
+  const int clipBottom = std::min(Height(), clipRect.y + clipRect.height);
+  if (clipLeft >= clipRight || clipTop >= clipBottom)
+  {
+    return;
   }
 
   const RasterFont& font = UiFontForScale(scale);
@@ -147,7 +161,13 @@ void Canvas::DrawText(int x, int y, std::string_view text, Color color, int scal
         {
           continue;
         }
-        BlendPixel(cursorX + glyph.xOffset + column, cursorY + glyph.yOffset + row, color, alpha);
+        const int pixelX = cursorX + glyph.xOffset + column;
+        const int pixelY = cursorY + glyph.yOffset + row;
+        if (pixelX < clipLeft || pixelX >= clipRight || pixelY < clipTop || pixelY >= clipBottom)
+        {
+          continue;
+        }
+        BlendPixel(pixelX, pixelY, color, alpha);
       }
     }
     cursorX += glyph.xAdvance;

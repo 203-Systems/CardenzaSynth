@@ -44,6 +44,7 @@ public:
   void StrokeRect(const Rect& rect, Color color);
   void DrawLine(int x0, int y0, int x1, int y1, Color color);
   void DrawText(int x, int y, std::string_view text, Color color, int scale = 1);
+  void DrawTextClipped(const Rect& clipRect, int x, int y, std::string_view text, Color color, int scale = 1);
   void DrawTextInRect(const Rect& rect, std::string_view text, Color color, int scale = 1,
                       TextAlign align = TextAlign::Left, VerticalAlign verticalAlign = VerticalAlign::Top);
   int MeasureTextWidth(std::string_view text, int scale = 1) const;

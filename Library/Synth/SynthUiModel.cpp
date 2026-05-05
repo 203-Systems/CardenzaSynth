@@ -9,7 +9,7 @@
 namespace synth {
 
 namespace {
-constexpr std::size_t kPagedMenuItemCount = kContextMenuCellCount - 1;
+constexpr std::size_t kPagedMenuItemCount = kContextMenuCellCount - 2;
 constexpr float kTransitionStep = 0.18f;
 constexpr auto kModifierHoldDelay = std::chrono::milliseconds(200);
 constexpr std::array<SynthEngineKind, 3> kSelectableEngineKinds = {
@@ -27,6 +27,9 @@ constexpr std::array<UiBarIcon, 4> kHomeActionBarIcons = {
 constexpr std::size_t kPresetBrowserVisibleRows = 7;
 constexpr std::size_t kPresetBrowserPageSize = 32;
 constexpr std::size_t kPresetSearchMaxLength = 18;
+constexpr std::size_t kGenericParameterMenuItemCount = 14;
+constexpr std::size_t kLayoutMenuItemCount = 14;
+constexpr std::size_t kOtherMenuItemCount = 13;
 
 constexpr std::array<std::array<const char*, kKeyboardMatrixColumns>, kKeyboardMatrixRows> kPresetSearchKeyMap = {{
     {{"", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", ""}},
@@ -117,6 +120,33 @@ ContextMenuCell MakeNextPageCell(const std::string& label)
 ContextMenuGrid BlankGrid()
 {
   return ContextMenuGrid{};
+}
+
+std::size_t PagedMenuPageCount(std::size_t itemCount)
+{
+  return std::max<std::size_t>(1, (itemCount + kPagedMenuItemCount - 1) / kPagedMenuItemCount);
+}
+
+ContextMenuGrid BuildPagedMenuWithBack(const std::vector<ContextMenuCell>& items, std::size_t currentPage)
+{
+  ContextMenuGrid menu = BlankGrid();
+  const std::size_t pageCount = PagedMenuPageCount(items.size());
+  const std::size_t pageIndex = pageCount > 0 ? currentPage % pageCount : 0;
+  const std::size_t pageStart = pageIndex * kPagedMenuItemCount;
+  const std::size_t pageEnd = std::min(items.size(), pageStart + kPagedMenuItemCount);
+
+  for (std::size_t itemIndex = pageStart, menuIndex = 0; itemIndex < pageEnd && menuIndex < kPagedMenuItemCount;
+       ++itemIndex, ++menuIndex)
+  {
+    menu[menuIndex] = items[itemIndex];
+  }
+
+  if (pageCount > 1)
+  {
+    menu[6] = MakeNextPageCell(std::to_string(pageIndex + 1) + "/" + std::to_string(pageCount));
+  }
+  menu[7] = MakeActionCell("BACK", ContextActionId::Back);
+  return menu;
 }
 
 SynthEngineKind StepSelectableEngineKind(SynthEngineKind currentKind, int delta)
@@ -307,14 +337,15 @@ std::string Dx7ParameterMenuLabel(const SynthParameterInfo& parameter)
 
 bool IsJunoParameterGroupId(const std::string& itemId)
 {
-  return itemId == "par.juno.group.dco" || itemId == "par.juno.group.vcf" || itemId == "par.juno.group.env" ||
+  return itemId == "par.juno.group.dco" || itemId == "par.juno.group.hpf" || itemId == "par.juno.group.vcf" || itemId == "par.juno.group.env" ||
          itemId == "par.juno.group.lfo" || itemId == "par.juno.group.amp" || itemId == "par.juno.group.fx";
 }
 
 std::string JunoGroupIdForParameterId(const std::string& itemId)
 {
   if (itemId.rfind("dco.", 0) == 0) return "par.juno.group.dco";
-  if (itemId.rfind("vcf.", 0) == 0 || itemId == "hpf.mode") return "par.juno.group.vcf";
+  if (itemId == "hpf.mode") return "par.juno.group.hpf";
+  if (itemId.rfind("vcf.", 0) == 0) return "par.juno.group.vcf";
   if (itemId.rfind("env.", 0) == 0) return "par.juno.group.env";
   if (itemId.rfind("lfo.", 0) == 0) return "par.juno.group.lfo";
   if (itemId.rfind("vca.", 0) == 0) return "par.juno.group.amp";
@@ -324,23 +355,25 @@ std::string JunoGroupIdForParameterId(const std::string& itemId)
 
 std::string JunoGroupLabel(const std::string& groupId)
 {
+  if (groupId == "par.juno.group.hpf") return "HPF";
   if (groupId == "par.juno.group.dco") return "DCO";
   if (groupId == "par.juno.group.vcf") return "VCF";
   if (groupId == "par.juno.group.env") return "ENV";
   if (groupId == "par.juno.group.lfo") return "LFO";
-  if (groupId == "par.juno.group.amp") return "AMP";
-  if (groupId == "par.juno.group.fx") return "FX";
+  if (groupId == "par.juno.group.amp") return "VCA";
+  if (groupId == "par.juno.group.fx") return "CHO";
   return "Juno";
 }
 
 std::string JunoGroupTitle(const std::string& groupId)
 {
-  if (groupId == "par.juno.group.dco") return "Oscillator";
-  if (groupId == "par.juno.group.vcf") return "Filter";
+  if (groupId == "par.juno.group.lfo") return "LFO";
+  if (groupId == "par.juno.group.dco") return "DCO";
+  if (groupId == "par.juno.group.hpf") return "HPF";
+  if (groupId == "par.juno.group.vcf") return "VCF";
+  if (groupId == "par.juno.group.amp") return "VCA";
   if (groupId == "par.juno.group.env") return "Envelope";
-  if (groupId == "par.juno.group.lfo") return "Modulation";
-  if (groupId == "par.juno.group.amp") return "Amplifier";
-  if (groupId == "par.juno.group.fx") return "Effects";
+  if (groupId == "par.juno.group.fx") return "Chorus";
   return "Sections";
 }
 
@@ -353,8 +386,8 @@ std::string JunoParameterMenuLabel(const SynthParameterInfo& parameter)
   if (parameter.id == "dco.noise") return "NOI";
   if (parameter.id == "vcf.cutoff") return "CUT";
   if (parameter.id == "vcf.resonance") return "RES";
-  if (parameter.id == "vcf.env") return "ENV";
-  if (parameter.id == "vcf.lfo") return "LFO";
+  if (parameter.id == "vcf.env") return "ENVM";
+  if (parameter.id == "vcf.lfo") return "LFOM";
   if (parameter.id == "hpf.mode") return "HPF";
   if (parameter.id == "env.attack") return "ATK";
   if (parameter.id == "env.decay") return "DEC";
@@ -393,13 +426,18 @@ std::vector<SynthParameterInfo> CollectJunoGroupParameters(const ISynthEngine* e
     return parameters;
   }
 
+  if (groupId == "par.juno.group.hpf")
+  {
+    appendIfPresent("hpf.mode");
+    return parameters;
+  }
+
   if (groupId == "par.juno.group.vcf")
   {
     appendIfPresent("vcf.cutoff");
     appendIfPresent("vcf.resonance");
     appendIfPresent("vcf.env");
     appendIfPresent("vcf.lfo");
-    appendIfPresent("hpf.mode");
     return parameters;
   }
 
@@ -437,17 +475,25 @@ std::string JunoGroupSummary(const ISynthEngine* engine, const std::string& grou
 {
   if (groupId == "par.juno.group.dco")
   {
-    return "RNG " + DescribeParameterValueOrFallback(engine, "dco.range") +
-           "  PWM " + DescribeParameterValueOrFallback(engine, "dco.pwm");
+    return DescribeParameterValueOrFallback(engine, "dco.range") +
+           "  PWM " + DescribeParameterValueOrFallback(engine, "dco.pwm") +
+           "  SUB " + DescribeParameterValueOrFallback(engine, "dco.sub");
   }
   if (groupId == "par.juno.group.vcf")
   {
     return "CUT " + DescribeParameterValueOrFallback(engine, "vcf.cutoff") +
-           "  RES " + DescribeParameterValueOrFallback(engine, "vcf.resonance");
+           "  RES " + DescribeParameterValueOrFallback(engine, "vcf.resonance") +
+           "  ENV " + DescribeParameterValueOrFallback(engine, "vcf.env");
+  }
+  if (groupId == "par.juno.group.hpf")
+  {
+    return "MODE " + DescribeParameterValueOrFallback(engine, "hpf.mode");
   }
   if (groupId == "par.juno.group.env")
   {
     return "A " + DescribeParameterValueOrFallback(engine, "env.attack") +
+           "  D " + DescribeParameterValueOrFallback(engine, "env.decay") +
+           "  S " + DescribeParameterValueOrFallback(engine, "env.sustain") +
            "  R " + DescribeParameterValueOrFallback(engine, "env.release");
   }
   if (groupId == "par.juno.group.lfo")
@@ -461,15 +507,15 @@ std::string JunoGroupSummary(const ISynthEngine* engine, const std::string& grou
   }
   if (groupId == "par.juno.group.fx")
   {
-    return "CHO " + DescribeParameterValueOrFallback(engine, "chorus.mode");
+    return DescribeParameterValueOrFallback(engine, "chorus.mode");
   }
   return "SELECT SECTION";
 }
 
 std::string JunoOverviewSummary(const ISynthEngine* engine)
 {
-  return "CUT " + DescribeParameterValueOrFallback(engine, "vcf.cutoff") +
-         "  RES " + DescribeParameterValueOrFallback(engine, "vcf.resonance") +
+  return DescribeParameterValueOrFallback(engine, "dco.range") +
+         "  CUT " + DescribeParameterValueOrFallback(engine, "vcf.cutoff") +
          "  CHO " + DescribeParameterValueOrFallback(engine, "chorus.mode");
 }
 
@@ -483,7 +529,10 @@ bool IsJunoDirectActionGroupId(const std::string& groupId)
   return groupId == "par.juno.group.fx";
 }
 
-constexpr std::size_t kJunoMenuPageCapacity = 6;
+bool IsJunoDiscreteAdjustParameterId(const std::string& parameterId)
+{
+  return parameterId == "dco.range" || parameterId == "dco.saw";
+}
 
 void PopulateJunoSnapshotValues(UiScreenSnapshot& snapshot, const ISynthEngine* engine)
 {
@@ -510,7 +559,7 @@ void PopulateJunoSnapshotValues(UiScreenSnapshot& snapshot, const ISynthEngine* 
 std::size_t JunoParameterPageCount(const ISynthEngine* engine, const std::string& groupId)
 {
   const std::size_t count = CollectJunoGroupParameters(engine, groupId).size();
-  return std::max<std::size_t>(1, (count + kJunoMenuPageCapacity - 1) / kJunoMenuPageCapacity);
+  return PagedMenuPageCount(count);
 }
 
 std::vector<SynthParameterInfo> CollectDx7GroupParameters(const ISynthEngine* engine, const std::string& groupId)
@@ -560,9 +609,8 @@ std::vector<SynthParameterInfo> CollectDx7GroupParameters(const ISynthEngine* en
 
 std::size_t Dx7ParameterPageCount(const ISynthEngine* engine, const std::string& groupId)
 {
-  constexpr std::size_t kPageCapacity = 6;
   const std::size_t count = CollectDx7GroupParameters(engine, groupId).size();
-  return std::max<std::size_t>(1, (count + kPageCapacity - 1) / kPageCapacity);
+  return PagedMenuPageCount(count);
 }
 
 std::size_t Dx7ParameterMenuIndex(const ISynthEngine* engine,
@@ -570,7 +618,6 @@ std::size_t Dx7ParameterMenuIndex(const ISynthEngine* engine,
                                   const std::string& parameterId,
                                   std::size_t pageIndex)
 {
-  constexpr std::size_t kPageCapacity = 6;
   const auto parameters = CollectDx7GroupParameters(engine, groupId);
   const auto iterator = std::find_if(parameters.begin(), parameters.end(), [&](const SynthParameterInfo& parameter) {
     return parameter.id == parameterId;
@@ -581,8 +628,8 @@ std::size_t Dx7ParameterMenuIndex(const ISynthEngine* engine,
   }
 
   const std::size_t absoluteIndex = static_cast<std::size_t>(std::distance(parameters.begin(), iterator));
-  const std::size_t pageStart = pageIndex * kPageCapacity;
-  if (absoluteIndex < pageStart || absoluteIndex >= (pageStart + kPageCapacity))
+  const std::size_t pageStart = pageIndex * kPagedMenuItemCount;
+  if (absoluteIndex < pageStart || absoluteIndex >= (pageStart + kPagedMenuItemCount))
   {
     return 0;
   }
@@ -1011,8 +1058,14 @@ std::size_t SynthUiModel::ContextMenuColumnCount() const
     return 1;
   }
 
+  if (activeModifier_ == UiModifier::Parameter && parameterAdjustMode_ &&
+      tracks_[activeTrack_].kind == SynthEngineKind::Juno && IsJunoDiscreteAdjustParameterId(selectedItemId_))
+  {
+    return 1;
+  }
+
   if (activeModifier_ == UiModifier::Parameter && tracks_[activeTrack_].kind == SynthEngineKind::Juno &&
-      selectedParameterGroupId_ == "par.juno.group.fx")
+      IsJunoDirectActionGroupId(selectedParameterGroupId_))
   {
     return 1;
   }
@@ -1202,6 +1255,11 @@ UiScreenSnapshot SynthUiModel::BuildScreenSnapshot(const ISynthEngine* engine) c
       {
         snapshot.primaryText = "Chorus";
         snapshot.secondaryText = DescribeParameterValueOrFallback(engine, "chorus.mode");
+      }
+      else if (selectedParameterGroupId_ == "par.juno.group.hpf")
+      {
+        snapshot.primaryText = "MODE";
+        snapshot.secondaryText = DescribeParameterValueOrFallback(engine, "hpf.mode");
       }
       else
       {
@@ -1452,6 +1510,12 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
           return;
         }
 
+        if (cell.itemId == "par.juno.group.hpf")
+        {
+          SelectStatus("HPF", DescribeParameterValueOrFallback(engine, "hpf.mode"), "hpf.mode");
+          return;
+        }
+
         ClearContextSelection();
         return;
       }
@@ -1648,6 +1712,83 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
         SelectStatus("Chorus", DescribeParameterValueOrFallback(engine, "chorus.mode"), "chorus.mode");
       }
       break;
+    case ContextActionId::JunoRange16:
+      if (engine != nullptr)
+      {
+        (void)engine->SetParameterValue("dco.range", 0);
+        hasContextSelection_ = true;
+        selectionKind_ = ContextSelectionKind::Parameter;
+      }
+      break;
+    case ContextActionId::JunoRange8:
+      if (engine != nullptr)
+      {
+        (void)engine->SetParameterValue("dco.range", 1);
+        hasContextSelection_ = true;
+        selectionKind_ = ContextSelectionKind::Parameter;
+      }
+      break;
+    case ContextActionId::JunoRange4:
+      if (engine != nullptr)
+      {
+        (void)engine->SetParameterValue("dco.range", 2);
+        hasContextSelection_ = true;
+        selectionKind_ = ContextSelectionKind::Parameter;
+      }
+      break;
+    case ContextActionId::JunoSawOn:
+      if (engine != nullptr)
+      {
+        (void)engine->SetParameterValue("dco.saw", 1);
+        hasContextSelection_ = true;
+        selectionKind_ = ContextSelectionKind::Parameter;
+      }
+      break;
+    case ContextActionId::JunoSawOff:
+      if (engine != nullptr)
+      {
+        (void)engine->SetParameterValue("dco.saw", 0);
+        hasContextSelection_ = true;
+        selectionKind_ = ContextSelectionKind::Parameter;
+      }
+      break;
+    case ContextActionId::JunoHpf0:
+      if (engine != nullptr)
+      {
+        (void)engine->SetParameterValue("hpf.mode", 0);
+        SelectStatus("HPF", DescribeParameterValueOrFallback(engine, "hpf.mode"), "hpf.mode");
+      }
+      break;
+    case ContextActionId::JunoHpf1:
+      if (engine != nullptr)
+      {
+        (void)engine->SetParameterValue("hpf.mode", 1);
+        SelectStatus("HPF", DescribeParameterValueOrFallback(engine, "hpf.mode"), "hpf.mode");
+      }
+      break;
+    case ContextActionId::JunoHpf2:
+      if (engine != nullptr)
+      {
+        (void)engine->SetParameterValue("hpf.mode", 2);
+        SelectStatus("HPF", DescribeParameterValueOrFallback(engine, "hpf.mode"), "hpf.mode");
+      }
+      break;
+    case ContextActionId::JunoHpf3:
+      if (engine != nullptr)
+      {
+        (void)engine->SetParameterValue("hpf.mode", 3);
+        SelectStatus("HPF", DescribeParameterValueOrFallback(engine, "hpf.mode"), "hpf.mode");
+      }
+      break;
+    case ContextActionId::JunoHpfReset:
+      if (engine != nullptr)
+      {
+        SynthParameterInfo parameter;
+        const int defaultValue = engine->GetParameterInfo("hpf.mode", parameter) ? parameter.defaultValue : 0;
+        (void)engine->SetParameterValue("hpf.mode", defaultValue);
+        SelectStatus("HPF", DescribeParameterValueOrFallback(engine, "hpf.mode"), "hpf.mode");
+      }
+      break;
     case ContextActionId::Back:
       if (presetBrowserMode_)
       {
@@ -1686,7 +1827,7 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
       }
       else
       {
-        if (IsJunoDirectActionGroupId(selectedParameterGroupId_))
+        if (activeModifier_ == UiModifier::Parameter && !selectedParameterGroupId_.empty())
         {
           selectedParameterGroupId_.clear();
         }
@@ -1786,11 +1927,11 @@ std::size_t SynthUiModel::PageCountForModifier(const ISynthEngine* engine) const
       {
         return JunoParameterPageCount(engine, selectedParameterGroupId_);
       }
-      return (IsDx7ParameterEngine(engine) || IsJunoParameterEngine(engine)) ? 1 : 2;
+      return (IsDx7ParameterEngine(engine) || IsJunoParameterEngine(engine)) ? 1 : PagedMenuPageCount(kGenericParameterMenuItemCount);
     case UiModifier::Layout:
-      return 2;
+      return PagedMenuPageCount(kLayoutMenuItemCount);
     case UiModifier::Other:
-      return 2;
+      return PagedMenuPageCount(kOtherMenuItemCount);
     case UiModifier::None:
     default:
       return 1;
@@ -1860,22 +2001,22 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
       };
     }
 
-    constexpr std::size_t kPageCapacity = 6;
     ContextMenuGrid menu = BlankGrid();
     const auto parameters = CollectDx7GroupParameters(engine, selectedParameterGroupId_);
     const std::size_t pageCount = Dx7ParameterPageCount(engine, selectedParameterGroupId_);
-    const std::size_t pageStart = currentPage_ * kPageCapacity;
-    const std::size_t pageEnd = std::min(parameters.size(), pageStart + kPageCapacity);
+    const std::size_t pageStart = currentPage_ * kPagedMenuItemCount;
+    const std::size_t pageEnd = std::min(parameters.size(), pageStart + kPagedMenuItemCount);
     std::size_t menuIndex = 0;
-    for (std::size_t parameterIndex = pageStart; parameterIndex < pageEnd && menuIndex < kPageCapacity; ++parameterIndex, ++menuIndex)
+    for (std::size_t parameterIndex = pageStart; parameterIndex < pageEnd && menuIndex < kPagedMenuItemCount;
+         ++parameterIndex, ++menuIndex)
     {
       menu[menuIndex] = MakeItemCell(Dx7ParameterMenuLabel(parameters[parameterIndex]), parameters[parameterIndex].id);
     }
-    menu[6] = MakeItemCell("BACK", "par.dx7.back");
     if (pageCount > 1)
     {
-      menu[7] = MakeNextPageCell(std::to_string(currentPage_ + 1) + "/" + std::to_string(pageCount));
+      menu[6] = MakeNextPageCell(std::to_string(currentPage_ + 1) + "/" + std::to_string(pageCount));
     }
+    menu[7] = MakeActionCell("BACK", ContextActionId::Back);
     return menu;
   }
 
@@ -1884,14 +2025,28 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
     if (selectedParameterGroupId_.empty())
     {
       return ContextMenuGrid{
-          MakeItemCell("DCO", "par.juno.group.dco"),
-          MakeItemCell("VCF", "par.juno.group.vcf"),
-          MakeItemCell("ENV", "par.juno.group.env"),
           MakeItemCell("LFO", "par.juno.group.lfo"),
-          MakeItemCell("AMP", "par.juno.group.amp"),
-          MakeItemCell("FX", "par.juno.group.fx"),
+          MakeItemCell("DCO", "par.juno.group.dco"),
+          MakeItemCell("HPF", "par.juno.group.hpf"),
+          MakeItemCell("VCF", "par.juno.group.vcf"),
+          MakeItemCell("VCA", "par.juno.group.amp"),
+          MakeItemCell("ENV", "par.juno.group.env"),
+          MakeItemCell("CHO", "par.juno.group.fx"),
+          ContextMenuCell{},
+      };
+    }
+
+    if (selectedParameterGroupId_ == "par.juno.group.hpf")
+    {
+      return ContextMenuGrid{
+          MakeActionCell("0", ContextActionId::JunoHpf0),
+          MakeActionCell("1", ContextActionId::JunoHpf1),
+          MakeActionCell("2", ContextActionId::JunoHpf2),
+          MakeActionCell("3", ContextActionId::JunoHpf3),
           ContextMenuCell{},
           ContextMenuCell{},
+          MakeActionCell("RST", ContextActionId::JunoHpfReset),
+          MakeActionCell("BACK", ContextActionId::Back),
       };
     }
 
@@ -1912,10 +2067,10 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
     ContextMenuGrid menu = BlankGrid();
     const auto parameters = CollectJunoGroupParameters(engine, selectedParameterGroupId_);
     const std::size_t pageCount = JunoParameterPageCount(engine, selectedParameterGroupId_);
-    const std::size_t pageStart = currentPage_ * kJunoMenuPageCapacity;
-    const std::size_t pageEnd = std::min(parameters.size(), pageStart + kJunoMenuPageCapacity);
+        const std::size_t pageStart = currentPage_ * kPagedMenuItemCount;
+        const std::size_t pageEnd = std::min(parameters.size(), pageStart + kPagedMenuItemCount);
     std::size_t menuIndex = 0;
-    for (std::size_t parameterIndex = pageStart; parameterIndex < pageEnd && menuIndex < kJunoMenuPageCapacity;
+        for (std::size_t parameterIndex = pageStart; parameterIndex < pageEnd && menuIndex < kPagedMenuItemCount;
          ++parameterIndex, ++menuIndex)
     {
       menu[menuIndex] = MakeItemCell(JunoParameterMenuLabel(parameters[parameterIndex]), parameters[parameterIndex].id);
@@ -1925,26 +2080,19 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
     {
       menu[6] = MakeNextPageCell(std::to_string(currentPage_ + 1) + "/" + std::to_string(pageCount));
     }
-    menu[7] = MakeItemCell("BACK", "par.juno.back");
+    menu[7] = MakeActionCell("BACK", ContextActionId::Back);
     return menu;
   }
 
   (void)engine;
-  if ((currentPage_ % 2) == 0)
-  {
-    return ContextMenuGrid{
-        MakeItemCell("PREV", "par.prev"),
-        MakeItemCell("NEXT", "par.next"),
-        MakeItemCell("FINE", "par.fine"),
-        MakeItemCell("RST", "par.rst"),
-        MakeItemCell("MIN", "par.min"),
-        MakeItemCell("MAX", "par.max"),
-        MakeItemCell("LOCK", "par.lock"),
-        MakeNextPageCell("1/2"),
-    };
-  }
-
-  return ContextMenuGrid{
+  return BuildPagedMenuWithBack({
+      MakeItemCell("PREV", "par.prev"),
+      MakeItemCell("NEXT", "par.next"),
+      MakeItemCell("FINE", "par.fine"),
+      MakeItemCell("RST", "par.rst"),
+      MakeItemCell("MIN", "par.min"),
+      MakeItemCell("MAX", "par.max"),
+      MakeItemCell("LOCK", "par.lock"),
       MakeItemCell("M1", "par.m1"),
       MakeItemCell("M2", "par.m2"),
       MakeItemCell("M3", "par.m3"),
@@ -1952,12 +2100,39 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
       MakeItemCell("MAP", "par.map"),
       MakeItemCell("CLR", "par.clr"),
       MakeItemCell("SAVE", "par.save"),
-      MakeNextPageCell("2/2"),
-  };
+  }, currentPage_);
 }
 
 ContextMenuGrid SynthUiModel::BuildParameterAdjustMenu() const
 {
+  if (selectedItemId_ == "dco.range")
+  {
+    return ContextMenuGrid{
+        MakeActionCell("16'", ContextActionId::JunoRange16),
+        MakeActionCell("8'", ContextActionId::JunoRange8),
+        MakeActionCell("4'", ContextActionId::JunoRange4),
+        MakeActionCell("BACK", ContextActionId::Back),
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+    };
+  }
+
+  if (selectedItemId_ == "dco.saw")
+  {
+    return ContextMenuGrid{
+        MakeActionCell("ON", ContextActionId::JunoSawOn),
+        MakeActionCell("OFF", ContextActionId::JunoSawOff),
+        ContextMenuCell{},
+        MakeActionCell("BACK", ContextActionId::Back),
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+    };
+  }
+
   return ContextMenuGrid{
       MakeActionCell("-1", ContextActionId::ParameterDecSmall),
       MakeActionCell("+1", ContextActionId::ParameterIncSmall),
@@ -1972,21 +2147,14 @@ ContextMenuGrid SynthUiModel::BuildParameterAdjustMenu() const
 
 ContextMenuGrid SynthUiModel::BuildLayoutMenu() const
 {
-  if ((currentPage_ % 2) == 0)
-  {
-    return ContextMenuGrid{
-        MakeItemCell("SCL", "lay.scl"),
-        MakeItemCell("ROOT", "lay.root"),
-        MakeItemCell("MODE", "lay.mode"),
-        MakeItemCell("CHRD", "lay.chrd"),
-        MakeItemCell("OCT", "lay.oct"),
-        MakeItemCell("TRNS", "lay.trns"),
-        MakeItemCell("KEY", "lay.key"),
-        MakeNextPageCell("1/2"),
-    };
-  }
-
-  return ContextMenuGrid{
+  return BuildPagedMenuWithBack({
+      MakeItemCell("SCL", "lay.scl"),
+      MakeItemCell("ROOT", "lay.root"),
+      MakeItemCell("MODE", "lay.mode"),
+      MakeItemCell("CHRD", "lay.chrd"),
+      MakeItemCell("OCT", "lay.oct"),
+      MakeItemCell("TRNS", "lay.trns"),
+      MakeItemCell("KEY", "lay.key"),
       MakeItemCell("GRID", "lay.grid"),
       MakeItemCell("KEYB", "lay.keyb"),
       MakeItemCell("DRUM", "lay.drum"),
@@ -1994,36 +2162,26 @@ ContextMenuGrid SynthUiModel::BuildLayoutMenu() const
       MakeItemCell("LATCH", "lay.latch"),
       MakeItemCell("ARP", "lay.arp"),
       MakeItemCell("SAVE", "lay.save"),
-      MakeNextPageCell("2/2"),
-  };
+  }, currentPage_);
 }
 
 ContextMenuGrid SynthUiModel::BuildOtherMenu() const
 {
-  if ((currentPage_ % 2) == 0)
-  {
-    return ContextMenuGrid{
-        MakeItemCell("SAVE", "sys.save"),
-        MakeItemCell("LOAD", "sys.load"),
-        MakeItemCell("MIDI", "sys.midi"),
-        MakeItemCell("SYNC", "sys.sync"),
-        MakeItemCell("USB", "sys.usb"),
-        MakeItemCell("SD", "sys.sd"),
-        MakeItemCell("SET", "sys.set"),
-        MakeNextPageCell("1/2"),
-    };
-  }
-
-  return ContextMenuGrid{
+  return BuildPagedMenuWithBack({
+      MakeItemCell("SAVE", "sys.save"),
+      MakeItemCell("LOAD", "sys.load"),
+      MakeItemCell("MIDI", "sys.midi"),
+      MakeItemCell("SYNC", "sys.sync"),
+      MakeItemCell("USB", "sys.usb"),
+      MakeItemCell("SD", "sys.sd"),
+      MakeItemCell("SET", "sys.set"),
       MakeItemCell("BRGT", "sys.brgt"),
       MakeItemCell("INFO", "sys.info"),
       MakeItemCell("CAL", "sys.cal"),
       MakeItemCell("TEST", "sys.test"),
       MakeItemCell("RST", "sys.rst"),
       MakeItemCell("UPD", "sys.upd"),
-      MakeItemCell("BACK", "sys.back"),
-      MakeNextPageCell("2/2"),
-  };
+  }, currentPage_);
 }
 
 UiModifier SynthUiModel::FirstHeldModifier() const

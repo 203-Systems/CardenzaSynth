@@ -49,8 +49,8 @@ JunoSynthEngine::JunoSynthEngine()
   RegisterParameter({"dco.saw", "Saw", "DCO", SynthParameterKind::Toggle, 0, 1, 1, 1, 1});
   RegisterParameter({"vcf.cutoff", "Cutoff", "VCF", SynthParameterKind::Continuous, 0, 127, 1, 92, 92});
   RegisterParameter({"vcf.resonance", "Resonance", "VCF", SynthParameterKind::Continuous, 0, 127, 1, 18, 18});
-  RegisterParameter({"vcf.env", "VCF Env", "VCF", SynthParameterKind::Continuous, 0, 127, 1, 54, 54});
-  RegisterParameter({"vcf.lfo", "VCF LFO", "VCF", SynthParameterKind::Continuous, 0, 127, 1, 18, 18});
+  RegisterParameter({"vcf.env", "Env Amt", "VCF", SynthParameterKind::Continuous, 0, 127, 1, 54, 54});
+  RegisterParameter({"vcf.lfo", "LFO Amt", "VCF", SynthParameterKind::Continuous, 0, 127, 1, 18, 18});
   RegisterParameter({"vca.level", "VCA Level", "VCA", SynthParameterKind::Continuous, 0, 127, 1, 96, 96});
   RegisterParameter({"env.attack", "Attack", "ENV", SynthParameterKind::Continuous, 0, 127, 1, 28, 28});
   RegisterParameter({"env.decay", "Decay", "ENV", SynthParameterKind::Continuous, 0, 127, 1, 42, 42});
@@ -83,6 +83,11 @@ std::string JunoSynthEngine::FormatParameterValue(const SynthParameterInfo& para
   {
     static const char* kRanges[] = {"16'", "8'", "4'"};
     return kRanges[std::clamp(parameter.value, 0, 2)];
+  }
+  if (parameter.id == "hpf.mode")
+  {
+    static const char* kModes[] = {"0", "1", "2", "3"};
+    return kModes[std::clamp(parameter.value, 0, 3)];
   }
   return PagedSynthEngine::FormatParameterValue(parameter);
 }
