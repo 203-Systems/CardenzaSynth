@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <sstream>
 #include <utility>
 
@@ -11,6 +12,11 @@ namespace {
 constexpr std::size_t kPagedMenuItemCount = kContextMenuCellCount - 1;
 constexpr float kTransitionStep = 0.18f;
 constexpr auto kModifierHoldDelay = std::chrono::milliseconds(200);
+constexpr std::array<SynthEngineKind, 3> kSelectableEngineKinds = {
+  SynthEngineKind::Dx7,
+  SynthEngineKind::Juno,
+  SynthEngineKind::Sampler,
+};
 constexpr std::array<const char*, 4> kModifierBarLabels = {"TRK", "SND", "LAY", "SYS"};
 constexpr std::array<UiBarIcon, 4> kHomeActionBarIcons = {
   UiBarIcon::Plus,
@@ -18,6 +24,16 @@ constexpr std::array<UiBarIcon, 4> kHomeActionBarIcons = {
   UiBarIcon::Circle,
   UiBarIcon::Play,
 };
+constexpr std::size_t kPresetBrowserVisibleRows = 7;
+constexpr std::size_t kPresetBrowserPageSize = 32;
+constexpr std::size_t kPresetSearchMaxLength = 18;
+
+constexpr std::array<std::array<const char*, kKeyboardMatrixColumns>, kKeyboardMatrixRows> kPresetSearchKeyMap = {{
+    {{"", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", ""}},
+    {{"", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "[", "]", ""}},
+    {{"", "", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "", ""}},
+  {{"", "", "", "z", "x", "c", "v", "b", "n", "m", ",", ".", "", ""}},
+}};
 
 const char* ModifierDisplayName(UiModifier modifier)
 {
@@ -101,6 +117,90 @@ ContextMenuCell MakeNextPageCell(const std::string& label)
 ContextMenuGrid BlankGrid()
 {
   return ContextMenuGrid{};
+}
+
+SynthEngineKind StepSelectableEngineKind(SynthEngineKind currentKind, int delta)
+{
+  auto iterator = std::find(kSelectableEngineKinds.begin(), kSelectableEngineKinds.end(), currentKind);
+  std::size_t index = iterator != kSelectableEngineKinds.end() ? static_cast<std::size_t>(iterator - kSelectableEngineKinds.begin()) : 0;
+  index = static_cast<std::size_t>((static_cast<int>(index) + delta + static_cast<int>(kSelectableEngineKinds.size())) %
+                                   static_cast<int>(kSelectableEngineKinds.size()));
+  return kSelectableEngineKinds[index];
+}
+
+std::string ToLower(std::string value)
+{
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return value;
+}
+
+bool ContainsCaseInsensitive(const std::string& haystack, const std::string& needle)
+{
+  return needle.empty() || ToLower(haystack).find(needle) != std::string::npos;
+}
+
+std::vector<SynthPresetInfo> CollectPresetMatches(const ISynthEngine* engine, const std::string& searchText)
+{
+  if (engine == nullptr)
+  {
+    return {};
+  }
+
+  const std::string normalizedSearch = ToLower(searchText);
+  std::vector<SynthPresetInfo> matches;
+  for (std::size_t offset = 0;;)
+  {
+    const SynthPresetPage page = engine->ListPresets({offset, kPresetBrowserPageSize});
+    for (const SynthPresetInfo& preset : page.items)
+    {
+      if (ContainsCaseInsensitive(preset.name, normalizedSearch))
+      {
+        matches.push_back(preset);
+      }
+    }
+
+    offset += page.items.size();
+    if (page.items.empty() || offset >= page.totalCount)
+    {
+      break;
+    }
+  }
+
+  return matches;
+}
+
+std::size_t ActivePresetMatchIndex(const std::vector<SynthPresetInfo>& presets)
+{
+  const auto iterator = std::find_if(presets.begin(), presets.end(), [](const SynthPresetInfo& preset) {
+    return preset.active;
+  });
+  return iterator != presets.end() ? static_cast<std::size_t>(std::distance(presets.begin(), iterator)) : 0;
+}
+
+std::string BuildPresetBrowserListText(const std::vector<SynthPresetInfo>& presets, std::size_t selectedIndex)
+{
+  if (presets.empty())
+  {
+    return "No presets";
+  }
+
+  const std::size_t clampedSelection = std::min(selectedIndex, presets.size() - 1);
+  const std::size_t firstVisible = clampedSelection == 0 ? 0 : clampedSelection - 1;
+  std::ostringstream stream;
+  const std::size_t lastVisible = std::min(presets.size(), firstVisible + kPresetBrowserVisibleRows);
+  for (std::size_t index = firstVisible; index < lastVisible; ++index)
+  {
+    if (index > firstVisible)
+    {
+      stream << '\n';
+    }
+
+    stream << (index == clampedSelection ? ">" : " ") << presets[index].name;
+  }
+
+  return stream.str();
 }
 
 bool ReadParameter(const ISynthEngine* engine, const std::string& parameterId, SynthParameterInfo& parameter)
@@ -380,6 +480,8 @@ void SynthUiModel::SyncTrackState(std::size_t trackIndex, const ISynthEngine* en
     return;
   }
 
+  tracks_[trackIndex].kind = engine->Descriptor().kind;
+
   if (!engine->CurrentPresetName().empty())
   {
     tracks_[trackIndex].patchName = engine->CurrentPresetName();
@@ -463,12 +565,28 @@ MatrixKeyHandling SynthUiModel::PressMatrixKey(ISynthEngine* engine, std::size_t
 
   const std::size_t contextMenuColumns = ContextMenuColumnCount();
   const std::size_t contextMenuFirstColumn = contextMenuColumns == 1 ? kHomeRightBarColumn : kContextMenuFirstColumn;
+  if (mode_ == UiMode::ContextMenu && presetBrowserMode_ && activeModifier_ == UiModifier::Sound &&
+      col > kHomeLeftBarColumn && col < contextMenuFirstColumn)
+  {
+    heldContextMenuIndex_ = -1;
+    hasMenuHighlight_ = false;
+
+    const char* mappedValue = kPresetSearchKeyMap[row][col];
+    if (mappedValue != nullptr && mappedValue[0] != '\0' && presetSearchText_.size() < kPresetSearchMaxLength)
+    {
+      presetSearchText_ += mappedValue;
+      presetBrowserSelectionIndex_ = 0;
+    }
+    return MatrixKeyHandling::Ignored;
+  }
+
   if (mode_ == UiMode::ContextMenu &&
       col >= contextMenuFirstColumn &&
       col < contextMenuFirstColumn + contextMenuColumns)
   {
     const auto menu = CurrentMenuCells(engine);
     const std::size_t menuIndex = contextMenuColumns == 1 ? row : row * kContextMenuColumns + (col - contextMenuFirstColumn);
+    heldContextMenuIndex_ = static_cast<int>(menuIndex);
     if (menuIndex < menu.size())
     {
       ApplyMenuCell(engine, menu[menuIndex], menuIndex);
@@ -497,6 +615,7 @@ void SynthUiModel::ReleaseMatrixKey(const ISynthEngine* engine, std::size_t row,
       col >= contextMenuFirstColumn &&
       col < contextMenuFirstColumn + contextMenuColumns)
   {
+    heldContextMenuIndex_ = -1;
     hasMenuHighlight_ = false;
     return;
   }
@@ -544,6 +663,13 @@ void SynthUiModel::ExitToHome()
   currentPage_ = 0;
   activeMenuRow_ = 0;
   activeMenuColumn_ = 0;
+  heldContextMenuIndex_ = -1;
+  enginePickerMode_ = false;
+  hasPendingEngineKind_ = false;
+  pendingEngineKind_ = SynthEngineKind::None;
+  presetBrowserMode_ = false;
+  presetSearchText_.clear();
+  presetBrowserSelectionIndex_ = 0;
   contextLatched_ = false;
   selectedParameterGroupId_.clear();
   ClearContextSelection();
@@ -675,6 +801,19 @@ UiScreenSnapshot SynthUiModel::CurrentScreenSnapshot(const ISynthEngine* engine)
   return BuildScreenSnapshot(engine);
 }
 
+bool SynthUiModel::ConsumePendingEngineKind(SynthEngineKind& kind)
+{
+  if (!hasPendingEngineKind_)
+  {
+    return false;
+  }
+
+  kind = pendingEngineKind_;
+  hasPendingEngineKind_ = false;
+  pendingEngineKind_ = SynthEngineKind::None;
+  return true;
+}
+
 bool SynthUiModel::IsModifierHighlighted(std::size_t row) const
 {
   return mode_ == UiMode::ContextMenu && row == RowForModifier(activeModifier_);
@@ -682,7 +821,20 @@ bool SynthUiModel::IsModifierHighlighted(std::size_t row) const
 
 bool SynthUiModel::IsMenuCellActive(std::size_t row, std::size_t col) const
 {
-  return mode_ == UiMode::ContextMenu && hasMenuHighlight_ && row == activeMenuRow_ && col == activeMenuColumn_;
+  if (mode_ != UiMode::ContextMenu)
+  {
+    return false;
+  }
+
+  const std::size_t columns = ContextMenuColumnCount();
+  if (col >= columns)
+  {
+    return false;
+  }
+
+  const std::size_t index = columns == 1 ? row : row * kContextMenuColumns + col;
+  return heldContextMenuIndex_ == static_cast<int>(index) ||
+         (hasMenuHighlight_ && row == activeMenuRow_ && col == activeMenuColumn_);
 }
 
 std::string SynthUiModel::DebugSummary(const ISynthEngine* engine) const
@@ -739,7 +891,8 @@ UiBarSnapshot SynthUiModel::BuildContextBarSnapshot(const ISynthEngine* engine) 
     {
       const std::size_t index = columns == 1 ? row : row * kContextMenuColumns + column;
       items[index].label = menu[index].label;
-      items[index].active = hasMenuHighlight_ && row == activeMenuRow_ && column == activeMenuColumn_;
+      items[index].active = heldContextMenuIndex_ == static_cast<int>(index) ||
+                            (hasMenuHighlight_ && row == activeMenuRow_ && column == activeMenuColumn_);
     }
   }
   return items;
@@ -773,7 +926,23 @@ UiScreenSnapshot SynthUiModel::BuildScreenSnapshot(const ISynthEngine* engine) c
   }
 
   snapshot.headerPrimary = std::string(ModifierDisplayName(activeModifier_));
-  if (snapshot.engineKind == SynthEngineKind::Dx7 && activeModifier_ == UiModifier::Parameter)
+  if (activeModifier_ == UiModifier::Sound && presetBrowserMode_)
+  {
+    const auto presets = CollectPresetMatches(engine, presetSearchText_);
+    snapshot.headerPrimary.clear();
+    snapshot.primaryText = presetSearchText_.empty() ? "Preset" : presetSearchText_ + "_";
+    snapshot.secondaryText = BuildPresetBrowserListText(presets, presetBrowserSelectionIndex_);
+    snapshot.showPresetBrowser = true;
+    snapshot.showSecondaryText = true;
+  }
+  else if (activeModifier_ == UiModifier::Sound && !enginePickerMode_)
+  {
+    snapshot.headerPrimary = "Track " + std::to_string(activeTrack_ + 1);
+    snapshot.primaryText = HeaderEngine(engine);
+    snapshot.secondaryText = PatchName();
+    snapshot.showSecondaryText = true;
+  }
+  else if (snapshot.engineKind == SynthEngineKind::Dx7 && activeModifier_ == UiModifier::Parameter)
   {
     if (parameterAdjustMode_ && hasContextSelection_)
     {
@@ -852,6 +1021,12 @@ void SynthUiModel::ActivateModifier(UiModifier modifier)
   currentPage_ = 0;
   activeMenuRow_ = 0;
   activeMenuColumn_ = 0;
+  enginePickerMode_ = false;
+  hasPendingEngineKind_ = false;
+  pendingEngineKind_ = SynthEngineKind::None;
+  presetBrowserMode_ = false;
+  presetSearchText_.clear();
+  presetBrowserSelectionIndex_ = 0;
   contextLatched_ = false;
   selectedParameterGroupId_.clear();
   ClearContextSelection();
@@ -892,6 +1067,37 @@ void SynthUiModel::SelectStatus(const std::string& label, const std::string& val
   selectedValueText_ = value;
 }
 
+void SynthUiModel::EnterEnginePicker()
+{
+  enginePickerMode_ = true;
+  enginePickerInitialKind_ = tracks_[activeTrack_].kind;
+  enginePickerPreviewKind_ = enginePickerInitialKind_;
+  hasPendingEngineKind_ = false;
+  pendingEngineKind_ = SynthEngineKind::None;
+  heldContextMenuIndex_ = -1;
+  SelectStatus("Engine", ToString(enginePickerPreviewKind_), "snd.engine");
+}
+
+void SynthUiModel::EnterPresetBrowser(const ISynthEngine* engine)
+{
+  presetBrowserMode_ = true;
+  presetSearchText_.clear();
+  presetBrowserSelectionIndex_ = 0;
+  heldContextMenuIndex_ = -1;
+  hasMenuHighlight_ = false;
+  hasContextSelection_ = true;
+  selectionKind_ = ContextSelectionKind::Preset;
+  selectedItemId_ = "snd.preset";
+  selectedItemLabel_ = "Preset";
+  selectedValueText_ = engine != nullptr ? engine->CurrentPresetName() : PatchName();
+
+  const auto presets = CollectPresetMatches(engine, presetSearchText_);
+  if (!presets.empty())
+  {
+    presetBrowserSelectionIndex_ = ActivePresetMatchIndex(presets);
+  }
+}
+
 void SynthUiModel::EnterParameterAdjustMode(const SynthParameterInfo& parameter, std::size_t menuIndex)
 {
   hasContextSelection_ = true;
@@ -927,6 +1133,18 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
 
   if (cell.type == MenuCellType::Item)
   {
+    if (activeModifier_ == UiModifier::Sound && cell.itemId == "snd.engine")
+    {
+      EnterEnginePicker();
+      return;
+    }
+
+    if (activeModifier_ == UiModifier::Sound && cell.itemId == "snd.preset")
+    {
+      EnterPresetBrowser(engine);
+      return;
+    }
+
     if (activeModifier_ == UiModifier::Parameter && IsDx7ParameterEngine(engine))
     {
       if (IsDx7ParameterGroupId(cell.itemId))
@@ -968,6 +1186,88 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
 
   switch (cell.actionId)
   {
+    case ContextActionId::EngineNext:
+      if (enginePickerMode_)
+      {
+        enginePickerPreviewKind_ = StepSelectableEngineKind(enginePickerPreviewKind_, 1);
+        SelectStatus("Engine", ToString(enginePickerPreviewKind_), "snd.engine");
+      }
+      break;
+    case ContextActionId::EnginePrev:
+      if (enginePickerMode_)
+      {
+        enginePickerPreviewKind_ = StepSelectableEngineKind(enginePickerPreviewKind_, -1);
+        SelectStatus("Engine", ToString(enginePickerPreviewKind_), "snd.engine");
+      }
+      break;
+    case ContextActionId::EngineReset:
+      if (enginePickerMode_)
+      {
+        enginePickerPreviewKind_ = enginePickerInitialKind_;
+        SelectStatus("Engine", ToString(enginePickerPreviewKind_), "snd.engine");
+      }
+      break;
+    case ContextActionId::EngineLoad:
+      if (enginePickerMode_)
+      {
+        pendingEngineKind_ = enginePickerPreviewKind_;
+        hasPendingEngineKind_ = true;
+        enginePickerMode_ = false;
+        heldContextMenuIndex_ = -1;
+        currentPage_ = 0;
+        ClearContextSelection();
+      }
+      break;
+    case ContextActionId::PresetLoad:
+      if (presetBrowserMode_ && engine != nullptr)
+      {
+        const auto presets = CollectPresetMatches(engine, presetSearchText_);
+        if (!presets.empty())
+        {
+          const std::size_t selectedIndex = std::min(presetBrowserSelectionIndex_, presets.size() - 1);
+          if (engine->LoadPreset(presets[selectedIndex].id))
+          {
+            tracks_[activeTrack_].patchName = engine->CurrentPresetName();
+            presetBrowserMode_ = false;
+            presetSearchText_.clear();
+            presetBrowserSelectionIndex_ = 0;
+            heldContextMenuIndex_ = -1;
+            ClearContextSelection();
+          }
+        }
+      }
+      break;
+    case ContextActionId::PresetPrev:
+      if (presetBrowserMode_ && presetBrowserSelectionIndex_ > 0)
+      {
+        --presetBrowserSelectionIndex_;
+      }
+      break;
+    case ContextActionId::PresetNext:
+      if (presetBrowserMode_ && engine != nullptr)
+      {
+        const auto presets = CollectPresetMatches(engine, presetSearchText_);
+        if (!presets.empty())
+        {
+          presetBrowserSelectionIndex_ = std::min(presetBrowserSelectionIndex_ + 1, presets.size() - 1);
+        }
+      }
+      break;
+    case ContextActionId::PresetDelete:
+      if (presetBrowserMode_ && !presetSearchText_.empty())
+      {
+        presetSearchText_.pop_back();
+        const auto presets = CollectPresetMatches(engine, presetSearchText_);
+        presetBrowserSelectionIndex_ = presetSearchText_.empty() ? ActivePresetMatchIndex(presets) : 0;
+      }
+      break;
+    case ContextActionId::PresetClear:
+      if (presetBrowserMode_)
+      {
+        presetSearchText_.clear();
+        presetBrowserSelectionIndex_ = ActivePresetMatchIndex(CollectPresetMatches(engine, presetSearchText_));
+      }
+      break;
     case ContextActionId::ParameterDecLarge:
       if (engine != nullptr)
       {
@@ -1027,6 +1327,26 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
       }
       break;
     case ContextActionId::Back:
+      if (presetBrowserMode_)
+      {
+        presetBrowserMode_ = false;
+        presetSearchText_.clear();
+        presetBrowserSelectionIndex_ = 0;
+        heldContextMenuIndex_ = -1;
+        ClearContextSelection();
+        break;
+      }
+
+      if (enginePickerMode_)
+      {
+        enginePickerMode_ = false;
+        enginePickerPreviewKind_ = SynthEngineKind::None;
+        hasPendingEngineKind_ = false;
+        pendingEngineKind_ = SynthEngineKind::None;
+        ClearContextSelection();
+        break;
+      }
+
       if (activeModifier_ == UiModifier::Parameter && parameterAdjustMode_)
       {
         parameterAdjustMode_ = false;
@@ -1146,6 +1466,36 @@ std::size_t SynthUiModel::PageCountForModifier(const ISynthEngine* engine) const
 ContextMenuGrid SynthUiModel::BuildSoundMenu(const ISynthEngine* engine) const
 {
   (void)engine;
+
+  if (presetBrowserMode_)
+  {
+    return ContextMenuGrid{
+        MakeActionCell(presetSearchText_.empty() ? "BACK" : "DEL",
+                       presetSearchText_.empty() ? ContextActionId::Back : ContextActionId::PresetDelete),
+        MakeActionCell("PREV", ContextActionId::PresetPrev),
+        MakeActionCell("NEXT", ContextActionId::PresetNext),
+        MakeActionCell("LOAD", ContextActionId::PresetLoad),
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+    };
+  }
+
+  if (enginePickerMode_)
+  {
+    return ContextMenuGrid{
+        MakeActionCell("RESET", ContextActionId::EngineReset),
+        MakeActionCell("PREV", ContextActionId::EnginePrev),
+        MakeActionCell("NEXT", ContextActionId::EngineNext),
+        MakeActionCell("LOAD", ContextActionId::EngineLoad),
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+    };
+  }
+
   return ContextMenuGrid{
       MakeItemCell("ENGINE", "snd.engine"),
       MakeItemCell("PRESET", "snd.preset"),
@@ -1175,7 +1525,6 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
           MakeItemCell("GLB", "par.dx7.group.glb"),
       };
     }
-
     constexpr std::size_t kPageCapacity = 6;
     ContextMenuGrid menu = BlankGrid();
     const auto parameters = CollectDx7GroupParameters(engine, selectedParameterGroupId_);

@@ -499,7 +499,7 @@ private:
       }
 
       const auto position = PositionForIndex(index);
-      if (position.column < synth::kContextMenuFirstColumn)
+      if (!IsMenuKey(position.row, position.column))
       {
         dragMenuIndex_ = -1;
         return;
@@ -572,9 +572,27 @@ private:
     return "Home mode: left column switches tracks or opens modifiers, the center 12 keys perform, and the right column is reserved for home actions.";
   }
 
+  std::size_t ContextMenuFirstColumn() const
+  {
+    return synthApp_->Ui().ContextMenuColumnCount() == 1 ? synth::kHomeRightBarColumn : synth::kContextMenuFirstColumn;
+  }
+
+  std::size_t ContextMenuColumnIndex(std::size_t column) const
+  {
+    return column - ContextMenuFirstColumn();
+  }
+
   bool IsMenuKey(std::size_t row, std::size_t column) const
   {
-    return synthApp_->Ui().Mode() == synth::UiMode::ContextMenu && column >= synth::kContextMenuFirstColumn;
+    (void)row;
+    if (synthApp_->Ui().Mode() != synth::UiMode::ContextMenu)
+    {
+      return false;
+    }
+
+    const std::size_t firstColumn = ContextMenuFirstColumn();
+    const std::size_t columns = synthApp_->Ui().ContextMenuColumnCount();
+    return column >= firstColumn && column < firstColumn + columns;
   }
 
   bool IsHomeRightBarKey(std::size_t column) const
@@ -602,7 +620,7 @@ private:
 
     if (IsMenuKey(position.row, position.column))
     {
-      return synthApp_->Ui().IsMenuCellActive(position.row, position.column - synth::kContextMenuFirstColumn) ? RGB(0, 76, 86) : RGB(14, 20, 24);
+      return synthApp_->Ui().IsMenuCellActive(position.row, ContextMenuColumnIndex(position.column)) ? RGB(0, 76, 86) : RGB(14, 20, 24);
     }
 
     return kKeyColor;
@@ -626,7 +644,7 @@ private:
       return kPanelEdgeColor;
     }
 
-    if (IsMenuKey(position.row, position.column) && synthApp_->Ui().IsMenuCellActive(position.row, position.column - synth::kContextMenuFirstColumn))
+    if (IsMenuKey(position.row, position.column) && synthApp_->Ui().IsMenuCellActive(position.row, ContextMenuColumnIndex(position.column)))
     {
       return kScreenGlowColor;
     }
@@ -654,7 +672,7 @@ private:
 
     if (IsMenuKey(position.row, position.column))
     {
-      return synthApp_->Ui().IsMenuCellActive(position.row, position.column - synth::kContextMenuFirstColumn) ? kLedOnColor : kAccentDimColor;
+      return synthApp_->Ui().IsMenuCellActive(position.row, ContextMenuColumnIndex(position.column)) ? kLedOnColor : kAccentDimColor;
     }
 
     return kLedOffColor;

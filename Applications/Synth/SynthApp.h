@@ -30,9 +30,12 @@ public:
   const synth::SynthUiModel& Ui() const { return ui_; }
 
 private:
+  void ApplyPendingUiActions();
   synth::ISynthEngine* ActiveEngineMutable();
   const synth::ISynthEngine* ActiveEngine() const;
+  void SwitchTrackEngine(std::size_t trackIndex, synth::SynthEngineKind kind);
   void SyncUiTracks();
+  void ReleaseTrackPerformanceKeys(std::size_t trackIndex);
   void PressPerformanceKey(std::size_t row, std::size_t col);
   void ReleasePerformanceKey(std::size_t row, std::size_t col);
 

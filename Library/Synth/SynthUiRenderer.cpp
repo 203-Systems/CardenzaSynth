@@ -786,10 +786,9 @@ void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiS
   const ui::Color text = FadeColor(kText, alpha);
   const ui::Color divider = FadeColor(kDivider, alpha);
 
-  canvas.DrawText(rect.x + 10, rect.y + 10, TruncateText(canvas, snapshot.headerPrimary, rect.width - 20, 1), accent, 1);
-
   if (!snapshot.showSecondaryText)
   {
+    canvas.DrawText(rect.x + 10, rect.y + 10, TruncateText(canvas, snapshot.headerPrimary, rect.width - 20, 1), accent, 1);
     canvas.DrawTextInRect(MakeRect(rect.x + 10, rect.y + 34, rect.width - 20, 34),
                           TruncateText(canvas, snapshot.primaryText, rect.width - 20, 3),
                           text,
@@ -798,6 +797,44 @@ void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiS
                           ui::VerticalAlign::Middle);
     return;
   }
+
+  if (snapshot.showPresetBrowser)
+  {
+    canvas.DrawText(rect.x + 10, rect.y + 10, TruncateText(canvas, snapshot.primaryText, rect.width - 20, 2), accent, 2);
+    canvas.DrawLine(rect.x + 10, rect.y + 34, rect.x + rect.width - 26, rect.y + 34, divider);
+
+    const int lineScale = 1;
+    const int lineHeight = canvas.FontHeight(lineScale) + 2;
+    int lineY = rect.y + 42;
+    std::size_t start = 0;
+    for (int lineIndex = 0; lineIndex < 7 && start <= snapshot.secondaryText.size(); ++lineIndex)
+    {
+      const std::size_t newline = snapshot.secondaryText.find('\n', start);
+      const std::string encodedLine = newline == std::string::npos
+                                          ? snapshot.secondaryText.substr(start)
+                                          : snapshot.secondaryText.substr(start, newline - start);
+      const bool selected = !encodedLine.empty() && encodedLine.front() == '>';
+      const std::string line = !encodedLine.empty() && (encodedLine.front() == '>' || encodedLine.front() == ' ')
+                                   ? encodedLine.substr(1)
+                                   : encodedLine;
+      const ui::Color lineColor = selected ? accent : text;
+      canvas.DrawText(rect.x + 10,
+                      lineY,
+                      TruncateText(canvas, line, rect.width - 20, lineScale),
+                      lineColor,
+                      lineScale);
+      if (newline == std::string::npos)
+      {
+        break;
+      }
+
+      start = newline + 1;
+      lineY += lineHeight;
+    }
+    return;
+  }
+
+  canvas.DrawText(rect.x + 10, rect.y + 10, TruncateText(canvas, snapshot.headerPrimary, rect.width - 20, 1), accent, 1);
 
   canvas.DrawTextInRect(MakeRect(rect.x + 10, rect.y + 30, rect.width - 20, 24),
                         TruncateText(canvas, snapshot.primaryText, rect.width - 20, 2),

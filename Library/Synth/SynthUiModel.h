@@ -18,6 +18,15 @@ enum class MenuCellType {
 
 enum class ContextActionId {
   None,
+  EngineNext,
+  EnginePrev,
+  EngineReset,
+  EngineLoad,
+  PresetLoad,
+  PresetPrev,
+  PresetNext,
+  PresetDelete,
+  PresetClear,
   ParameterDecLarge,
   ParameterDecSmall,
   ParameterIncSmall,
@@ -76,6 +85,7 @@ struct UiScreenSnapshot {
   std::string primaryText;
   std::string secondaryText;
   std::string focusItemId;
+  bool showPresetBrowser = false;
   bool showSecondaryText = false;
   int dx7Algorithm = 0;
   int dx7Feedback = 0;
@@ -135,6 +145,7 @@ public:
   ContextMenuGrid CurrentMenuCells(const ISynthEngine* engine) const;
   std::size_t ContextMenuColumnCount() const;
   UiScreenSnapshot CurrentScreenSnapshot(const ISynthEngine* engine) const;
+  bool ConsumePendingEngineKind(SynthEngineKind& kind);
   const UiTransitionSnapshot& Transition() const { return transition_; }
   bool IsModifierHighlighted(std::size_t row) const;
   bool IsMenuCellActive(std::size_t row, std::size_t col) const;
@@ -160,6 +171,8 @@ private:
   void ClearContextSelection();
   void HighlightMenuIndex(std::size_t index);
   void SelectStatus(const std::string& label, const std::string& value, const std::string& itemId = "");
+  void EnterEnginePicker();
+  void EnterPresetBrowser(const ISynthEngine* engine);
   void EnterParameterAdjustMode(const SynthParameterInfo& parameter, std::size_t menuIndex);
   void ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& cell, std::size_t index);
   std::size_t PageCountForModifier(const ISynthEngine* engine) const;
@@ -197,6 +210,15 @@ private:
   std::string selectedValueText_;
   int selectedParameterEntryValue_ = 0;
   std::string selectedParameterGroupId_;
+  int heldContextMenuIndex_ = -1;
+  bool enginePickerMode_ = false;
+  SynthEngineKind enginePickerInitialKind_ = SynthEngineKind::None;
+  SynthEngineKind enginePickerPreviewKind_ = SynthEngineKind::None;
+  bool hasPendingEngineKind_ = false;
+  SynthEngineKind pendingEngineKind_ = SynthEngineKind::None;
+  bool presetBrowserMode_ = false;
+  std::string presetSearchText_;
+  std::size_t presetBrowserSelectionIndex_ = 0;
   bool contextLatched_ = false;
   UiTransitionSnapshot transition_{};
 };

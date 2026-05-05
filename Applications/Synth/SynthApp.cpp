@@ -84,6 +84,7 @@ void SynthApp::HandleMatrixKeyEvent(std::size_t row, std::size_t col, bool press
 
 synth::MatrixKeyHandling SynthApp::PressMatrixKey(std::size_t row, std::size_t col) {
   const auto handling = ui_.PressMatrixKey(ActiveEngineMutable(), row, col);
+  ApplyPendingUiActions();
   SyncUiTracks();
   if (handling == synth::MatrixKeyHandling::PerformanceKey)
   {
@@ -108,6 +109,15 @@ void SynthApp::ReleaseMatrixKey(std::size_t row, std::size_t col) {
   ReleasePerformanceKey(row, col);
 }
 
+void SynthApp::ApplyPendingUiActions()
+{
+  synth::SynthEngineKind nextEngineKind = synth::SynthEngineKind::None;
+  if (ui_.ConsumePendingEngineKind(nextEngineKind))
+  {
+    SwitchTrackEngine(ui_.ActiveTrack(), nextEngineKind);
+  }
+}
+
 synth::ISynthEngine* SynthApp::ActiveEngineMutable() {
   const std::size_t trackIndex = ui_.ActiveTrack();
   return trackIndex < synth::kSynthTrackCount ? rack_.Slot(trackIndex).engine.get() : nullptr;
@@ -118,10 +128,44 @@ const synth::ISynthEngine* SynthApp::ActiveEngine() const {
   return trackIndex < synth::kSynthTrackCount ? rack_.Slot(trackIndex).engine.get() : nullptr;
 }
 
+void SynthApp::SwitchTrackEngine(std::size_t trackIndex, synth::SynthEngineKind kind)
+{
+  if (trackIndex >= synth::kSynthTrackCount || rack_.Slot(trackIndex).kind == kind)
+  {
+    return;
+  }
+
+  ReleaseTrackPerformanceKeys(trackIndex);
+  (void)rack_.AttachEngine(trackIndex, kind);
+}
+
 void SynthApp::SyncUiTracks() {
   for (std::size_t index = 0; index < synth::kSynthTrackCount; ++index)
   {
     ui_.SyncTrackState(index, rack_.Slot(index).engine.get());
+  }
+}
+
+void SynthApp::ReleaseTrackPerformanceKeys(std::size_t trackIndex)
+{
+  if (trackIndex >= activeKeys_.size())
+  {
+    return;
+  }
+
+  for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
+  {
+    for (std::size_t col = synth::kHomePerformanceFirstColumn; col <= synth::kHomePerformanceLastColumn; ++col)
+    {
+      const std::size_t keyIndex = KeyIndex(row, col);
+      if (!activeKeys_[trackIndex][keyIndex])
+      {
+        continue;
+      }
+
+      activeKeys_[trackIndex][keyIndex] = false;
+      os::midi::Send(midi::MidiPacket::NoteOff(0, synth::HomePerformanceMidiNote(row, col), 0), rack_.PortForTrack(trackIndex));
+    }
   }
 }
 
