@@ -456,8 +456,12 @@ private:
     {
       if (PointInRect(keyButtons_[index], point))
       {
+        const auto position = PositionForIndex(index);
         const auto handling = HandleVirtualKeyDown(index);
-        if (handling == synth::MatrixKeyHandling::ModifierHold || handling == synth::MatrixKeyHandling::PerformanceKey)
+        if (handling == synth::MatrixKeyHandling::ModifierHold ||
+            handling == synth::MatrixKeyHandling::PerformanceKey ||
+            handling == synth::MatrixKeyHandling::MenuAction ||
+            position.column == synth::kHomeRightBarColumn)
         {
           SetCapture(hwnd_);
           capturedKey_ = static_cast<int>(index);

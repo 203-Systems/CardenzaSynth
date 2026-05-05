@@ -179,6 +179,7 @@ private:
 
   std::array<TrackState, kSynthTrackCount> tracks_{};
   std::array<bool, kKeyboardMatrixRows> heldModifiers_{};
+  std::array<bool, kKeyboardMatrixRows> heldHomeActionRows_{};
   std::array<bool, kKeyboardMatrixRows> modifierContextActivated_{};
   std::array<std::chrono::steady_clock::time_point, kKeyboardMatrixRows> modifierPressStartedAt_{};
   std::size_t activeTrack_ = 0;

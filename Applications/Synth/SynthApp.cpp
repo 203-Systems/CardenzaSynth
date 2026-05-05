@@ -93,7 +93,12 @@ synth::MatrixKeyHandling SynthApp::PressMatrixKey(std::size_t row, std::size_t c
 }
 
 void SynthApp::ReleaseMatrixKey(std::size_t row, std::size_t col) {
-  if (col == synth::kHomeLeftBarColumn)
+  const std::size_t contextMenuColumns = ui_.ContextMenuColumnCount();
+  const std::size_t contextMenuFirstColumn = contextMenuColumns == 1 ? synth::kHomeRightBarColumn : synth::kContextMenuFirstColumn;
+  const bool isContextMenuKey = ui_.Mode() == synth::UiMode::ContextMenu &&
+                                col >= contextMenuFirstColumn &&
+                                col < contextMenuFirstColumn + contextMenuColumns;
+  if (col == synth::kHomeLeftBarColumn || col == synth::kHomeRightBarColumn || isContextMenuKey)
   {
     ui_.ReleaseMatrixKey(ActiveEngine(), row, col);
     SyncUiTracks();

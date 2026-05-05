@@ -457,13 +457,18 @@ MatrixKeyHandling SynthUiModel::PressMatrixKey(ISynthEngine* engine, std::size_t
 
   if (mode_ == UiMode::Home && col == kHomeRightBarColumn)
   {
+    heldHomeActionRows_[row] = true;
     return MatrixKeyHandling::Ignored;
   }
 
-  if (mode_ == UiMode::ContextMenu && col >= kContextMenuFirstColumn)
+  const std::size_t contextMenuColumns = ContextMenuColumnCount();
+  const std::size_t contextMenuFirstColumn = contextMenuColumns == 1 ? kHomeRightBarColumn : kContextMenuFirstColumn;
+  if (mode_ == UiMode::ContextMenu &&
+      col >= contextMenuFirstColumn &&
+      col < contextMenuFirstColumn + contextMenuColumns)
   {
     const auto menu = CurrentMenuCells(engine);
-    const std::size_t menuIndex = ContextMenuColumnCount() == 1 ? row : row * kContextMenuColumns + (col - kContextMenuFirstColumn);
+    const std::size_t menuIndex = contextMenuColumns == 1 ? row : row * kContextMenuColumns + (col - contextMenuFirstColumn);
     if (menuIndex < menu.size())
     {
       ApplyMenuCell(engine, menu[menuIndex], menuIndex);
@@ -481,7 +486,28 @@ MatrixKeyHandling SynthUiModel::PressMatrixKey(ISynthEngine* engine, std::size_t
 
 void SynthUiModel::ReleaseMatrixKey(const ISynthEngine* engine, std::size_t row, std::size_t col)
 {
-  if (row >= kKeyboardMatrixRows || col != kHomeLeftBarColumn || !heldModifiers_[row])
+  if (row >= kKeyboardMatrixRows)
+  {
+    return;
+  }
+
+  const std::size_t contextMenuColumns = ContextMenuColumnCount();
+  const std::size_t contextMenuFirstColumn = contextMenuColumns == 1 ? kHomeRightBarColumn : kContextMenuFirstColumn;
+  if (mode_ == UiMode::ContextMenu &&
+      col >= contextMenuFirstColumn &&
+      col < contextMenuFirstColumn + contextMenuColumns)
+  {
+    hasMenuHighlight_ = false;
+    return;
+  }
+
+  if (col == kHomeRightBarColumn)
+  {
+    heldHomeActionRows_[row] = false;
+    return;
+  }
+
+  if (col != kHomeLeftBarColumn || !heldModifiers_[row])
   {
     return;
   }
@@ -685,7 +711,8 @@ UiBarSnapshot SynthUiModel::BuildModifierBarSnapshot(UiModifier highlightedModif
   for (std::size_t row = 0; row < kModifierBarLabels.size(); ++row)
   {
     items[row].label = kModifierBarLabels[row];
-    items[row].active = highlightedModifier != UiModifier::None && row == RowForModifier(highlightedModifier);
+    items[row].active = heldModifiers_[row] ||
+                        (highlightedModifier != UiModifier::None && row == RowForModifier(highlightedModifier));
   }
   return items;
 }
@@ -696,6 +723,7 @@ UiBarSnapshot SynthUiModel::BuildHomeActionBarSnapshot() const
   for (std::size_t row = 0; row < kHomeActionBarIcons.size(); ++row)
   {
     items[row].icon = kHomeActionBarIcons[row];
+    items[row].active = heldHomeActionRows_[row];
   }
   return items;
 }
