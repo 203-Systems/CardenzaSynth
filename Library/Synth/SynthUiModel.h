@@ -34,6 +34,9 @@ enum class ContextActionId {
   ParameterMin,
   ParameterMax,
   ParameterReset,
+  JunoChorusOff,
+  JunoChorusI,
+  JunoChorusII,
   Back,
   SavePreset,
   SavePresetAs,
@@ -89,6 +92,24 @@ struct UiScreenSnapshot {
   bool showSecondaryText = false;
   int dx7Algorithm = 0;
   int dx7Feedback = 0;
+  int junoDcoRange = 1;
+  int junoDcoPwm = 0;
+  int junoDcoSub = 0;
+  int junoDcoNoise = 0;
+  int junoDcoSaw = 0;
+  int junoVcfCutoff = 0;
+  int junoVcfResonance = 0;
+  int junoVcfEnv = 0;
+  int junoVcfLfo = 0;
+  int junoHpfMode = 0;
+  int junoVcaLevel = 0;
+  int junoEnvAttack = 0;
+  int junoEnvDecay = 0;
+  int junoEnvSustain = 0;
+  int junoEnvRelease = 0;
+  int junoLfoRate = 0;
+  int junoLfoDelay = 0;
+  int junoChorusMode = 0;
   float looperProgress = 0.0f;
   UiBarSnapshot leftBarItems{};
   bool leftBarVisible = true;
