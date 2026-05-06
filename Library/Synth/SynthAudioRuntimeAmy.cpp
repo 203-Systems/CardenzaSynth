@@ -17,27 +17,27 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if __has_include(<unistd.h>)
+#if !defined(_WIN32)
 #include <unistd.h>
 #endif
 
-#if __has_include(<pthread.h>)
+#if !defined(_WIN32)
 #include <pthread.h>
 #endif
 
-#if __has_include(<esp_heap_caps.h>)
+#if defined(ESP_PLATFORM)
 #include <esp_heap_caps.h>
 #endif
 
-#if __has_include(<driver/uart.h>)
+#if defined(ESP_PLATFORM)
 #include <driver/uart.h>
 #endif
 
-#if __has_include(<soc/uart_reg.h>)
+#if defined(ESP_PLATFORM)
 #include <soc/uart_reg.h>
 #endif
 
-#if __has_include(<esp_task.h>)
+#if defined(ESP_PLATFORM)
 #include <esp_task.h>
 #endif
 
