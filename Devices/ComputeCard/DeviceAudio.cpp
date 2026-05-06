@@ -4,11 +4,10 @@
 #include <cstdint>
 #include <mutex>
 
-#include "Devices/ComputeCard/main/hal/computecard/audio/audio.h"
+#include "audio/audio.h"
 #include "Library/Synth/SynthAudioRuntime.h"
 
-#if __has_include(<driver/i2s_std.h>) && __has_include(<freertos/FreeRTOS.h>) && __has_include(<freertos/task.h>)
-#include <driver/i2s_std.h>
+#if defined(ESP_PLATFORM)
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #endif
@@ -17,9 +16,11 @@ namespace device {
 
 namespace {
 
-#if __has_include(<driver/i2s_std.h>) && __has_include(<freertos/FreeRTOS.h>) && __has_include(<freertos/task.h>)
+#if defined(ESP_PLATFORM)
 
 constexpr std::size_t kRenderFrameCount = 256;
+constexpr BaseType_t kAudioTaskPinnedCore = 1;
+constexpr UBaseType_t kAudioTaskPriority = 6;
 std::mutex g_audioPumpMutex;
 TaskHandle_t g_audioPumpTask = nullptr;
 
@@ -31,15 +32,14 @@ void ResetAudioPumpState()
 
 void AudioRenderTask(void*)
 {
-  i2s_chan_handle_t channel = ComputeCardHAL::Audio::GetAudioChannel();
-  if (channel == nullptr)
+  if (!ComputeCardHAL::Audio::EnableOutput())
   {
     ResetAudioPumpState();
     vTaskDelete(nullptr);
     return;
   }
 
-  if (i2s_channel_enable(channel) != ESP_OK)
+  if (!ComputeCardHAL::Audio::NotifyOutputClockStarted())
   {
     ResetAudioPumpState();
     vTaskDelete(nullptr);
@@ -59,12 +59,12 @@ void AudioRenderTask(void*)
       }
     }
 
-    std::size_t bytesWritten = 0;
-    (void)i2s_channel_write(channel,
-                            buffer.data(),
-                            buffer.size() * sizeof(std::int16_t),
-                            &bytesWritten,
-                            portMAX_DELAY);
+    if (!ComputeCardHAL::Audio::WriteOutputFrames(buffer.data(), buffer.size()))
+    {
+      ResetAudioPumpState();
+      vTaskDelete(nullptr);
+      return;
+    }
   }
 }
 
@@ -76,13 +76,19 @@ bool EnsureAudioPumpStarted()
   {
     return true;
   }
-  if (ComputeCardHAL::Audio::Init() != ESP_OK || ComputeCardHAL::Audio::GetAudioChannel() == nullptr)
+  if (!ComputeCardHAL::Audio::Init() || !ComputeCardHAL::Audio::IsOutputReady())
   {
     return false;
   }
 
   TaskHandle_t taskHandle = nullptr;
-  if (xTaskCreate(AudioRenderTask, "synth_audio", 4096, nullptr, 5, &taskHandle) != pdPASS)
+  BaseType_t created = pdFAIL;
+#if portNUM_PROCESSORS > 1
+  created = xTaskCreatePinnedToCore(AudioRenderTask, "synth_audio", 4096, nullptr, kAudioTaskPriority, &taskHandle, kAudioTaskPinnedCore);
+#else
+  created = xTaskCreate(AudioRenderTask, "synth_audio", 4096, nullptr, kAudioTaskPriority, &taskHandle);
+#endif
+  if (created != pdPASS)
   {
     return false;
   }
@@ -95,7 +101,7 @@ bool EnsureAudioPumpStarted()
 
 bool EnsureAudioPumpStarted()
 {
-  return ComputeCardHAL::Audio::GetAudioChannel() != nullptr;
+  return ComputeCardHAL::Audio::IsOutputReady();
 }
 
 #endif
@@ -107,8 +113,8 @@ SynthAudioPipelineBinding ConnectSynthAudioPipeline(std::size_t engineIndex) {
   binding.engineIndex = engineIndex;
   binding.backendName = "computecard-i2s";
 
-  const esp_err_t status = ComputeCardHAL::Audio::Init();
-  binding.hasNativeOutput = status == ESP_OK && EnsureAudioPumpStarted();
+  const bool status = ComputeCardHAL::Audio::Init();
+  binding.hasNativeOutput = status && EnsureAudioPumpStarted();
   binding.connected = binding.hasNativeOutput;
   return binding;
 }

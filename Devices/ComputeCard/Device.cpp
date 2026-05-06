@@ -2,9 +2,7 @@
 
 #include <array>
 
-#include "Devices/ComputeCard/main/hal/computecard/computecardHAL.h"
-#include "Devices/ComputeCard/main/hal/computecard/display/display.h"
-#include "Devices/ComputeCard/main/hal/computecard/keyboard/keyboard.h"
+#include "computecardHAL.h"
 
 namespace {
 
@@ -29,7 +27,7 @@ void Clear(Pixel color) {
 }
 
 void Present() {
-#if __has_include(<esp_lcd_panel_ops.h>)
+#if defined(ESP_PLATFORM)
   (void)ComputeCardHAL::Display::PresentFrame(frameBuffer.data(), kWidth, kHeight);
 #endif
 }
@@ -65,7 +63,7 @@ std::string BackendName() {
 }
 
 bool Init() {
-  return ComputeCardHAL::Init() == ESP_OK;
+  return ComputeCardHAL::Init();
 }
 
 void Start() {}

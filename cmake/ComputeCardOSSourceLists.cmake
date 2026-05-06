@@ -66,17 +66,23 @@ endfunction()
 
 function(ccos_collect_computecard_hal_cpp_sources root_dir out_var)
     set(sources
-        ${root_dir}/Devices/ComputeCard/main/hal/computecard/computecardHAL.cpp
-        ${root_dir}/Devices/ComputeCard/main/hal/keyboard/keyboard.cpp
-        ${root_dir}/Devices/ComputeCard/main/hal/computecard/audio/audio.cpp
-        ${root_dir}/Devices/ComputeCard/main/hal/computecard/audio/codec/es8156.cpp
-        ${root_dir}/Devices/ComputeCard/main/hal/computecard/display/display.cpp
-        ${root_dir}/Devices/ComputeCard/main/hal/computecard/ir/ir.cpp
-        ${root_dir}/Devices/ComputeCard/main/hal/computecard/keyboard/keyboard.cpp
-        ${root_dir}/Devices/ComputeCard/main/hal/computecard/mic/mic.cpp
-        ${root_dir}/Devices/ComputeCard/main/hal/computecard/storage/storage.cpp
-        ${root_dir}/Devices/ComputeCard/main/hal/computecard/system/system.cpp
+        ${root_dir}/Devices/ComputeCard/computecard/computecardHAL.cpp
+        ${root_dir}/Devices/ComputeCard/computecard/keyboard/legacy/keyboard.cpp
+        ${root_dir}/Devices/ComputeCard/computecard/audio/audio.cpp
+        ${root_dir}/Devices/ComputeCard/computecard/audio/codec/es8156.cpp
+        ${root_dir}/Devices/ComputeCard/computecard/display/display.cpp
+        ${root_dir}/Devices/ComputeCard/computecard/ir/ir.cpp
+        ${root_dir}/Devices/ComputeCard/computecard/keyboard/keyboard.cpp
+        ${root_dir}/Devices/ComputeCard/computecard/mic/mic.cpp
+        ${root_dir}/Devices/ComputeCard/computecard/system/system.cpp
     )
+
+    if(DEFINED COMPONENT_DIR)
+        list(APPEND sources
+            ${root_dir}/Devices/ComputeCard/computecard/storage/storage.cpp
+        )
+    endif()
+
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 

@@ -1,26 +1,96 @@
-add_subdirectory(main/hal)
+cmake_minimum_required(VERSION 3.20)
 
-ccos_collect_computecard_device_audio_cpp_sources(${PROJECT_SOURCE_DIR} computecard_device_audio_sources)
-target_sources(ComputeCardDeviceAudio PRIVATE
-    ${computecard_device_audio_sources}
-)
+get_filename_component(CCOS_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(CCOS_CARDPUTER_FIRMWARE_BUILD_DIR "${CCOS_ROOT}/build/Cardputer")
+set(CCOS_CARDPUTER_IDF_PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}")
+set(CCOS_CARDPUTER_IDF_EXPORT_PS1 "C:/espressif/v5.3.4/export.ps1")
+set(CCOS_CARDPUTER_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe")
 
-target_link_libraries(ComputeCardDeviceAudio PUBLIC
-    ComputeCardHAL
-)
+if(DEFINED COMPONENT_DIR)
+    set(AMY_SRC_DIR ${CCOS_ROOT}/third_party/amy/src)
+    include(${CCOS_ROOT}/cmake/ComputeCardOSSourceLists.cmake)
 
-add_library(ComputeCardDevice)
+    ccos_collect_common_cpp_sources(${CCOS_ROOT} CCOS_COMMON_CPP_SOURCES)
+    ccos_collect_computecard_firmware_cpp_sources(${CCOS_ROOT} CCOS_COMPUTECARD_FIRMWARE_CPP_SOURCES)
+    ccos_collect_amy_c_sources(${CCOS_ROOT} AMY_C_SOURCES)
 
-ccos_collect_computecard_device_cpp_sources(${PROJECT_SOURCE_DIR} computecard_device_sources)
-target_sources(ComputeCardDevice PRIVATE
-    ${computecard_device_sources}
-)
+    idf_component_register(
+        SRCS
+            ${CCOS_ROOT}/Devices/ComputeCard/app_main.cpp
+            ${CCOS_COMMON_CPP_SOURCES}
+            ${CCOS_COMPUTECARD_FIRMWARE_CPP_SOURCES}
+            ${AMY_C_SOURCES}
+        INCLUDE_DIRS
+            ${CCOS_ROOT}
+            ${CMAKE_CURRENT_LIST_DIR}/computecard
+            ${AMY_SRC_DIR}
+        REQUIRES
+            driver
+            esp_lcd
+            esp_rom
+            esp_timer
+            fatfs
+            freertos
+            log
+            pthread
+            sdmmc
+            vfs
+    )
 
-target_include_directories(ComputeCardDevice PUBLIC
-    ${PROJECT_SOURCE_DIR}
-)
+    target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
+    set_property(TARGET ${COMPONENT_LIB} PROPERTY C_STANDARD 11)
+    set_property(TARGET ${COMPONENT_LIB} PROPERTY C_STANDARD_REQUIRED ON)
 
-target_link_libraries(ComputeCardDevice PUBLIC
-    ComputeCardDeviceInterface
-    ComputeCardHAL
-)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        AMY_WAVETABLE
+        AMY_NO_MINIAUDIO
+    )
+
+    target_compile_options(${COMPONENT_LIB} PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:-Wno-unused-parameter>
+        $<$<COMPILE_LANGUAGE:C>:-Wno-sign-compare>
+        $<$<COMPILE_LANGUAGE:C>:-Wno-missing-field-initializers>
+        $<$<COMPILE_LANGUAGE:C>:-Wno-float-conversion>
+        $<$<COMPILE_LANGUAGE:C>:-Wno-int-to-pointer-cast>
+        $<$<COMPILE_LANGUAGE:C>:-Wno-pointer-to-int-cast>
+    )
+elseif(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}")
+    include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+    project(ComputeCardOSFirmware)
+else()
+    add_subdirectory(computecard)
+
+    ccos_collect_computecard_device_audio_cpp_sources(${PROJECT_SOURCE_DIR} computecard_device_audio_sources)
+    target_sources(ComputeCardDeviceAudio PRIVATE
+        ${computecard_device_audio_sources}
+    )
+
+    target_link_libraries(ComputeCardDeviceAudio PUBLIC
+        ComputeCardHAL
+    )
+
+    add_library(ComputeCardDevice)
+
+    ccos_collect_computecard_device_cpp_sources(${PROJECT_SOURCE_DIR} computecard_device_sources)
+    target_sources(ComputeCardDevice PRIVATE
+        ${computecard_device_sources}
+    )
+
+    target_include_directories(ComputeCardDevice PUBLIC
+        ${PROJECT_SOURCE_DIR}
+    )
+
+    target_link_libraries(ComputeCardDevice PUBLIC
+        ComputeCardDeviceInterface
+        ComputeCardHAL
+    )
+
+    if(WIN32 AND EXISTS "${CCOS_CARDPUTER_IDF_EXPORT_PS1}")
+        add_custom_target(CardputerFirmware
+            COMMAND ${CCOS_CARDPUTER_POWERSHELL_EXE} -NoProfile -ExecutionPolicy Bypass -Command "& '${CCOS_CARDPUTER_IDF_EXPORT_PS1}'; Set-Location '${CCOS_CARDPUTER_IDF_PROJECT_DIR}'; idf.py -B '${CCOS_CARDPUTER_FIRMWARE_BUILD_DIR}' build"
+            USES_TERMINAL
+            COMMENT "Build ComputeCard firmware into build/Cardputer"
+        )
+    endif()
+endif()

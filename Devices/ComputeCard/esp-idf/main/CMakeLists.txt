@@ -8,7 +8,7 @@ ccos_collect_amy_c_sources(${CCOS_ROOT} AMY_C_SOURCES)
 
 idf_component_register(
     SRCS
-        app_main.cpp
+        ${CCOS_ROOT}/Devices/ComputeCard/app_main.cpp
         ${CCOS_COMMON_CPP_SOURCES}
         ${CCOS_COMPUTECARD_FIRMWARE_CPP_SOURCES}
         ${AMY_C_SOURCES}
