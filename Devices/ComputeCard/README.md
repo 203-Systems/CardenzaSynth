@@ -4,6 +4,18 @@ ComputeCard is now the ESP-IDF project root.
 
 ## Build
 
+From the repository root, the Makefile now exposes the same flow:
+
+```powershell
+make DEVICE=ComputeCard set-target IDF_TARGET=esp32s3
+make DEVICE=ComputeCard build
+make DEVICE=ComputeCard flash PORT=COM5
+make DEVICE=ComputeCard monitor PORT=COM5
+make DEVICE=ComputeCard flash-monitor PORT=COM5
+```
+
+Or run `idf.py` directly from the project root:
+
 From the repository root in PowerShell:
 
 ```powershell
