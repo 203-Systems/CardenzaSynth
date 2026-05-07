@@ -26,10 +26,12 @@ inline constexpr int kMicDataIn = 46;
 inline constexpr int kMicBck = -1;
 inline constexpr int kMicWs = 43;
 
-inline constexpr int kSdSpiSclk = 40;
-inline constexpr int kSdSpiMosi = 14;
-inline constexpr int kSdSpiMiso = 39;
-inline constexpr int kSdSpiCs = 12;
+inline constexpr int kSdClk = 40;
+inline constexpr int kSdCmd = 14;
+inline constexpr int kSdDat0 = 39;
+inline constexpr int kSdDat1 = 18;
+inline constexpr int kSdDat2 = 17;
+inline constexpr int kSdDat3 = 12;
 
 inline constexpr int kIrTx = 44;
 
