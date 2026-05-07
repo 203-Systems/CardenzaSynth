@@ -20,8 +20,12 @@ namespace {
 #if defined(ESP_PLATFORM)
 
 constexpr std::size_t kRenderFrameCount = 256;
+// Audio stays on core 1 so it does not contend with runtime/UI and keyboard work on core 0.
 constexpr BaseType_t kAudioTaskPinnedCore = 1;
 constexpr UBaseType_t kAudioTaskPriority = 6;
+// AMY's ESP render/fill tasks reserve 12-16 KiB; match that headroom here because
+// polyphonic render paths can consume substantially more stack than single-note cases.
+constexpr uint32_t kAudioTaskStackSize = 16 * 1024;
 constexpr char kLogTag[] = "ComputeCardAudio";
 std::mutex g_audioPumpMutex;
 TaskHandle_t g_audioPumpTask = nullptr;
@@ -93,9 +97,9 @@ bool EnsureAudioPumpStarted()
   TaskHandle_t taskHandle = nullptr;
   BaseType_t created = pdFAIL;
 #if portNUM_PROCESSORS > 1
-  created = xTaskCreatePinnedToCore(AudioRenderTask, "synth_audio", 4096, nullptr, kAudioTaskPriority, &taskHandle, kAudioTaskPinnedCore);
+  created = xTaskCreatePinnedToCore(AudioRenderTask, "synth_audio", kAudioTaskStackSize, nullptr, kAudioTaskPriority, &taskHandle, kAudioTaskPinnedCore);
 #else
-  created = xTaskCreate(AudioRenderTask, "synth_audio", 4096, nullptr, kAudioTaskPriority, &taskHandle);
+  created = xTaskCreate(AudioRenderTask, "synth_audio", kAudioTaskStackSize, nullptr, kAudioTaskPriority, &taskHandle);
 #endif
   if (created != pdPASS)
   {

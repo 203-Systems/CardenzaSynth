@@ -29,10 +29,11 @@ void ComputeCardRuntimeTask(void*)
              Device::Display::kWidth,
              Device::Display::kHeight);
 
+    TickType_t lastWakeTime = xTaskGetTickCount();
     for (;;)
     {
         os::system::RunFrame();
-        vTaskDelay(kFrameTick);
+        vTaskDelayUntil(&lastWakeTime, kFrameTick);
     }
 }
 

@@ -10,6 +10,8 @@ namespace synth {
 
 namespace {
 
+constexpr std::size_t kMaxMidiMessagesPerFrame = 24;
+
 int ClampToParameterRange(const SynthParameterInfo& parameter, int value)
 {
   return std::clamp(value, parameter.minValue, parameter.maxValue);
@@ -56,9 +58,11 @@ void PagedSynthEngine::DispatchPendingMessages()
   }
 
   midi::MidiPacket packet;
-  while (port_->Get(&packet))
+  std::size_t processed = 0;
+  while (processed < kMaxMidiMessagesPerFrame && port_->Get(&packet))
   {
     ProcessMidi(packet);
+    ++processed;
   }
 }
 

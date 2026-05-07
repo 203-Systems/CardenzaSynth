@@ -5,7 +5,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <mutex>
+#include <string>
 #include <string_view>
 
 #include <inttypes.h>
@@ -109,12 +111,32 @@ struct EngineState {
   std::uint64_t nextSamplerVoiceSerial = 1;
 };
 
+enum class PendingEventType {
+  EnsureEngine,
+  SetPreset,
+  SetParameter,
+  NoteOn,
+  NoteOff,
+  AllNotesOff,
+};
+
+struct PendingEvent {
+  PendingEventType type = PendingEventType::EnsureEngine;
+  std::size_t engineIndex = 0;
+  SynthEngineKind kind = SynthEngineKind::None;
+  std::uint8_t note = 0;
+  std::uint8_t velocity = 0;
+  int value = 0;
+  std::string text;
+};
+
 std::once_flag g_amyInitFlag;
 bool g_amyInitialized = false;
 std::array<EngineState, kSynthTrackCount> g_engines{};
 std::array<std::int16_t, kAmyFramesPerBlock * kAmyChannelCount> g_amyBlock{};
 std::size_t g_amyBlockCursor = kAmyFramesPerBlock;
-std::mutex g_mutex;
+std::deque<PendingEvent> g_pendingEvents;
+std::mutex g_pendingEventMutex;
 
 struct AmyShutdown {
   ~AmyShutdown()
@@ -261,6 +283,17 @@ void ReleaseAllAmyNotesNoLock(EngineState& engine)
   }
 }
 
+void ReleaseSamplerNoteNoLock(EngineState& engine, std::uint8_t note)
+{
+  for (SamplerVoice& voice : engine.samplerVoices)
+  {
+    if (voice.active && voice.note == note)
+    {
+      voice.releasing = true;
+    }
+  }
+}
+
 float JunoCutoffHz(int value)
 {
   return 30.0f * std::pow(2.0f, Normalize(value, 0, 127) * 8.5f);
@@ -386,6 +419,165 @@ void ResetEngineNoLock(EngineState& engine, std::size_t engineIndex, SynthEngine
   engine.patchNumber = DefaultPatchFor(kind);
 }
 
+void QueuePendingEvent(const PendingEvent& event)
+{
+  std::lock_guard<std::mutex> lock(g_pendingEventMutex);
+  g_pendingEvents.push_back(event);
+}
+
+void ApplyPendingEvent(const PendingEvent& event)
+{
+  if (event.engineIndex >= g_engines.size())
+  {
+    return;
+  }
+
+  EngineState& engine = g_engines[event.engineIndex];
+  switch (event.type)
+  {
+    case PendingEventType::EnsureEngine:
+      if (!engine.configured || engine.kind != event.kind)
+      {
+        ResetEngineNoLock(engine, event.engineIndex, event.kind);
+        if (UsesAmy(event.kind))
+        {
+          ConfigureAmySynthNoLock(engine);
+        }
+      }
+      break;
+    case PendingEventType::SetPreset:
+      if (!engine.configured)
+      {
+        return;
+      }
+
+      if (engine.kind == SynthEngineKind::Dx7)
+      {
+        engine.patchNumber = MapDx7Preset(event.text);
+        ConfigureAmySynthNoLock(engine);
+      }
+      else if (engine.kind == SynthEngineKind::Juno)
+      {
+        engine.patchNumber = MapJunoPreset(event.text);
+        ConfigureAmySynthNoLock(engine);
+      }
+      break;
+    case PendingEventType::SetParameter:
+      switch (engine.kind)
+      {
+        case SynthEngineKind::Dx7:
+          if (event.text == "global.transpose")
+          {
+            engine.noteOffset = event.value;
+          }
+          break;
+        case SynthEngineKind::Juno:
+          if (event.text == "dco.range")
+          {
+            engine.noteOffset = event.value == 0 ? -12 : (event.value == 2 ? 12 : 0);
+          }
+          else if (event.text == "vcf.cutoff")
+          {
+            engine.junoCutoff = event.value;
+            ApplyJunoControlsNoLock(engine);
+          }
+          else if (event.text == "vcf.resonance")
+          {
+            engine.junoResonance = event.value;
+            ApplyJunoControlsNoLock(engine);
+          }
+          break;
+        case SynthEngineKind::Sampler:
+          if (event.text == "sample.start") engine.sampler.sampleStart = event.value;
+          else if (event.text == "sample.end") engine.sampler.sampleEnd = event.value;
+          else if (event.text == "sample.loop") engine.sampler.sampleLoop = event.value;
+          else if (event.text == "sample.tune") engine.sampler.sampleTune = event.value;
+          else if (event.text == "env.attack") engine.sampler.attack = event.value;
+          else if (event.text == "env.release") engine.sampler.release = event.value;
+          else if (event.text == "filter.cutoff") engine.sampler.cutoff = event.value;
+          else if (event.text == "filter.resonance") engine.sampler.resonance = event.value;
+          else if (event.text == "fx.drive") engine.sampler.drive = event.value;
+          else if (event.text == "fx.send") engine.sampler.send = event.value;
+          else if (event.text == "amp.level") engine.sampler.level = event.value;
+          else if (event.text == "amp.pan") engine.sampler.pan = event.value;
+          break;
+        case SynthEngineKind::None:
+        default:
+          break;
+      }
+      break;
+    case PendingEventType::NoteOn:
+      if (!engine.configured || engine.kind == SynthEngineKind::None)
+      {
+        return;
+      }
+
+      if (UsesAmy(engine.kind))
+      {
+        EnsureAmyInitialized();
+        if (engine.activeNotes[event.note])
+        {
+          SendAmyNoteEventNoLock(engine, event.note, 0.0f);
+        }
+        SendAmyNoteEventNoLock(engine, event.note, std::clamp(static_cast<float>(event.velocity) / 127.0f, 0.0f, 1.0f));
+        engine.activeNotes[event.note] = true;
+        return;
+      }
+
+      {
+        ReleaseSamplerNoteNoLock(engine, event.note);
+        SamplerVoice& voice = AllocateSamplerVoice(engine);
+        voice.note = event.note;
+        voice.velocity = std::clamp(static_cast<float>(event.velocity) / 127.0f, 0.0f, 1.0f);
+      }
+      break;
+    case PendingEventType::NoteOff:
+      if (UsesAmy(engine.kind))
+      {
+        SendAmyNoteEventNoLock(engine, event.note, 0.0f);
+        engine.activeNotes[event.note] = false;
+        return;
+      }
+
+      ReleaseSamplerNoteNoLock(engine, event.note);
+      break;
+    case PendingEventType::AllNotesOff:
+      if (UsesAmy(engine.kind))
+      {
+        ReleaseAllAmyNotesNoLock(engine);
+        return;
+      }
+
+      for (SamplerVoice& voice : engine.samplerVoices)
+      {
+        voice.releasing = true;
+      }
+      break;
+  }
+}
+
+// UI and MIDI handlers enqueue state changes here so they do not block behind a
+// full AMY render while the audio task is generating the next block.
+void DrainPendingEvents()
+{
+  for (;;)
+  {
+    PendingEvent event;
+    {
+      std::lock_guard<std::mutex> lock(g_pendingEventMutex);
+      if (g_pendingEvents.empty())
+      {
+        return;
+      }
+
+      event = g_pendingEvents.front();
+      g_pendingEvents.pop_front();
+    }
+
+    ApplyPendingEvent(event);
+  }
+}
+
 }  // namespace
 
 void EnsureEngine(std::size_t engineIndex, SynthEngineKind kind)
@@ -395,16 +587,11 @@ void EnsureEngine(std::size_t engineIndex, SynthEngineKind kind)
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_mutex);
-  EngineState& engine = g_engines[engineIndex];
-  if (!engine.configured || engine.kind != kind)
-  {
-    ResetEngineNoLock(engine, engineIndex, kind);
-    if (UsesAmy(kind))
-    {
-      ConfigureAmySynthNoLock(engine);
-    }
-  }
+  PendingEvent event;
+  event.type = PendingEventType::EnsureEngine;
+  event.engineIndex = engineIndex;
+  event.kind = kind;
+  QueuePendingEvent(event);
 }
 
 void SetEnginePreset(std::size_t engineIndex, std::string_view presetId)
@@ -414,23 +601,11 @@ void SetEnginePreset(std::size_t engineIndex, std::string_view presetId)
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_mutex);
-  EngineState& engine = g_engines[engineIndex];
-  if (!engine.configured)
-  {
-    return;
-  }
-
-  if (engine.kind == SynthEngineKind::Dx7)
-  {
-    engine.patchNumber = MapDx7Preset(presetId);
-    ConfigureAmySynthNoLock(engine);
-  }
-  else if (engine.kind == SynthEngineKind::Juno)
-  {
-    engine.patchNumber = MapJunoPreset(presetId);
-    ConfigureAmySynthNoLock(engine);
-  }
+  PendingEvent event;
+  event.type = PendingEventType::SetPreset;
+  event.engineIndex = engineIndex;
+  event.text = presetId;
+  QueuePendingEvent(event);
 }
 
 void SetEngineParameter(std::size_t engineIndex, std::string_view parameterId, int value)
@@ -440,50 +615,12 @@ void SetEngineParameter(std::size_t engineIndex, std::string_view parameterId, i
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_mutex);
-  EngineState& engine = g_engines[engineIndex];
-  switch (engine.kind)
-  {
-    case SynthEngineKind::Dx7:
-      if (parameterId == "global.transpose")
-      {
-        engine.noteOffset = value;
-      }
-      break;
-    case SynthEngineKind::Juno:
-      if (parameterId == "dco.range")
-      {
-        engine.noteOffset = value == 0 ? -12 : (value == 2 ? 12 : 0);
-      }
-      else if (parameterId == "vcf.cutoff")
-      {
-        engine.junoCutoff = value;
-        ApplyJunoControlsNoLock(engine);
-      }
-      else if (parameterId == "vcf.resonance")
-      {
-        engine.junoResonance = value;
-        ApplyJunoControlsNoLock(engine);
-      }
-      break;
-    case SynthEngineKind::Sampler:
-      if (parameterId == "sample.start") engine.sampler.sampleStart = value;
-      else if (parameterId == "sample.end") engine.sampler.sampleEnd = value;
-      else if (parameterId == "sample.loop") engine.sampler.sampleLoop = value;
-      else if (parameterId == "sample.tune") engine.sampler.sampleTune = value;
-      else if (parameterId == "env.attack") engine.sampler.attack = value;
-      else if (parameterId == "env.release") engine.sampler.release = value;
-      else if (parameterId == "filter.cutoff") engine.sampler.cutoff = value;
-      else if (parameterId == "filter.resonance") engine.sampler.resonance = value;
-      else if (parameterId == "fx.drive") engine.sampler.drive = value;
-      else if (parameterId == "fx.send") engine.sampler.send = value;
-      else if (parameterId == "amp.level") engine.sampler.level = value;
-      else if (parameterId == "amp.pan") engine.sampler.pan = value;
-      break;
-    case SynthEngineKind::None:
-    default:
-      break;
-  }
+  PendingEvent event;
+  event.type = PendingEventType::SetParameter;
+  event.engineIndex = engineIndex;
+  event.value = value;
+  event.text = parameterId;
+  QueuePendingEvent(event);
 }
 
 void NoteOn(std::size_t engineIndex, std::uint8_t note, std::uint8_t velocity)
@@ -493,24 +630,12 @@ void NoteOn(std::size_t engineIndex, std::uint8_t note, std::uint8_t velocity)
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_mutex);
-  EngineState& engine = g_engines[engineIndex];
-  if (!engine.configured || engine.kind == SynthEngineKind::None)
-  {
-    return;
-  }
-
-  if (UsesAmy(engine.kind))
-  {
-    EnsureAmyInitialized();
-    SendAmyNoteEventNoLock(engine, note, std::clamp(static_cast<float>(velocity) / 127.0f, 0.0f, 1.0f));
-    engine.activeNotes[note] = true;
-    return;
-  }
-
-  SamplerVoice& voice = AllocateSamplerVoice(engine);
-  voice.note = note;
-  voice.velocity = std::clamp(static_cast<float>(velocity) / 127.0f, 0.0f, 1.0f);
+  PendingEvent event;
+  event.type = PendingEventType::NoteOn;
+  event.engineIndex = engineIndex;
+  event.note = note;
+  event.velocity = velocity;
+  QueuePendingEvent(event);
 }
 
 void NoteOff(std::size_t engineIndex, std::uint8_t note)
@@ -520,22 +645,11 @@ void NoteOff(std::size_t engineIndex, std::uint8_t note)
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_mutex);
-  EngineState& engine = g_engines[engineIndex];
-  if (UsesAmy(engine.kind))
-  {
-    SendAmyNoteEventNoLock(engine, note, 0.0f);
-    engine.activeNotes[note] = false;
-    return;
-  }
-
-  for (SamplerVoice& voice : engine.samplerVoices)
-  {
-    if (voice.active && voice.note == note)
-    {
-      voice.releasing = true;
-    }
-  }
+  PendingEvent event;
+  event.type = PendingEventType::NoteOff;
+  event.engineIndex = engineIndex;
+  event.note = note;
+  QueuePendingEvent(event);
 }
 
 void AllNotesOff(std::size_t engineIndex)
@@ -545,18 +659,10 @@ void AllNotesOff(std::size_t engineIndex)
     return;
   }
 
-  std::lock_guard<std::mutex> lock(g_mutex);
-  EngineState& engine = g_engines[engineIndex];
-  if (UsesAmy(engine.kind))
-  {
-    ReleaseAllAmyNotesNoLock(engine);
-    return;
-  }
-
-  for (SamplerVoice& voice : engine.samplerVoices)
-  {
-    voice.releasing = true;
-  }
+  PendingEvent event;
+  event.type = PendingEventType::AllNotesOff;
+  event.engineIndex = engineIndex;
+  QueuePendingEvent(event);
 }
 
 std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
@@ -567,7 +673,7 @@ std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
   }
 
   std::fill(destination, destination + frameCount, 0);
-  std::lock_guard<std::mutex> lock(g_mutex);
+  DrainPendingEvents();
 
   bool hasAmyEngines = false;
   for (const EngineState& engine : g_engines)
