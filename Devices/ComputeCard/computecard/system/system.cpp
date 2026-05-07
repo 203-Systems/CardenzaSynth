@@ -30,7 +30,7 @@ bool Init()
     busConfig.sda_io_num = static_cast<gpio_num_t>(Pins::kExternalI2cSda);
     busConfig.clk_source = I2C_CLK_SRC_DEFAULT;
     busConfig.glitch_ignore_cnt = 7;
-    busConfig.flags.enable_internal_pullup = false;
+    busConfig.flags.enable_internal_pullup = true;
 
     return i2c_new_master_bus(&busConfig, &i2cBus) == ESP_OK;
 #else

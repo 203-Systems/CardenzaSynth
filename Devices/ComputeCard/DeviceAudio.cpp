@@ -8,6 +8,7 @@
 #include "Library/Synth/SynthAudioRuntime.h"
 
 #if defined(ESP_PLATFORM)
+#include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #endif
@@ -21,6 +22,7 @@ namespace {
 constexpr std::size_t kRenderFrameCount = 256;
 constexpr BaseType_t kAudioTaskPinnedCore = 1;
 constexpr UBaseType_t kAudioTaskPriority = 6;
+constexpr char kLogTag[] = "ComputeCardAudio";
 std::mutex g_audioPumpMutex;
 TaskHandle_t g_audioPumpTask = nullptr;
 
@@ -34,6 +36,7 @@ void AudioRenderTask(void*)
 {
   if (!ComputeCardHAL::Audio::EnableOutput())
   {
+    ESP_LOGE(kLogTag, "failed to enable I2S output");
     ResetAudioPumpState();
     vTaskDelete(nullptr);
     return;
@@ -41,12 +44,14 @@ void AudioRenderTask(void*)
 
   if (!ComputeCardHAL::Audio::NotifyOutputClockStarted())
   {
+    ESP_LOGE(kLogTag, "codec/output clock notification failed");
     ResetAudioPumpState();
     vTaskDelete(nullptr);
     return;
   }
 
   std::array<std::int16_t, kRenderFrameCount> buffer{};
+  std::uint32_t renderedBlocks = 0;
   for (;;)
   {
     synth::audio::RenderFrames(buffer.data(), buffer.size());
@@ -61,10 +66,13 @@ void AudioRenderTask(void*)
 
     if (!ComputeCardHAL::Audio::WriteOutputFrames(buffer.data(), buffer.size()))
     {
+      ESP_LOGE(kLogTag, "I2S write failed after %" PRIu32 " rendered blocks", renderedBlocks);
       ResetAudioPumpState();
       vTaskDelete(nullptr);
       return;
     }
+
+    ++renderedBlocks;
   }
 }
 
@@ -78,6 +86,7 @@ bool EnsureAudioPumpStarted()
   }
   if (!ComputeCardHAL::Audio::Init() || !ComputeCardHAL::Audio::IsOutputReady())
   {
+    ESP_LOGW(kLogTag, "audio output not ready");
     return false;
   }
 
@@ -90,6 +99,7 @@ bool EnsureAudioPumpStarted()
 #endif
   if (created != pdPASS)
   {
+    ESP_LOGE(kLogTag, "failed to create synth_audio task");
     return false;
   }
 

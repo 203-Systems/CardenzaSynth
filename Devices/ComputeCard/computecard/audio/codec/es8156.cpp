@@ -8,6 +8,7 @@
 
 #if defined(ESP_PLATFORM)
 #include <driver/i2c_master.h>
+#include <esp_rom_sys.h>
 #endif
 
 namespace ComputeCardHAL::Audio::Codec::ES8156 {
@@ -26,18 +27,16 @@ struct RegisterValue {
 };
 
 constexpr uint16_t kCodecAddress = 0x08;
-constexpr uint16_t kI2cScanStartAddress = 0x03;
-constexpr uint16_t kI2cScanEndAddress = 0x77;
 constexpr uint32_t kI2cSpeedHz = 100000;
 constexpr int kI2cTimeoutMs = 250;
-constexpr int kI2cProbeTimeoutMs = 100;
-constexpr int kI2cScanTimeoutMs = 20;
+constexpr int kStartupSettleDelayUs = 10000;
+constexpr uint8_t kResetControlRunSequenceDisabled = 0x02;
+constexpr uint8_t kResetControlStartStateMachine = 0x03;
 constexpr uint8_t kModeConfigUseSclkSoftwareSlave = 0x84;
-// ESP-IDF standard mode is fixed to 2 slots. With 16-bit samples that yields BCK = 32 * Fs,
-// so the ES8156 must follow the vendor Ratio=128 path when it derives its clock from SCLK.
-constexpr uint8_t kClockControlRatio128 = 0x61;
+constexpr uint8_t kClockControlRatio64 = 0xA1;
+constexpr uint8_t kMiscControlRatio64 = 0x02;
 constexpr uint8_t kMasterLrckDividerHigh = 0x00;
-constexpr uint8_t kMasterLrckDividerLow = 0x80;
+constexpr uint8_t kMasterLrckDividerLow = 0x40;
 constexpr uint8_t kMasterSclkDivider = 0x04;
 constexpr uint8_t kMuteControlNormal = 0x00;
 constexpr uint8_t kInterfaceConfigI2s16Bit = 0x30;
@@ -65,16 +64,16 @@ constexpr RegisterValue kInitSequence[] = {
     {0x0B, 0x01},
     {0x11, kInterfaceConfigI2s16Bit},
     {0x14, kUnityGainRegister},
-    {0x01, kClockControlRatio128},
-    {0x09, 0x00},
+    {0x01, kClockControlRatio64},
+    {0x09, kMiscControlRatio64},
     {0x03, kMasterLrckDividerHigh},
     {0x04, kMasterLrckDividerLow},
     {0x05, kMasterSclkDivider},
     {0x0D, 0x14},
     {0x18, 0x00},
     {0x08, 0x3F},
-    {0x00, 0x02},
-    {0x00, 0x03},
+    {0x00, kResetControlRunSequenceDisabled},
+    {0x00, kResetControlStartStateMachine},
     {0x25, 0x20},
 };
 
@@ -92,7 +91,6 @@ i2c_master_dev_handle_t g_codecHandle = nullptr;
 
 #if defined(ESP_PLATFORM)
 constexpr char kLogTag[] = "ES8156";
-constexpr char kI2cMasterLogTag[] = "i2c.master";
 #endif
 
 #ifdef ESP_ERR_INVALID_STATE
@@ -104,141 +102,78 @@ constexpr esp_err_t kInvalidState = ESP_FAIL;
 esp_err_t EnsureDeviceHandle();
 esp_err_t ReadRegister(uint8_t reg, uint8_t* value);
 
-void LogIdentityRegisters()
+bool ReadChipIdRegisters(uint8_t* chipIdMsb, uint8_t* chipIdMid, uint8_t* chipIdLsb)
+{
+    if (chipIdMsb == nullptr || chipIdMid == nullptr || chipIdLsb == nullptr)
+    {
+        return false;
+    }
+
+    const esp_err_t chipIdStatus = ReadRegister(kChipIdRegisterMsb, chipIdMsb);
+    const esp_err_t chipIdMidStatus = ReadRegister(kChipIdRegisterMid, chipIdMid);
+    const esp_err_t chipIdLsbStatus = ReadRegister(kChipIdRegisterLsb, chipIdLsb);
+    if (chipIdStatus != ESP_OK || chipIdMidStatus != ESP_OK || chipIdLsbStatus != ESP_OK)
+    {
+#if defined(ESP_PLATFORM)
+        ESP_LOGW(kLogTag, "Failed to read ES8156 identity registers after probe");
+#endif
+        return false;
+    }
+
+    return true;
+}
+
+bool LogAndValidateChipIdRegisters()
 {
 #if defined(ESP_PLATFORM)
     uint8_t chipIdMsb = 0;
     uint8_t chipIdMid = 0;
     uint8_t chipIdLsb = 0;
-    uint8_t stateConfirm = 0;
-
-    const esp_err_t chipIdStatus = ReadRegister(kChipIdRegisterMsb, &chipIdMsb);
-    const esp_err_t chipIdMidStatus = ReadRegister(kChipIdRegisterMid, &chipIdMid);
-    const esp_err_t chipIdLsbStatus = ReadRegister(kChipIdRegisterLsb, &chipIdLsb);
-    const esp_err_t stateStatus = ReadRegister(kStateConfirmRegister, &stateConfirm);
-    if (chipIdStatus != ESP_OK || chipIdMidStatus != ESP_OK || chipIdLsbStatus != ESP_OK || stateStatus != ESP_OK)
+    if (!ReadChipIdRegisters(&chipIdMsb, &chipIdMid, &chipIdLsb))
     {
-        ESP_LOGW(kLogTag, "Failed to read ES8156 identity/state registers after probe");
-        return;
+        return false;
     }
 
-    ESP_LOGI(kLogTag, "ES8156 ID/state: 0x%02X 0x%02X 0x%02X, state 0x%02X",
+    ESP_LOGI(kLogTag, "ES8156 ID: 0x%02X 0x%02X 0x%02X",
              chipIdMsb,
              chipIdMid,
-             chipIdLsb,
-             stateConfirm);
+             chipIdLsb);
 
-    if (chipIdMsb != kExpectedChipIdMsb || chipIdMid != kExpectedChipIdMid)
+    const bool chipIdMatches = chipIdMsb == kExpectedChipIdMsb && chipIdMid == kExpectedChipIdMid;
+    if (!chipIdMatches)
     {
         ESP_LOGW(kLogTag, "ES8156 ID prefix mismatch, expected 0x%02X 0x%02X xx from the datasheet",
                  kExpectedChipIdMsb,
                  kExpectedChipIdMid);
     }
-
-    if (stateConfirm != kExpectedStateConfirm)
-    {
-        ESP_LOGW(kLogTag, "ES8156 state register is 0x%02X, datasheet normal-state value is 0x%02X",
-                 stateConfirm,
-                 kExpectedStateConfirm);
-    }
+    return chipIdMatches;
+#else
+    return true;
 #endif
 }
 
-void LogProbeResults()
+bool LogStartupStateConfirm()
 {
 #if defined(ESP_PLATFORM)
-    static bool probeLogged = false;
-    if (probeLogged)
+    uint8_t stateConfirm = 0;
+    const esp_err_t stateStatus = ReadRegister(kStateConfirmRegister, &stateConfirm);
+    if (stateStatus != ESP_OK)
     {
-        return;
-    }
-    probeLogged = true;
-
-    i2c_master_bus_handle_t bus = ComputeCardHAL::System::GetI2CBus();
-    if (bus == nullptr)
-    {
-        ESP_LOGW(kLogTag, "I2C probe skipped because the external bus is unavailable");
-        return;
+        ESP_LOGW(kLogTag, "Failed to read ES8156 state register after startup");
+        return false;
     }
 
-    const esp_err_t codecProbeStatus = i2c_master_probe(bus, kCodecAddress, kI2cProbeTimeoutMs);
-    if (codecProbeStatus == ESP_OK)
+    if (stateConfirm != kExpectedStateConfirm)
     {
-        ESP_LOGI(kLogTag, "I2C probe: ES8156 responded at 0x%02X", kCodecAddress);
-        LogIdentityRegisters();
+        ESP_LOGW(kLogTag, "ES8156 startup state is 0x%02X, datasheet normal-state value is 0x%02X",
+                 stateConfirm,
+                 kExpectedStateConfirm);
+        return false;
     }
-    else
-    {
-        ESP_LOGW(kLogTag, "I2C probe: ES8156 not found at 0x%02X: %s", kCodecAddress, esp_err_to_name(codecProbeStatus));
-    }
-
-    const esp_log_level_t previousI2cMasterLogLevel = esp_log_level_get(kI2cMasterLogTag);
-    esp_log_level_set(kI2cMasterLogTag, ESP_LOG_NONE);
-
-    int foundCount = 0;
-    int timeoutCount = 0;
-    int unexpectedCount = 0;
-    uint16_t firstTimeoutAddress = 0;
-    uint16_t lastTimeoutAddress = 0;
-    uint16_t firstUnexpectedAddress = 0;
-    esp_err_t firstUnexpectedStatus = ESP_OK;
-
-    for (uint16_t address = kI2cScanStartAddress; address <= kI2cScanEndAddress; ++address)
-    {
-        const esp_err_t scanStatus = i2c_master_probe(bus, address, kI2cScanTimeoutMs);
-        if (scanStatus == ESP_OK)
-        {
-            ++foundCount;
-            ESP_LOGI(kLogTag, "I2C scan: found device at 0x%02X", address);
-        }
-        else if (scanStatus == ESP_ERR_TIMEOUT)
-        {
-            ++timeoutCount;
-            if (timeoutCount == 1)
-            {
-                firstTimeoutAddress = address;
-            }
-            lastTimeoutAddress = address;
-        }
-        else if (scanStatus != ESP_ERR_NOT_FOUND)
-        {
-            ++unexpectedCount;
-            if (unexpectedCount == 1)
-            {
-                firstUnexpectedAddress = address;
-                firstUnexpectedStatus = scanStatus;
-            }
-        }
-    }
-
-    esp_log_level_set(kI2cMasterLogTag, previousI2cMasterLogLevel);
-
-    if (foundCount == 0)
-    {
-        ESP_LOGW(kLogTag, "I2C scan: no responding devices found on the shared external bus (0x%02X-0x%02X)", kI2cScanStartAddress, kI2cScanEndAddress);
-    }
-    else
-    {
-        ESP_LOGI(kLogTag, "I2C scan: found %d responding device(s) on the shared external bus", foundCount);
-    }
-
-    if (timeoutCount > 0)
-    {
-        const int totalScannedAddresses = kI2cScanEndAddress - kI2cScanStartAddress + 1;
-        if (timeoutCount == totalScannedAddresses)
-        {
-            ESP_LOGW(kLogTag, "I2C scan: every probed address timed out across 0x%02X-0x%02X", kI2cScanStartAddress, kI2cScanEndAddress);
-        }
-        else
-        {
-            ESP_LOGW(kLogTag, "I2C scan: timeout on %d address(es), first 0x%02X last 0x%02X", timeoutCount, firstTimeoutAddress, lastTimeoutAddress);
-        }
-    }
-
-    if (unexpectedCount > 0)
-    {
-        ESP_LOGW(kLogTag, "I2C scan: unexpected status on %d address(es), first 0x%02X -> %s", unexpectedCount, firstUnexpectedAddress, esp_err_to_name(firstUnexpectedStatus));
-    }
+    ESP_LOGI(kLogTag, "ES8156 setup success");
+    return true;
+#else
+    return true;
 #endif
 }
 
@@ -342,13 +277,19 @@ bool Init()
         return SetEnabled(true);
     }
 
-    LogProbeResults();
+    if (!LogAndValidateChipIdRegisters())
+    {
+        return false;
+    }
 
     const esp_err_t status = WriteStartupSequence();
     if (status != ESP_OK)
     {
         return false;
     }
+
+    esp_rom_delay_us(kStartupSettleDelayUs);
+    (void)LogStartupStateConfirm();
 
     g_initialized = true;
     g_enabled = true;
