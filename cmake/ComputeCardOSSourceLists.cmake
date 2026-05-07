@@ -67,7 +67,6 @@ endfunction()
 function(ccos_collect_computecard_hal_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Devices/ComputeCard/computecard/computecardHAL.cpp
-        ${root_dir}/Devices/ComputeCard/computecard/keyboard/legacy/keyboard.cpp
         ${root_dir}/Devices/ComputeCard/computecard/audio/audio.cpp
         ${root_dir}/Devices/ComputeCard/computecard/audio/codec/es8156.cpp
         ${root_dir}/Devices/ComputeCard/computecard/display/display.cpp

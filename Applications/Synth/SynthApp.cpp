@@ -18,6 +18,65 @@ constexpr std::size_t KeyIndex(std::size_t row, std::size_t col) {
   return row * synth::kKeyboardMatrixColumns + col;
 }
 
+constexpr std::uint8_t kActiveLedBrightness = Device::LED::kBrightnessMax;
+constexpr std::uint8_t kHintLedBrightness = 5;
+
+bool HasVisibleBarItem(const synth::UiBarItemSnapshot& item) {
+  return !item.label.empty() || item.icon != synth::UiBarIcon::None;
+}
+
+std::uint8_t LedBrightnessForBarItem(const synth::UiBarItemSnapshot& item) {
+  if (!HasVisibleBarItem(item)) {
+    return Device::LED::kBrightnessOff;
+  }
+
+  return item.active ? kActiveLedBrightness : kHintLedBrightness;
+}
+
+void WriteActiveBarLeds(const synth::UiScreenSnapshot& snapshot) {
+  for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
+  {
+    const std::uint8_t brightness = LedBrightnessForBarItem(snapshot.leftBarItems[row]);
+    if (brightness != Device::LED::kBrightnessOff)
+    {
+      Device::LED::SetKey(row, synth::kHomeLeftBarColumn, brightness);
+    }
+  }
+
+  if (!snapshot.rightBarVisible)
+  {
+    return;
+  }
+
+  if (snapshot.mode == synth::UiMode::Home)
+  {
+    for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
+    {
+      const std::uint8_t brightness = LedBrightnessForBarItem(snapshot.rightBarItems[row]);
+      if (brightness != Device::LED::kBrightnessOff)
+      {
+        Device::LED::SetKey(row, synth::kHomeRightBarColumn, brightness);
+      }
+    }
+    return;
+  }
+
+  const std::size_t columns = snapshot.rightBarColumns;
+  const std::size_t firstColumn = synth::kKeyboardMatrixColumns - columns;
+  for (std::size_t row = 0; row < synth::kContextMenuRows; ++row)
+  {
+    for (std::size_t column = 0; column < columns; ++column)
+    {
+      const std::size_t index = columns == 1 ? row : row * synth::kContextMenuColumns + column;
+      const std::uint8_t brightness = LedBrightnessForBarItem(snapshot.rightBarItems[index]);
+      if (brightness != Device::LED::kBrightnessOff)
+      {
+        Device::LED::SetKey(row, firstColumn + column, brightness);
+      }
+    }
+  }
+}
+
 std::unique_ptr<app::Application> CreateSynthApplication() {
   return std::make_unique<SynthApp>();
 }
@@ -63,6 +122,29 @@ void SynthApp::Tick() {
   ui_.Tick(ActiveEngine());
   rack_.DispatchPendingMessages();
   SyncUiTracks();
+}
+
+void SynthApp::UpdateLeds() {
+  Device::LED::SetGlobalBrightness(Device::LED::kBrightnessMax);
+  Device::LED::Clear();
+
+  const std::size_t activeTrack = ui_.ActiveTrack();
+  if (activeTrack < activeKeys_.size())
+  {
+    for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
+    {
+      for (std::size_t column = synth::kHomePerformanceFirstColumn; column <= synth::kHomePerformanceLastColumn; ++column)
+      {
+        if (activeKeys_[activeTrack][KeyIndex(row, column)])
+        {
+          Device::LED::SetKey(row, column, kActiveLedBrightness);
+        }
+      }
+    }
+  }
+
+  WriteActiveBarLeds(ui_.CurrentScreenSnapshot(ActiveEngine()));
+  Device::LED::SetEnabled(true);
 }
 
 void SynthApp::RenderFrame() {
@@ -190,17 +272,30 @@ const std::array<bool, synth::kKeyboardMatrixRows * synth::kKeyboardMatrixColumn
 void SynthApp::PressPerformanceKey(std::size_t row, std::size_t col) {
   const std::size_t keyIndex = KeyIndex(row, col);
   const std::size_t trackIndex = ui_.ActiveTrack();
-  if (trackIndex >= activeKeys_.size() || keyIndex >= activeKeys_[trackIndex].size() || activeKeys_[trackIndex][keyIndex])
+  if (trackIndex >= activeKeys_.size() || keyIndex >= activeKeys_[trackIndex].size())
   {
     return;
   }
 
+  const std::uint8_t note = synth::HomePerformanceMidiNote(row, col);
+  for (std::size_t heldTrackIndex = 0; heldTrackIndex < activeKeys_.size(); ++heldTrackIndex)
+  {
+    if (keyIndex >= activeKeys_[heldTrackIndex].size() || !activeKeys_[heldTrackIndex][keyIndex])
+    {
+      continue;
+    }
+
+    activeKeys_[heldTrackIndex][keyIndex] = false;
+    os::midi::Send(midi::MidiPacket::NoteOff(0, note, 0), rack_.PortForTrack(heldTrackIndex));
+  }
+
   activeKeys_[trackIndex][keyIndex] = true;
-  os::midi::Send(midi::MidiPacket::NoteOn(0, synth::HomePerformanceMidiNote(row, col), 110), rack_.PortForTrack(trackIndex));
+  os::midi::Send(midi::MidiPacket::NoteOn(0, note, 110), rack_.PortForTrack(trackIndex));
 }
 
 void SynthApp::ReleasePerformanceKey(std::size_t row, std::size_t col) {
   const std::size_t keyIndex = KeyIndex(row, col);
+  const std::uint8_t note = synth::HomePerformanceMidiNote(row, col);
   for (std::size_t trackIndex = 0; trackIndex < activeKeys_.size(); ++trackIndex)
   {
     if (keyIndex >= activeKeys_[trackIndex].size() || !activeKeys_[trackIndex][keyIndex])
@@ -209,8 +304,7 @@ void SynthApp::ReleasePerformanceKey(std::size_t row, std::size_t col) {
     }
 
     activeKeys_[trackIndex][keyIndex] = false;
-    os::midi::Send(midi::MidiPacket::NoteOff(0, synth::HomePerformanceMidiNote(row, col), 0), rack_.PortForTrack(trackIndex));
-    return;
+    os::midi::Send(midi::MidiPacket::NoteOff(0, note, 0), rack_.PortForTrack(trackIndex));
   }
 }
 

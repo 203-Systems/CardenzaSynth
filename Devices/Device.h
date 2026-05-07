@@ -1,6 +1,6 @@
 #pragma once
 
-#include <array>
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -45,19 +45,31 @@ namespace Keyboard {
 inline constexpr int kRows = 4;
 inline constexpr int kColumns = 14;
 inline constexpr int kKeyCount = kRows * kColumns;
-inline constexpr bool kHasPerKeyLed = true;
 
-struct MatrixKeyEvent {
-  std::size_t row = 0;
-  std::size_t column = 0;
-  bool pressed = false;
-};
+using MatrixKeyState = std::bitset<kKeyCount>;
 
-using MatrixKeyState = std::array<bool, kKeyCount>;
-
-MatrixKeyState SnapshotState();
+const MatrixKeyState& State();
 
 }  // namespace Keyboard
+
+namespace LED {
+
+inline constexpr int kRows = Keyboard::kRows;
+inline constexpr int kColumns = Keyboard::kColumns;
+inline constexpr int kLedCount = kRows * kColumns;
+inline constexpr std::uint8_t kBrightnessOff = 0;
+inline constexpr std::uint8_t kBrightnessMax = 15;
+
+std::uint8_t Brightness(std::size_t row, std::size_t column);
+void SetKey(std::size_t row, std::size_t column, std::uint8_t brightness);
+void Clear();
+void Fill(std::uint8_t brightness);
+void SetGlobalBrightness(std::uint8_t brightness);
+std::uint8_t GlobalBrightness();
+void SetEnabled(bool enabled);
+bool Enabled();
+
+}  // namespace LED
 
 namespace Audio {
 

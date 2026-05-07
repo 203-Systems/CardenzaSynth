@@ -24,9 +24,15 @@ bool& StartedStorage() {
   return started;
 }
 
+void UpdateApplicationLeds(app::Application& application) {
+  Device::LED::SetEnabled(false);
+  Device::LED::Clear();
+  application.UpdateLeds();
+}
+
 void DispatchMatrixKeyEvents(app::Application& application) {
   auto& previousState = PreviousKeyStateStorage();
-  const Device::Keyboard::MatrixKeyState currentState = Device::Keyboard::SnapshotState();
+  const Device::Keyboard::MatrixKeyState& currentState = Device::Keyboard::State();
 
   for (std::size_t index = 0; index < currentState.size(); ++index)
   {
@@ -65,9 +71,10 @@ bool Begin(const BootOptions& options) {
 
   ActiveApplicationStorage()->Setup(options.applicationArgs);
   Device::Start();
-  PreviousKeyStateStorage() = Device::Keyboard::SnapshotState();
+  PreviousKeyStateStorage() = Device::Keyboard::State();
   StartedStorage() = true;
 
+  UpdateApplicationLeds(*ActiveApplicationStorage());
   Device::Display::Clear();
   ActiveApplicationStorage()->RenderFrame();
   Device::Display::Present();
@@ -83,6 +90,7 @@ void RunFrame() {
 
   DispatchMatrixKeyEvents(*application);
   application->Tick();
+  UpdateApplicationLeds(*application);
   application->RenderFrame();
   Device::Display::Present();
 }

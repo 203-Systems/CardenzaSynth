@@ -6,7 +6,6 @@ endif()
 
 set(computecard_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/computecardHAL.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/keyboard/legacy/keyboard.cpp
     ${CMAKE_CURRENT_LIST_DIR}/audio/audio.cpp
     ${CMAKE_CURRENT_LIST_DIR}/audio/codec/es8156.cpp
     ${CMAKE_CURRENT_LIST_DIR}/display/display.cpp

@@ -13,6 +13,7 @@ public:
   virtual ~Application() = default;
   virtual void Setup(const std::vector<std::string>& args) = 0;
   virtual void Tick() = 0;
+  virtual void UpdateLeds() {}
   virtual void RenderFrame() = 0;
   virtual void HandleMatrixKeyEvent(std::size_t row, std::size_t column, bool pressed) {
     (void)row;

@@ -146,6 +146,26 @@ int ParseInitialScale(const std::string& commandLine)
   return kDefaultScale;
 }
 
+COLORREF BlendLedColor(std::uint8_t brightness, std::uint8_t globalBrightness)
+{
+  const std::uint8_t effectiveBrightness = std::min(brightness, globalBrightness);
+  if (effectiveBrightness == Device::LED::kBrightnessOff)
+  {
+    return kLedOffColor;
+  }
+
+  const auto blendChannel = [effectiveBrightness](BYTE offChannel, BYTE onChannel) -> BYTE {
+    const unsigned int offWeight = static_cast<unsigned int>(Device::LED::kBrightnessMax - effectiveBrightness);
+    const unsigned int onWeight = static_cast<unsigned int>(effectiveBrightness);
+    return static_cast<BYTE>((static_cast<unsigned int>(offChannel) * offWeight + static_cast<unsigned int>(onChannel) * onWeight) /
+                             static_cast<unsigned int>(Device::LED::kBrightnessMax));
+  };
+
+  return RGB(blendChannel(GetRValue(kLedOffColor), GetRValue(kLedOnColor)),
+             blendChannel(GetGValue(kLedOffColor), GetGValue(kLedOnColor)),
+             blendChannel(GetBValue(kLedOffColor), GetBValue(kLedOnColor)));
+}
+
 RECT MakeRect(int left, int top, int width, int height)
 {
   RECT rect{};
@@ -243,6 +263,7 @@ public:
 
     os::midi::Initialize();
     synthApp_->Setup({});
+    UpdateApplicationLeds();
     application_->RenderFrame();
     Device::Display::Present();
     return true;
@@ -422,11 +443,19 @@ private:
     return value * scale_;
   }
 
+  void UpdateApplicationLeds()
+  {
+    Device::LED::SetEnabled(false);
+    Device::LED::Clear();
+    application_->UpdateLeds();
+  }
+
   void OnFrameTick()
   {
     lastFrameTick_ = GetTickCount64();
 
     application_->Tick();
+    UpdateApplicationLeds();
     application_->RenderFrame();
     Device::Display::Present();
 
@@ -652,30 +681,17 @@ private:
     return kPanelEdgeColor;
   }
 
-  COLORREF KeyLedColor(std::size_t index, bool active) const
+  COLORREF KeyLedColor(std::size_t index,
+                       bool deviceLedsEnabled,
+                       std::uint8_t deviceLedGlobalBrightness) const
   {
+    if (!deviceLedsEnabled)
+    {
+      return kLedOffColor;
+    }
+
     const auto position = PositionForIndex(index);
-    if (active)
-    {
-      return kLedOnColor;
-    }
-
-    if (position.column == 0 && synthApp_->Ui().IsModifierHighlighted(position.row))
-    {
-      return kLedOnColor;
-    }
-
-    if (IsHomeRightBarKey(position.column))
-    {
-      return kAccentDimColor;
-    }
-
-    if (IsMenuKey(position.row, position.column))
-    {
-      return synthApp_->Ui().IsMenuCellActive(position.row, ContextMenuColumnIndex(position.column)) ? kLedOnColor : kAccentDimColor;
-    }
-
-    return kLedOffColor;
+    return BlendLedColor(Device::LED::Brightness(position.row, position.column), deviceLedGlobalBrightness);
   }
 
   void DrawFrameBuffer(HDC dc)
@@ -740,13 +756,15 @@ private:
   {
     DrawTextBlock(dc, keyboardHeaderRect_, KeyboardHeaderText(), DT_LEFT | DT_WORDBREAK | DT_VCENTER, kTextColor, 17, FW_SEMIBOLD);
     const std::size_t activeTrack = synthApp_->Ui().ActiveTrack();
+    const bool deviceLedsEnabled = Device::LED::Enabled();
+    const std::uint8_t deviceLedGlobalBrightness = Device::LED::GlobalBrightness();
     for (std::size_t index = 0; index < keyButtons_.size(); ++index)
     {
       const bool active = synthApp_->IsKeyActive(activeTrack, index);
       DrawRoundPanel(dc, keyButtons_[index], KeyFillColor(index, active), KeyEdgeColor(index, active));
 
       RECT ledRect = MakeRect(keyButtons_[index].left + 8, keyButtons_[index].top + 7, 12, 12);
-      const COLORREF ledColor = KeyLedColor(index, active);
+      const COLORREF ledColor = KeyLedColor(index, deviceLedsEnabled, deviceLedGlobalBrightness);
       const HBRUSH ledBrush = CreateSolidBrush(ledColor);
       const HPEN ledPen = CreatePen(PS_SOLID, 1, ledColor);
       const HGDIOBJ oldBrush = SelectObject(dc, ledBrush);
