@@ -2,6 +2,8 @@
 
 #if defined(ESP_PLATFORM)
 #include <driver/gpio.h>
+#include <driver/gptimer.h>
+#include <esp_check.h>
 #include <esp_rom_sys.h>
 
 #define digitalWrite(pin, level) gpio_set_level((gpio_num_t)pin, level)
@@ -19,9 +21,17 @@ constexpr uint8_t kLedColumnBitOffset = 1;
 constexpr uint8_t kLedPwmPhaseCount = 4;
 constexpr uint32_t kLedRowSelectSettleUs = 8;
 constexpr uint32_t kLedRowDwellUs = 30;
-// Keep the LED on-window non-preemptible so a scheduler interruption cannot
-// accidentally extend one row's dwell time and make it flash brighter.
-portMUX_TYPE kLedScanCriticalMux = portMUX_INITIALIZER_UNLOCKED;
+constexpr uint32_t kLedRowPeriodUs = kLedRowSelectSettleUs + kLedRowDwellUs;
+constexpr UBaseType_t kScanTaskPriority = 5;
+constexpr BaseType_t kScanTaskPinnedCore = 0;
+portMUX_TYPE kKeyboardStateMux = portMUX_INITIALIZER_UNLOCKED;
+
+bool KeyboardScanTimerCallback(gptimer_handle_t,
+                               const gptimer_alarm_event_data_t*,
+                               void* user_ctx)
+{
+    return static_cast<KeyboardDriver*>(user_ctx)->handleTimerTickFromIsr();
+}
 #endif
 
 }  // namespace
@@ -81,7 +91,51 @@ void KeyboardDriver::init()
     _set_output(output_list, 0);
 
     _mutex = xSemaphoreCreateMutex();
-    xTaskCreatePinnedToCore(_scan_task_entry, "kb_scan", 4096, this, 5, &_scan_task_handle, 0);
+
+#if portNUM_PROCESSORS > 1
+    xTaskCreatePinnedToCore(_scan_task_entry,
+                            "kb_scan",
+                            4096,
+                            this,
+                            kScanTaskPriority,
+                            &_scan_task_handle,
+                            kScanTaskPinnedCore);
+#else
+    xTaskCreate(_scan_task_entry, "kb_scan", 4096, this, kScanTaskPriority, &_scan_task_handle);
+#endif
+
+    _commit_led_frame();
+
+    gptimer_config_t timer_config = {};
+    timer_config.clk_src = GPTIMER_CLK_SRC_DEFAULT;
+    timer_config.direction = GPTIMER_COUNT_UP;
+    timer_config.resolution_hz = 1000000;
+    gptimer_handle_t timer = nullptr;
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &timer));
+
+    gptimer_event_callbacks_t callbacks = {};
+    callbacks.on_alarm = KeyboardScanTimerCallback;
+    ESP_ERROR_CHECK(gptimer_register_event_callbacks(timer, &callbacks, this));
+
+    gptimer_alarm_config_t alarm_config = {};
+    alarm_config.reload_count = 0;
+    alarm_config.alarm_count = kLedRowPeriodUs;
+    alarm_config.flags.auto_reload_on_alarm = true;
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(timer, &alarm_config));
+    ESP_ERROR_CHECK(gptimer_enable(timer));
+    ESP_ERROR_CHECK(gptimer_start(timer));
+
+    _scan_timer = timer;
+    _scan_running = true;
+}
+
+void KeyboardDriver::_commit_led_frame()
+{
+    portENTER_CRITICAL(&kKeyboardStateMux);
+    memcpy(_scan_led_level, _led_level, sizeof(_led_level));
+    _scan_global_brightness = _global_brightness;
+    _scan_led_enabled = _led_enabled;
+    portEXIT_CRITICAL(&kKeyboardStateMux);
 }
 
 Point2D_t KeyboardDriver::getKey()
@@ -225,18 +279,23 @@ bool KeyboardDriver::isChanged()
 
 void KeyboardDriver::suspendScan()
 {
-    if (_scan_task_handle)
+    if (_scan_timer && _scan_running)
     {
-        vTaskSuspend(_scan_task_handle);
+        ESP_ERROR_CHECK(gptimer_stop(reinterpret_cast<gptimer_handle_t>(_scan_timer)));
+        _scan_running = false;
         digitalWrite(led_pin_list[0], 1);
     }
 }
 
 void KeyboardDriver::resumeScan()
 {
-    if (_scan_task_handle)
+    if (_scan_timer && !_scan_running)
     {
-        vTaskResume(_scan_task_handle);
+        _scan_row = 0;
+        _diag_scan_row = 0;
+        _commit_led_frame();
+        ESP_ERROR_CHECK(gptimer_start(reinterpret_cast<gptimer_handle_t>(_scan_timer)));
+        _scan_running = true;
     }
 }
 
@@ -245,6 +304,7 @@ void KeyboardDriver::setDiagDirect(bool enable, int en_level, uint8_t col, uint8
     _diag_en_level = en_level;
     _diag_col = col;
     _diag_row = row;
+    _diag_scan_row = 0;
     _diag_direct_mode = enable;
 }
 
@@ -277,13 +337,13 @@ uint8_t KeyboardDriver::_compute_led_col_mask(uint8_t scan_index)
     }
 
     uint8_t mask = 0;
-    const uint8_t global_br = _global_brightness;
+    const uint8_t global_br = _scan_global_brightness;
     const uint8_t phase = _pwm_phase;
 
     for (int col = 0; col < 7; col++)
     {
         const int x = x_base + col * 2;
-        const uint8_t level = _led_level[y][x];
+        const uint8_t level = _scan_led_level[y][x];
         const uint8_t effective = (level < global_br) ? level : global_br;
         if (static_cast<uint16_t>(effective) * kLedPwmPhaseCount > static_cast<uint16_t>(phase) * (LED_BRIGHTNESS_MAX + 1))
         {
@@ -301,6 +361,7 @@ uint8_t KeyboardDriver::_compute_led_col_mask(uint8_t scan_index)
 bool KeyboardDriver::enableLED(bool enabled)
 {
     _led_enabled = enabled;
+    _commit_led_frame();
     if (!enabled)
     {
         digitalWrite(led_pin_list[0], 1);
@@ -319,11 +380,19 @@ void KeyboardDriver::setLED(Point2D_t pos, uint8_t brightness)
         brightness = LED_BRIGHTNESS_MAX;
     }
     _led_level[pos.y][pos.x] = brightness;
+    if (_led_enabled)
+    {
+        _commit_led_frame();
+    }
 }
 
 void KeyboardDriver::clearAllLEDs()
 {
     memset(_led_level, 0, sizeof(_led_level));
+    if (_led_enabled)
+    {
+        _commit_led_frame();
+    }
 }
 
 void KeyboardDriver::setAllLEDs(uint8_t brightness)
@@ -333,6 +402,10 @@ void KeyboardDriver::setAllLEDs(uint8_t brightness)
         brightness = LED_BRIGHTNESS_MAX;
     }
     memset(_led_level, brightness, sizeof(_led_level));
+    if (_led_enabled)
+    {
+        _commit_led_frame();
+    }
 }
 
 void KeyboardDriver::setLEDGlobalBrightness(uint8_t level)
@@ -342,11 +415,63 @@ void KeyboardDriver::setLEDGlobalBrightness(uint8_t level)
         level = LED_BRIGHTNESS_MAX;
     }
     _global_brightness = level;
+    if (_led_enabled)
+    {
+        _commit_led_frame();
+    }
 }
 
 void KeyboardDriver::_scan_task_entry(void* arg)
 {
     static_cast<KeyboardDriver*>(arg)->_scan_task_loop();
+}
+
+bool KeyboardDriver::handleTimerTickFromIsr()
+{
+    BaseType_t high_task_woken = pdFALSE;
+
+    digitalWrite(led_pin_list[0], 1);
+
+    if (_diag_direct_mode)
+    {
+        const uint8_t scan_row = _diag_scan_row;
+        _set_output(output_list, scan_row);
+        esp_rom_delay_us(kLedRowSelectSettleUs);
+        _scan_raw_key_scan[scan_row] = _get_input(input_list);
+
+        _diag_scan_row = static_cast<uint8_t>((scan_row + 1) & 0x07);
+        if (_diag_scan_row == 0)
+        {
+            _pwm_phase = static_cast<uint8_t>((_pwm_phase + 1) % kLedPwmPhaseCount);
+            vTaskNotifyGiveFromISR(_scan_task_handle, &high_task_woken);
+        }
+
+        _set_output(output_list, _diag_row);
+        _shift_led_columns(_diag_col);
+        digitalWrite(led_pin_list[0], _diag_en_level);
+        return high_task_woken == pdTRUE;
+    }
+
+    const uint8_t row = _scan_row;
+    _scan_raw_key_scan[row] = _get_input(input_list);
+
+    const uint8_t next_row = static_cast<uint8_t>((row + 1) & 0x07);
+    _scan_row = next_row;
+    if (next_row == 0)
+    {
+        _pwm_phase = static_cast<uint8_t>((_pwm_phase + 1) % kLedPwmPhaseCount);
+        vTaskNotifyGiveFromISR(_scan_task_handle, &high_task_woken);
+    }
+
+    _set_output(output_list, next_row);
+    const uint8_t next_col_mask = _scan_led_enabled ? _compute_led_col_mask(next_row) : 0;
+    _shift_led_columns(next_col_mask);
+    if (_scan_led_enabled && next_col_mask)
+    {
+        digitalWrite(led_pin_list[0], 0);
+    }
+
+    return high_task_woken == pdTRUE;
 }
 
 void KeyboardDriver::_scan_task_loop()
@@ -407,69 +532,17 @@ void KeyboardDriver::_scan_task_loop()
 
     while (true)
     {
-        if (_diag_direct_mode)
-        {
-            digitalWrite(led_pin_list[0], 1);
-            for (int row = 0; row < 8; row++)
-            {
-                _set_output(output_list, row);
-                esp_rom_delay_us(10);
-                _raw_key_scan[row] = _get_input(input_list);
-            }
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-            rebuild_debounced_key_list();
-
-            xSemaphoreTake(_mutex, portMAX_DELAY);
-            _task_key_list = local_key_list;
-            xSemaphoreGive(_mutex);
-
-            _set_output(output_list, _diag_row);
-            _shift_led_columns(_diag_col);
-            digitalWrite(led_pin_list[0], _diag_en_level);
-
-            vTaskDelay(pdMS_TO_TICKS(10));
-            continue;
-        }
-
-        for (int row = 0; row < 8; row++)
-        {
-            digitalWrite(led_pin_list[0], 1);
-            _set_output(output_list, row);
-            esp_rom_delay_us(kLedRowSelectSettleUs);
-            _raw_key_scan[row] = _get_input(input_list);
-
-            if (_led_enabled)
-            {
-                const uint8_t col_mask = _compute_led_col_mask(row);
-                _shift_led_columns(col_mask);
-                if (col_mask)
-                {
-                    portENTER_CRITICAL(&kLedScanCriticalMux);
-                    digitalWrite(led_pin_list[0], 0);
-                    esp_rom_delay_us(kLedRowDwellUs);
-                    digitalWrite(led_pin_list[0], 1);
-                    portEXIT_CRITICAL(&kLedScanCriticalMux);
-                    continue;
-                }
-            }
-
-            esp_rom_delay_us(kLedRowDwellUs);
-        }
-
-        digitalWrite(led_pin_list[0], 1);
+        portENTER_CRITICAL(&kKeyboardStateMux);
+        memcpy(_raw_key_scan, _scan_raw_key_scan, sizeof(_raw_key_scan));
+        portEXIT_CRITICAL(&kKeyboardStateMux);
 
         rebuild_debounced_key_list();
 
         xSemaphoreTake(_mutex, portMAX_DELAY);
         _task_key_list = local_key_list;
         xSemaphoreGive(_mutex);
-
-        _pwm_phase++;
-        if (_pwm_phase >= kLedPwmPhaseCount)
-        {
-            _pwm_phase = 0;
-            taskYIELD();
-        }
     }
 }
 
@@ -494,18 +567,26 @@ void KeyboardDriver::init()
     _task_key_list.clear();
     _mutex = nullptr;
     _scan_task_handle = nullptr;
+    _scan_timer = nullptr;
+    _scan_running = false;
+    _scan_row = 0;
+    _diag_scan_row = 0;
     _led_enabled = false;
+    _scan_led_enabled = false;
     _global_brightness = LED_BRIGHTNESS_MAX;
+    _scan_global_brightness = LED_BRIGHTNESS_MAX;
     _pwm_phase = 0;
     _diag_direct_mode = false;
     _diag_en_level = 1;
     _diag_col = 0;
     _diag_row = 0;
     memset(_raw_key_scan, 0, sizeof(_raw_key_scan));
+    memset(_scan_raw_key_scan, 0, sizeof(_scan_raw_key_scan));
     memset(_debounced_key_scan, 0, sizeof(_debounced_key_scan));
     memset(_candidate_key_scan, 0, sizeof(_candidate_key_scan));
     memset(_debounce_count, 0, sizeof(_debounce_count));
     memset(_led_level, 0, sizeof(_led_level));
+    memset(_scan_led_level, 0, sizeof(_scan_led_level));
 }
 
 Point2D_t KeyboardDriver::getKey()
@@ -711,6 +792,11 @@ void KeyboardDriver::setLEDGlobalBrightness(uint8_t level)
 
 void KeyboardDriver::_scan_task_entry(void*)
 {
+}
+
+bool KeyboardDriver::handleTimerTickFromIsr()
+{
+    return false;
 }
 
 void KeyboardDriver::_scan_task_loop()

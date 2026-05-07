@@ -159,12 +159,20 @@ class KeyboardDriver
     uint8_t _debounced_key_scan[8];
     uint8_t _candidate_key_scan[8];
     uint8_t _debounce_count[8];
+    uint8_t _scan_raw_key_scan[8];
     SemaphoreHandle_t _mutex;
     TaskHandle_t _scan_task_handle;
+    void* _scan_timer;
+    bool _scan_running;
+    volatile uint8_t _scan_row;
+    volatile uint8_t _diag_scan_row;
 
     bool _led_enabled;
+    bool _scan_led_enabled;
     uint8_t _led_level[4][14];
+    uint8_t _scan_led_level[4][14];
     uint8_t _global_brightness;
+    uint8_t _scan_global_brightness;
     uint8_t _pwm_phase;
 
     volatile bool _diag_direct_mode;
@@ -176,6 +184,7 @@ class KeyboardDriver
     uint8_t _get_input(const std::vector<int>& pinList);
     void _shift_led_columns(uint8_t value);
     uint8_t _compute_led_col_mask(uint8_t scan_index);
+    void _commit_led_frame();
 
     static void _scan_task_entry(void* arg);
     void _scan_task_loop();
@@ -186,8 +195,14 @@ class KeyboardDriver
         _last_key_size(0),
         _mutex(nullptr),
         _scan_task_handle(nullptr),
+        _scan_timer(nullptr),
+        _scan_running(false),
+        _scan_row(0),
+        _diag_scan_row(0),
         _led_enabled(false),
+        _scan_led_enabled(false),
         _global_brightness(LED_BRIGHTNESS_MAX),
+        _scan_global_brightness(LED_BRIGHTNESS_MAX),
         _pwm_phase(0),
         _diag_direct_mode(false),
         _diag_en_level(1),
@@ -198,7 +213,9 @@ class KeyboardDriver
         memset(_debounced_key_scan, 0, sizeof(_debounced_key_scan));
         memset(_candidate_key_scan, 0, sizeof(_candidate_key_scan));
         memset(_debounce_count, 0, sizeof(_debounce_count));
+        memset(_scan_raw_key_scan, 0, sizeof(_scan_raw_key_scan));
         memset(_led_level, 0, sizeof(_led_level));
+        memset(_scan_led_level, 0, sizeof(_scan_led_level));
     }
 
     void init();
@@ -230,6 +247,7 @@ class KeyboardDriver
     void setLEDGlobalBrightness(uint8_t level);
     uint8_t ledGlobalBrightness() const { return _global_brightness; }
     void updateLED() {}
+    bool handleTimerTickFromIsr();
 
     void suspendScan();
     void resumeScan();
