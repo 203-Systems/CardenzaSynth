@@ -59,38 +59,5 @@ elseif(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
     project(ComputeCardOSFirmware)
 else()
-    add_subdirectory(computecard)
-
-    ccos_collect_computecard_device_audio_cpp_sources(${PROJECT_SOURCE_DIR} computecard_device_audio_sources)
-    target_sources(ComputeCardDeviceAudio PRIVATE
-        ${computecard_device_audio_sources}
-    )
-
-    target_link_libraries(ComputeCardDeviceAudio PUBLIC
-        ComputeCardHAL
-    )
-
-    add_library(ComputeCardDevice)
-
-    ccos_collect_computecard_device_cpp_sources(${PROJECT_SOURCE_DIR} computecard_device_sources)
-    target_sources(ComputeCardDevice PRIVATE
-        ${computecard_device_sources}
-    )
-
-    target_include_directories(ComputeCardDevice PUBLIC
-        ${PROJECT_SOURCE_DIR}
-    )
-
-    target_link_libraries(ComputeCardDevice PUBLIC
-        ComputeCardDeviceInterface
-        ComputeCardHAL
-    )
-
-    if(WIN32 AND EXISTS "${CCOS_CARDPUTER_IDF_RUNNER_PS1}")
-        add_custom_target(CardputerFirmware
-            COMMAND ${CCOS_CARDPUTER_POWERSHELL_EXE} -NoProfile -ExecutionPolicy Bypass -File "${CCOS_CARDPUTER_IDF_RUNNER_PS1}" -ProjectDir "${CCOS_CARDPUTER_IDF_PROJECT_DIR}" -B "${CCOS_CARDPUTER_FIRMWARE_BUILD_DIR}" build
-            USES_TERMINAL
-            COMMENT "Build ComputeCard firmware into build/Cardputer"
-        )
-    endif()
+    message(FATAL_ERROR "ComputeCard is an ESP-IDF firmware target. Use the Devices/ComputeCard IDF project or DEVICE=ComputeCardSim for desktop builds.")
 endif()

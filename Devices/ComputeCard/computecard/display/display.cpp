@@ -1,7 +1,10 @@
 #include "display.h"
 #include "../board/pins.h"
 
-#if defined(ESP_PLATFORM)
+#if !defined(ESP_PLATFORM)
+#error "ComputeCard display HAL is ESP-IDF only. Use ComputeCardSim for host builds."
+#endif
+
 #include <driver/gpio.h>
 #include <driver/ledc.h>
 #include <driver/spi_master.h>
@@ -13,19 +16,14 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <cstring>
-#endif
 
 namespace ComputeCardHAL::Display {
 
 namespace {
 
-#if defined(ESP_PLATFORM)
 esp_lcd_panel_handle_t panel = nullptr;
 esp_lcd_panel_io_handle_t panelIo = nullptr;
-#endif
 uint8_t brightness = 255;
-
-#if defined(ESP_PLATFORM)
 
 constexpr spi_host_device_t kDisplaySpiHost = SPI3_HOST;
 constexpr ledc_mode_t kBacklightSpeedMode = LEDC_LOW_SPEED_MODE;
@@ -137,13 +135,10 @@ esp_err_t InitSpiBus()
     return ESP_OK;
 }
 
-#endif
-
 }  // namespace
 
 bool Init()
 {
-#if defined(ESP_PLATFORM)
     esp_err_t status = InitBacklight();
     if (status != ESP_OK)
     {
@@ -250,25 +245,18 @@ bool Init()
     }
 
     return ApplyBrightness(brightness) == ESP_OK;
-#else
-    return false;
-#endif
 }
 
 bool SetBrightness(uint8_t value)
 {
     brightness = value;
 
-#if defined(ESP_PLATFORM)
     if (!backlightInitialized)
     {
         return true;
     }
 
     return ApplyBrightness(value) == ESP_OK;
-#else
-    return true;
-#endif
 }
 
 uint8_t GetBrightness()
@@ -278,7 +266,6 @@ uint8_t GetBrightness()
 
 bool PresentFrame(const std::uint16_t* pixels, int width, int height)
 {
-#if defined(ESP_PLATFORM)
     if (pixels == nullptr || width <= 0 || height <= 0)
     {
         return false;
@@ -300,12 +287,6 @@ bool PresentFrame(const std::uint16_t* pixels, int width, int height)
     }
 
     return xSemaphoreTake(frameTransferDone, kTransferTimeoutTicks) == pdTRUE;
-#else
-    (void)pixels;
-    (void)width;
-    (void)height;
-    return false;
-#endif
 }
 
 }  // namespace ComputeCardHAL::Display

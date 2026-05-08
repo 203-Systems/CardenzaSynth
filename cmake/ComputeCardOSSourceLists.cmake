@@ -71,20 +71,18 @@ function(ccos_collect_ui_cpp_sources root_dir out_var)
 endfunction()
 
 function(ccos_collect_computecard_hal_cpp_sources root_dir out_var)
-    set(sources
-        ${root_dir}/Devices/ComputeCard/computecard/computecardHAL.cpp
-        ${root_dir}/Devices/ComputeCard/computecard/audio/audio.cpp
-        ${root_dir}/Devices/ComputeCard/computecard/audio/codec/es8156.cpp
-        ${root_dir}/Devices/ComputeCard/computecard/display/display.cpp
-        ${root_dir}/Devices/ComputeCard/computecard/ir/ir.cpp
-        ${root_dir}/Devices/ComputeCard/computecard/mic/mic.cpp
-        ${root_dir}/Devices/ComputeCard/computecard/system/system.cpp
-    )
-
+    set(sources)
     if(DEFINED COMPONENT_DIR)
         list(APPEND sources
+            ${root_dir}/Devices/ComputeCard/computecard/computecardHAL.cpp
+            ${root_dir}/Devices/ComputeCard/computecard/audio/audio.cpp
+            ${root_dir}/Devices/ComputeCard/computecard/audio/codec/es8156.cpp
+            ${root_dir}/Devices/ComputeCard/computecard/display/display.cpp
+            ${root_dir}/Devices/ComputeCard/computecard/ir/ir.cpp
             ${root_dir}/Devices/ComputeCard/computecard/keyboard/keyboard.cpp
+            ${root_dir}/Devices/ComputeCard/computecard/mic/mic.cpp
             ${root_dir}/Devices/ComputeCard/computecard/storage/storage.cpp
+            ${root_dir}/Devices/ComputeCard/computecard/system/system.cpp
         )
     endif()
 

@@ -1,25 +1,21 @@
 #include "computecardHAL.h"
 
-#if defined(ESP_PLATFORM)
-#include <esp_log.h>
+#if !defined(ESP_PLATFORM)
+#error "ComputeCard HAL is ESP-IDF only. Use ComputeCardSim for host builds."
 #endif
+
+#include <esp_log.h>
 
 namespace {
 
 ComputeCardHAL::InitReport g_initReport;
 bool g_initialized = false;
-
-#if defined(ESP_PLATFORM)
 bool g_keyboardInitialized = false;
-#endif
 
-#if defined(ESP_PLATFORM)
 constexpr char kLogTag[] = "ComputeCardHAL";
-#endif
 
 void LogModuleResult(const char* moduleName, bool initialized, bool optional)
 {
-#if defined(ESP_PLATFORM)
     if (initialized)
     {
         ESP_LOGI(kLogTag, "%s initialized", moduleName);
@@ -34,11 +30,6 @@ void LogModuleResult(const char* moduleName, bool initialized, bool optional)
     {
         ESP_LOGE(kLogTag, "%s failed", moduleName);
     }
-#else
-    (void)moduleName;
-    (void)initialized;
-    (void)optional;
-#endif
 }
 
 }  // namespace
@@ -62,14 +53,12 @@ bool Init()
         return g_initReport.overall;
     }
 
-#if defined(ESP_PLATFORM)
     if (!g_keyboardInitialized)
     {
         Keyboard::init();
         g_keyboardInitialized = true;
         ESP_LOGI(kLogTag, "keyboard initialized");
     }
-#endif
 
     g_initReport.audio = Audio::Init();
     LogModuleResult("audio", g_initReport.audio, false);
@@ -77,10 +66,8 @@ bool Init()
     g_initReport.display = Display::Init();
     LogModuleResult("display", g_initReport.display, false);
 
-#if defined(ESP_PLATFORM)
     g_initReport.storage = Storage::Init();
     LogModuleResult("storage", g_initReport.storage, true);
-#endif
 
     g_initReport.ir = IR::Init();
     LogModuleResult("ir", g_initReport.ir, true);

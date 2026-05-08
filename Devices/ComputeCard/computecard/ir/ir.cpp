@@ -2,18 +2,18 @@
 
 #include "../board/pins.h"
 
-#if defined(ESP_PLATFORM)
+#if !defined(ESP_PLATFORM)
+#error "ComputeCard IR HAL is ESP-IDF only. Use ComputeCardSim for host builds."
+#endif
+
 #include <driver/gpio.h>
 #include <driver/rmt_encoder.h>
 #include <driver/rmt_tx.h>
 #include <freertos/FreeRTOS.h>
-#endif
 
 namespace ComputeCardHAL::IR {
 
 namespace {
-
-#if defined(ESP_PLATFORM)
 
 rmt_channel_handle_t irChannel = nullptr;
 rmt_encoder_handle_t irEncoder = nullptr;
@@ -87,22 +87,15 @@ esp_err_t EnsureInitialized()
     return status;
 }
 
-#endif
-
 }  // namespace
 
 bool Init()
 {
-#if defined(ESP_PLATFORM)
     return EnsureInitialized() == ESP_OK;
-#else
-    return false;
-#endif
 }
 
 void Send(uint8_t addr, uint8_t cmd)
 {
-#if defined(ESP_PLATFORM)
     if (EnsureInitialized() != ESP_OK)
     {
         return;
@@ -126,10 +119,6 @@ void Send(uint8_t addr, uint8_t cmd)
     {
         (void)rmt_tx_wait_all_done(irChannel, portMAX_DELAY);
     }
-#else
-    (void)addr;
-    (void)cmd;
-#endif
 }
 
 }  // namespace ComputeCardHAL::IR

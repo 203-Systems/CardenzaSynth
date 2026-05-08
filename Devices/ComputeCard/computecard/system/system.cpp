@@ -1,24 +1,23 @@
 #include "system.h"
 #include "../board/pins.h"
 
-#if defined(ESP_PLATFORM)
+#if !defined(ESP_PLATFORM)
+#error "ComputeCard system HAL is ESP-IDF only. Use ComputeCardSim for host builds."
+#endif
+
 #include <driver/i2c_master.h>
 #include <driver/gpio.h>
-#endif
 
 namespace ComputeCardHAL::System {
 
 namespace {
 
-#if defined(ESP_PLATFORM)
 i2c_master_bus_handle_t i2cBus = nullptr;
-#endif
 
 }  // namespace
 
 bool Init()
 {
-#if defined(ESP_PLATFORM)
     if (i2cBus != nullptr)
     {
         return true;
@@ -33,27 +32,20 @@ bool Init()
     busConfig.flags.enable_internal_pullup = true;
 
     return i2c_new_master_bus(&busConfig, &i2cBus) == ESP_OK;
-#else
-    return false;
-#endif
 }
 
 void EnterDeepSleep()
 {
-#if defined(ESP_PLATFORM)
     if (i2cBus != nullptr)
     {
         i2c_del_master_bus(i2cBus);
         i2cBus = nullptr;
     }
-#endif
 }
 
-#if defined(ESP_PLATFORM)
 i2c_master_bus_handle_t GetI2CBus()
 {
     return i2cBus;
 }
-#endif
 
 }  // namespace ComputeCardHAL::System

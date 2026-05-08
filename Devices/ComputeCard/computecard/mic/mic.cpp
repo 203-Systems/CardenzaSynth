@@ -1,21 +1,19 @@
 #include "mic.h"
 #include "../board/pins.h"
 
-#if defined(ESP_PLATFORM)
+#if !defined(ESP_PLATFORM)
+#error "ComputeCard mic HAL is ESP-IDF only. Use ComputeCardSim for host builds."
+#endif
+
 #include <driver/gpio.h>
 #include <driver/i2s_pdm.h>
 #include <driver/i2s_std.h>
-#endif
 
 namespace ComputeCardHAL::Mic {
 
 namespace {
 
-#if defined(ESP_PLATFORM)
 i2s_chan_handle_t micChannel = nullptr;
-#endif
-
-#if defined(ESP_PLATFORM)
 
 constexpr i2s_port_t kMicPort = I2S_NUM_0;
 constexpr uint32_t kSampleRate = 16000;
@@ -63,17 +61,11 @@ esp_err_t EnsureInitialized()
     return status;
 }
 
-#endif
-
 }  // namespace
 
 bool Init()
 {
-#if defined(ESP_PLATFORM)
     return EnsureInitialized() == ESP_OK;
-#else
-    return true;
-#endif
 }
 
 }  // namespace ComputeCardHAL::Mic

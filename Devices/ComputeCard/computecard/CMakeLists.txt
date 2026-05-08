@@ -21,18 +21,20 @@ endif()
 
 option(COMPUTECARD_HAL_ENABLE_EMBEDDED_DRIVERS "Build ComputeCard HAL sources that require ESP-IDF drivers" ${computecard_hal_embedded_default})
 
+if(NOT COMPUTECARD_HAL_ENABLE_EMBEDDED_DRIVERS)
+    message(FATAL_ERROR "ComputeCardHAL is ESP-IDF only. Use DEVICE=ComputeCardSim for desktop host builds.")
+endif()
+
+list(APPEND computecard_hal_sources
+    ${CMAKE_CURRENT_LIST_DIR}/keyboard/keyboard.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/storage/storage.cpp
+)
+
 add_library(ComputeCardHAL)
 
 target_sources(ComputeCardHAL PRIVATE
     ${computecard_hal_sources}
 )
-
-if(COMPUTECARD_HAL_ENABLE_EMBEDDED_DRIVERS)
-    target_sources(ComputeCardHAL PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}/keyboard/keyboard.cpp
-        ${CMAKE_CURRENT_LIST_DIR}/storage/storage.cpp
-    )
-endif()
 
 target_include_directories(ComputeCardHAL PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}

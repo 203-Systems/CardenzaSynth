@@ -2,14 +2,13 @@
 
 #include "../../system/system_internal.h"
 
-#if defined(ESP_PLATFORM)
-#include <esp_log.h>
+#if !defined(ESP_PLATFORM)
+#error "ComputeCard ES8156 codec HAL is ESP-IDF only. Use ComputeCardSim for host builds."
 #endif
 
-#if defined(ESP_PLATFORM)
+#include <esp_log.h>
 #include <driver/i2c_master.h>
 #include <esp_rom_sys.h>
-#endif
 
 namespace ComputeCardHAL::Audio::Codec::ES8156 {
 
@@ -18,8 +17,6 @@ namespace {
 bool g_initialized = false;
 bool g_enabled = false;
 uint8_t g_volume = 100;
-
-#if defined(ESP_PLATFORM)
 
 struct RegisterValue {
     uint8_t reg;
@@ -89,9 +86,7 @@ constexpr RegisterValue kStandbySequence[] = {
 
 i2c_master_dev_handle_t g_codecHandle = nullptr;
 
-#if defined(ESP_PLATFORM)
 constexpr char kLogTag[] = "ES8156";
-#endif
 
 #ifdef ESP_ERR_INVALID_STATE
 constexpr esp_err_t kInvalidState = ESP_ERR_INVALID_STATE;
@@ -114,9 +109,7 @@ bool ReadChipIdRegisters(uint8_t* chipIdMsb, uint8_t* chipIdMid, uint8_t* chipId
     const esp_err_t chipIdLsbStatus = ReadRegister(kChipIdRegisterLsb, chipIdLsb);
     if (chipIdStatus != ESP_OK || chipIdMidStatus != ESP_OK || chipIdLsbStatus != ESP_OK)
     {
-#if defined(ESP_PLATFORM)
         ESP_LOGW(kLogTag, "Failed to read ES8156 identity registers after probe");
-#endif
         return false;
     }
 
@@ -125,7 +118,6 @@ bool ReadChipIdRegisters(uint8_t* chipIdMsb, uint8_t* chipIdMid, uint8_t* chipId
 
 bool LogAndValidateChipIdRegisters()
 {
-#if defined(ESP_PLATFORM)
     uint8_t chipIdMsb = 0;
     uint8_t chipIdMid = 0;
     uint8_t chipIdLsb = 0;
@@ -147,14 +139,10 @@ bool LogAndValidateChipIdRegisters()
                  kExpectedChipIdMid);
     }
     return chipIdMatches;
-#else
-    return true;
-#endif
 }
 
 bool LogStartupStateConfirm()
 {
-#if defined(ESP_PLATFORM)
     uint8_t stateConfirm = 0;
     const esp_err_t stateStatus = ReadRegister(kStateConfirmRegister, &stateConfirm);
     if (stateStatus != ESP_OK)
@@ -172,9 +160,6 @@ bool LogStartupStateConfirm()
     }
     ESP_LOGI(kLogTag, "ES8156 setup success");
     return true;
-#else
-    return true;
-#endif
 }
 
 esp_err_t EnsureDeviceHandle()
@@ -199,9 +184,7 @@ esp_err_t EnsureDeviceHandle()
     const esp_err_t status = i2c_master_bus_add_device(bus, &deviceConfig, &g_codecHandle);
     if (status != ESP_OK)
     {
-#if defined(ESP_PLATFORM)
         ESP_LOGE(kLogTag, "Failed to bind ES8156 on I2C bus: %s", esp_err_to_name(status));
-#endif
         g_codecHandle = nullptr;
     }
     return status;
@@ -219,9 +202,7 @@ esp_err_t WriteRegister(uint8_t reg, uint8_t value)
     const esp_err_t status = i2c_master_transmit(g_codecHandle, payload, sizeof(payload), kI2cTimeoutMs);
     if (status != ESP_OK)
     {
-#if defined(ESP_PLATFORM)
         ESP_LOGE(kLogTag, "Failed to write ES8156 reg 0x%02X: %s", reg, esp_err_to_name(status));
-#endif
     }
     return status;
 }
@@ -265,13 +246,10 @@ uint8_t MapVolumeRegister(uint8_t volume)
     return static_cast<uint8_t>((static_cast<unsigned>(volume) * kUnityGainRegister + 50U) / 100U);
 }
 
-#endif
-
 }  // namespace
 
 bool Init()
 {
-#if defined(ESP_PLATFORM)
     if (g_initialized)
     {
         return SetEnabled(true);
@@ -294,14 +272,10 @@ bool Init()
     g_initialized = true;
     g_enabled = true;
     return SetVolume(g_volume);
-#else
-    return true;
-#endif
 }
 
 bool SetEnabled(bool enabled)
 {
-#if defined(ESP_PLATFORM)
     if (enabled && !g_initialized)
     {
         return Init();
@@ -332,10 +306,6 @@ bool SetEnabled(bool enabled)
         return SetVolume(g_volume);
     }
     return true;
-#else
-    (void)enabled;
-    return true;
-#endif
 }
 
 bool IsEnabled()
@@ -352,16 +322,12 @@ bool SetVolume(uint8_t volume)
 
     g_volume = volume;
 
-#if defined(ESP_PLATFORM)
     if (!g_initialized)
     {
         return true;
     }
 
     return WriteRegister(kVolumeRegister, MapVolumeRegister(volume)) == ESP_OK;
-#else
-    return true;
-#endif
 }
 
 uint8_t GetVolume()

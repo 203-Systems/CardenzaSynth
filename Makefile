@@ -60,8 +60,8 @@ else
 endif
 
 host:
-	cmake -S . -B out/validate-computecard -DDEVICE=ComputeCard
-	cmake --build out/validate-computecard --target ComputeCardHAL --config Debug
+	@echo ComputeCard hardware HAL is ESP-IDF only. Use DEVICE=ComputeCardSim for host validation.
+	@exit 1
 
 clean:
 ifeq ($(OS),Windows_NT)

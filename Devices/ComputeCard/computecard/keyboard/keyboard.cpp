@@ -1,5 +1,9 @@
 #include "keyboard.h"
 
+#if !defined(ESP_PLATFORM)
+#error "ComputeCard keyboard HAL is ESP-IDF only. Use ComputeCardSim for host builds."
+#endif
+
 #if defined(ESP_PLATFORM)
 #include <driver/gpio.h>
 #include <driver/gptimer.h>
