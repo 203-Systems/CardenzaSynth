@@ -23,9 +23,9 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 
 ## Task 2 - Formalize Build Entrypoints
 
-- [ ] Remove duplicate/obsolete ESP-IDF component paths.
-- [ ] Replace hard-coded local ESP-IDF paths with environment-driven commands.
-- [ ] Make the official build commands explicit in repo docs.
+- [x] Remove duplicate/obsolete ESP-IDF component paths.
+- [x] Replace hard-coded local ESP-IDF paths with environment-driven commands.
+- [x] Make the official build commands explicit in repo docs.
 
 ## Task 3 - Split Synth UI Renderer
 

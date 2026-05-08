@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 get_filename_component(CCOS_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(CCOS_CARDPUTER_FIRMWARE_BUILD_DIR "${CCOS_ROOT}/build/Cardputer")
 set(CCOS_CARDPUTER_IDF_PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}")
-set(CCOS_CARDPUTER_IDF_EXPORT_PS1 "C:/espressif/v5.3.4/export.ps1")
+set(CCOS_CARDPUTER_IDF_RUNNER_PS1 "${CCOS_ROOT}/tools/run_idf.ps1")
 set(CCOS_CARDPUTER_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe")
 
 if(DEFINED COMPONENT_DIR)
@@ -86,9 +86,9 @@ else()
         ComputeCardHAL
     )
 
-    if(WIN32 AND EXISTS "${CCOS_CARDPUTER_IDF_EXPORT_PS1}")
+    if(WIN32 AND EXISTS "${CCOS_CARDPUTER_IDF_RUNNER_PS1}")
         add_custom_target(CardputerFirmware
-            COMMAND ${CCOS_CARDPUTER_POWERSHELL_EXE} -NoProfile -ExecutionPolicy Bypass -Command "& '${CCOS_CARDPUTER_IDF_EXPORT_PS1}'; Set-Location '${CCOS_CARDPUTER_IDF_PROJECT_DIR}'; idf.py -B '${CCOS_CARDPUTER_FIRMWARE_BUILD_DIR}' build"
+            COMMAND ${CCOS_CARDPUTER_POWERSHELL_EXE} -NoProfile -ExecutionPolicy Bypass -File "${CCOS_CARDPUTER_IDF_RUNNER_PS1}" -ProjectDir "${CCOS_CARDPUTER_IDF_PROJECT_DIR}" -B "${CCOS_CARDPUTER_FIRMWARE_BUILD_DIR}" build
             USES_TERMINAL
             COMMENT "Build ComputeCard firmware into build/Cardputer"
         )

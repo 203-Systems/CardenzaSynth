@@ -5,6 +5,11 @@ PORT ?=
 ifeq ($(DEVICE),ComputeCard)
 BUILD := build/Cardputer
 DEVICE_PROJECT_DIR := Devices/ComputeCard
+ifeq ($(OS),Windows_NT)
+IDF := powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(abspath tools/run_idf.ps1)" -ProjectDir "$(abspath $(DEVICE_PROJECT_DIR))"
+else
+IDF := cd $(DEVICE_PROJECT_DIR) && idf.py
+endif
 else ifeq ($(DEVICE),ComputeCardSim)
 BUILD := out/validate-computecard-sim
 SIM_BUILD_TARGET := ComputeCardSimHost
@@ -24,7 +29,7 @@ all: build
 
 build:
 ifeq ($(DEVICE),ComputeCard)
-	cd $(DEVICE_PROJECT_DIR) && idf.py $(COMPUTECARD_IDF_ARGS) build
+	$(IDF) $(COMPUTECARD_IDF_ARGS) build
 else
 	cmake -S . -B $(BUILD) -DDEVICE=$(DEVICE)
 	cmake --build $(BUILD) --target $(SIM_BUILD_TARGET) --config Debug
@@ -32,7 +37,7 @@ endif
 
 set-target:
 ifeq ($(DEVICE),ComputeCard)
-	cd $(DEVICE_PROJECT_DIR) && idf.py $(COMPUTECARD_IDF_ARGS) set-target $(IDF_TARGET)
+	$(IDF) $(COMPUTECARD_IDF_ARGS) set-target $(IDF_TARGET)
 else
 	@echo set-target is only supported for DEVICE=ComputeCard
 	@exit 1
@@ -40,7 +45,7 @@ endif
 
 flash bootloader-flash app-flash erase monitor:
 ifeq ($(DEVICE),ComputeCard)
-	cd $(DEVICE_PROJECT_DIR) && idf.py $(COMPUTECARD_IDF_ARGS) $(IDF_PORT_ARG) $@
+	$(IDF) $(COMPUTECARD_IDF_ARGS) $(IDF_PORT_ARG) $@
 else
 	@echo $@ is only supported for DEVICE=ComputeCard
 	@exit 1
@@ -48,7 +53,7 @@ endif
 
 flash-monitor:
 ifeq ($(DEVICE),ComputeCard)
-	cd $(DEVICE_PROJECT_DIR) && idf.py $(COMPUTECARD_IDF_ARGS) $(IDF_PORT_ARG) flash monitor
+	$(IDF) $(COMPUTECARD_IDF_ARGS) $(IDF_PORT_ARG) flash monitor
 else
 	@echo flash-monitor is only supported for DEVICE=ComputeCard
 	@exit 1
@@ -67,7 +72,7 @@ endif
 
 fullclean:
 ifeq ($(DEVICE),ComputeCard)
-	cd $(DEVICE_PROJECT_DIR) && idf.py $(COMPUTECARD_IDF_ARGS) fullclean
+	$(IDF) $(COMPUTECARD_IDF_ARGS) fullclean
 else
 	$(MAKE) DEVICE=$(DEVICE) clean
 endif
