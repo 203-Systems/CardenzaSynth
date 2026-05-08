@@ -103,7 +103,7 @@ std::string Name() {
 }
 
 std::string BackendName() {
-  return "sim-host+webui";
+  return "sim-host";
 }
 
 bool Init() {

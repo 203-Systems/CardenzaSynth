@@ -17,9 +17,9 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 
 ## Task 1 - Delete Browser Prototype
 
-- [ ] Remove `Devices/ComputeCardSim/WebUI`.
-- [ ] Remove WebUI config flags and documentation references.
-- [ ] Keep desktop simulator as the only simulator surface for now.
+- [x] Remove `Devices/ComputeCardSim/WebUI`.
+- [x] Remove WebUI config flags and documentation references.
+- [x] Keep desktop simulator as the only simulator surface for now.
 
 ## Task 2 - Formalize Build Entrypoints
 
