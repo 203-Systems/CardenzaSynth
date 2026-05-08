@@ -171,6 +171,7 @@ class KeyboardDriver
     bool _scan_led_enabled;
     uint8_t _led_level[4][14];
     uint8_t _scan_led_level[4][14];
+    uint8_t _scan_led_col_mask[4][8];
     uint8_t _global_brightness;
     uint8_t _scan_global_brightness;
     uint8_t _pwm_phase;
@@ -183,7 +184,7 @@ class KeyboardDriver
     void _set_output(const std::vector<int>& pinList, uint8_t output);
     uint8_t _get_input(const std::vector<int>& pinList);
     void _shift_led_columns(uint8_t value);
-    uint8_t _compute_led_col_mask(uint8_t scan_index);
+    uint8_t _compute_led_col_mask(uint8_t scan_index, uint8_t phase) const;
     void _commit_led_frame();
 
     static void _scan_task_entry(void* arg);
@@ -216,6 +217,7 @@ class KeyboardDriver
         memset(_scan_raw_key_scan, 0, sizeof(_scan_raw_key_scan));
         memset(_led_level, 0, sizeof(_led_level));
         memset(_scan_led_level, 0, sizeof(_scan_led_level));
+        memset(_scan_led_col_mask, 0, sizeof(_scan_led_col_mask));
     }
 
     void init();

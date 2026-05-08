@@ -3,8 +3,13 @@
 #if defined(ESP_PLATFORM)
 #include <driver/gpio.h>
 #include <driver/gptimer.h>
+#include <esp_private/periph_ctrl.h>
+#include <esp_rom_gpio.h>
 #include <esp_check.h>
 #include <esp_rom_sys.h>
+#include <hal/spi_ll.h>
+#include <soc/gpio_struct.h>
+#include <soc/spi_periph.h>
 
 #define digitalWrite(pin, level) gpio_set_level((gpio_num_t)pin, level)
 #define digitalRead(pin) gpio_get_level((gpio_num_t)pin)
@@ -22,9 +27,107 @@ constexpr uint8_t kLedPwmPhaseCount = 4;
 constexpr uint32_t kLedRowSelectSettleUs = 8;
 constexpr uint32_t kLedRowDwellUs = 30;
 constexpr uint32_t kLedRowPeriodUs = kLedRowSelectSettleUs + kLedRowDwellUs;
+constexpr spi_host_device_t kKeyboardLedSpiHost = SPI2_HOST;
+constexpr int kKeyboardLedSpiSourceHz = 80 * 1000 * 1000;
+constexpr int kKeyboardLedSpiClockHz = 10 * 1000 * 1000;
 constexpr UBaseType_t kScanTaskPriority = 5;
 constexpr BaseType_t kScanTaskPinnedCore = 0;
 portMUX_TYPE kKeyboardStateMux = portMUX_INITIALIZER_UNLOCKED;
+spi_dev_t* gKeyboardLedSpiHw = nullptr;
+bool gKeyboardLedSpiReady = false;
+
+constexpr uint64_t PinMask(int pin)
+{
+    return 1ULL << pin;
+}
+
+const uint64_t kKeyboardOutputMask = PinMask(output_list[0]) | PinMask(output_list[1]) | PinMask(output_list[2]);
+const uint64_t kKeyboardLedClockMask = PinMask(led_pin_list[1]);
+const uint64_t kKeyboardLedDataMask = PinMask(led_pin_list[2]);
+
+inline void FastWriteMask(uint64_t set_mask, uint64_t clear_mask)
+{
+    const uint32_t set_low = static_cast<uint32_t>(set_mask);
+    const uint32_t clear_low = static_cast<uint32_t>(clear_mask);
+    if (clear_low != 0)
+    {
+        GPIO.out_w1tc = clear_low;
+    }
+    if (set_low != 0)
+    {
+        GPIO.out_w1ts = set_low;
+    }
+
+    const uint32_t set_high = static_cast<uint32_t>(set_mask >> 32);
+    const uint32_t clear_high = static_cast<uint32_t>(clear_mask >> 32);
+    if (clear_high != 0)
+    {
+        GPIO.out1_w1tc.data = clear_high;
+    }
+    if (set_high != 0)
+    {
+        GPIO.out1_w1ts.data = set_high;
+    }
+}
+
+inline void FastWritePin(int pin, bool level)
+{
+    const uint64_t mask = PinMask(pin);
+    FastWriteMask(level ? mask : 0, level ? 0 : mask);
+}
+
+inline int FastReadPin(int pin)
+{
+    if (pin < 32)
+    {
+        return (GPIO.in >> pin) & 0x1;
+    }
+
+    return (GPIO.in1.data >> (pin - 32)) & 0x1;
+}
+
+void InitKeyboardLedSpi()
+{
+    PERIPH_RCC_ATOMIC()
+    {
+        spi_ll_enable_bus_clock(kKeyboardLedSpiHost, true);
+        spi_ll_reset_register(kKeyboardLedSpiHost);
+    }
+
+    spi_dev_t* const hw = spi_periph_signal[kKeyboardLedSpiHost].hw;
+    spi_ll_enable_clock(kKeyboardLedSpiHost, true);
+    spi_ll_master_init(hw);
+    spi_ll_set_clk_source(hw, SPI_CLK_SRC_APB);
+    spi_ll_master_set_clock(hw, kKeyboardLedSpiSourceHz, kKeyboardLedSpiClockHz, 128);
+    spi_ll_master_set_mode(hw, 0);
+    spi_ll_set_half_duplex(hw, true);
+    spi_ll_set_sio_mode(hw, 0);
+    spi_ll_set_tx_lsbfirst(hw, false);
+    spi_ll_set_rx_lsbfirst(hw, false);
+    spi_ll_master_select_cs(hw, -1);
+    spi_ll_master_keep_cs(hw, 0);
+    spi_ll_master_set_cs_setup(hw, 0);
+    spi_ll_master_set_cs_hold(hw, 0);
+    spi_ll_set_command_bitlen(hw, 0);
+    spi_ll_set_addr_bitlen(hw, 0);
+    spi_ll_set_dummy(hw, 0);
+    spi_ll_enable_miso(hw, 0);
+    spi_ll_enable_mosi(hw, 1);
+    spi_ll_set_mosi_bitlen(hw, 8);
+    spi_ll_set_mosi_free_level(hw, false);
+    spi_ll_cpu_tx_fifo_reset(hw);
+    spi_ll_cpu_rx_fifo_reset(hw);
+    spi_ll_apply_config(hw);
+
+    const spi_signal_conn_t& spi_signal = spi_periph_signal[kKeyboardLedSpiHost];
+    esp_rom_gpio_pad_select_gpio(led_pin_list[1]);
+    esp_rom_gpio_pad_select_gpio(led_pin_list[2]);
+    esp_rom_gpio_connect_out_signal(led_pin_list[1], spi_signal.spiclk_out, false, false);
+    esp_rom_gpio_connect_out_signal(led_pin_list[2], spi_signal.spid_out, false, false);
+
+    gKeyboardLedSpiHw = hw;
+    gKeyboardLedSpiReady = true;
+}
 
 bool KeyboardScanTimerCallback(gptimer_handle_t,
                                const gptimer_alarm_event_data_t*,
@@ -42,9 +145,21 @@ void KeyboardDriver::_set_output(const std::vector<int>& pinList, uint8_t output
 {
     output = output & 0B00000111;
 
-    digitalWrite(pinList[0], (output & 0B00000001));
-    digitalWrite(pinList[1], (output & 0B00000010));
-    digitalWrite(pinList[2], (output & 0B00000100));
+    uint64_t set_mask = 0;
+    if (output & 0B00000001)
+    {
+        set_mask |= PinMask(pinList[0]);
+    }
+    if (output & 0B00000010)
+    {
+        set_mask |= PinMask(pinList[1]);
+    }
+    if (output & 0B00000100)
+    {
+        set_mask |= PinMask(pinList[2]);
+    }
+
+    FastWriteMask(set_mask, kKeyboardOutputMask & ~set_mask);
 }
 
 uint8_t KeyboardDriver::_get_input(const std::vector<int>& pinList)
@@ -54,7 +169,7 @@ uint8_t KeyboardDriver::_get_input(const std::vector<int>& pinList)
 
     for (int i = 0; i < 7; i++)
     {
-        pin_value = (digitalRead(pinList[i]) == 1) ? 0x00 : 0x01;
+        pin_value = (FastReadPin(pinList[i]) == 1) ? 0x00 : 0x01;
         pin_value = pin_value << i;
         buffer = buffer | pin_value;
     }
@@ -71,6 +186,8 @@ void KeyboardDriver::init()
         digitalWrite(i, 0);
     }
     digitalWrite(led_pin_list[0], 1);
+
+    InitKeyboardLedSpi();
     _shift_led_columns(0x00);
 
     for (auto i : output_list)
@@ -135,6 +252,13 @@ void KeyboardDriver::_commit_led_frame()
     memcpy(_scan_led_level, _led_level, sizeof(_led_level));
     _scan_global_brightness = _global_brightness;
     _scan_led_enabled = _led_enabled;
+    for (uint8_t phase = 0; phase < kLedPwmPhaseCount; ++phase)
+    {
+        for (uint8_t scan_index = 0; scan_index < 8; ++scan_index)
+        {
+            _scan_led_col_mask[phase][scan_index] = _scan_led_enabled ? _compute_led_col_mask(scan_index, phase) : 0;
+        }
+    }
     portEXIT_CRITICAL(&kKeyboardStateMux);
 }
 
@@ -283,7 +407,7 @@ void KeyboardDriver::suspendScan()
     {
         ESP_ERROR_CHECK(gptimer_stop(reinterpret_cast<gptimer_handle_t>(_scan_timer)));
         _scan_running = false;
-        digitalWrite(led_pin_list[0], 1);
+        FastWritePin(led_pin_list[0], true);
     }
 }
 
@@ -310,18 +434,33 @@ void KeyboardDriver::setDiagDirect(bool enable, int en_level, uint8_t col, uint8
 
 void KeyboardDriver::_shift_led_columns(uint8_t value)
 {
-    const int pin_dat = led_pin_list[2];
-    const int pin_clk = led_pin_list[1];
+    if (gKeyboardLedSpiReady && gKeyboardLedSpiHw != nullptr)
+    {
+        while (spi_ll_get_running_cmd(gKeyboardLedSpiHw) != 0)
+        {
+        }
+
+        spi_ll_write_buffer_byte(gKeyboardLedSpiHw, 0, &value, 1);
+        spi_ll_set_mosi_bitlen(gKeyboardLedSpiHw, 8);
+        spi_ll_user_start(gKeyboardLedSpiHw);
+
+        while (spi_ll_get_running_cmd(gKeyboardLedSpiHw) != 0)
+        {
+        }
+        return;
+    }
 
     for (int bit = 7; bit >= 0; --bit)
     {
-        digitalWrite(pin_dat, (value >> bit) & 0x01);
-        digitalWrite(pin_clk, 1);
-        digitalWrite(pin_clk, 0);
+        const bool bit_set = ((value >> bit) & 0x01) != 0;
+        FastWriteMask(bit_set ? kKeyboardLedDataMask : 0,
+                      bit_set ? 0 : kKeyboardLedDataMask);
+        FastWriteMask(kKeyboardLedClockMask, 0);
+        FastWriteMask(0, kKeyboardLedClockMask);
     }
 }
 
-uint8_t KeyboardDriver::_compute_led_col_mask(uint8_t scan_index)
+uint8_t KeyboardDriver::_compute_led_col_mask(uint8_t scan_index, uint8_t phase) const
 {
     int y = 0;
     int x_base = 0;
@@ -338,7 +477,6 @@ uint8_t KeyboardDriver::_compute_led_col_mask(uint8_t scan_index)
 
     uint8_t mask = 0;
     const uint8_t global_br = _scan_global_brightness;
-    const uint8_t phase = _pwm_phase;
 
     for (int col = 0; col < 7; col++)
     {
@@ -430,7 +568,7 @@ bool KeyboardDriver::handleTimerTickFromIsr()
 {
     BaseType_t high_task_woken = pdFALSE;
 
-    digitalWrite(led_pin_list[0], 1);
+    FastWritePin(led_pin_list[0], true);
 
     if (_diag_direct_mode)
     {
@@ -448,7 +586,7 @@ bool KeyboardDriver::handleTimerTickFromIsr()
 
         _set_output(output_list, _diag_row);
         _shift_led_columns(_diag_col);
-        digitalWrite(led_pin_list[0], _diag_en_level);
+        FastWritePin(led_pin_list[0], _diag_en_level != 0);
         return high_task_woken == pdTRUE;
     }
 
@@ -464,11 +602,11 @@ bool KeyboardDriver::handleTimerTickFromIsr()
     }
 
     _set_output(output_list, next_row);
-    const uint8_t next_col_mask = _scan_led_enabled ? _compute_led_col_mask(next_row) : 0;
+    const uint8_t next_col_mask = _scan_led_enabled ? _scan_led_col_mask[_pwm_phase][next_row] : 0;
     _shift_led_columns(next_col_mask);
     if (_scan_led_enabled && next_col_mask)
     {
-        digitalWrite(led_pin_list[0], 0);
+        FastWritePin(led_pin_list[0], false);
     }
 
     return high_task_woken == pdTRUE;
