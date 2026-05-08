@@ -5,19 +5,18 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
-#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
 
-#include "Applications/Application.h"
-#include "Applications/BuiltInApplications.h"
 #include "Applications/Synth/SynthApp.h"
 #include "Devices/Device.h"
+#include "Devices/ComputeCardSim/SimulatorInput.h"
 #include "Library/Synth/Core/ISynthEngine.h"
 #include "Library/Synth/Core/SynthTypes.h"
 #include "OS/Framework/Midi/MidiPacket.h"
 #include "OS/MIDI/MIDI.h"
+#include "OS/System/System.h"
 
 namespace {
 
@@ -246,26 +245,21 @@ public:
 
   bool Initialize()
   {
-    app::RegisterBuiltInApplications();
-    application_ = app::CreateDefaultApplication();
-    if (!application_)
+    os::midi::Initialize();
+    if (!os::system::Begin())
     {
       MessageBoxA(nullptr, "Failed to create Synth application.", "ComputeCardSimDesktop", MB_ICONERROR | MB_OK);
       return false;
     }
 
-    synthApp_ = dynamic_cast<apps::SynthApp*>(application_.get());
+    app::Application* application = os::system::ActiveApplication();
+    synthApp_ = dynamic_cast<apps::SynthApp*>(application);
     if (synthApp_ == nullptr)
     {
       MessageBoxA(nullptr, "Synth application registry returned an unexpected type.", "ComputeCardSimDesktop", MB_ICONERROR | MB_OK);
       return false;
     }
 
-    os::midi::Initialize();
-    synthApp_->Setup({});
-    UpdateApplicationLeds();
-    application_->RenderFrame();
-    Device::Display::Present();
     return true;
   }
 
@@ -443,21 +437,11 @@ private:
     return value * scale_;
   }
 
-  void UpdateApplicationLeds()
-  {
-    Device::LED::SetEnabled(false);
-    Device::LED::Clear();
-    application_->UpdateLeds();
-  }
-
   void OnFrameTick()
   {
     lastFrameTick_ = GetTickCount64();
 
-    application_->Tick();
-    UpdateApplicationLeds();
-    application_->RenderFrame();
-    Device::Display::Present();
+    os::system::RunFrame();
 
     InvalidateRect(hwnd_, nullptr, FALSE);
   }
@@ -486,14 +470,16 @@ private:
       if (PointInRect(keyButtons_[index], point))
       {
         const auto position = PositionForIndex(index);
-        const auto handling = HandleVirtualKeyDown(index);
-        if (handling == synth::MatrixKeyHandling::ModifierHold ||
-            handling == synth::MatrixKeyHandling::PerformanceKey ||
-            handling == synth::MatrixKeyHandling::MenuAction ||
-            position.column == synth::kHomeRightBarColumn)
+        const bool shouldCapture = ShouldCaptureKey(position);
+        SetVirtualKey(position, true);
+        if (shouldCapture)
         {
           SetCapture(hwnd_);
           capturedKey_ = static_cast<int>(index);
+        }
+        else
+        {
+          SetVirtualKey(position, false);
         }
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
@@ -534,11 +520,9 @@ private:
         return;
       }
 
-      if (synthApp_->PressMatrixKey(position.row, position.column) == synth::MatrixKeyHandling::MenuAction)
-      {
-        dragMenuIndex_ = static_cast<int>(index);
-        InvalidateRect(hwnd_, nullptr, FALSE);
-      }
+      TapVirtualKey(position);
+      dragMenuIndex_ = static_cast<int>(index);
+      InvalidateRect(hwnd_, nullptr, FALSE);
       return;
     }
 
@@ -553,14 +537,7 @@ private:
     }
 
     const auto position = PositionForIndex(static_cast<std::size_t>(capturedKey_));
-    if (position.column == 0)
-    {
-      synthApp_->ReleaseMatrixKey(position.row, position.column);
-    }
-    else
-    {
-      synthApp_->ReleaseMatrixKey(position.row, position.column);
-    }
+    SetVirtualKey(position, false);
 
     capturedKey_ = -1;
     dragMenuIndex_ = -1;
@@ -581,10 +558,25 @@ private:
     }
   }
 
-  synth::MatrixKeyHandling HandleVirtualKeyDown(std::size_t keyIndex)
+  bool ShouldCaptureKey(MatrixPosition position) const
   {
-    const auto position = PositionForIndex(keyIndex);
-    return synthApp_->PressMatrixKey(position.row, position.column);
+    return position.column == synth::kHomeLeftBarColumn ||
+           position.column == synth::kHomeRightBarColumn ||
+           IsMenuKey(position.row, position.column) ||
+           (position.column >= synth::kHomePerformanceFirstColumn &&
+            position.column <= synth::kHomePerformanceLastColumn);
+  }
+
+  void SetVirtualKey(MatrixPosition position, bool pressed)
+  {
+    ComputeCardSim::Input::SetMatrixKey(position.row, position.column, pressed);
+    os::system::RunFrame();
+  }
+
+  void TapVirtualKey(MatrixPosition position)
+  {
+    SetVirtualKey(position, true);
+    SetVirtualKey(position, false);
   }
 
   std::string FooterText() const
@@ -836,7 +828,6 @@ private:
   int capturedKey_ = -1;
   int dragMenuIndex_ = -1;
   ULONGLONG lastFrameTick_ = 0;
-  std::unique_ptr<app::Application> application_;
   apps::SynthApp* synthApp_ = nullptr;
   std::array<KeyVisual, kKeyboardRows * kKeyboardColumns> keyboard_{};
   std::array<RECT, 3> scaleButtons_{};

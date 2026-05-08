@@ -158,6 +158,8 @@ The remaining ComputeCard hardware HAL implementations now fail explicitly outsi
 
 The keyboard HAL split is now in place: `keyboard.h` is the facade, `types.h` owns public data types, `layout.h` owns matrix/keymap data, and `keyboard/internal` owns the driver declaration plus hardware, key scan, LED scan, and diagnostics implementations.
 
+Simulator cleanup has started by adding a simulator-only keyboard input bridge. The desktop host now mutates `Device::Keyboard` state and lets `os::system::RunFrame()` dispatch matrix key events, instead of calling `SynthApp::PressMatrixKey()`/`ReleaseMatrixKey()` directly.
+
 Recommended split:
 
 | New file | Responsibility |

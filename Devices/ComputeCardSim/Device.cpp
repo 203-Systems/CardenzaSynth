@@ -1,4 +1,5 @@
 #include "Devices/Device.h"
+#include "Devices/ComputeCardSim/SimulatorInput.h"
 
 #include <algorithm>
 #include <array>
@@ -25,6 +26,22 @@ std::uint8_t ClampLedBrightness(std::uint8_t brightness) {
 }
 
 }  // namespace
+
+namespace ComputeCardSim::Input {
+
+void SetMatrixKey(std::size_t row, std::size_t column, bool pressed) {
+  if (!IsValidMatrixPosition(row, column)) {
+    return;
+  }
+
+  keyboardState.set(MatrixIndex(row, column), pressed);
+}
+
+void ClearMatrixKeys() {
+  keyboardState.reset();
+}
+
+}  // namespace ComputeCardSim::Input
 
 namespace Device {
 
