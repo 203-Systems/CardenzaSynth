@@ -160,6 +160,8 @@ The keyboard HAL split is now in place: `keyboard.h` is the facade, `types.h` ow
 
 Simulator cleanup has started by adding a simulator-only keyboard input bridge. The desktop host now mutates `Device::Keyboard` state and lets `os::system::RunFrame()` dispatch matrix key events, instead of calling `SynthApp::PressMatrixKey()`/`ReleaseMatrixKey()` directly.
 
+The desktop host implementation is now split under `Devices/ComputeCardSim/DesktopHost`: layout/key visuals, GDI drawing helpers, simulator window lifecycle, input handling, layout updates, and rendering are separate source files. `DesktopHost.cpp` is only the WinMain entrypoint.
+
 Recommended split:
 
 | New file | Responsibility |
@@ -170,7 +172,7 @@ Recommended split:
 | `keyboard/keyboard_led_scan.cpp` | LED column mask, global brightness, frame commit, shift-register/SPI output. |
 | `keyboard/keyboard_key_scan.cpp` | GPIO row/input scan, debounce, task/ISR coordination. |
 | `keyboard/keyboard_diagnostics.cpp` | `setDiagDirect()` and any future test-only scan modes. Build-gate it if it should not ship. |
-| `keyboard/keyboard_host_stub.cpp` | Non-ESP behavior, instead of keeping the host fallback inside the production ESP implementation file. |
+| `keyboard/internal/keyboard_hardware.cpp` | ESP-IDF-only GPIO/SPI/GPTimer integration shared by key and LED scanning. |
 
 Also move the hard-coded `output_list`, `input_list`, and `led_pin_list` out of `keyboard.h`; `computecard/board/pins.h` is already the board pin source of truth.
 

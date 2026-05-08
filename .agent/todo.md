@@ -58,7 +58,7 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 
 ## Task 7 - Simplify Simulator
 
-- [ ] Split `DesktopHost.cpp` into window, renderer, input, and layout modules.
+- [x] Split `DesktopHost.cpp` into window, renderer, input, and layout modules.
 - [x] Stop calling `apps::SynthApp` input internals from the simulator.
 - [x] Drive simulator input through the same system/device event path as firmware.
 

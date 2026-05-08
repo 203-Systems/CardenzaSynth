@@ -131,6 +131,12 @@ endfunction()
 function(ccos_collect_computecardsim_desktop_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Devices/ComputeCardSim/DesktopHost.cpp
+        ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopHostDrawing.cpp
+        ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopHostLayout.cpp
+        ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopSimulator.cpp
+        ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopSimulatorInput.cpp
+        ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopSimulatorLayout.cpp
+        ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopSimulatorRender.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()

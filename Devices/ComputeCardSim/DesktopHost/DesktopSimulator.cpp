@@ -1,0 +1,148 @@
+#include "DesktopSimulator.h"
+
+#include <windowsx.h>
+
+#include "Applications/Application.h"
+#include "Applications/Synth/SynthApp.h"
+#include "OS/MIDI/MIDI.h"
+#include "OS/System/System.h"
+
+namespace ComputeCardSim::DesktopHost {
+
+DesktopSimulator::DesktopSimulator(int initialScale)
+    : scale_(initialScale), keyboard_(BuildKeyboard()) {}
+
+bool DesktopSimulator::Initialize()
+{
+  os::midi::Initialize();
+  if (!os::system::Begin())
+  {
+    MessageBoxA(nullptr, "Failed to create Synth application.", "ComputeCardSimDesktop", MB_ICONERROR | MB_OK);
+    return false;
+  }
+
+  app::Application* application = os::system::ActiveApplication();
+  synthApp_ = dynamic_cast<apps::SynthApp*>(application);
+  if (synthApp_ == nullptr)
+  {
+    MessageBoxA(nullptr, "Synth application registry returned an unexpected type.", "ComputeCardSimDesktop", MB_ICONERROR | MB_OK);
+    return false;
+  }
+
+  return true;
+}
+
+bool DesktopSimulator::Create(HINSTANCE instance)
+{
+  WNDCLASSA windowClass{};
+  windowClass.lpfnWndProc = &DesktopSimulator::WndProc;
+  windowClass.hInstance = instance;
+  windowClass.lpszClassName = "ComputeCardSimDesktopWindow";
+  windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+  windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+  RegisterClassA(&windowClass);
+
+  RECT clientRect = ComputeClientRect();
+  RECT windowRect = clientRect;
+  AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX, FALSE);
+
+  hwnd_ = CreateWindowExA(
+      0,
+      windowClass.lpszClassName,
+      "ComputeCardSim Desktop",
+      WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX,
+      CW_USEDEFAULT,
+      CW_USEDEFAULT,
+      windowRect.right - windowRect.left,
+      windowRect.bottom - windowRect.top,
+      nullptr,
+      nullptr,
+      instance,
+      this);
+
+  if (hwnd_ != nullptr)
+  {
+    lastFrameTick_ = GetTickCount64();
+    SetTimer(hwnd_, kFrameTimerId, kFrameTimerPeriodMs, nullptr);
+  }
+  return hwnd_ != nullptr;
+}
+
+int DesktopSimulator::Run()
+{
+  ShowWindow(hwnd_, SW_SHOWDEFAULT);
+  UpdateWindow(hwnd_);
+
+  MSG message{};
+  while (GetMessageA(&message, nullptr, 0, 0) > 0)
+  {
+    TranslateMessage(&message);
+    DispatchMessageA(&message);
+  }
+  return static_cast<int>(message.wParam);
+}
+
+LRESULT CALLBACK DesktopSimulator::WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+  auto* simulator = reinterpret_cast<DesktopSimulator*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
+  if (message == WM_NCCREATE)
+  {
+    const auto* create = reinterpret_cast<CREATESTRUCTA*>(lParam);
+    simulator = reinterpret_cast<DesktopSimulator*>(create->lpCreateParams);
+    simulator->hwnd_ = hwnd;
+    SetWindowLongPtrA(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(simulator));
+  }
+
+  if (!simulator)
+  {
+    return DefWindowProcA(hwnd, message, wParam, lParam);
+  }
+
+  return simulator->HandleMessage(message, wParam, lParam);
+}
+
+LRESULT DesktopSimulator::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam)
+{
+  switch (message)
+  {
+    case WM_PAINT:
+      OnPaint();
+      return 0;
+    case WM_LBUTTONDOWN:
+      OnLeftButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+      return 0;
+    case WM_MOUSEMOVE:
+      OnMouseMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), static_cast<UINT>(wParam));
+      return 0;
+    case WM_LBUTTONUP:
+      OnLeftButtonUp();
+      return 0;
+    case WM_KEYDOWN:
+      OnKeyDown(static_cast<UINT>(wParam));
+      return 0;
+    case WM_TIMER:
+      if (wParam == kFrameTimerId)
+      {
+        OnFrameTick();
+        return 0;
+      }
+      return 0;
+    case WM_DESTROY:
+      KillTimer(hwnd_, kFrameTimerId);
+      PostQuitMessage(0);
+      return 0;
+    default:
+      return DefWindowProcA(hwnd_, message, wParam, lParam);
+  }
+}
+
+void DesktopSimulator::OnFrameTick()
+{
+  lastFrameTick_ = GetTickCount64();
+
+  os::system::RunFrame();
+
+  InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+}  // namespace ComputeCardSim::DesktopHost
