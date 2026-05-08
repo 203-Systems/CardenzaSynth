@@ -52,7 +52,7 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 
 - [x] Remove keyboard non-ESP fallback bodies and keep the keyboard driver ESP-only in source lists.
 - [x] Remove remaining non-ESP fallback bodies from production HAL modules.
-- [ ] Split keyboard into public types, layout, key scan, LED scan, diagnostics, and ESP implementation files.
+- [x] Split keyboard into public types, layout, key scan, LED scan, diagnostics, and ESP implementation files.
 - [x] Move keyboard pin lists to `computecard/board/pins.h`.
 - [x] Replace loose audio codec probe flags with an explicit output status contract.
 

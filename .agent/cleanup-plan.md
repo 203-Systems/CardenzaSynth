@@ -156,6 +156,8 @@ Task 6 cleanup started by removing the keyboard non-ESP fallback implementation 
 
 The remaining ComputeCard hardware HAL implementations now fail explicitly outside ESP-IDF instead of returning host placeholder values. Desktop validation should go through `ComputeCardSim`; the hardware target is firmware-only. Audio output state has also been collapsed into `Audio::OutputStatus`, replacing separate codec probe/output flags.
 
+The keyboard HAL split is now in place: `keyboard.h` is the facade, `types.h` owns public data types, `layout.h` owns matrix/keymap data, and `keyboard/internal` owns the driver declaration plus hardware, key scan, LED scan, and diagnostics implementations.
+
 Recommended split:
 
 | New file | Responsibility |
