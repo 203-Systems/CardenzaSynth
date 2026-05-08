@@ -68,6 +68,12 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 - [x] Add a minimal architecture validation target for deleted prototypes, firmware-only HAL boundaries, and split-module files.
 - [x] Record `cmake/ComputeCardOSSourceLists.cmake` as compatibility glue until local CMake targets can own sources.
 
+## Task 9 - Move Synth Ownership
+
+- [x] Move app-owned synth runtime and UI modules from `Library/Synth` to `Applications/Synth`.
+- [x] Move the AMY third-party dependency from `third_party/amy` to `Library/third_party/amy`.
+- [x] Update source lists, architecture docs, and guardrails for the new ownership boundary.
+
 ## Deferred Build-System Follow-Up
 
 - [ ] Shrink or retire `cmake/ComputeCardOSSourceLists.cmake` after local CMake targets own sources.

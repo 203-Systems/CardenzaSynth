@@ -8,6 +8,15 @@ endfunction()
 function(ccos_collect_synth_app_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Applications/Synth/SynthApp.cpp
+        ${root_dir}/Applications/Synth/Runtime/SynthRack.cpp
+        ${root_dir}/Applications/Synth/UI/Dx7/Dx7UiModel.cpp
+        ${root_dir}/Applications/Synth/UI/Dx7/Dx7UiRenderer.cpp
+        ${root_dir}/Applications/Synth/UI/Juno/JunoUiModel.cpp
+        ${root_dir}/Applications/Synth/UI/Juno/JunoUiRenderer.cpp
+        ${root_dir}/Applications/Synth/UI/Menu/SynthUiMenu.cpp
+        ${root_dir}/Applications/Synth/UI/Render/SynthUiRenderPrimitives.cpp
+        ${root_dir}/Applications/Synth/UI/SynthUiModel.cpp
+        ${root_dir}/Applications/Synth/UI/SynthUiRenderer.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
@@ -26,15 +35,6 @@ function(ccos_collect_synth_core_cpp_sources root_dir out_var)
         ${root_dir}/Library/Synth/Core/PagedSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Sampler/SamplerSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/SynthEngineFactory.cpp
-        ${root_dir}/Library/Synth/Core/SynthRack.cpp
-        ${root_dir}/Library/Synth/SynthUiRenderer.cpp
-        ${root_dir}/Library/Synth/UI/Dx7/Dx7UiModel.cpp
-        ${root_dir}/Library/Synth/UI/Dx7/Dx7UiRenderer.cpp
-        ${root_dir}/Library/Synth/UI/Juno/JunoUiModel.cpp
-        ${root_dir}/Library/Synth/UI/Juno/JunoUiRenderer.cpp
-        ${root_dir}/Library/Synth/UI/Menu/SynthUiMenu.cpp
-        ${root_dir}/Library/Synth/UI/Render/SynthUiRenderPrimitives.cpp
-        ${root_dir}/Library/Synth/SynthUiModel.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
@@ -176,7 +176,7 @@ function(ccos_collect_computecard_firmware_cpp_sources root_dir out_var)
 endfunction()
 
 function(ccos_collect_amy_c_sources root_dir out_var)
-    set(amy_src_dir ${root_dir}/third_party/amy/src)
+    set(amy_src_dir ${root_dir}/Library/third_party/amy/src)
     set(sources
         ${amy_src_dir}/algorithms.c
         ${amy_src_dir}/amy.c

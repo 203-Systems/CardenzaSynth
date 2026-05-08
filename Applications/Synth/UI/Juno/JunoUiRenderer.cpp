@@ -1,6 +1,6 @@
-#include "Library/Synth/UI/Juno/JunoUiRenderer.h"
+#include "Applications/Synth/UI/Juno/JunoUiRenderer.h"
 
-#include "Library/Synth/UI/Render/SynthUiRenderPrimitives.h"
+#include "Applications/Synth/UI/Render/SynthUiRenderPrimitives.h"
 
 #include <algorithm>
 #include <array>

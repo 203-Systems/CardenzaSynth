@@ -1,8 +1,8 @@
-#include "Library/Synth/SynthUiRenderer.h"
+#include "Applications/Synth/UI/SynthUiRenderer.h"
 
-#include "Library/Synth/UI/Dx7/Dx7UiRenderer.h"
-#include "Library/Synth/UI/Juno/JunoUiRenderer.h"
-#include "Library/Synth/UI/Render/SynthUiRenderPrimitives.h"
+#include "Applications/Synth/UI/Dx7/Dx7UiRenderer.h"
+#include "Applications/Synth/UI/Juno/JunoUiRenderer.h"
+#include "Applications/Synth/UI/Render/SynthUiRenderPrimitives.h"
 
 #include <algorithm>
 #include <array>

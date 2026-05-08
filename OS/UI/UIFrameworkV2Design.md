@@ -6,7 +6,7 @@ This file still contains useful renderer architecture ideas such as the font bac
 
 ## Why The Current UI Feels Wrong
 
-The current renderer in `Library/Synth/SynthUiRenderer.cpp` is still a direct scene painter:
+The current renderer in `Applications/Synth/UI/SynthUiRenderer.cpp` is still a direct scene painter:
 
 - it hardcodes filled panels and button blocks via `DrawPanel()` and `DrawButton()`
 - it assumes a fixed left bar width and a fixed right menu width
@@ -210,9 +210,9 @@ This layer owns stateful transitions between old and new scene snapshots.
 
 New synth-side files:
 
-- `Library/Synth/SynthUiSceneModel.h`
-- `Library/Synth/SynthUiPresenter.h/.cpp`
-- `Library/Synth/SynthUiRenderer.cpp` becomes a scaffold consumer instead of a direct painter
+- `Applications/Synth/UI/SynthUiSceneModel.h`
+- `Applications/Synth/UI/SynthUiPresenter.h/.cpp`
+- `Applications/Synth/UI/SynthUiRenderer.cpp` becomes a scaffold consumer instead of a direct painter
 
 This layer maps synth state into a generic scene model.
 
@@ -442,17 +442,17 @@ This still uses the same scaffold and animation rules.
 
 - `OS/UI/Canvas.h`
 - `OS/UI/Canvas.cpp`
-- `Library/Synth/SynthUiRenderer.h`
-- `Library/Synth/SynthUiRenderer.cpp`
-- `Library/Synth/SynthUiModel.h`
-- `Library/Synth/SynthUiModel.cpp`
+- `Applications/Synth/UI/SynthUiRenderer.h`
+- `Applications/Synth/UI/SynthUiRenderer.cpp`
+- `Applications/Synth/UI/SynthUiModel.h`
+- `Applications/Synth/UI/SynthUiModel.cpp`
 - `Library/Synth/Core/ISynthEngine.h`
 
 ### Optional synth-side additions
 
-- `Library/Synth/ISynthUiProvider.h`
-- `Library/Synth/Dx7SynthUiProvider.h/.cpp`
-- `Library/Synth/JunoSynthUiProvider.h/.cpp`
+- `Applications/Synth/UI/ISynthUiProvider.h`
+- `Applications/Synth/UI/Dx7SynthUiProvider.h/.cpp`
+- `Applications/Synth/UI/JunoSynthUiProvider.h/.cpp`
 
 ## Implementation Order
 

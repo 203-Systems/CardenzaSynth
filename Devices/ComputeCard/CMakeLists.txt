@@ -7,7 +7,7 @@ set(CCOS_CARDPUTER_IDF_RUNNER_PS1 "${CCOS_ROOT}/tools/run_idf.ps1")
 set(CCOS_CARDPUTER_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe")
 
 if(DEFINED COMPONENT_DIR)
-    set(AMY_SRC_DIR ${CCOS_ROOT}/third_party/amy/src)
+    set(AMY_SRC_DIR ${CCOS_ROOT}/Library/third_party/amy/src)
     include(${CCOS_ROOT}/cmake/ComputeCardOSSourceLists.cmake)
 
     ccos_collect_common_cpp_sources(${CCOS_ROOT} CCOS_COMMON_CPP_SOURCES)

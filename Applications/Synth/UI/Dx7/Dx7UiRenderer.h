@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Library/Synth/SynthUiModel.h"
+#include "Applications/Synth/UI/SynthUiModel.h"
 #include "OS/UI/Canvas.h"
 
 namespace synth::ui_render {

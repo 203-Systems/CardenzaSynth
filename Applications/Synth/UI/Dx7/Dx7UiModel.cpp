@@ -1,6 +1,6 @@
-#include "Library/Synth/UI/Dx7/Dx7UiModel.h"
+#include "Applications/Synth/UI/Dx7/Dx7UiModel.h"
 
-#include "Library/Synth/UI/Menu/SynthUiMenu.h"
+#include "Applications/Synth/UI/Menu/SynthUiMenu.h"
 
 #include <algorithm>
 #include <string>

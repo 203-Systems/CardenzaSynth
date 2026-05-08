@@ -35,12 +35,18 @@ bool PagedSynthEngine::Init(const SynthEngineInit& init)
     port_.reset();
     engineIndex_ = static_cast<std::size_t>(-1);
     lastEvent_ = "port offline";
+    audioBackendName_ = "none";
+    audioConnected_ = false;
+    audioHasNativeOutput_ = false;
     return false;
   }
 
   audio::EnsureEngine(engineIndex_, descriptor_.kind);
   device::SetSynthAudioRenderProvider({audio::kSampleRate, audio::RenderFrames});
   const device::SynthAudioPipelineBinding audioBinding = device::ConnectSynthAudioPipeline(init.engineIndex);
+  audioBackendName_ = audioBinding.backendName;
+  audioConnected_ = audioBinding.connected;
+  audioHasNativeOutput_ = audioBinding.hasNativeOutput;
   SyncRuntimeState();
   lastEvent_ = audioBinding.connected ? "ready" : "ready (audio pending)";
   return true;
@@ -271,12 +277,12 @@ std::string PagedSynthEngine::DebugState() const
   std::ostringstream stream;
   stream << descriptor_.displayName << " state: " << lastEvent_ << ", activeNotes=" << activeNotes_;
   stream << ", preset=" << currentPresetName_;
-  stream << ", audio=" << audioBinding_.backendName;
-  if (!audioBinding_.connected)
+  stream << ", audio=" << audioBackendName_;
+  if (!audioConnected_)
   {
     stream << ":offline";
   }
-  else if (!audioBinding_.hasNativeOutput)
+  else if (!audioHasNativeOutput_)
   {
     stream << ":logical";
   }

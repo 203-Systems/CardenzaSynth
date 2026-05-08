@@ -5,8 +5,8 @@
 #include <sstream>
 
 #include "Applications/Application.h"
+#include "Applications/Synth/UI/SynthUiRenderer.h"
 #include "Devices/Device.h"
-#include "Library/Synth/SynthUiRenderer.h"
 #include "OS/MIDI/MIDI.h"
 #include "OS/UI/Canvas.h"
 

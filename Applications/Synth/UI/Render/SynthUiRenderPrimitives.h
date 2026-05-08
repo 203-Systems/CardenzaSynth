@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 
-#include "Library/Synth/SynthUiModel.h"
+#include "Applications/Synth/UI/SynthUiModel.h"
 #include "Library/Synth/Core/SynthTypes.h"
 #include "OS/UI/Canvas.h"
 

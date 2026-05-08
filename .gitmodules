@@ -1,3 +1,3 @@
 [submodule "third_party/amy"]
-	path = third_party/amy
+	path = Library/third_party/amy
 	url = https://github.com/shorepine/amy.git

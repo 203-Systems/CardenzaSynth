@@ -1,4 +1,4 @@
-#include "Library/Synth/Core/SynthRack.h"
+#include "Applications/Synth/Runtime/SynthRack.h"
 
 #include <sstream>
 

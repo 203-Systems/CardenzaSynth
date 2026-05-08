@@ -6,7 +6,7 @@
 #include <string>
 
 #include "Library/Synth/Core/ISynthEngine.h"
-#include "Library/Synth/UI/Model/SynthUiTypes.h"
+#include "Applications/Synth/UI/Model/SynthUiTypes.h"
 
 namespace synth {
 

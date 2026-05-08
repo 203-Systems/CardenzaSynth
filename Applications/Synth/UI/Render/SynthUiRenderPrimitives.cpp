@@ -1,4 +1,4 @@
-#include "Library/Synth/UI/Render/SynthUiRenderPrimitives.h"
+#include "Applications/Synth/UI/Render/SynthUiRenderPrimitives.h"
 
 #include <algorithm>
 #include <array>

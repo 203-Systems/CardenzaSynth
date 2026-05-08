@@ -64,6 +64,9 @@ private:
   std::string currentPresetId_;
   std::string currentPresetName_ = "INIT";
   std::string lastEvent_ = "idle";
+  std::string audioBackendName_ = "none";
+  bool audioConnected_ = false;
+  bool audioHasNativeOutput_ = false;
   int activeNotes_ = 0;
   std::size_t engineIndex_ = static_cast<std::size_t>(-1);
 };

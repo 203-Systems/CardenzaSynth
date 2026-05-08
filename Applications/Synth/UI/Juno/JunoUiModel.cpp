@@ -1,6 +1,6 @@
-#include "Library/Synth/UI/Juno/JunoUiModel.h"
+#include "Applications/Synth/UI/Juno/JunoUiModel.h"
 
-#include "Library/Synth/UI/Menu/SynthUiMenu.h"
+#include "Applications/Synth/UI/Menu/SynthUiMenu.h"
 
 #include <algorithm>
 #include <string>

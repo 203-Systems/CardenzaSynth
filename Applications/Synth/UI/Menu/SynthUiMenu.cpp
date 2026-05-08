@@ -1,4 +1,4 @@
-#include "Library/Synth/UI/Menu/SynthUiMenu.h"
+#include "Applications/Synth/UI/Menu/SynthUiMenu.h"
 
 #include <algorithm>
 #include <array>

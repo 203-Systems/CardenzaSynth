@@ -12,4 +12,5 @@ target_include_directories(ComputeCardSynthApp PUBLIC
 target_link_libraries(ComputeCardSynthApp PUBLIC
     ComputeCardAppInterface
     ComputeCardSynth
+    ComputeCardUI
 )

@@ -34,6 +34,8 @@ endfunction()
 
 ccos_require_file("docs/architecture.md")
 ccos_forbid_path("Devices/ComputeCardSim/WebUI")
+ccos_forbid_path("Library/Synth/UI")
+ccos_forbid_path("third_party/amy")
 
 set(computecard_firmware_only_sources
     "Devices/ComputeCard/computecard/computecardHAL.cpp"
@@ -57,11 +59,21 @@ ccos_require_file("Devices/ComputeCard/computecard/keyboard/internal/keyboard_ke
 ccos_require_file("Devices/ComputeCard/computecard/keyboard/internal/keyboard_led_scan.cpp")
 ccos_require_file("Devices/ComputeCardSim/DesktopHost/DesktopSimulatorInput.cpp")
 ccos_require_file("Devices/ComputeCardSim/DesktopHost/DesktopSimulatorRender.cpp")
+ccos_require_file("Applications/Synth/Runtime/SynthRack.cpp")
+ccos_require_file("Applications/Synth/UI/SynthUiModel.cpp")
+ccos_require_file("Applications/Synth/UI/Render/SynthUiRenderPrimitives.cpp")
+ccos_require_file("Library/third_party/amy/src/amy.c")
 
 ccos_require_text("cmake/ComputeCardOSSourceLists.cmake" "keyboard/internal/keyboard_key_scan.cpp")
 ccos_require_text("cmake/ComputeCardOSSourceLists.cmake" "keyboard/internal/keyboard_led_scan.cpp")
 ccos_require_text("cmake/ComputeCardOSSourceLists.cmake" "DesktopHost/DesktopSimulatorInput.cpp")
 ccos_require_text("cmake/ComputeCardOSSourceLists.cmake" "DesktopHost/DesktopSimulatorRender.cpp")
+ccos_require_text("cmake/ComputeCardOSSourceLists.cmake" "Applications/Synth/Runtime/SynthRack.cpp")
+ccos_require_text("cmake/ComputeCardOSSourceLists.cmake" "Applications/Synth/UI/SynthUiModel.cpp")
+ccos_require_text("cmake/ComputeCardOSSourceLists.cmake" "Library/third_party/amy/src")
+ccos_require_text(".gitmodules" "path = Library/third_party/amy")
+ccos_require_text("Library/Synth/CMakeLists.txt" "Library/third_party/amy/src")
+ccos_require_text("Devices/ComputeCard/CMakeLists.txt" "Library/third_party/amy/src")
 
 ccos_forbid_text("Devices/ComputeCardSim/DesktopHost.cpp" "PressMatrixKey")
 ccos_forbid_text("Devices/ComputeCardSim/DesktopHost.cpp" "ReleaseMatrixKey")

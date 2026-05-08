@@ -1,4 +1,4 @@
-set(AMY_SRC_DIR ${PROJECT_SOURCE_DIR}/third_party/amy/src)
+set(AMY_SRC_DIR ${PROJECT_SOURCE_DIR}/Library/third_party/amy/src)
 
 add_library(ComputeCardAmy)
 
@@ -70,5 +70,4 @@ target_link_libraries(ComputeCardSynth PUBLIC
     ComputeCardDeviceAudio
     ComputeCardMIDI
     ComputeCardSynthRuntime
-    ComputeCardUI
 )

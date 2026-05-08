@@ -290,3 +290,11 @@ The cleanup pass now has a short public architecture note in `docs/architecture.
 The repository also has a lightweight CMake script-mode guardrail at `cmake/ValidateArchitecture.cmake`, exposed through `make validate-architecture` and the root `ValidateArchitecture` CMake target. It checks the decisions that are easiest to regress accidentally: the browser WebUI must stay deleted, ComputeCard HAL files must remain explicitly ESP-IDF-only, the keyboard and desktop simulator split files must exist, and the ComputeCard root CMake path must not expose the hardware HAL as a host subdirectory.
 
 `cmake/ComputeCardOSSourceLists.cmake` is still compatibility glue for ESP-IDF and root CMake collection. Retiring it properly requires local targets/source lists to own modules first, so that work is recorded as deferred build-system debt instead of being hidden inside this guardrail task.
+
+## 2026-05-08 Synth Ownership Move
+
+The synth product boundary is now explicit in the tree instead of only implicit in include patterns. `Applications/Synth` owns `SynthApp`, the app-owned track rack, and all synth UI/model/renderer modules. `Library/Synth` now stays focused on reusable synth engine core and shared audio runtime code.
+
+The AMY submodule also moved from the repo-root `third_party` bucket to `Library/third_party/amy`, which better matches its actual ownership: it is a library-side dependency of the shared synth audio runtime rather than a generic top-level project tool.
+
+Source-list glue and architecture guardrails were updated with the new paths so future cleanup can continue from the correct ownership boundary instead of drifting back toward `Library/Synth/UI`.

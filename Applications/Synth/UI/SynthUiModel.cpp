@@ -1,8 +1,8 @@
-#include "Library/Synth/SynthUiModel.h"
+#include "Applications/Synth/UI/SynthUiModel.h"
 
-#include "Library/Synth/UI/Dx7/Dx7UiModel.h"
-#include "Library/Synth/UI/Juno/JunoUiModel.h"
-#include "Library/Synth/UI/Menu/SynthUiMenu.h"
+#include "Applications/Synth/UI/Dx7/Dx7UiModel.h"
+#include "Applications/Synth/UI/Juno/JunoUiModel.h"
+#include "Applications/Synth/UI/Menu/SynthUiMenu.h"
 
 #include <algorithm>
 #include <chrono>
