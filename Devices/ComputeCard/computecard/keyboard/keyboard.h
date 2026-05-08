@@ -3,16 +3,8 @@
 #include <cstring>
 #include <vector>
 
+#include "Devices/ComputeCard/computecard/board/pins.h"
 #include "./keymap.h"
-
-#if defined(ESP_PLATFORM)
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <freertos/task.h>
-#else
-using SemaphoreHandle_t = void*;
-using TaskHandle_t = void*;
-#endif
 
 namespace ComputeCardHAL::Keyboard {
 
@@ -29,9 +21,9 @@ struct Point2D_t
     int y;
 };
 
-inline const std::vector<int> output_list = {8, 9, 11};
-inline const std::vector<int> input_list = {13, 15, 3, 4, 5, 6, 7};
-inline const std::vector<int> led_pin_list = {21, 48, 47};
+inline const std::vector<int> output_list(Pins::kKeyboardOutputs.begin(), Pins::kKeyboardOutputs.end());
+inline const std::vector<int> input_list(Pins::kKeyboardInputs.begin(), Pins::kKeyboardInputs.end());
+inline const std::vector<int> led_pin_list(Pins::kKeyboardLedPins.begin(), Pins::kKeyboardLedPins.end());
 
 inline constexpr uint8_t LED_BRIGHTNESS_MAX = 15;
 inline constexpr uint8_t KEY_DEBOUNCE_SCAN_COUNT = 3;
@@ -160,8 +152,8 @@ class KeyboardDriver
     uint8_t _candidate_key_scan[8];
     uint8_t _debounce_count[8];
     uint8_t _scan_raw_key_scan[8];
-    SemaphoreHandle_t _mutex;
-    TaskHandle_t _scan_task_handle;
+    void* _mutex;
+    void* _scan_task_handle;
     void* _scan_timer;
     bool _scan_running;
     volatile uint8_t _scan_row;

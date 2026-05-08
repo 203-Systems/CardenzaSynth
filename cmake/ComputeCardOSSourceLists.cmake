@@ -77,13 +77,13 @@ function(ccos_collect_computecard_hal_cpp_sources root_dir out_var)
         ${root_dir}/Devices/ComputeCard/computecard/audio/codec/es8156.cpp
         ${root_dir}/Devices/ComputeCard/computecard/display/display.cpp
         ${root_dir}/Devices/ComputeCard/computecard/ir/ir.cpp
-        ${root_dir}/Devices/ComputeCard/computecard/keyboard/keyboard.cpp
         ${root_dir}/Devices/ComputeCard/computecard/mic/mic.cpp
         ${root_dir}/Devices/ComputeCard/computecard/system/system.cpp
     )
 
     if(DEFINED COMPONENT_DIR)
         list(APPEND sources
+            ${root_dir}/Devices/ComputeCard/computecard/keyboard/keyboard.cpp
             ${root_dir}/Devices/ComputeCard/computecard/storage/storage.cpp
         )
     endif()

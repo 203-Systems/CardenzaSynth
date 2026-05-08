@@ -8,7 +8,10 @@ namespace {
 
 ComputeCardHAL::InitReport g_initReport;
 bool g_initialized = false;
+
+#if defined(ESP_PLATFORM)
 bool g_keyboardInitialized = false;
+#endif
 
 #if defined(ESP_PLATFORM)
 constexpr char kLogTag[] = "ComputeCardHAL";
@@ -59,14 +62,14 @@ bool Init()
         return g_initReport.overall;
     }
 
+#if defined(ESP_PLATFORM)
     if (!g_keyboardInitialized)
     {
         Keyboard::init();
         g_keyboardInitialized = true;
-#if defined(ESP_PLATFORM)
         ESP_LOGI(kLogTag, "keyboard initialized");
-#endif
     }
+#endif
 
     g_initReport.audio = Audio::Init();
     LogModuleResult("audio", g_initReport.audio, false);

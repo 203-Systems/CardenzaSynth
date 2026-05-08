@@ -152,6 +152,8 @@ The ComputeCard-specific HAL under `Devices/ComputeCard/computecard` is also mos
 - diagnostic direct LED/row mode,
 - non-ESP host fallback implementation.
 
+Task 6 cleanup started by removing the keyboard non-ESP fallback implementation and keeping `keyboard/keyboard.cpp` in ESP-IDF/embedded source lists only. `keyboard/keyboard.h` now derives its matrix and LED pin lists from `computecard/board/pins.h` and no longer publishes fake FreeRTOS typedefs for host builds.
+
 Recommended split:
 
 | New file | Responsibility |

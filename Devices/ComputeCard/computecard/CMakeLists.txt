@@ -10,7 +10,6 @@ set(computecard_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/audio/codec/es8156.cpp
     ${CMAKE_CURRENT_LIST_DIR}/display/display.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ir/ir.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/keyboard/keyboard.cpp
     ${CMAKE_CURRENT_LIST_DIR}/mic/mic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/system.cpp
 )
@@ -30,6 +29,7 @@ target_sources(ComputeCardHAL PRIVATE
 
 if(COMPUTECARD_HAL_ENABLE_EMBEDDED_DRIVERS)
     target_sources(ComputeCardHAL PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/keyboard/keyboard.cpp
         ${CMAKE_CURRENT_LIST_DIR}/storage/storage.cpp
     )
 endif()
