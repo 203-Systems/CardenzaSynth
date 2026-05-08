@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "Applications/Application.h"
-#include "Library/Synth/SynthRack.h"
+#include "Library/Synth/Core/SynthRack.h"
 #include "Library/Synth/SynthUiModel.h"
 
 namespace apps {

@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "Library/Synth/ISynthEngine.h"
+#include "Library/Synth/Core/ISynthEngine.h"
 #include "Library/Synth/UI/Model/SynthUiTypes.h"
 
 namespace synth::ui_model {

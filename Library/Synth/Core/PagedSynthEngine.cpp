@@ -1,9 +1,10 @@
-#include "Library/Synth/PagedSynthEngine.h"
+#include "Library/Synth/Core/PagedSynthEngine.h"
 
 #include <algorithm>
 #include <sstream>
 
-#include "Library/Synth/SynthAudioRuntime.h"
+#include "Devices/DeviceAudio.h"
+#include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "OS/Framework/Midi/MidiPort.h"
 
 namespace synth {
@@ -32,16 +33,16 @@ bool PagedSynthEngine::Init(const SynthEngineInit& init)
   if (!port_ || port_->Id() == midi::MIDI_PORT_INVALID)
   {
     port_.reset();
-    audioBinding_ = {};
     engineIndex_ = static_cast<std::size_t>(-1);
     lastEvent_ = "port offline";
     return false;
   }
 
   audio::EnsureEngine(engineIndex_, descriptor_.kind);
-  audioBinding_ = device::ConnectSynthAudioPipeline(init.engineIndex);
+  device::SetSynthAudioRenderProvider({audio::kSampleRate, audio::RenderFrames});
+  const device::SynthAudioPipelineBinding audioBinding = device::ConnectSynthAudioPipeline(init.engineIndex);
   SyncRuntimeState();
-  lastEvent_ = audioBinding_.connected ? "ready" : "ready (audio pending)";
+  lastEvent_ = audioBinding.connected ? "ready" : "ready (audio pending)";
   return true;
 }
 
@@ -64,11 +65,6 @@ void PagedSynthEngine::DispatchPendingMessages()
     ProcessMidi(packet);
     ++processed;
   }
-}
-
-const device::SynthAudioPipelineBinding& PagedSynthEngine::AudioBinding() const
-{
-  return audioBinding_;
 }
 
 const SynthDescriptor& PagedSynthEngine::Descriptor() const

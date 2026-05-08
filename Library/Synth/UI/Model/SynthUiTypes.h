@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <string>
 
-#include "Library/Synth/SynthTypes.h"
+#include "Library/Synth/Core/SynthTypes.h"
 
 namespace synth {
 

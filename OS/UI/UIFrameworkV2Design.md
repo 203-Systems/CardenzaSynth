@@ -446,7 +446,7 @@ This still uses the same scaffold and animation rules.
 - `Library/Synth/SynthUiRenderer.cpp`
 - `Library/Synth/SynthUiModel.h`
 - `Library/Synth/SynthUiModel.cpp`
-- `Library/Synth/ISynthEngine.h`
+- `Library/Synth/Core/ISynthEngine.h`
 
 ### Optional synth-side additions
 

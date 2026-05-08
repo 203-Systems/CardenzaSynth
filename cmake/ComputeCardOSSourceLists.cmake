@@ -14,19 +14,19 @@ endfunction()
 
 function(ccos_collect_synth_runtime_cpp_sources root_dir out_var)
     set(sources
-        ${root_dir}/Library/Synth/SynthAudioRuntimeAmy.cpp
+        ${root_dir}/Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
 function(ccos_collect_synth_core_cpp_sources root_dir out_var)
     set(sources
-        ${root_dir}/Library/Synth/Dx7SynthEngine.cpp
-        ${root_dir}/Library/Synth/JunoSynthEngine.cpp
-        ${root_dir}/Library/Synth/PagedSynthEngine.cpp
-        ${root_dir}/Library/Synth/SamplerSynthEngine.cpp
-        ${root_dir}/Library/Synth/SynthEngineFactory.cpp
-        ${root_dir}/Library/Synth/SynthRack.cpp
+        ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.cpp
+        ${root_dir}/Library/Synth/Core/Engines/Juno/JunoSynthEngine.cpp
+        ${root_dir}/Library/Synth/Core/PagedSynthEngine.cpp
+        ${root_dir}/Library/Synth/Core/Engines/Sampler/SamplerSynthEngine.cpp
+        ${root_dir}/Library/Synth/Core/SynthEngineFactory.cpp
+        ${root_dir}/Library/Synth/Core/SynthRack.cpp
         ${root_dir}/Library/Synth/SynthUiRenderer.cpp
         ${root_dir}/Library/Synth/UI/Dx7/Dx7UiModel.cpp
         ${root_dir}/Library/Synth/UI/Dx7/Dx7UiRenderer.cpp
@@ -188,7 +188,7 @@ function(ccos_collect_amy_c_sources root_dir out_var)
         ${amy_src_dir}/pcm.c
         ${amy_src_dir}/sequencer.c
         ${amy_src_dir}/transfer.c
-        ${root_dir}/Library/Synth/AmyEmbeddedStubs.c
+        ${root_dir}/Library/Synth/Audio/Amy/AmyEmbeddedStubs.c
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()

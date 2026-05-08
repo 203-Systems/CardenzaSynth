@@ -1,12 +1,12 @@
 #pragma once
 
-#include "Library/Synth/PagedSynthEngine.h"
+#include "Library/Synth/Core/PagedSynthEngine.h"
 
 namespace synth {
 
-class Dx7SynthEngine final : public PagedSynthEngine {
+class JunoSynthEngine final : public PagedSynthEngine {
 public:
-  Dx7SynthEngine();
+  JunoSynthEngine();
 
 protected:
   std::string FormatParameterValue(const SynthParameterInfo& parameter) const override;

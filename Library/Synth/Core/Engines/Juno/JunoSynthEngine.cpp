@@ -1,4 +1,4 @@
-#include "Library/Synth/JunoSynthEngine.h"
+#include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
 
 #include <algorithm>
 #include <map>

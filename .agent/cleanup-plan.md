@@ -14,7 +14,7 @@ These are the first breakup candidates, excluding `build/`, `out/`, `.git/`, and
 | `Library/Synth/SynthUiRenderer.cpp` | 1800+ | Generic screen layout, marquee text, bar rendering, home rendering, context rendering, DX7 algorithm drawing, and Juno panel drawing live together. |
 | `Devices/ComputeCard/computecard/keyboard/keyboard.cpp` | ~900 | Matrix scan, LED multiplexing, debounce/public state, ISR/timer/task logic, and hardware details are likely mixed. |
 | `Devices/ComputeCardSim/DesktopHost.cpp` | ~750 | Host window, simulator shell, app/system bootstrapping, input mapping, and rendering bridge are likely mixed. |
-| `Library/Synth/SynthAudioRuntimeAmy.cpp` | ~650 | AMY platform integration, voice/event translation, and runtime render path should be reviewed before adding more engines. |
+| `Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp` | ~650 | AMY platform integration, voice/event translation, and runtime render path should be reviewed before adding more engines. |
 
 `OS/UI/BuiltInFonts.cpp` is larger than all of these, but it is generated/static asset data, so it should be treated as a build/asset pipeline issue rather than hand-refactored application logic.
 
@@ -50,8 +50,8 @@ ComputeCardOS has the same top-level folders, but its actual source graph is les
 ### Confirmed dependency direction problems
 
 - `Applications/Synth/SynthApp.cpp` directly drives `Device::LED`, `Device::Display`, `os::midi`, `SynthRack`, `SynthUiModel`, and `SynthUiRenderer`. That makes the app both product logic and hardware presentation coordinator.
-- `Library/Synth/ISynthEngine.h` includes `Devices/DeviceAudio.h` and `OS/Framework/Midi/MidiPacket.h`. A reusable synth engine interface should not need the selected board audio binding type.
-- `Library/Synth/PagedSynthEngine.cpp` directly creates `midi::MidiPort`, calls `device::ConnectSynthAudioPipeline()`, and syncs `synth::audio::*` runtime state. This is too much ownership for a base engine class.
+- Before the runtime split, `Library/Synth/Core/ISynthEngine.h` included `Devices/DeviceAudio.h`. That board audio type has now been removed from the public synth engine interface; the remaining MIDI packet dependency should be reviewed separately.
+- `Library/Synth/Core/PagedSynthEngine.cpp` directly creates `midi::MidiPort`, calls `device::ConnectSynthAudioPipeline()`, and syncs `synth::audio::*` runtime state. This is too much ownership for a base engine class.
 - `Devices/ComputeCard/DeviceAudio.cpp` and `Devices/ComputeCardSim/DeviceAudio.cpp` call `synth::audio::RenderFrames()`. That creates a reverse dependency from device output back into synth runtime.
 - `OS/System/System.cpp` hard-codes built-in app registration and directly owns device display/LED frame cadence. This is fine as a prototype loop, but should become a scheduler/runtime service with clearer extension points.
 - `OS/UI/Canvas.h` aliases `ui::Color` to `Device::Display::Pixel` and stores `Device::Display::MutableFrameBufferView`. This is acceptable for a tiny embedded renderer short term, but it prevents the UI library from being tested without a device facade.
@@ -178,7 +178,7 @@ Cleanup still needed:
 - Replace the loose `codecProbeAttempted` / `codecAvailable` state with an explicit output capability/status struct, e.g. `AudioOutputStatus { i2sReady, codecControlReady, nativeOutputReady, lastError }`.
 - Keep codec control optional, but report it formally so UI/system diagnostics can show why speaker control is missing.
 - Make sample format explicit in the public audio contract: current device audio render path writes 16-bit samples, while I2S slot width is configured to 32-bit left slot. This may be intentional for clocking, but the contract should name it.
-- Move `DeviceAudio.cpp` out of the device layer's responsibility for choosing synth rendering. Device audio should run a registered render callback or stream provider, not include `Library/Synth/SynthAudioRuntime.h` directly.
+- Move `DeviceAudio.cpp` out of the device layer's responsibility for choosing synth rendering. Device audio should run a registered render callback or stream provider, not include `Library/Synth/Audio/SynthAudioRuntime.h` directly.
 
 ### Build and tree hygiene findings
 
@@ -249,7 +249,7 @@ Direction:
 
 ### Phase 2: Formalize dependency direction
 
-1. Remove `Devices/DeviceAudio.h` from `Library/Synth/ISynthEngine.h`.
+1. Remove `Devices/DeviceAudio.h` from `Library/Synth/Core/ISynthEngine.h`.
 2. Move audio binding status out of engine interface or replace it with a generic runtime status type owned by `Library/Synth`.
 3. Replace `DeviceAudio -> SynthAudioRuntime` hard include with a registered render callback/stream provider.
 4. Move MIDI port ownership out of `PagedSynthEngine` if the synth engine should stay reusable; let `SynthRack` or an app-level router bind ports.

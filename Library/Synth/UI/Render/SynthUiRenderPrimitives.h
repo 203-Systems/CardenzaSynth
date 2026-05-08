@@ -7,7 +7,7 @@
 #include <string_view>
 
 #include "Library/Synth/SynthUiModel.h"
-#include "Library/Synth/SynthTypes.h"
+#include "Library/Synth/Core/SynthTypes.h"
 #include "OS/UI/Canvas.h"
 
 namespace synth::ui_render {

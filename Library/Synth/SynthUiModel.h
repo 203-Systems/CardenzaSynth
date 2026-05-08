@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <string>
 
-#include "Library/Synth/ISynthEngine.h"
+#include "Library/Synth/Core/ISynthEngine.h"
 #include "Library/Synth/UI/Model/SynthUiTypes.h"
 
 namespace synth {

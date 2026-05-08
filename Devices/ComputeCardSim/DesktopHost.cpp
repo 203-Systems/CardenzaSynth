@@ -14,8 +14,8 @@
 #include "Applications/BuiltInApplications.h"
 #include "Applications/Synth/SynthApp.h"
 #include "Devices/Device.h"
-#include "Library/Synth/ISynthEngine.h"
-#include "Library/Synth/SynthTypes.h"
+#include "Library/Synth/Core/ISynthEngine.h"
+#include "Library/Synth/Core/SynthTypes.h"
 #include "OS/Framework/Midi/MidiPacket.h"
 #include "OS/MIDI/MIDI.h"
 

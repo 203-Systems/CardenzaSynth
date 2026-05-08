@@ -1,4 +1,4 @@
-#include "Library/Synth/SamplerSynthEngine.h"
+#include "Library/Synth/Core/Engines/Sampler/SamplerSynthEngine.h"
 
 #include <map>
 

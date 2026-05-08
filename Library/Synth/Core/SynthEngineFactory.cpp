@@ -1,8 +1,8 @@
-#include "Library/Synth/ISynthEngine.h"
+#include "Library/Synth/Core/ISynthEngine.h"
 
-#include "Library/Synth/Dx7SynthEngine.h"
-#include "Library/Synth/JunoSynthEngine.h"
-#include "Library/Synth/SamplerSynthEngine.h"
+#include "Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.h"
+#include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
+#include "Library/Synth/Core/Engines/Sampler/SamplerSynthEngine.h"
 
 namespace synth {
 

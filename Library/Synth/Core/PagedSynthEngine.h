@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "Library/Synth/ISynthEngine.h"
+#include "Library/Synth/Core/ISynthEngine.h"
 
 namespace midi {
 class MidiPort;
@@ -21,7 +21,6 @@ public:
   bool Init(const SynthEngineInit& init) override;
   uint16_t PortId() const override;
   void DispatchPendingMessages() override;
-  const device::SynthAudioPipelineBinding& AudioBinding() const override;
   const SynthDescriptor& Descriptor() const override;
   SynthParameterPage ListParameters(const SynthPageRequest& request) const override;
   SynthPresetPage ListPresets(const SynthPageRequest& request) const override;
@@ -59,7 +58,6 @@ private:
   std::string NextUserPresetId() const;
 
   SynthDescriptor descriptor_;
-  device::SynthAudioPipelineBinding audioBinding_;
   std::vector<SynthParameterInfo> parameters_{};
   std::vector<PresetState> presets_{};
   std::unique_ptr<midi::MidiPort> port_;

@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <string_view>
 
-#include "Library/Synth/SynthTypes.h"
+#include "Library/Synth/Core/SynthTypes.h"
 
 namespace synth::audio {
 

@@ -1,11 +1,11 @@
 #include "Devices/DeviceAudio.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <mutex>
 
 #include "audio/audio.h"
-#include "Library/Synth/SynthAudioRuntime.h"
 
 #if defined(ESP_PLATFORM)
 #include <esp_log.h>
@@ -16,6 +16,27 @@
 namespace device {
 
 namespace {
+
+SynthAudioRenderProvider g_audioProvider{};
+std::mutex g_audioProviderMutex;
+
+SynthAudioRenderProvider CurrentAudioProvider()
+{
+  std::lock_guard<std::mutex> lock(g_audioProviderMutex);
+  return g_audioProvider;
+}
+
+std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
+{
+  const SynthAudioRenderProvider provider = CurrentAudioProvider();
+  if (provider.renderFrames == nullptr)
+  {
+    std::fill(destination, destination + frameCount, 0);
+    return frameCount;
+  }
+
+  return provider.renderFrames(destination, frameCount);
+}
 
 #if defined(ESP_PLATFORM)
 
@@ -58,7 +79,7 @@ void AudioRenderTask(void*)
   std::uint32_t renderedBlocks = 0;
   for (;;)
   {
-    synth::audio::RenderFrames(buffer.data(), buffer.size());
+    RenderSynthFrames(buffer.data(), buffer.size());
     const float gain = static_cast<float>(ComputeCardHAL::Audio::GetVolume()) / 100.0f;
     if (gain < 0.999f)
     {
@@ -121,6 +142,12 @@ bool EnsureAudioPumpStarted()
 #endif
 
 }  // namespace
+
+void SetSynthAudioRenderProvider(SynthAudioRenderProvider provider)
+{
+  std::lock_guard<std::mutex> lock(g_audioProviderMutex);
+  g_audioProvider = provider;
+}
 
 SynthAudioPipelineBinding ConnectSynthAudioPipeline(std::size_t engineIndex) {
   SynthAudioPipelineBinding binding;

@@ -43,10 +43,10 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 
 ## Task 5 - Split Synth Runtime
 
-- [ ] Move engine interfaces and rack code under `Library/Synth/Core`.
-- [ ] Move AMY-backed audio runtime under `Library/Synth/Audio/Amy`.
-- [ ] Remove device audio types from the synth engine public interface.
-- [ ] Replace device-to-synth render calls with a registered audio provider/callback.
+- [x] Move engine interfaces and rack code under `Library/Synth/Core`.
+- [x] Move AMY-backed audio runtime under `Library/Synth/Audio/Amy`.
+- [x] Remove device audio types from the synth engine public interface.
+- [x] Replace device-to-synth render calls with a registered audio provider/callback.
 
 ## Task 6 - Tighten ComputeCard HAL
 

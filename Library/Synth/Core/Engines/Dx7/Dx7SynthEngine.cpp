@@ -1,4 +1,4 @@
-#include "Library/Synth/Dx7SynthEngine.h"
+#include "Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.h"
 
 #include <map>
 

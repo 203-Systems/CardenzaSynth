@@ -2,8 +2,8 @@
 
 #include <array>
 
-#include "Library/Synth/ISynthEngine.h"
-#include "Library/Synth/SynthTypes.h"
+#include "Library/Synth/Core/ISynthEngine.h"
+#include "Library/Synth/Core/SynthTypes.h"
 #include "Library/Synth/SynthUiModel.h"
 #include "OS/UI/Canvas.h"
 

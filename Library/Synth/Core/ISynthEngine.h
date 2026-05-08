@@ -6,8 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "Devices/DeviceAudio.h"
-#include "Library/Synth/SynthTypes.h"
+#include "Library/Synth/Core/SynthTypes.h"
 #include "OS/Framework/Midi/MidiPacket.h"
 
 namespace synth {
@@ -71,7 +70,6 @@ public:
   virtual bool Init(const SynthEngineInit& init) = 0;
   virtual uint16_t PortId() const = 0;
   virtual void DispatchPendingMessages() = 0;
-  virtual const device::SynthAudioPipelineBinding& AudioBinding() const = 0;
   virtual const SynthDescriptor& Descriptor() const = 0;
   virtual SynthParameterPage ListParameters(const SynthPageRequest& request) const = 0;
   virtual SynthPresetPage ListPresets(const SynthPageRequest& request) const = 0;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Library/Synth/PagedSynthEngine.h"
+#include "Library/Synth/Core/PagedSynthEngine.h"
 
 namespace synth {
 

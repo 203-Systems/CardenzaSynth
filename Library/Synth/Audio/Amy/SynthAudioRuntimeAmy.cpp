@@ -1,4 +1,4 @@
-#include "Library/Synth/SynthAudioRuntime.h"
+#include "Library/Synth/Audio/SynthAudioRuntime.h"
 
 #include <algorithm>
 #include <array>

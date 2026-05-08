@@ -1,9 +1,8 @@
 #include "Devices/DeviceAudio.h"
 
+#include <algorithm>
 #include <memory>
 #include <mutex>
-
-#include "Library/Synth/SynthAudioRuntime.h"
 
 #if defined(_WIN32)
 #define NOMINMAX
@@ -18,6 +17,27 @@
 namespace device {
 
 namespace {
+
+SynthAudioRenderProvider g_audioProvider{};
+std::mutex g_audioProviderMutex;
+
+SynthAudioRenderProvider CurrentAudioProvider()
+{
+  std::lock_guard<std::mutex> lock(g_audioProviderMutex);
+  return g_audioProvider;
+}
+
+std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
+{
+  const SynthAudioRenderProvider provider = CurrentAudioProvider();
+  if (provider.renderFrames == nullptr)
+  {
+    std::fill(destination, destination + frameCount, 0);
+    return frameCount;
+  }
+
+  return provider.renderFrames(destination, frameCount);
+}
 
 #if defined(_WIN32)
 
@@ -36,7 +56,7 @@ public:
     WAVEFORMATEX format{};
     format.wFormatTag = WAVE_FORMAT_PCM;
     format.nChannels = 1;
-    format.nSamplesPerSec = synth::audio::kSampleRate;
+    format.nSamplesPerSec = CurrentAudioProvider().sampleRate;
     format.wBitsPerSample = 16;
     format.nBlockAlign = static_cast<WORD>(format.nChannels * format.wBitsPerSample / 8);
     format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
@@ -86,7 +106,7 @@ public:
 private:
   void RefillBuffer(std::size_t index)
   {
-    synth::audio::RenderFrames(buffers_[index].data(), buffers_[index].size());
+    RenderSynthFrames(buffers_[index].data(), buffers_[index].size());
     headers_[index].dwFlags &= ~WHDR_DONE;
     headers_[index].dwBufferLength = static_cast<DWORD>(buffers_[index].size() * sizeof(std::int16_t));
   }
@@ -180,6 +200,12 @@ bool EnsureWaveOutPumpStarted()
 #endif
 
 }  // namespace
+
+void SetSynthAudioRenderProvider(SynthAudioRenderProvider provider)
+{
+  std::lock_guard<std::mutex> lock(g_audioProviderMutex);
+  g_audioProvider = provider;
+}
 
 SynthAudioPipelineBinding ConnectSynthAudioPipeline(std::size_t engineIndex) {
   SynthAudioPipelineBinding binding;

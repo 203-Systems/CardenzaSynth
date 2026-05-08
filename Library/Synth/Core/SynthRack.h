@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "Library/Synth/ISynthEngine.h"
+#include "Library/Synth/Core/ISynthEngine.h"
 
 namespace synth {
 
