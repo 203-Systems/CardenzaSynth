@@ -28,6 +28,9 @@ function(ccos_collect_synth_core_cpp_sources root_dir out_var)
         ${root_dir}/Library/Synth/SynthEngineFactory.cpp
         ${root_dir}/Library/Synth/SynthRack.cpp
         ${root_dir}/Library/Synth/SynthUiRenderer.cpp
+        ${root_dir}/Library/Synth/UI/Dx7/Dx7UiRenderer.cpp
+        ${root_dir}/Library/Synth/UI/Juno/JunoUiRenderer.cpp
+        ${root_dir}/Library/Synth/UI/Render/SynthUiRenderPrimitives.cpp
         ${root_dir}/Library/Synth/SynthUiModel.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)

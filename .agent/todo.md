@@ -29,10 +29,10 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 
 ## Task 3 - Split Synth UI Renderer
 
-- [ ] Move shared UI rendering helpers under `Library/Synth/UI/Render`.
-- [ ] Move DX7 rendering into `Library/Synth/UI/Dx7`.
-- [ ] Move Juno rendering into `Library/Synth/UI/Juno`.
-- [ ] Keep `SynthUiRenderer.h` as the public app-facing facade.
+- [x] Move shared UI rendering helpers under `Library/Synth/UI/Render`.
+- [x] Move DX7 rendering into `Library/Synth/UI/Dx7`.
+- [x] Move Juno rendering into `Library/Synth/UI/Juno`.
+- [x] Keep `SynthUiRenderer.h` as the public app-facing facade.
 
 ## Task 4 - Split Synth UI Model
 
