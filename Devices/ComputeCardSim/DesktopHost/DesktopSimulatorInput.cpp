@@ -1,6 +1,5 @@
 #include "DesktopSimulator.h"
 
-#include "Applications/Synth/SynthApp.h"
 #include "Devices/ComputeCardSim/SimulatorInput.h"
 #include "Library/Synth/Core/SynthTypes.h"
 #include "OS/System/System.h"

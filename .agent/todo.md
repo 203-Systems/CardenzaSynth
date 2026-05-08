@@ -64,6 +64,12 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 
 ## Task 8 - Architecture Guardrails
 
-- [ ] Add a short architecture doc with allowed dependency directions.
+- [x] Add a short architecture doc with allowed dependency directions.
+- [x] Add a minimal architecture validation target for deleted prototypes, firmware-only HAL boundaries, and split-module files.
+- [x] Record `cmake/ComputeCardOSSourceLists.cmake` as compatibility glue until local CMake targets can own sources.
+
+## Deferred Build-System Follow-Up
+
 - [ ] Shrink or retire `cmake/ComputeCardOSSourceLists.cmake` after local CMake targets own sources.
-- [ ] Add minimal validation targets for synth UI behavior and firmware smoke builds.
+- [ ] Add firmware smoke-build automation after ESP-IDF configuration works reliably in the local toolchain.
+- [ ] Add focused synth UI behavior tests before changing menu semantics.

@@ -13,6 +13,11 @@ project(ComputeCardOS LANGUAGES C CXX)
 
 include(${CMAKE_SOURCE_DIR}/cmake/ComputeCardOSSourceLists.cmake)
 
+add_custom_target(ValidateArchitecture
+  COMMAND ${CMAKE_COMMAND} -DCCOS_ROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/ValidateArchitecture.cmake
+  VERBATIM
+)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)

@@ -282,3 +282,11 @@ Direction:
 ## Immediate Action Recommendation
 
 Start with Phase 1 renderer split. It is the biggest readability win with the lowest behavioral risk. After that, split `SynthUiModel` engine-specific menu helpers, then address the audio dependency cycle before adding any new synth features.
+
+## 2026-05-08 Architecture Guardrails Added
+
+The cleanup pass now has a short public architecture note in `docs/architecture.md`. It records the allowed dependency direction, the ESP-IDF-only status of `Devices/ComputeCard/computecard`, the simulator input route through the public device facade, and the current module shape after the Synth/HAL/simulator splits.
+
+The repository also has a lightweight CMake script-mode guardrail at `cmake/ValidateArchitecture.cmake`, exposed through `make validate-architecture` and the root `ValidateArchitecture` CMake target. It checks the decisions that are easiest to regress accidentally: the browser WebUI must stay deleted, ComputeCard HAL files must remain explicitly ESP-IDF-only, the keyboard and desktop simulator split files must exist, and the ComputeCard root CMake path must not expose the hardware HAL as a host subdirectory.
+
+`cmake/ComputeCardOSSourceLists.cmake` is still compatibility glue for ESP-IDF and root CMake collection. Retiring it properly requires local targets/source lists to own modules first, so that work is recorded as deferred build-system debt instead of being hidden inside this guardrail task.

@@ -23,7 +23,7 @@ endif
 IDF_PORT_ARG := $(if $(PORT),-p $(PORT),)
 COMPUTECARD_IDF_ARGS := -B "$(abspath $(BUILD))"
 
-.PHONY: all build set-target flash bootloader-flash app-flash erase monitor flash-monitor clean fullclean firmware firmware-target host cardputer cardputer-firmware cardputer-flash cardputer-monitor cardputer-flash-monitor cardputer-host cardputer-clean cardputer-fullclean
+.PHONY: all build set-target flash bootloader-flash app-flash erase monitor flash-monitor clean fullclean validate-architecture firmware firmware-target host cardputer cardputer-firmware cardputer-flash cardputer-monitor cardputer-flash-monitor cardputer-host cardputer-clean cardputer-fullclean
 
 all: build
 
@@ -62,6 +62,9 @@ endif
 host:
 	@echo ComputeCard hardware HAL is ESP-IDF only. Use DEVICE=ComputeCardSim for host validation.
 	@exit 1
+
+validate-architecture:
+	cmake -DCCOS_ROOT="$(abspath .)" -P cmake/ValidateArchitecture.cmake
 
 clean:
 ifeq ($(OS),Windows_NT)
