@@ -36,10 +36,10 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 
 ## Task 4 - Split Synth UI Model
 
-- [ ] Move generic UI types under `Library/Synth/UI/Model`.
-- [ ] Move menu grammar under `Library/Synth/UI/Menu`.
-- [ ] Move DX7/Juno menu semantics beside their engine UI modules.
-- [ ] Keep `SynthUiModel` focused on state-machine orchestration.
+- [x] Move generic UI types under `Library/Synth/UI/Model`.
+- [x] Move menu grammar under `Library/Synth/UI/Menu`.
+- [x] Move DX7/Juno menu semantics beside their engine UI modules.
+- [x] Keep `SynthUiModel` focused on state-machine orchestration.
 
 ## Task 5 - Split Synth Runtime
 
