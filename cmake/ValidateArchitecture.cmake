@@ -32,7 +32,7 @@ function(ccos_forbid_text relative_path forbidden_text)
     endif()
 endfunction()
 
-ccos_require_file("docs/architecture.md")
+ccos_require_file("docs/AGENT.md")
 ccos_forbid_path("Devices/ComputeCardSim/WebUI")
 ccos_forbid_path("Library/Synth/UI")
 ccos_forbid_path("third_party/amy")

@@ -17,7 +17,7 @@ make DEVICE=ComputeCard monitor PORT=COM5
 make DEVICE=ComputeCard flash-monitor PORT=COM5
 ```
 
-On Windows, the Makefile calls `tools/run_idf.ps1`, which invokes `idf.py` through `IDF_PYTHON_ENV_PATH` and `IDF_PATH` from the active ESP-IDF shell. The repo `.venv` is not required for firmware builds.
+On Windows, open an exported ESP-IDF shell first and run `make DEVICE=ComputeCard ...`. The Makefile changes into `Devices/ComputeCard` and invokes `idf.py` directly, so the repo `.venv` is not required for firmware builds.
 
 Or run `idf.py` directly from the project root:
 

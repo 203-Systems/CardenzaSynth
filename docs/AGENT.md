@@ -1,4 +1,4 @@
-# ComputeCardOS Architecture
+# ComputeCardOS
 
 ComputeCardOS is organized around a small set of ownership boundaries. The firmware target is the source of truth for ComputeCard hardware behavior; desktop code exists to simulate that device boundary, not to keep alternate hardware implementations alive.
 
@@ -25,7 +25,7 @@ Concrete rules:
 
 ## Build Entrypoints
 
-- ComputeCard firmware: `make DEVICE=ComputeCard build`, which runs ESP-IDF through `tools/run_idf.ps1` on Windows.
+- ComputeCard firmware: open an exported ESP-IDF shell, then run `make DEVICE=ComputeCard build`. The Makefile changes into `Devices/ComputeCard` and invokes `idf.py` directly.
 - Desktop simulator: `make DEVICE=ComputeCardSim build`.
 - Architecture guardrail check: `make validate-architecture`.
 
@@ -42,3 +42,14 @@ The root CMake project is for desktop-style targets such as `ComputeCardSim`. Th
 - `Devices/ComputeCardSim/DesktopHost`: Win32 simulator layout, drawing, window lifecycle, input, and rendering modules.
 
 `cmake/ComputeCardOSSourceLists.cmake` is still the compatibility source registry for ESP-IDF and root CMake collection. Prefer adding owned CMake targets or local source lists as modules mature instead of growing unrelated flat lists.
+
+
+## ComputeCard HAL
+
+- `Devices/ComputeCard` sources are ESP-IDF-only. Do not add `ESP_PLATFORM` preprocessor guards or fallback typedefs in that tree.
+- Keep `ComputeCardHAL` lightweight and generic. Expose native ESP-IDF handles rather than app-level wrappers. This is suppose to be a portable HAL for this device
+
+## Agent Workflow
+
+- Do not start builds from the agent unless the user explicitly asks for one. This repository can hang on build attempts from the agent environment.
+- Prefer static validation (`get_errors`, targeted searches, diff inspection) when changing the ComputeCard HAL layer.

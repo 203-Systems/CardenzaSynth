@@ -195,7 +195,7 @@ Cleanup still needed:
 - The old `Devices/ComputeCard/main/hal` path is not actually present; `Devices/ComputeCard/main` is empty. Do not plan cleanup work around ghost search results.
 - `Devices/ComputeCard/esp-idf/main/CMakeLists.txt` still duplicates the ESP-IDF component registration path already handled by `Devices/ComputeCard/CMakeLists.txt` when `COMPONENT_DIR` is defined. Decide which one is canonical and remove the duplicate path after validating firmware builds.
 - `Devices/ComputeCard/CMakeLists.txt` hard-codes `C:/espressif/v5.3.4/export.ps1` for the `CardputerFirmware` target. That belongs in user environment config or a wrapper script, not project architecture.
-- `Makefile` calls `idf.py` directly and documentation requires running `export.ps1` first. Previous repo notes mentioned `tools/run_idf.ps1`, but that file does not exist in this tree. Reintroduce a small wrapper or update the memory/docs so there is only one official Windows ESP-IDF invocation path.
+- `Makefile` and docs now agree on the Windows firmware path: run `make DEVICE=ComputeCard ...` from an already exported ESP-IDF shell, and let the Makefile `cd` into `Devices/ComputeCard` before invoking `idf.py` directly.
 
 ### Next review slice
 
@@ -285,7 +285,7 @@ Start with Phase 1 renderer split. It is the biggest readability win with the lo
 
 ## 2026-05-08 Architecture Guardrails Added
 
-The cleanup pass now has a short public architecture note in `docs/architecture.md`. It records the allowed dependency direction, the ESP-IDF-only status of `Devices/ComputeCard/computecard`, the simulator input route through the public device facade, and the current module shape after the Synth/HAL/simulator splits.
+The cleanup pass now has a short public architecture note in `docs/AGENT.md`. It records the allowed dependency direction, the ESP-IDF-only status of `Devices/ComputeCard/computecard`, the simulator input route through the public device facade, and the current module shape after the Synth/HAL/simulator splits.
 
 The repository also has a lightweight CMake script-mode guardrail at `cmake/ValidateArchitecture.cmake`, exposed through `make validate-architecture` and the root `ValidateArchitecture` CMake target. It checks the decisions that are easiest to regress accidentally: the browser WebUI must stay deleted, ComputeCard HAL files must remain explicitly ESP-IDF-only, the keyboard and desktop simulator split files must exist, and the ComputeCard root CMake path must not expose the hardware HAL as a host subdirectory.
 
