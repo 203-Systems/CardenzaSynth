@@ -1,26 +1,29 @@
+#include "Devices/Device.h"
 #include "Devices/DeviceAudio.h"
 
 #include <algorithm>
 #include <array>
+#include <cinttypes>
 #include <cstdint>
 #include <mutex>
 
 #include "audio/audio.h"
+#include "computecard/mic/mic.h"
 
-#if defined(ESP_PLATFORM)
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#endif
-
-namespace device {
 
 namespace {
 
-SynthAudioRenderProvider g_audioProvider{};
+device::SynthAudioRenderProvider g_audioProvider{};
 std::mutex g_audioProviderMutex;
+std::mutex g_audioOutputMutex;
+std::mutex g_audioInputMutex;
+bool g_audioOutputEnabled = false;
+bool g_audioInputEnabled = false;
 
-SynthAudioRenderProvider CurrentAudioProvider()
+device::SynthAudioRenderProvider CurrentAudioProvider()
 {
   std::lock_guard<std::mutex> lock(g_audioProviderMutex);
   return g_audioProvider;
@@ -28,7 +31,7 @@ SynthAudioRenderProvider CurrentAudioProvider()
 
 std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
 {
-  const SynthAudioRenderProvider provider = CurrentAudioProvider();
+  const device::SynthAudioRenderProvider provider = CurrentAudioProvider();
   if (provider.renderFrames == nullptr)
   {
     std::fill(destination, destination + frameCount, 0);
@@ -38,18 +41,57 @@ std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
   return provider.renderFrames(destination, frameCount);
 }
 
-#if defined(ESP_PLATFORM)
-
 constexpr std::size_t kRenderFrameCount = 256;
-// Audio stays on core 1 so it does not contend with runtime/UI and keyboard work on core 0.
 constexpr BaseType_t kAudioTaskPinnedCore = 1;
 constexpr UBaseType_t kAudioTaskPriority = 6;
-// AMY's ESP render/fill tasks reserve 12-16 KiB; match that headroom here because
-// polyphonic render paths can consume substantially more stack than single-note cases.
 constexpr uint32_t kAudioTaskStackSize = 16 * 1024;
 constexpr char kLogTag[] = "ComputeCardAudio";
 std::mutex g_audioPumpMutex;
 TaskHandle_t g_audioPumpTask = nullptr;
+
+bool EnsureOutputChannelEnabled()
+{
+  const i2s_chan_handle_t outputChannel = ComputeCardHAL::Audio::GetTxChannel();
+  if (outputChannel == nullptr)
+  {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(g_audioOutputMutex);
+  if (g_audioOutputEnabled)
+  {
+    return true;
+  }
+
+  if (i2s_channel_enable(outputChannel) != ESP_OK)
+  {
+    return false;
+  }
+
+  g_audioOutputEnabled = true;
+  (void)ComputeCardHAL::Audio::SetVolume(ComputeCardHAL::Audio::GetVolume());
+  return true;
+}
+
+bool WriteOutputFrames(const std::int16_t* samples, std::size_t sampleCount)
+{
+  if (samples == nullptr || sampleCount == 0)
+  {
+    return false;
+  }
+
+  if (!EnsureOutputChannelEnabled())
+  {
+    return false;
+  }
+
+  std::size_t bytesWritten = 0;
+  return i2s_channel_write(ComputeCardHAL::Audio::GetTxChannel(),
+                           samples,
+                           sampleCount * sizeof(std::int16_t),
+                           &bytesWritten,
+                           portMAX_DELAY) == ESP_OK;
+}
 
 void ResetAudioPumpState()
 {
@@ -59,17 +101,9 @@ void ResetAudioPumpState()
 
 void AudioRenderTask(void*)
 {
-  if (!ComputeCardHAL::Audio::EnableOutput())
+  if (!EnsureOutputChannelEnabled())
   {
     ESP_LOGE(kLogTag, "failed to enable I2S output");
-    ResetAudioPumpState();
-    vTaskDelete(nullptr);
-    return;
-  }
-
-  if (!ComputeCardHAL::Audio::NotifyOutputClockStarted())
-  {
-    ESP_LOGE(kLogTag, "codec/output clock notification failed");
     ResetAudioPumpState();
     vTaskDelete(nullptr);
     return;
@@ -89,7 +123,7 @@ void AudioRenderTask(void*)
       }
     }
 
-    if (!ComputeCardHAL::Audio::WriteOutputFrames(buffer.data(), buffer.size()))
+    if (!WriteOutputFrames(buffer.data(), buffer.size()))
     {
       ESP_LOGE(kLogTag, "I2S write failed after %" PRIu32 " rendered blocks", renderedBlocks);
       ResetAudioPumpState();
@@ -109,7 +143,7 @@ bool EnsureAudioPumpStarted()
   {
     return true;
   }
-  if (!ComputeCardHAL::Audio::Init() || !ComputeCardHAL::Audio::IsOutputReady())
+  if (!ComputeCardHAL::Audio::Init() || ComputeCardHAL::Audio::GetTxChannel() == nullptr)
   {
     ESP_LOGW(kLogTag, "audio output not ready");
     return false;
@@ -132,16 +166,100 @@ bool EnsureAudioPumpStarted()
   return true;
 }
 
-#else
+}  // namespace
 
-bool EnsureAudioPumpStarted()
+namespace Device::Audio {
+
+InputStreamInfo InputInfo()
 {
-  return ComputeCardHAL::Audio::IsOutputReady();
+  return InputStreamInfo{kDefaultInputSampleRate, kInputChannels, kInputBitsPerSample};
 }
 
-#endif
+InputStatus StartInput()
+{
+  const i2s_chan_handle_t inputChannel = ComputeCardHAL::Mic::InputChannel();
+  if (inputChannel == nullptr)
+  {
+    return InputStatus::NotReady;
+  }
 
-}  // namespace
+  std::lock_guard<std::mutex> lock(g_audioInputMutex);
+  if (g_audioInputEnabled)
+  {
+    return InputStatus::Ready;
+  }
+
+  if (i2s_channel_enable(inputChannel) != ESP_OK)
+  {
+    return InputStatus::NotReady;
+  }
+
+  g_audioInputEnabled = true;
+  return InputStatus::Ready;
+}
+
+void StopInput()
+{
+  std::lock_guard<std::mutex> lock(g_audioInputMutex);
+  if (!g_audioInputEnabled)
+  {
+    return;
+  }
+
+  if (const i2s_chan_handle_t inputChannel = ComputeCardHAL::Mic::InputChannel(); inputChannel != nullptr)
+  {
+    (void)i2s_channel_disable(inputChannel);
+  }
+  g_audioInputEnabled = false;
+}
+
+InputStatus ReadInputFrames(std::int16_t* destination,
+                            std::size_t frameCount,
+                            std::size_t& framesRead,
+                            std::uint32_t timeoutMs)
+{
+  framesRead = 0;
+  if (destination == nullptr && frameCount != 0)
+  {
+    return InputStatus::InvalidArgument;
+  }
+
+  if (frameCount == 0)
+  {
+    return InputStatus::Ready;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(g_audioInputMutex);
+    if (!g_audioInputEnabled)
+    {
+      return InputStatus::NotReady;
+    }
+  }
+
+  const i2s_chan_handle_t inputChannel = ComputeCardHAL::Mic::InputChannel();
+  if (inputChannel == nullptr)
+  {
+    return InputStatus::NotReady;
+  }
+
+  std::size_t bytesRead = 0;
+  if (i2s_channel_read(inputChannel,
+                       destination,
+                       frameCount * sizeof(std::int16_t),
+                       &bytesRead,
+                       timeoutMs) != ESP_OK)
+  {
+    return InputStatus::NotReady;
+  }
+
+  framesRead = bytesRead / sizeof(std::int16_t);
+  return InputStatus::Ready;
+}
+
+}  // namespace Device::Audio
+
+namespace device {
 
 void SetSynthAudioRenderProvider(SynthAudioRenderProvider provider)
 {

@@ -1,13 +1,16 @@
 #pragma once
 
 #include <cstdint>
+#include <esp_lcd_panel_io.h>
+#include <esp_lcd_panel_ops.h>
 
 namespace ComputeCardHAL::Display {
     constexpr int WIDTH = 240;
     constexpr int HEIGHT = 135;
 
     bool Init();
-    bool PresentFrame(const std::uint16_t* pixels, int width, int height);
+    esp_lcd_panel_handle_t GetPanel();
+    esp_lcd_panel_io_handle_t GetPanelIO();
 
     bool SetBrightness(uint8_t brightness);
     uint8_t GetBrightness();

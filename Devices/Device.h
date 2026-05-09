@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace Device {
 
@@ -75,11 +76,34 @@ namespace Audio {
 
 inline constexpr int kOutputChannels = 2;
 inline constexpr bool kHasInput = true;
+inline constexpr std::uint32_t kDefaultInputSampleRate = 44100;
+inline constexpr std::uint8_t kInputChannels = 1;
+inline constexpr std::uint8_t kInputBitsPerSample = 16;
 
 struct SampleBufferView {
   const std::int16_t* samples = nullptr;
   std::size_t frameCount = 0;
 };
+
+struct InputStreamInfo {
+  std::uint32_t sampleRate = kDefaultInputSampleRate;
+  std::uint8_t channelCount = kInputChannels;
+  std::uint8_t bitsPerSample = kInputBitsPerSample;
+};
+
+enum class InputStatus {
+  Ready,
+  NotReady,
+  InvalidArgument,
+};
+
+InputStreamInfo InputInfo();
+InputStatus StartInput();
+void StopInput();
+InputStatus ReadInputFrames(std::int16_t* destination,
+                            std::size_t frameCount,
+                            std::size_t& framesRead,
+                            std::uint32_t timeoutMs = 0);
 
 }  // namespace Audio
 
@@ -89,6 +113,13 @@ struct FileHandleView {
   const char* path = nullptr;
   bool writable = false;
 };
+
+std::string RootPath();
+std::string SampleDirectoryPath();
+std::string PresetDirectoryPath();
+std::string PresetDirectoryPath(std::string_view instrument);
+std::string ProjectDirectoryPath();
+bool EnsureDirectoryLayout();
 
 }  // namespace Storage
 

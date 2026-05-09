@@ -1,3 +1,4 @@
+#include "Devices/Device.h"
 #include "Devices/DeviceAudio.h"
 
 #include <algorithm>
@@ -14,14 +15,13 @@
 #include <thread>
 #endif
 
-namespace device {
-
 namespace {
 
-SynthAudioRenderProvider g_audioProvider{};
+device::SynthAudioRenderProvider g_audioProvider{};
 std::mutex g_audioProviderMutex;
+bool g_audioInputEnabled = false;
 
-SynthAudioRenderProvider CurrentAudioProvider()
+device::SynthAudioRenderProvider CurrentAudioProvider()
 {
   std::lock_guard<std::mutex> lock(g_audioProviderMutex);
   return g_audioProvider;
@@ -29,7 +29,7 @@ SynthAudioRenderProvider CurrentAudioProvider()
 
 std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
 {
-  const SynthAudioRenderProvider provider = CurrentAudioProvider();
+  const device::SynthAudioRenderProvider provider = CurrentAudioProvider();
   if (provider.renderFrames == nullptr)
   {
     std::fill(destination, destination + frameCount, 0);
@@ -200,6 +200,54 @@ bool EnsureWaveOutPumpStarted()
 #endif
 
 }  // namespace
+
+namespace Device::Audio {
+
+InputStreamInfo InputInfo()
+{
+  return InputStreamInfo{kDefaultInputSampleRate, kInputChannels, kInputBitsPerSample};
+}
+
+InputStatus StartInput()
+{
+  g_audioInputEnabled = true;
+  return InputStatus::Ready;
+}
+
+void StopInput()
+{
+  g_audioInputEnabled = false;
+}
+
+InputStatus ReadInputFrames(std::int16_t* destination,
+                            std::size_t frameCount,
+                            std::size_t& framesRead,
+                            std::uint32_t)
+{
+  framesRead = 0;
+  if (destination == nullptr && frameCount != 0)
+  {
+    return InputStatus::InvalidArgument;
+  }
+
+  if (!g_audioInputEnabled)
+  {
+    return InputStatus::NotReady;
+  }
+
+  if (frameCount == 0)
+  {
+    return InputStatus::Ready;
+  }
+
+  std::fill_n(destination, frameCount, static_cast<std::int16_t>(0));
+  framesRead = frameCount;
+  return InputStatus::Ready;
+}
+
+}  // namespace Device::Audio
+
+namespace device {
 
 void SetSynthAudioRenderProvider(SynthAudioRenderProvider provider)
 {

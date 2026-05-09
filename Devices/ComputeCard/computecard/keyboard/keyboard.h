@@ -15,8 +15,6 @@ KeyValue_t getKeyValue(const Point2D_t& keyCoor);
 bool isKeyPressing(int keyNum);
 void updateKeysState();
 KeysState& keysState();
-bool capslocked();
-void setCapsLocked(bool isLocked);
 bool isChanged();
 uint8_t isPressed();
 bool enableLED(bool enabled);

@@ -55,16 +55,6 @@ KeysState& keysState()
     return keyboard.keysState();
 }
 
-bool capslocked()
-{
-    return keyboard.capslocked();
-}
-
-void setCapsLocked(bool isLocked)
-{
-    keyboard.setCapsLocked(isLocked);
-}
-
 bool isChanged()
 {
     return keyboard.isChanged();

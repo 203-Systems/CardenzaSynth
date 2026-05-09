@@ -98,9 +98,6 @@ class KeyboardDriver
     void updateKeysState();
     KeysState& keysState() { return _keys_state_buffer; }
 
-    bool capslocked() const { return _is_caps_locked; }
-    void setCapsLocked(bool isLocked) { _is_caps_locked = isLocked; }
-
     bool isChanged();
     uint8_t isPressed() const { return static_cast<uint8_t>(_key_list_buffer.size()); }
 

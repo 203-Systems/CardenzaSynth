@@ -3,14 +3,19 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
+#include <system_error>
 
 namespace {
+
+namespace fs = std::filesystem;
 
 std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
 Device::Keyboard::MatrixKeyState keyboardState{};
 std::array<std::uint8_t, Device::LED::kLedCount> keyboardLedState{};
 std::uint8_t keyboardLedGlobalBrightness = Device::LED::kBrightnessMax;
 bool keyboardLedsEnabled = false;
+bool audioInputEnabled = false;
 
 constexpr bool IsValidMatrixPosition(std::size_t row, std::size_t column) {
   return row < static_cast<std::size_t>(Device::LED::kRows) &&
@@ -23,6 +28,15 @@ constexpr std::size_t MatrixIndex(std::size_t row, std::size_t column) {
 
 std::uint8_t ClampLedBrightness(std::uint8_t brightness) {
   return std::min(brightness, Device::LED::kBrightnessMax);
+}
+
+const fs::path& StorageRootDirectory() {
+  static const fs::path root = fs::absolute("sdcard") / "ComputeCardOS";
+  return root;
+}
+
+std::string PathString(const fs::path& path) {
+  return path.generic_string();
 }
 
 }  // namespace
@@ -115,6 +129,54 @@ bool Enabled() {
 
 }  // namespace LED
 
+namespace Storage {
+
+std::string RootPath() {
+  return PathString(StorageRootDirectory());
+}
+
+std::string SampleDirectoryPath() {
+  return PathString(StorageRootDirectory() / "Sample");
+}
+
+std::string PresetDirectoryPath() {
+  return PathString(StorageRootDirectory() / "Preset");
+}
+
+std::string PresetDirectoryPath(std::string_view instrument) {
+  return PathString(StorageRootDirectory() / "Preset" / std::string(instrument));
+}
+
+std::string ProjectDirectoryPath() {
+  return PathString(StorageRootDirectory() / "Project");
+}
+
+bool EnsureDirectoryLayout() {
+  std::error_code error;
+  const std::array<fs::path, 9> directories = {
+      StorageRootDirectory(),
+      StorageRootDirectory() / "Sample",
+      StorageRootDirectory() / "Sample" / "Imported",
+      StorageRootDirectory() / "Sample" / "Recorded",
+      StorageRootDirectory() / "Preset",
+      StorageRootDirectory() / "Preset" / "DX7",
+      StorageRootDirectory() / "Preset" / "Juno",
+      StorageRootDirectory() / "Preset" / "Sampler",
+      StorageRootDirectory() / "Project",
+  };
+
+  for (const fs::path& path : directories) {
+    fs::create_directories(path, error);
+    if (error) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+}  // namespace Storage
+
 std::string Name() {
   return "ComputeCardSim";
 }
@@ -124,6 +186,7 @@ std::string BackendName() {
 }
 
 bool Init() {
+  (void)Storage::EnsureDirectoryLayout();
   return true;
 }
 

@@ -1,10 +1,6 @@
 #include "system.h"
 #include "../board/pins.h"
 
-#if !defined(ESP_PLATFORM)
-#error "ComputeCard system HAL is ESP-IDF only. Use ComputeCardSim for host builds."
-#endif
-
 #include <driver/i2c_master.h>
 #include <driver/gpio.h>
 

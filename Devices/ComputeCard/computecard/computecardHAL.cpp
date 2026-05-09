@@ -1,9 +1,5 @@
 #include "computecardHAL.h"
 
-#if !defined(ESP_PLATFORM)
-#error "ComputeCard HAL is ESP-IDF only. Use ComputeCardSim for host builds."
-#endif
-
 #include <esp_log.h>
 
 namespace {

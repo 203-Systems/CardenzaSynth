@@ -1,10 +1,6 @@
 #include "es8156.h"
 
-#include "../../system/system_internal.h"
-
-#if !defined(ESP_PLATFORM)
-#error "ComputeCard ES8156 codec HAL is ESP-IDF only. Use ComputeCardSim for host builds."
-#endif
+#include "../../system/system.h"
 
 #include <esp_log.h>
 #include <driver/i2c_master.h>

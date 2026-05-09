@@ -2,10 +2,6 @@
 
 #include "../board/pins.h"
 
-#if !defined(ESP_PLATFORM)
-#error "ComputeCard IR HAL is ESP-IDF only. Use ComputeCardSim for host builds."
-#endif
-
 #include <driver/gpio.h>
 #include <driver/rmt_encoder.h>
 #include <driver/rmt_tx.h>

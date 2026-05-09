@@ -1,10 +1,6 @@
 #include "display.h"
 #include "../board/pins.h"
 
-#if !defined(ESP_PLATFORM)
-#error "ComputeCard display HAL is ESP-IDF only. Use ComputeCardSim for host builds."
-#endif
-
 #include <driver/gpio.h>
 #include <driver/ledc.h>
 #include <driver/spi_master.h>
@@ -247,6 +243,16 @@ bool Init()
     return ApplyBrightness(brightness) == ESP_OK;
 }
 
+esp_lcd_panel_handle_t GetPanel()
+{
+    return panel;
+}
+
+esp_lcd_panel_io_handle_t GetPanelIO()
+{
+    return panelIo;
+}
+
 bool SetBrightness(uint8_t value)
 {
     brightness = value;
@@ -262,31 +268,6 @@ bool SetBrightness(uint8_t value)
 uint8_t GetBrightness()
 {
     return brightness;
-}
-
-bool PresentFrame(const std::uint16_t* pixels, int width, int height)
-{
-    if (pixels == nullptr || width <= 0 || height <= 0)
-    {
-        return false;
-    }
-
-    if (!Init())
-    {
-        return false;
-    }
-
-    while (xSemaphoreTake(frameTransferDone, 0) == pdTRUE)
-    {
-    }
-
-    const esp_err_t status = esp_lcd_panel_draw_bitmap(panel, 0, 0, width, height, pixels);
-    if (status != ESP_OK)
-    {
-        return false;
-    }
-
-    return xSemaphoreTake(frameTransferDone, kTransferTimeoutTicks) == pdTRUE;
 }
 
 }  // namespace ComputeCardHAL::Display

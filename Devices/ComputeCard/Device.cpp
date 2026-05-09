@@ -2,6 +2,22 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
+#include <string_view>
+#include <sys/stat.h>
+
+#if defined(_WIN32)
+#include <direct.h>
+#ifndef S_ISDIR
+#define S_ISDIR(mode) (((mode) & _S_IFDIR) != 0)
+#endif
+#endif
+
+#include <esp_attr.h>
+#include <esp_lcd_panel_io.h>
+#include <esp_lcd_panel_ops.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 #include "computecardHAL.h"
 
@@ -12,6 +28,15 @@ Device::Keyboard::MatrixKeyState keyboardState{};
 std::array<std::uint8_t, Device::LED::kLedCount> keyboardLedState{};
 std::uint8_t keyboardLedGlobalBrightness = Device::LED::kBrightnessMax;
 bool keyboardLedsEnabled = false;
+SemaphoreHandle_t framePresentDone = nullptr;
+bool displayCallbacksInstalled = false;
+
+constexpr std::string_view kStorageRoot = "/sdcard/ComputeCardOS";
+constexpr std::string_view kSampleDirectory = "Sample";
+constexpr std::string_view kImportedSampleDirectory = "Imported";
+constexpr std::string_view kRecordedSampleDirectory = "Recorded";
+constexpr std::string_view kPresetDirectory = "Preset";
+constexpr std::string_view kProjectDirectory = "Project";
 
 constexpr bool IsValidMatrixPosition(std::size_t row, std::size_t column) {
   return row < static_cast<std::size_t>(Device::LED::kRows) &&
@@ -24,6 +49,74 @@ constexpr std::size_t MatrixIndex(std::size_t row, std::size_t column) {
 
 std::uint8_t ClampLedBrightness(std::uint8_t brightness) {
   return std::min(brightness, Device::LED::kBrightnessMax);
+}
+
+bool IRAM_ATTR OnFramePresentDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* userContext) {
+  if (userContext == nullptr) {
+    return false;
+  }
+
+  BaseType_t highTaskWoken = pdFALSE;
+  xSemaphoreGiveFromISR(static_cast<SemaphoreHandle_t>(userContext), &highTaskWoken);
+  return highTaskWoken == pdTRUE;
+}
+
+bool EnsureDisplayPresentSync(esp_lcd_panel_io_handle_t panelIo) {
+  if (displayCallbacksInstalled) {
+    return true;
+  }
+
+  if (framePresentDone == nullptr) {
+    framePresentDone = xSemaphoreCreateBinary();
+    if (framePresentDone == nullptr) {
+      return false;
+    }
+  }
+
+  esp_lcd_panel_io_callbacks_t callbacks = {};
+  callbacks.on_color_trans_done = OnFramePresentDone;
+  if (esp_lcd_panel_io_register_event_callbacks(panelIo, &callbacks, framePresentDone) != ESP_OK) {
+    return false;
+  }
+
+  displayCallbacksInstalled = true;
+  return true;
+}
+
+std::string JoinPath(std::string_view left, std::string_view right) {
+  std::string path(left);
+  if (!path.empty() && path.back() != '/') {
+    path.push_back('/');
+  }
+  path.append(right);
+  return path;
+}
+
+bool DirectoryExists(const std::string& path) {
+  struct stat info {};
+  return stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+bool EnsureDirectoryExists(const std::string& path) {
+  if (DirectoryExists(path)) {
+    return true;
+  }
+
+  if (
+#if defined(_WIN32)
+      _mkdir(path.c_str())
+#else
+      mkdir(path.c_str(), 0775)
+#endif
+          == 0) {
+    return true;
+  }
+
+  if (errno != EEXIST) {
+    return false;
+  }
+
+  return DirectoryExists(path);
 }
 
 }  // namespace
@@ -45,9 +138,24 @@ void Clear(Pixel color) {
 }
 
 void Present() {
-#if defined(ESP_PLATFORM)
-  (void)ComputeCardHAL::Display::PresentFrame(frameBuffer.data(), kWidth, kHeight);
-#endif
+  if (!ComputeCardHAL::Display::Init()) {
+    return;
+  }
+
+  const esp_lcd_panel_handle_t panel = ComputeCardHAL::Display::GetPanel();
+  const esp_lcd_panel_io_handle_t panelIo = ComputeCardHAL::Display::GetPanelIO();
+  if (panel == nullptr || panelIo == nullptr || !EnsureDisplayPresentSync(panelIo)) {
+    return;
+  }
+
+  while (xSemaphoreTake(framePresentDone, 0) == pdTRUE) {
+  }
+
+  if (esp_lcd_panel_draw_bitmap(panel, 0, 0, kWidth, kHeight, frameBuffer.data()) != ESP_OK) {
+    return;
+  }
+
+  (void)xSemaphoreTake(framePresentDone, pdMS_TO_TICKS(1000));
 }
 
 }  // namespace Display
@@ -125,6 +233,56 @@ bool Enabled() {
 
 }  // namespace LED
 
+namespace Storage {
+
+std::string RootPath() {
+  return std::string(kStorageRoot);
+}
+
+std::string SampleDirectoryPath() {
+  return JoinPath(RootPath(), kSampleDirectory);
+}
+
+std::string PresetDirectoryPath() {
+  return JoinPath(RootPath(), kPresetDirectory);
+}
+
+std::string PresetDirectoryPath(std::string_view instrument) {
+  return JoinPath(PresetDirectoryPath(), instrument);
+}
+
+std::string ProjectDirectoryPath() {
+  return JoinPath(RootPath(), kProjectDirectory);
+}
+
+bool EnsureDirectoryLayout() {
+  if (!ComputeCardHAL::Storage::IsMounted() && !ComputeCardHAL::Storage::Init()) {
+    return false;
+  }
+
+  const std::array<std::string, 9> directories = {
+      RootPath(),
+      SampleDirectoryPath(),
+      JoinPath(SampleDirectoryPath(), kImportedSampleDirectory),
+      JoinPath(SampleDirectoryPath(), kRecordedSampleDirectory),
+      PresetDirectoryPath(),
+      PresetDirectoryPath("DX7"),
+      PresetDirectoryPath("Juno"),
+      PresetDirectoryPath("Sampler"),
+      ProjectDirectoryPath(),
+  };
+
+  for (const std::string& path : directories) {
+    if (!EnsureDirectoryExists(path)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+}  // namespace Storage
+
 std::string Name() {
   return "ComputeCard";
 }
@@ -134,7 +292,16 @@ std::string BackendName() {
 }
 
 bool Init() {
-  return ComputeCardHAL::Init();
+  const bool initialized = ComputeCardHAL::Init();
+  if (!initialized) {
+    return false;
+  }
+
+  if (ComputeCardHAL::Storage::IsMounted()) {
+    (void)Storage::EnsureDirectoryLayout();
+  }
+
+  return true;
 }
 
 void Start() {}

@@ -1,10 +1,6 @@
 #include "storage.h"
 #include "../board/pins.h"
 
-#if !defined(ESP_PLATFORM)
-#error "ComputeCard storage HAL is ESP-IDF only. Use ComputeCardSim for host builds."
-#else
-
 #include <driver/sdmmc_host.h>
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
@@ -67,5 +63,3 @@ uint64_t GetCapacity()
 }
 
 }  // namespace ComputeCardHAL::Storage
-
-#endif

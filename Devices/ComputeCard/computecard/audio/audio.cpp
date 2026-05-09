@@ -2,11 +2,6 @@
 #include "codec/es8156.h"
 #include "../board/pins.h"
 #include "../system/system.h"
-#include "../system/system_internal.h"
-
-#if !defined(ESP_PLATFORM)
-#error "ComputeCard audio HAL is ESP-IDF only. Use ComputeCardSim for host builds."
-#endif
 
 #include <esp_log.h>
 #include <driver/gpio.h>
@@ -17,8 +12,15 @@ namespace ComputeCardHAL::Audio {
 
 namespace {
 
+enum class CodecStatus : uint8_t {
+    NotProbed,
+    Available,
+    Unavailable,
+};
+
 i2s_chan_handle_t txChannel = nullptr;
-OutputStatus outputStatus;
+CodecStatus codecStatus = CodecStatus::NotProbed;
+uint8_t outputVolume = 100;
 
 constexpr char kLogTag[] = "ComputeCardAudio";
 
@@ -31,7 +33,6 @@ esp_err_t EnsureI2sInitialized()
 {
     if (txChannel != nullptr)
     {
-        outputStatus.i2sReady = true;
         return ESP_OK;
     }
 
@@ -44,7 +45,6 @@ esp_err_t EnsureI2sInitialized()
     if (status != ESP_OK)
     {
         txChannel = nullptr;
-        outputStatus.i2sReady = false;
         return status;
     }
 
@@ -78,12 +78,6 @@ esp_err_t EnsureI2sInitialized()
     {
         i2s_del_channel(txChannel);
         txChannel = nullptr;
-        outputStatus.i2sReady = false;
-        outputStatus.outputEnabled = false;
-    }
-    else
-    {
-        outputStatus.i2sReady = true;
     }
 
     return status;
@@ -91,12 +85,12 @@ esp_err_t EnsureI2sInitialized()
 
 bool EnsureCodecReady()
 {
-    if (outputStatus.codec == CodecStatus::Available)
+    if (codecStatus == CodecStatus::Available)
     {
         return true;
     }
 
-    if (outputStatus.codec == CodecStatus::Unavailable)
+    if (codecStatus == CodecStatus::Unavailable)
     {
         return false;
     }
@@ -106,7 +100,7 @@ bool EnsureCodecReady()
         if (!ComputeCardHAL::System::Init())
         {
             ESP_LOGE(kLogTag, "Failed to initialize I2C bus for audio codec");
-            outputStatus.codec = CodecStatus::Unavailable;
+            codecStatus = CodecStatus::Unavailable;
             return false;
         }
     }
@@ -114,32 +108,22 @@ bool EnsureCodecReady()
     if (!Codec::ES8156::Init())
     {
         ESP_LOGW(kLogTag, "ES8156 codec unavailable, continuing with I2S only");
-        outputStatus.codec = CodecStatus::Unavailable;
+        codecStatus = CodecStatus::Unavailable;
         return false;
     }
 
-    outputStatus.codec = CodecStatus::Available;
+    codecStatus = CodecStatus::Available;
     return true;
-}
-
-bool ApplyCachedOutputMode()
-{
-    if (outputStatus.codec != CodecStatus::Available)
-    {
-        return true;
-    }
-
-    return Codec::ES8156::SetEnabled(outputStatus.mode == OutputMode::Speaker);
 }
 
 bool ApplyCachedVolume()
 {
-    if (outputStatus.codec != CodecStatus::Available)
+    if (!EnsureCodecReady())
     {
         return true;
     }
 
-    return Codec::ES8156::SetVolume(outputStatus.volume);
+    return Codec::ES8156::SetVolume(outputVolume);
 }
 
 }  // namespace
@@ -149,71 +133,14 @@ bool Init()
     return EnsureI2sInitialized() == ESP_OK;
 }
 
-bool NotifyOutputClockStarted()
+i2s_chan_handle_t GetTxChannel()
 {
-    if (!EnsureCodecReady())
+    if (EnsureI2sInitialized() != ESP_OK)
     {
-        // The board can still stream I2S even when codec control is unavailable.
-        outputStatus.codec = CodecStatus::Unavailable;
+        return nullptr;
     }
 
-    if (!ApplyCachedOutputMode())
-    {
-        outputStatus.codec = CodecStatus::Unavailable;
-    }
-
-    if (!ApplyCachedVolume())
-    {
-        outputStatus.codec = CodecStatus::Unavailable;
-    }
-    return true;
-}
-
-bool IsOutputReady()
-{
-    return Init() && outputStatus.i2sReady && txChannel != nullptr;
-}
-
-OutputStatus GetOutputStatus()
-{
-    return outputStatus;
-}
-
-bool EnableOutput()
-{
-    if (!IsOutputReady())
-    {
-        return false;
-    }
-
-    if (outputStatus.outputEnabled)
-    {
-        return true;
-    }
-
-    if (i2s_channel_enable(txChannel) != ESP_OK)
-    {
-        outputStatus.outputEnabled = false;
-        return false;
-    }
-
-    outputStatus.outputEnabled = true;
-    return true;
-}
-
-bool WriteOutputFrames(const std::int16_t* samples, std::size_t sampleCount)
-{
-    if (!EnableOutput() || samples == nullptr || sampleCount == 0)
-    {
-        return false;
-    }
-
-    std::size_t bytesWritten = 0;
-    return i2s_channel_write(txChannel,
-                             samples,
-                             sampleCount * sizeof(std::int16_t),
-                             &bytesWritten,
-                             portMAX_DELAY) == ESP_OK;
+    return txChannel;
 }
 
 bool SetVolume(uint8_t value)
@@ -223,24 +150,13 @@ bool SetVolume(uint8_t value)
         value = 100;
     }
 
-    outputStatus.volume = value;
+    outputVolume = value;
     return ApplyCachedVolume();
 }
 
 uint8_t GetVolume()
 {
-    return outputStatus.volume;
-}
-
-bool SetOutputMode(OutputMode mode)
-{
-    outputStatus.mode = mode;
-    return ApplyCachedOutputMode();
-}
-
-OutputMode GetOutputMode()
-{
-    return outputStatus.mode;
+    return outputVolume;
 }
 
 }  // namespace ComputeCardHAL::Audio
