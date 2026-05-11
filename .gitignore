@@ -30,3 +30,13 @@ compile_commands.json
 *.VC.db
 *.VC.opendb
 *.opendb
+
+# Generated simulator debug output
+Devices/ComputeCardSim/debug/**/*.bmp
+Devices/ComputeCardSim/debug/**/*.png
+
+# Local validation captures and logs
+logs/**/*.bmp
+logs/**/*.png
+logs/**/*.log
+logs/**/*.json
