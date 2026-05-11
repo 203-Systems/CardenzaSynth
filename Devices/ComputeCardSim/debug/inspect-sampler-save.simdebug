@@ -1,0 +1,24 @@
+tap LAY
+wait 8
+
+down SND
+wait 16
+
+tap del
+wait 8
+tap del
+wait 8
+tap del
+wait 24
+tap del
+wait 8
+tap space
+wait 8
+tap space
+wait 8
+
+screenshot sampler-save-name.bmp
+
+up SND
+wait 2
+quit

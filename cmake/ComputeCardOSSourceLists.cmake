@@ -8,6 +8,7 @@ endfunction()
 function(ccos_collect_synth_app_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Applications/Synth/SynthApp.cpp
+        ${root_dir}/Applications/Synth/Runtime/Sampler/SamplerManager.cpp
         ${root_dir}/Applications/Synth/Runtime/SynthRack.cpp
         ${root_dir}/Applications/Synth/UI/Dx7/Dx7UiModel.cpp
         ${root_dir}/Applications/Synth/UI/Dx7/Dx7UiRenderer.cpp
@@ -15,6 +16,7 @@ function(ccos_collect_synth_app_cpp_sources root_dir out_var)
         ${root_dir}/Applications/Synth/UI/Juno/JunoUiRenderer.cpp
         ${root_dir}/Applications/Synth/UI/Menu/SynthUiMenu.cpp
         ${root_dir}/Applications/Synth/UI/Render/SynthUiRenderPrimitives.cpp
+        ${root_dir}/Applications/Synth/UI/Sampler/SamplerUiModel.cpp
         ${root_dir}/Applications/Synth/UI/SynthUiModel.cpp
         ${root_dir}/Applications/Synth/UI/SynthUiRenderer.cpp
     )
@@ -134,6 +136,7 @@ function(ccos_collect_computecardsim_desktop_cpp_sources root_dir out_var)
         ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopHostDrawing.cpp
         ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopHostLayout.cpp
         ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopSimulator.cpp
+        ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopSimulatorDebug.cpp
         ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopSimulatorInput.cpp
         ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopSimulatorLayout.cpp
         ${root_dir}/Devices/ComputeCardSim/DesktopHost/DesktopSimulatorRender.cpp

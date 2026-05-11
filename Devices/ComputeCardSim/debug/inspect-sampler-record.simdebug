@@ -1,0 +1,30 @@
+tap LAY
+wait 8
+
+down SND
+wait 16
+
+# Enter SAMP and open the record flow.
+tap =
+wait 8
+screenshot sampler-samp-before-record.bmp
+
+tap del
+wait 8
+screenshot sampler-record-confirm.bmp
+
+tap del
+wait 24
+screenshot sampler-recording.bmp
+
+tap del
+wait 8
+screenshot sampler-trim-after-record.bmp
+
+tap space
+wait 8
+screenshot sampler-tune-after-record.bmp
+
+up SND
+wait 2
+quit

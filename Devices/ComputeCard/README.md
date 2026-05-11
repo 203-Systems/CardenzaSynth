@@ -27,7 +27,7 @@ From the repository root in PowerShell:
 # Example: & '<esp-idf-install>\export.ps1'
 Push-Location .\Devices\ComputeCard
 & "$env:IDF_PYTHON_ENV_PATH\Scripts\python.exe" "$env:IDF_PATH\tools\idf.py" set-target esp32s3
-& "$env:IDF_PYTHON_ENV_PATH\Scripts\python.exe" "$env:IDF_PATH\tools\idf.py" -B ..\..\build\Cardputer build
+& "$env:IDF_PYTHON_ENV_PATH\Scripts\python.exe" "$env:IDF_PATH\tools\idf.py" -B ..\..\build\ComputeCard build
 Pop-Location
 ```
 
@@ -38,8 +38,8 @@ Pop-Location
 ```powershell
 # Example: & '<esp-idf-install>\export.ps1'
 Push-Location .\Devices\ComputeCard
-& "$env:IDF_PYTHON_ENV_PATH\Scripts\python.exe" "$env:IDF_PATH\tools\idf.py" -B ..\..\build\Cardputer -p COM_PORT flash
+& "$env:IDF_PYTHON_ENV_PATH\Scripts\python.exe" "$env:IDF_PATH\tools\idf.py" -B ..\..\build\ComputeCard -p COM_PORT flash
 Pop-Location
 ```
 
-Built artifacts land in `build/Cardputer/`.
+Built artifacts land in `build/ComputeCard/`.

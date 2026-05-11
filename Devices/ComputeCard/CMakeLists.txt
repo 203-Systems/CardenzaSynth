@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
 get_filename_component(CCOS_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
-set(CCOS_CARDPUTER_FIRMWARE_BUILD_DIR "${CCOS_ROOT}/build/Cardputer")
-set(CCOS_CARDPUTER_IDF_PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}")
-set(CCOS_CARDPUTER_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe")
+set(CCOS_COMPUTECARD_FIRMWARE_BUILD_DIR "${CCOS_ROOT}/build/ComputeCard")
+set(CCOS_COMPUTECARD_IDF_PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}")
+set(CCOS_COMPUTECARD_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe")
 
 if(DEFINED COMPONENT_DIR)
     set(AMY_SRC_DIR ${CCOS_ROOT}/Library/third_party/amy/src)

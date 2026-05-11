@@ -5,7 +5,11 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
+#include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 
 #include "DesktopHostLayout.h"
 
@@ -15,12 +19,22 @@ class SynthApp;
 
 namespace ComputeCardSim::DesktopHost {
 
+struct DebugScriptOptions {
+  std::string scriptPath;
+  std::string outputDirectory;
+  bool exitOnComplete = false;
+  bool hideWindow = false;
+};
+
+class DesktopDebugSession;
+
 inline constexpr UINT_PTR kFrameTimerId = 1;
 inline constexpr UINT kFrameTimerPeriodMs = 16;
 
 class DesktopSimulator {
 public:
-  explicit DesktopSimulator(int initialScale);
+  explicit DesktopSimulator(int initialScale, DebugScriptOptions debugOptions = {});
+  ~DesktopSimulator();
 
   bool Initialize();
   bool Create(HINSTANCE instance);
@@ -62,6 +76,11 @@ private:
   void DrawKeyboard(HDC dc);
   void DrawFooter(HDC dc);
   void OnPaint();
+  std::optional<MatrixPosition> ResolveDebugKey(std::string_view token) const;
+  std::filesystem::path ResolveDebugOutputPath(std::string_view path) const;
+  bool SaveFrameBufferBmp(const std::filesystem::path& outputPath) const;
+
+  friend class DesktopDebugSession;
 
   HWND hwnd_ = nullptr;
   int scale_ = kDefaultScale;
@@ -69,6 +88,8 @@ private:
   int dragMenuIndex_ = -1;
   ULONGLONG lastFrameTick_ = 0;
   apps::SynthApp* synthApp_ = nullptr;
+  DebugScriptOptions debugOptions_{};
+  std::unique_ptr<DesktopDebugSession> debugSession_;
   std::array<KeyVisual, kKeyboardRows * kKeyboardColumns> keyboard_{};
   std::array<RECT, 3> scaleButtons_{};
   std::array<RECT, kKeyboardRows * kKeyboardColumns> keyButtons_{};

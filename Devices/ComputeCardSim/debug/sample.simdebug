@@ -1,0 +1,4 @@
+# Allow the app to boot and render a few frames before capturing.
+wait 12
+screenshot boot.bmp
+quit

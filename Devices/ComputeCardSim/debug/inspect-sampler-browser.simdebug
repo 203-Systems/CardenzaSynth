@@ -1,0 +1,13 @@
+# Select sampler track, enter parameter mode, open SAMP, then enter browser.
+tap LAY
+wait 8
+down SND
+wait 16
+tap =
+wait 8
+tap \
+wait 8
+screenshot sampler-browser.bmp
+up SND
+wait 2
+quit

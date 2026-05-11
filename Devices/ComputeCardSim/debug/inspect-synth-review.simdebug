@@ -1,0 +1,60 @@
+# Broad UI walkthrough for product review screenshots.
+wait 12
+screenshot home-dx7.bmp
+
+# Track 2: Juno home and parameter pages.
+tap SND
+wait 8
+screenshot home-juno.bmp
+down SND
+wait 16
+screenshot juno-par-root.bmp
+tap del
+wait 8
+screenshot juno-dco.bmp
+tap space
+wait 8
+up SND
+wait 4
+
+# Track 3: Sampler root, SAMP browser, and record error path.
+tap LAY
+wait 8
+screenshot home-sampler.bmp
+down SND
+wait 16
+screenshot sampler-par-root.bmp
+tap =
+wait 8
+screenshot sampler-samp.bmp
+tap \
+wait 8
+screenshot sampler-browser.bmp
+tap space
+wait 8
+tap =
+wait 8
+tap del
+wait 8
+screenshot sampler-record-confirm.bmp
+tap del
+wait 16
+screenshot sampler-record-start.bmp
+up SND
+wait 4
+
+# Layout and system menus still expose many placeholder-like controls.
+down LAY
+wait 16
+screenshot layout-menu.bmp
+up LAY
+wait 4
+down SYS
+wait 16
+screenshot system-menu.bmp
+tap del
+wait 8
+screenshot system-load-status.bmp
+up SYS
+wait 2
+quit

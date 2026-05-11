@@ -1,0 +1,24 @@
+# Select default sampler track (track 3 / row 2), then enter the parameter context.
+tap LAY
+wait 8
+screenshot sampler-home.bmp
+
+down SND
+wait 16
+screenshot sampler-par-root.bmp
+
+# Open the SAMP group.
+tap =
+wait 8
+screenshot sampler-samp.bmp
+
+# Back to the group list, then open TRIM.
+tap ok
+wait 6
+tap \
+wait 8
+screenshot sampler-trim.bmp
+
+up SND
+wait 2
+quit

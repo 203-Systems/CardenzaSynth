@@ -1,16 +1,22 @@
 #include "DesktopSimulator.h"
 
+#include <filesystem>
+#include <string>
+#include <utility>
 #include <windowsx.h>
 
 #include "Applications/Application.h"
 #include "Applications/Synth/SynthApp.h"
+#include "Devices/ComputeCardSim/DesktopHost/DesktopSimulatorDebug.h"
 #include "OS/MIDI/MIDI.h"
 #include "OS/System/System.h"
 
 namespace ComputeCardSim::DesktopHost {
 
-DesktopSimulator::DesktopSimulator(int initialScale)
-    : scale_(initialScale), keyboard_(BuildKeyboard()) {}
+DesktopSimulator::DesktopSimulator(int initialScale, DebugScriptOptions debugOptions)
+  : scale_(initialScale), debugOptions_(std::move(debugOptions)), keyboard_(BuildKeyboard()) {}
+
+DesktopSimulator::~DesktopSimulator() = default;
 
 bool DesktopSimulator::Initialize()
 {
@@ -27,6 +33,28 @@ bool DesktopSimulator::Initialize()
   {
     MessageBoxA(nullptr, "Synth application registry returned an unexpected type.", "ComputeCardSimDesktop", MB_ICONERROR | MB_OK);
     return false;
+  }
+
+  if (!debugOptions_.scriptPath.empty())
+  {
+    debugOptions_.scriptPath = std::filesystem::absolute(std::filesystem::path(debugOptions_.scriptPath)).string();
+    if (!debugOptions_.outputDirectory.empty())
+    {
+      std::filesystem::path outputPath(debugOptions_.outputDirectory);
+      if (outputPath.is_relative())
+      {
+        outputPath = std::filesystem::path(debugOptions_.scriptPath).parent_path() / outputPath;
+      }
+      debugOptions_.outputDirectory = std::filesystem::absolute(outputPath).string();
+    }
+
+    debugSession_ = std::make_unique<DesktopDebugSession>(debugOptions_);
+    std::string errorMessage;
+    if (!debugSession_->Load(errorMessage))
+    {
+      MessageBoxA(nullptr, errorMessage.c_str(), "ComputeCardSimDesktop", MB_ICONERROR | MB_OK);
+      return false;
+    }
   }
 
   return true;
@@ -70,7 +98,7 @@ bool DesktopSimulator::Create(HINSTANCE instance)
 
 int DesktopSimulator::Run()
 {
-  ShowWindow(hwnd_, SW_SHOWDEFAULT);
+  ShowWindow(hwnd_, debugOptions_.hideWindow ? SW_HIDE : SW_SHOWDEFAULT);
   UpdateWindow(hwnd_);
 
   MSG message{};
@@ -141,6 +169,23 @@ void DesktopSimulator::OnFrameTick()
   lastFrameTick_ = GetTickCount64();
 
   os::system::RunFrame();
+
+  if (debugSession_)
+  {
+    std::string errorMessage;
+    if (!debugSession_->Step(*this, errorMessage))
+    {
+      MessageBoxA(hwnd_, errorMessage.c_str(), "ComputeCardSimDesktop Debug", MB_ICONERROR | MB_OK);
+      PostMessageA(hwnd_, WM_CLOSE, 0, 0);
+      return;
+    }
+
+    if (debugSession_->IsComplete() && debugSession_->ExitOnComplete())
+    {
+      PostMessageA(hwnd_, WM_CLOSE, 0, 0);
+      return;
+    }
+  }
 
   InvalidateRect(hwnd_, nullptr, FALSE);
 }
