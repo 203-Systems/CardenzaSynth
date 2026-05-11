@@ -1,0 +1,23 @@
+wait 12
+down SND
+wait 16
+screenshot dx7-root.bmp
+tap 0,12
+wait 8
+screenshot dx7-op1.bmp
+tap 3,13
+wait 8
+screenshot dx7-op1-page2.bmp
+tap 3,12
+wait 8
+tap 3,12
+wait 8
+screenshot dx7-alg.bmp
+tap 3,12
+wait 8
+tap 3,13
+wait 8
+screenshot dx7-glb.bmp
+up SND
+wait 4
+quit

@@ -3,11 +3,20 @@
 #include "Applications/Synth/UI/Dx7/Dx7UiModel.h"
 #include "Applications/Synth/UI/Juno/JunoUiModel.h"
 #include "Applications/Synth/UI/Menu/SynthUiMenu.h"
+#include "Applications/Synth/UI/Sampler/SamplerUiModel.h"
+#include "Devices/Device.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
+#include <filesystem>
 #include <sstream>
+#include <set>
 #include <utility>
+
+#if defined(ESP_PLATFORM)
+#include <dirent.h>
+#endif
 
 namespace synth {
 
@@ -17,7 +26,11 @@ namespace {
 
 constexpr float kTransitionStep = 0.18f;
 constexpr auto kModifierHoldDelay = std::chrono::milliseconds(200);
-constexpr std::array<const char*, 4> kModifierBarLabels = {"TRK", "SND", "LAY", "SYS"};
+constexpr auto kContextHintHoldDelay = std::chrono::milliseconds(450);
+constexpr auto kHomeOctaveStatusDuration = std::chrono::seconds(1);
+constexpr int kKeyboardOctaveMin = -3;
+constexpr int kKeyboardOctaveMax = 3;
+constexpr std::array<const char*, 4> kModifierBarLabels = {"TRK", "SND", "KEY", "SYS"};
 constexpr std::array<UiBarIcon, 4> kHomeActionBarIcons = {
   UiBarIcon::Plus,
   UiBarIcon::Minus,
@@ -25,9 +38,11 @@ constexpr std::array<UiBarIcon, 4> kHomeActionBarIcons = {
   UiBarIcon::Play,
 };
 constexpr std::size_t kPresetSearchMaxLength = 18;
+constexpr std::size_t kSamplerNameMaxLength = 18;
 constexpr std::size_t kGenericParameterMenuItemCount = 14;
 constexpr std::size_t kLayoutMenuItemCount = 14;
 constexpr std::size_t kOtherMenuItemCount = 13;
+constexpr std::size_t kSelectableListVisibleRows = 7;
 
 constexpr std::array<std::array<const char*, kKeyboardMatrixColumns>, kKeyboardMatrixRows> kPresetSearchKeyMap = {{
     {{"", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", ""}},
@@ -35,6 +50,153 @@ constexpr std::array<std::array<const char*, kKeyboardMatrixColumns>, kKeyboardM
     {{"", "", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "", ""}},
     {{"", "", "", "z", "x", "c", "v", "b", "n", "m", ",", ".", "", ""}},
 }};
+
+bool IsSamplerNameCharacter(const char* mappedValue)
+{
+  return mappedValue != nullptr && mappedValue[0] != '\0' && mappedValue[1] == '\0' &&
+         (std::isalnum(static_cast<unsigned char>(mappedValue[0])) || mappedValue[0] == '-');
+}
+
+bool HasWavExtension(const std::string& name)
+{
+  if (name.size() < 4)
+  {
+    return false;
+  }
+
+  std::string extension = name.substr(name.size() - 4);
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return extension == ".wav";
+}
+
+std::string StripWavExtension(const std::string& name)
+{
+  return HasWavExtension(name) ? name.substr(0, name.size() - 4) : name;
+}
+
+std::vector<std::string> CollectSamplerBrowserEntries()
+{
+  std::set<std::string> sortedNames;
+  const std::string sampleDirectory = Device::Storage::SampleDirectoryPath();
+  if (!Device::Storage::EnsureDirectoryLayout() || sampleDirectory.empty())
+  {
+    return {};
+  }
+
+#if defined(ESP_PLATFORM)
+  DIR* directory = opendir(sampleDirectory.c_str());
+  if (directory == nullptr)
+  {
+    return {};
+  }
+
+  while (const dirent* entry = readdir(directory))
+  {
+    if (entry == nullptr || entry->d_name == nullptr)
+    {
+      continue;
+    }
+
+    const std::string fileName(entry->d_name);
+    if (!HasWavExtension(fileName))
+    {
+      continue;
+    }
+    sortedNames.insert(StripWavExtension(fileName));
+  }
+
+  closedir(directory);
+#else
+  namespace fs = std::filesystem;
+  std::error_code error;
+  for (const fs::directory_entry& entry : fs::directory_iterator(sampleDirectory, error))
+  {
+    if (error)
+    {
+      break;
+    }
+    if (!entry.is_regular_file(error))
+    {
+      continue;
+    }
+
+    const std::string fileName = entry.path().filename().string();
+    if (!HasWavExtension(fileName))
+    {
+      continue;
+    }
+    sortedNames.insert(StripWavExtension(fileName));
+  }
+#endif
+
+  return std::vector<std::string>(sortedNames.begin(), sortedNames.end());
+}
+
+std::vector<std::string> FilterSamplerBrowserEntries(const std::vector<std::string>& entries, const std::string& searchText)
+{
+  const std::string normalizedSearch = ToLower(searchText);
+  std::vector<std::string> matches;
+  matches.reserve(entries.size());
+  for (const std::string& entry : entries)
+  {
+    if (ContainsCaseInsensitive(entry, normalizedSearch))
+    {
+      matches.push_back(entry);
+    }
+  }
+  return matches;
+}
+
+std::string BuildSelectableListText(const std::vector<std::string>& items, std::size_t selectedIndex)
+{
+  if (items.empty())
+  {
+    return "No samples\nAdd WAV to Sample";
+  }
+
+  const std::size_t clampedSelection = std::min(selectedIndex, items.size() - 1);
+  const std::size_t firstVisible = clampedSelection == 0 ? 0 : clampedSelection - 1;
+  std::ostringstream stream;
+  const std::size_t lastVisible = std::min(items.size(), firstVisible + kSelectableListVisibleRows);
+  for (std::size_t index = firstVisible; index < lastVisible; ++index)
+  {
+    if (index > firstVisible)
+    {
+      stream << '\n';
+    }
+
+    stream << (index == clampedSelection ? ">" : " ") << items[index];
+  }
+
+  return stream.str();
+}
+
+std::string BuildSamplerBrowserListText(const std::vector<std::string>& items,
+                                        const std::string& searchText,
+                                        std::size_t selectedIndex)
+{
+  if (items.empty())
+  {
+    return searchText.empty() ? "No samples\nAdd WAV to Sample" : "No matches";
+  }
+
+  return BuildSelectableListText(items, selectedIndex);
+}
+
+ContextMenuGrid BuildMenuAt(std::initializer_list<std::pair<std::size_t, ContextMenuCell>> cells)
+{
+  ContextMenuGrid menu = BlankGrid();
+  for (const auto& entry : cells)
+  {
+    if (entry.first < menu.size())
+    {
+      menu[entry.first] = entry.second;
+    }
+  }
+  return menu;
+}
 
 std::pair<std::string, std::string> MenuItemPresentation(UiModifier modifier,
                                                          const std::string& itemId,
@@ -45,22 +207,31 @@ std::pair<std::string, std::string> MenuItemPresentation(UiModifier modifier,
 
   if (modifier == UiModifier::Sound)
   {
-    if (itemId == "snd.dx7.op1") return {"Operator 1", FormatDx7OperatorSummary(engine, 1)};
-    if (itemId == "snd.dx7.op2") return {"Operator 2", FormatDx7OperatorSummary(engine, 2)};
-    if (itemId == "snd.dx7.op3") return {"Operator 3", FormatDx7OperatorSummary(engine, 3)};
-    if (itemId == "snd.dx7.op4") return {"Operator 4", FormatDx7OperatorSummary(engine, 4)};
-    if (itemId == "snd.dx7.op5") return {"Operator 5", FormatDx7OperatorSummary(engine, 5)};
-    if (itemId == "snd.dx7.op6") return {"Operator 6", FormatDx7OperatorSummary(engine, 6)};
-    if (itemId == "snd.dx7.alg") return {"Algorithm", FormatDx7AlgorithmSummary(engine)};
-    if (itemId == "snd.dx7.glb") return {"Global", FormatDx7GlobalSummary(engine)};
+    if (itemId == "snd.dx7.op1") return {"Operator 1", Dx7GroupSummary(engine, "par.dx7.group.op1")};
+    if (itemId == "snd.dx7.op2") return {"Operator 2", Dx7GroupSummary(engine, "par.dx7.group.op2")};
+    if (itemId == "snd.dx7.op3") return {"Operator 3", Dx7GroupSummary(engine, "par.dx7.group.op3")};
+    if (itemId == "snd.dx7.op4") return {"Operator 4", Dx7GroupSummary(engine, "par.dx7.group.op4")};
+    if (itemId == "snd.dx7.op5") return {"Operator 5", Dx7GroupSummary(engine, "par.dx7.group.op5")};
+    if (itemId == "snd.dx7.op6") return {"Operator 6", Dx7GroupSummary(engine, "par.dx7.group.op6")};
+    if (itemId == "snd.dx7.alg") return {"Algorithm", Dx7GroupSummary(engine, "par.dx7.group.alg")};
+    if (itemId == "snd.dx7.glb") return {"Global", Dx7GroupSummary(engine, "par.dx7.group.glb")};
     if (itemId == "snd.engine") return {"Engine", engineName};
     if (itemId == "snd.preset") return {"Preset", patchName};
+    if (itemId == "snd.save") return {"Save Preset", patchName};
+    if (itemId == "snd.saveas") return {"Save Preset As", patchName};
     if (itemId == "snd.volume") return {"Volume", "92"};
     if (itemId == "snd.filter") return {"Filter", "72"};
   }
 
   if (modifier == UiModifier::Parameter)
   {
+    if (itemId == "par.sampler.group.samp") return {"File", "Load, save, rename and manage sample files"};
+    if (itemId == "par.sampler.group.trim") return {"Trim", "Set start and end points for playback"};
+    if (itemId == "par.sampler.group.root") return {"Root", "Set the sample's base note for keyboard playback"};
+    if (itemId == "par.sampler.group.loop") return {"Loop", "Choose one-shot or loop playback"};
+    if (itemId == "par.sampler.group.amp") return {"Gain", "Set sample gain"};
+    if (itemId == "par.sampler.group.filter") return {"Filter", "Set cutoff and resonance"};
+    if (itemId == "par.sampler.group.env") return {"Envelope", "Set attack and release"};
     if (itemId == "par.prev") return {"Previous Parameter", "STEP"};
     if (itemId == "par.next") return {"Next Parameter", "STEP"};
     if (itemId == "par.fine") return {"Fine Adjust", "+12"};
@@ -116,6 +287,180 @@ std::pair<std::string, std::string> MenuItemPresentation(UiModifier modifier,
   return {"READY", patchName.empty() ? engineName : patchName};
 }
 
+std::pair<std::string, std::string> ActionHelp(ContextActionId actionId, const std::string& label)
+{
+  switch (actionId)
+  {
+    case ContextActionId::Back:
+      return {label == "DONE" ? "Done" : "Back", "Return to the previous view"};
+    case ContextActionId::EnginePrev:
+    case ContextActionId::PresetPrev:
+      return {"Previous", "Move selection up"};
+    case ContextActionId::EngineNext:
+    case ContextActionId::PresetNext:
+      return {"Next", "Move selection down"};
+    case ContextActionId::EngineLoad:
+    case ContextActionId::PresetLoad:
+      return {"Load", "Use the selected item"};
+    case ContextActionId::PresetDelete:
+    case ContextActionId::SamplerNameBackspace:
+    case ContextActionId::PresetNameBackspace:
+      return {"Delete Character", "Remove the last typed character"};
+    case ContextActionId::PresetClear:
+      return {"Clear Search", "Clear the current search text"};
+    case ContextActionId::SavePreset:
+      return {"Save Preset", "Update the current preset"};
+    case ContextActionId::SavePresetAs:
+      return {"Save Preset As", "Name preset copy"};
+    case ContextActionId::PresetNameSave:
+    case ContextActionId::SamplerNameSave:
+      return {"Save Name", "Confirm the typed name"};
+    case ContextActionId::SamplerRecord:
+      return {"Record", "Arm sampler recording"};
+    case ContextActionId::SamplerRecordStart:
+      return {"Start Recording", "Record from audio input"};
+    case ContextActionId::SamplerStop:
+      return {"Stop", "Stop recording"};
+    case ContextActionId::SamplerCancel:
+      return {"Cancel", "Cancel the current sampler action"};
+    case ContextActionId::SamplerPlay:
+    case ContextActionId::SamplerTrimPreview:
+      return {"Play", "Preview the sample"};
+    case ContextActionId::SamplerEdit:
+      return {"Edit", "Open rename and delete tools for the current sample"};
+    case ContextActionId::SamplerSelect:
+      return {"Files", "Open the sample browser"};
+    case ContextActionId::SamplerName:
+      return {"Name Sample", "Enter a sample file name"};
+    case ContextActionId::SamplerConfirmOverwrite:
+      return {"Replace", "Overwrite the existing file"};
+    case ContextActionId::SamplerRename:
+      return {"Rename", "Rename the current sample"};
+    case ContextActionId::SamplerDelete:
+      return {"Delete Sample", "Delete the current sample file"};
+    case ContextActionId::SamplerTrimLeft:
+      return {"Move Trim Left", "Move the trim cursor earlier"};
+    case ContextActionId::SamplerTrimRight:
+      return {"Move Trim Right", "Move the trim cursor later"};
+    case ContextActionId::SamplerTrimBegin:
+      return {"Set Trim Start", "Set sample start to the cursor"};
+    case ContextActionId::SamplerTrimEnd:
+      return {"Set Trim End", "Set sample end to the cursor"};
+    case ContextActionId::SamplerTrimSet:
+      return {"Save Trim", "Save the trimmed draft sample"};
+    case ContextActionId::ParameterDecLarge:
+    case ContextActionId::ParameterDecSmall:
+      return {"Decrease", "Lower the selected value"};
+    case ContextActionId::ParameterIncSmall:
+    case ContextActionId::ParameterIncLarge:
+      return {"Increase", "Raise the selected value"};
+    case ContextActionId::ParameterMin:
+      return {"Minimum", "Set the value to minimum"};
+    case ContextActionId::ParameterMax:
+      return {"Maximum", "Set the value to maximum"};
+    case ContextActionId::ParameterReset:
+      return {"Reset", "Restore the entry value"};
+    default:
+      return {label.empty() ? "Command" : label, "Run this command"};
+  }
+}
+
+std::pair<std::string, std::string> ItemHelp(UiModifier modifier,
+                                             const std::string& itemId,
+                                             const std::string& patchName,
+                                             const ISynthEngine* engine)
+{
+  if (modifier == UiModifier::Sound)
+  {
+    if (itemId == "snd.engine") return {"Engine", "Choose the track synth engine"};
+    if (itemId == "snd.preset") return {"Preset", "Browse and load presets"};
+    if (itemId == "snd.save") return {"Save Preset", "Update the current preset"};
+    if (itemId == "snd.saveas") return {"Save Preset As", "Name preset copy"};
+  }
+
+  if (modifier == UiModifier::Parameter)
+  {
+    if (IsDx7ParameterGroupId(itemId))
+    {
+      return {Dx7GroupLabel(itemId), Dx7GroupSummary(engine, itemId)};
+    }
+
+    if (IsJunoParameterGroupId(itemId))
+    {
+      return {JunoGroupTitle(itemId), JunoGroupSummary(engine, itemId)};
+    }
+
+    SynthParameterInfo parameter;
+    if (ReadParameter(engine, itemId, parameter))
+    {
+      return {parameter.label, engine != nullptr ? engine->DescribeParameterValue(itemId) : std::string{}};
+    }
+  }
+
+  if (modifier == UiModifier::Layout)
+  {
+    if (itemId == "lay.scl") return {"Scale", "Set the keyboard scale"};
+    if (itemId == "lay.root") return {"Root", "Set the keyboard root note"};
+    if (itemId == "lay.mode") return {"Mode", "Choose the scale mode"};
+    if (itemId == "lay.chrd") return {"Chord", "Choose chord behavior"};
+    if (itemId == "lay.oct") return {"Octave", "Shift the keyboard octave"};
+    if (itemId == "lay.trns") return {"Transpose", "Shift notes by semitone"};
+    if (itemId == "lay.key") return {"Key Layout", "Choose the performance layout"};
+    if (itemId == "lay.grid") return {"Grid", "Choose the keyboard grid"};
+    if (itemId == "lay.keyb") return {"Keyboard", "Use piano-style mapping"};
+    if (itemId == "lay.drum") return {"Drum", "Use drum-pad mapping"};
+    if (itemId == "lay.mpe") return {"MPE", "Toggle expressive MIDI mode"};
+    if (itemId == "lay.latch") return {"Latch", "Hold played notes"};
+    if (itemId == "lay.arp") return {"Arpeggiator", "Toggle note arpeggiation"};
+    if (itemId == "lay.save") return {"Save Keyboard", "Save keyboard settings"};
+  }
+
+  const auto presentation = MenuItemPresentation(modifier, itemId, patchName, engine);
+  const std::string fallbackValue = patchName.empty()
+      ? (engine != nullptr ? engine->Descriptor().displayName : std::string{"SYNTH"})
+      : patchName;
+  if (presentation.first == "READY" && presentation.second == fallbackValue)
+  {
+    return {"", ""};
+  }
+
+  return presentation;
+}
+
+std::pair<std::string, std::string> ContextCellHelp(const ContextMenuCell& cell,
+                                                    UiModifier modifier,
+                                                    const std::string& patchName,
+                                                    const ISynthEngine* engine)
+{
+  if (!cell.fullName.empty() || !cell.description.empty())
+  {
+    return {cell.fullName.empty() ? cell.label : cell.fullName, cell.description};
+  }
+
+  if (cell.type == MenuCellType::Item)
+  {
+    const auto help = ItemHelp(modifier, cell.itemId, patchName, engine);
+    if (!help.first.empty() || !help.second.empty())
+    {
+      return help;
+    }
+
+    return {cell.label, {}};
+  }
+
+  if (cell.type == MenuCellType::NextPage)
+  {
+    return {"Next Page", "Show more controls"};
+  }
+
+  if (cell.type == MenuCellType::UtilityAction)
+  {
+    return ActionHelp(cell.actionId, cell.label);
+  }
+
+  return {"", ""};
+}
+
 }  // namespace
 
 SynthUiModel::SynthUiModel() = default;
@@ -147,6 +492,22 @@ void SynthUiModel::SyncTrackState(std::size_t trackIndex, const ISynthEngine* en
   }
 }
 
+void SynthUiModel::SyncSamplerTrackState(std::size_t trackIndex, const SamplerTrackUiState& state)
+{
+  if (trackIndex >= tracks_.size())
+  {
+    return;
+  }
+
+  tracks_[trackIndex].sampler = state;
+  if (trackIndex == activeTrack_ && state.recording)
+  {
+    samplerRecordConfirmMode_ = false;
+    heldContextMenuIndex_ = -1;
+    hasMenuHighlight_ = false;
+  }
+}
+
 void SynthUiModel::SetActiveTrack(std::size_t trackIndex)
 {
   if (trackIndex >= tracks_.size())
@@ -155,6 +516,7 @@ void SynthUiModel::SetActiveTrack(std::size_t trackIndex)
   }
 
   activeTrack_ = trackIndex;
+  homeOctaveStatusUntil_ = std::chrono::steady_clock::time_point{};
 }
 
 void SynthUiModel::Tick(const ISynthEngine* engine)
@@ -187,6 +549,13 @@ void SynthUiModel::Tick(const ISynthEngine* engine)
       transition_.active = false;
     }
   }
+
+  if (mode_ == UiMode::ContextMenu && heldContextMenuIndex_ >= 0 && !contextMenuHintVisible_ &&
+      contextMenuPressStartedAt_ != std::chrono::steady_clock::time_point{} &&
+      (now - contextMenuPressStartedAt_) >= kContextHintHoldDelay)
+  {
+    contextMenuHintVisible_ = true;
+  }
 }
 
 MatrixKeyHandling SynthUiModel::PressMatrixKey(ISynthEngine* engine, std::size_t row, std::size_t col)
@@ -200,10 +569,13 @@ MatrixKeyHandling SynthUiModel::PressMatrixKey(ISynthEngine* engine, std::size_t
   {
     if (mode_ == UiMode::ContextMenu && contextLatched_)
     {
-      const UiScreenSnapshot from = BuildScreenSnapshot(engine);
-      ClearHeldModifiers();
-      ExitToHome();
-      StartTransition(from, BuildScreenSnapshot(engine));
+      if (row == 0)
+      {
+        const UiScreenSnapshot from = BuildScreenSnapshot(engine);
+        ClearHeldModifiers();
+        ExitToHome();
+        StartTransition(from, BuildScreenSnapshot(engine));
+      }
       return MatrixKeyHandling::Ignored;
     }
 
@@ -219,11 +591,65 @@ MatrixKeyHandling SynthUiModel::PressMatrixKey(ISynthEngine* engine, std::size_t
   if (mode_ == UiMode::Home && col == kHomeRightBarColumn)
   {
     heldHomeActionRows_[row] = true;
+    if (row == 0)
+    {
+      AdjustKeyboardOctave(1);
+    }
+    else if (row == 1)
+    {
+      AdjustKeyboardOctave(-1);
+    }
     return MatrixKeyHandling::Ignored;
   }
 
   const std::size_t contextMenuColumns = ContextMenuColumnCount();
   const std::size_t contextMenuFirstColumn = contextMenuColumns == 1 ? kHomeRightBarColumn : kContextMenuFirstColumn;
+  if (mode_ == UiMode::ContextMenu && samplerNameEntryMode_ && activeModifier_ == UiModifier::Parameter &&
+      IsSamplerParameterEngine(engine) && col > kHomeLeftBarColumn && col < contextMenuFirstColumn)
+  {
+    heldContextMenuIndex_ = -1;
+    hasMenuHighlight_ = false;
+
+    const char* mappedValue = kPresetSearchKeyMap[row][col];
+    if (IsSamplerNameCharacter(mappedValue) && samplerNameText_.size() < kSamplerNameMaxLength)
+    {
+      samplerNameText_ += mappedValue;
+      selectedValueText_ = samplerNameText_;
+    }
+    return MatrixKeyHandling::Ignored;
+  }
+
+  if (mode_ == UiMode::ContextMenu && presetNameEntryMode_ && activeModifier_ == UiModifier::Sound &&
+      col > kHomeLeftBarColumn && col < contextMenuFirstColumn)
+  {
+    heldContextMenuIndex_ = -1;
+    hasMenuHighlight_ = false;
+
+    const char* mappedValue = kPresetSearchKeyMap[row][col];
+    if (IsSamplerNameCharacter(mappedValue) && presetNameText_.size() < kPresetSearchMaxLength)
+    {
+      presetNameText_ += mappedValue;
+      selectedValueText_ = presetNameText_;
+    }
+    return MatrixKeyHandling::Ignored;
+  }
+
+  if (mode_ == UiMode::ContextMenu && samplerBrowserMode_ && activeModifier_ == UiModifier::Parameter &&
+      IsSamplerParameterEngine(engine) && col > kHomeLeftBarColumn && col < contextMenuFirstColumn)
+  {
+    heldContextMenuIndex_ = -1;
+    hasMenuHighlight_ = false;
+
+    const char* mappedValue = kPresetSearchKeyMap[row][col];
+    if (mappedValue != nullptr && mappedValue[0] != '\0' && samplerBrowserSearchText_.size() < kPresetSearchMaxLength)
+    {
+      samplerBrowserSearchText_ += mappedValue;
+      samplerBrowserSelectionIndex_ = 0;
+      RefreshSamplerBrowserEntries();
+    }
+    return MatrixKeyHandling::Ignored;
+  }
+
   if (mode_ == UiMode::ContextMenu && presetBrowserMode_ && activeModifier_ == UiModifier::Sound &&
       col > kHomeLeftBarColumn && col < contextMenuFirstColumn)
   {
@@ -246,9 +672,15 @@ MatrixKeyHandling SynthUiModel::PressMatrixKey(ISynthEngine* engine, std::size_t
     const auto menu = CurrentMenuCells(engine);
     const std::size_t menuIndex = contextMenuColumns == 1 ? row : row * kContextMenuColumns + (col - contextMenuFirstColumn);
     heldContextMenuIndex_ = static_cast<int>(menuIndex);
+    contextMenuHintVisible_ = false;
+    contextMenuPressStartedAt_ = std::chrono::steady_clock::now();
+    heldContextMenuHintTitle_.clear();
+    heldContextMenuHintText_.clear();
     if (menuIndex < menu.size())
     {
-      ApplyMenuCell(engine, menu[menuIndex], menuIndex);
+      const auto help = ContextCellHelp(menu[menuIndex], activeModifier_, tracks_[activeTrack_].patchName, engine);
+      heldContextMenuHintTitle_ = help.first;
+      heldContextMenuHintText_ = help.second;
     }
     return MatrixKeyHandling::MenuAction;
   }
@@ -261,7 +693,7 @@ MatrixKeyHandling SynthUiModel::PressMatrixKey(ISynthEngine* engine, std::size_t
   return MatrixKeyHandling::PerformanceKey;
 }
 
-void SynthUiModel::ReleaseMatrixKey(const ISynthEngine* engine, std::size_t row, std::size_t col)
+void SynthUiModel::ReleaseMatrixKey(ISynthEngine* engine, std::size_t row, std::size_t col)
 {
   if (row >= kKeyboardMatrixRows)
   {
@@ -274,7 +706,19 @@ void SynthUiModel::ReleaseMatrixKey(const ISynthEngine* engine, std::size_t row,
       col >= contextMenuFirstColumn &&
       col < contextMenuFirstColumn + contextMenuColumns)
   {
+    const std::size_t menuIndex = contextMenuColumns == 1 ? row : row * kContextMenuColumns + (col - contextMenuFirstColumn);
+    const bool shouldApply = heldContextMenuIndex_ == static_cast<int>(menuIndex) && !contextMenuHintVisible_;
+    const auto menu = CurrentMenuCells(engine);
+    if (shouldApply && menuIndex < menu.size())
+    {
+      ApplyMenuCell(engine, menu[menuIndex], menuIndex);
+    }
+
     heldContextMenuIndex_ = -1;
+    contextMenuPressStartedAt_ = std::chrono::steady_clock::time_point{};
+    contextMenuHintVisible_ = false;
+    heldContextMenuHintTitle_.clear();
+    heldContextMenuHintText_.clear();
     hasMenuHighlight_ = false;
     return;
   }
@@ -323,12 +767,19 @@ void SynthUiModel::ExitToHome()
   activeMenuRow_ = 0;
   activeMenuColumn_ = 0;
   heldContextMenuIndex_ = -1;
+  contextMenuPressStartedAt_ = std::chrono::steady_clock::time_point{};
+  contextMenuHintVisible_ = false;
+  heldContextMenuHintTitle_.clear();
+  heldContextMenuHintText_.clear();
   enginePickerMode_ = false;
   hasPendingEngineKind_ = false;
   pendingEngineKind_ = SynthEngineKind::None;
   presetBrowserMode_ = false;
   presetSearchText_.clear();
   presetBrowserSelectionIndex_ = 0;
+  ExitPresetNameEntry();
+  ExitSamplerNameEntry();
+  ExitSamplerRecordConfirm();
   contextLatched_ = false;
   selectedParameterGroupId_.clear();
   ClearContextSelection();
@@ -345,7 +796,17 @@ std::string SynthUiModel::HeaderEngine(const ISynthEngine* engine) const
 
 std::string SynthUiModel::HeaderTrack() const
 {
+  if (mode_ == UiMode::Home && std::chrono::steady_clock::now() < homeOctaveStatusUntil_)
+  {
+    return std::string("Octave ") + (keyboardOctaveOffset_ >= 0 ? "+" : "") + std::to_string(keyboardOctaveOffset_);
+  }
   return "Track " + std::to_string(activeTrack_ + 1);
+}
+
+std::uint8_t SynthUiModel::HomePerformanceMidiNote(std::size_t row, std::size_t col) const
+{
+  const int note = static_cast<int>(synth::HomePerformanceMidiNote(row, col)) + keyboardOctaveOffset_ * 12;
+  return static_cast<std::uint8_t>(std::clamp(note, 0, 127));
 }
 
 const std::string& SynthUiModel::PatchName() const
@@ -372,7 +833,7 @@ std::string SynthUiModel::ContextSectionTitle() const
     case UiModifier::Parameter:
       return "PARAMETER";
     case UiModifier::Layout:
-      return "LAYOUT";
+      return "KEYBOARD";
     case UiModifier::Other:
       return "SYSTEM";
     case UiModifier::None:
@@ -452,6 +913,8 @@ ContextMenuGrid SynthUiModel::CurrentMenuCells(const ISynthEngine* engine) const
 
 std::size_t SynthUiModel::ContextMenuColumnCount() const
 {
+  const SamplerTrackUiState& sampler = tracks_[activeTrack_].sampler;
+
   if (activeModifier_ == UiModifier::Sound)
   {
     return 1;
@@ -463,9 +926,59 @@ std::size_t SynthUiModel::ContextMenuColumnCount() const
     return 1;
   }
 
+  if (activeModifier_ == UiModifier::Parameter && parameterAdjustMode_ &&
+      tracks_[activeTrack_].kind == SynthEngineKind::Sampler && selectedItemId_ == "sample.loop")
+  {
+    return 1;
+  }
+
   if (activeModifier_ == UiModifier::Parameter && tracks_[activeTrack_].kind == SynthEngineKind::Juno &&
       IsJunoDirectActionGroupId(selectedParameterGroupId_))
   {
+    return 1;
+  }
+
+  if (activeModifier_ == UiModifier::Parameter && tracks_[activeTrack_].kind == SynthEngineKind::Sampler &&
+      (samplerNameEntryMode_ || sampler.overwritePending || sampler.deleteConfirm))
+  {
+    return 1;
+  }
+
+  if (activeModifier_ == UiModifier::Parameter && tracks_[activeTrack_].kind == SynthEngineKind::Sampler && samplerBrowserMode_)
+  {
+    return 1;
+  }
+
+  if (activeModifier_ == UiModifier::Parameter && tracks_[activeTrack_].kind == SynthEngineKind::Sampler && samplerRecordConfirmMode_)
+  {
+    return 1;
+  }
+
+  if (activeModifier_ == UiModifier::Parameter && tracks_[activeTrack_].kind == SynthEngineKind::Sampler && !parameterAdjustMode_)
+  {
+    if (selectedParameterGroupId_.empty())
+    {
+      return (!sampler.hasSample && !sampler.hasDraft) ? 1 : 2;
+    }
+
+    if (selectedParameterGroupId_ == "par.sampler.group.trim")
+    {
+      return 2;
+    }
+
+    if (selectedParameterGroupId_ == "par.sampler.group.samp")
+    {
+      if (sampler.recording)
+      {
+        return 1;
+      }
+      if (!sampler.hasSample && sampler.hasDraft)
+      {
+        return 1;
+      }
+      return 2;
+    }
+
     return 1;
   }
 
@@ -487,6 +1000,18 @@ bool SynthUiModel::ConsumePendingEngineKind(SynthEngineKind& kind)
   kind = pendingEngineKind_;
   hasPendingEngineKind_ = false;
   pendingEngineKind_ = SynthEngineKind::None;
+  return true;
+}
+
+bool SynthUiModel::ConsumePendingCommand(UiCommand& command)
+{
+  if (pendingCommands_.empty())
+  {
+    return false;
+  }
+
+  command = pendingCommands_.front();
+  pendingCommands_.erase(pendingCommands_.begin());
   return true;
 }
 
@@ -556,6 +1081,14 @@ UiBarSnapshot SynthUiModel::BuildHomeActionBarSnapshot() const
   return items;
 }
 
+UiBarSnapshot BuildContextBackBarSnapshot()
+{
+  UiBarSnapshot items{};
+  items[0].label = "BACK";
+  items[0].active = true;
+  return items;
+}
+
 UiBarSnapshot SynthUiModel::BuildContextBarSnapshot(const ISynthEngine* engine) const
 {
   UiBarSnapshot items{};
@@ -567,6 +1100,9 @@ UiBarSnapshot SynthUiModel::BuildContextBarSnapshot(const ISynthEngine* engine) 
     {
       const std::size_t index = columns == 1 ? row : row * kContextMenuColumns + column;
       items[index].label = menu[index].label;
+        const auto help = ContextCellHelp(menu[index], activeModifier_, tracks_[activeTrack_].patchName, engine);
+        items[index].fullName = help.first;
+        items[index].description = help.second;
       items[index].active = heldContextMenuIndex_ == static_cast<int>(index) ||
                             (hasMenuHighlight_ && row == activeMenuRow_ && column == activeMenuColumn_);
     }
@@ -580,7 +1116,20 @@ UiScreenSnapshot SynthUiModel::BuildScreenSnapshot(const ISynthEngine* engine) c
   snapshot.mode = mode_;
   snapshot.modifier = activeModifier_;
   snapshot.engineKind = engine != nullptr ? engine->Descriptor().kind : tracks_[activeTrack_].kind;
-  snapshot.focusItemId = selectedItemId_.empty() ? selectedParameterGroupId_ : selectedItemId_;
+  snapshot.focusItemId = samplerBrowserMode_ ? "par.sampler.browser"
+                                             : (selectedItemId_.empty() ? selectedParameterGroupId_ : selectedItemId_);
+  if (snapshot.engineKind == SynthEngineKind::Sampler && activeModifier_ == UiModifier::Parameter)
+  {
+    const SamplerTrackUiState& sampler = tracks_[activeTrack_].sampler;
+    if (samplerNameEntryMode_ || sampler.overwritePending)
+    {
+      snapshot.focusItemId = "par.sampler.page.save";
+    }
+    else if (selectedParameterGroupId_ == "par.sampler.group.trim" && !parameterAdjustMode_)
+    {
+      snapshot.focusItemId = selectedParameterGroupId_;
+    }
+  }
   snapshot.dx7Algorithm = ParameterValueOrDefault(engine, "global.algorithm", 0);
   snapshot.dx7Feedback = ParameterValueOrDefault(engine, "global.feedback", 0);
 
@@ -589,6 +1138,14 @@ UiScreenSnapshot SynthUiModel::BuildScreenSnapshot(const ISynthEngine* engine) c
     snapshot.headerPrimary = HeaderEngine(engine);
     snapshot.headerSecondary = HeaderTrack();
     snapshot.primaryText = PatchName();
+    if (snapshot.engineKind == SynthEngineKind::Sampler)
+    {
+      const SamplerTrackUiState& sampler = tracks_[activeTrack_].sampler;
+      PopulateSamplerSnapshotValues(snapshot, engine, sampler);
+      snapshot.primaryText = sampler.recording ? sampler.statusText : sampler.sampleName;
+      snapshot.secondaryText = SamplerOverviewSummary(engine, sampler);
+      snapshot.showSecondaryText = true;
+    }
     snapshot.looperProgress = LooperProgress();
     snapshot.leftBarItems = BuildModifierBarSnapshot(UiModifier::None);
     snapshot.leftBarVisible = true;
@@ -602,6 +1159,12 @@ UiScreenSnapshot SynthUiModel::BuildScreenSnapshot(const ISynthEngine* engine) c
   }
 
   snapshot.headerPrimary = std::string(ModifierDisplayName(activeModifier_));
+  if (contextMenuHintVisible_ && !heldContextMenuHintTitle_.empty())
+  {
+    snapshot.showHelpPopup = true;
+    snapshot.helpPopupTitle = heldContextMenuHintTitle_;
+    snapshot.helpPopupText = heldContextMenuHintText_;
+  }
   if (activeModifier_ == UiModifier::Sound && presetBrowserMode_)
   {
     const auto presets = CollectPresetMatches(engine, presetSearchText_);
@@ -609,6 +1172,13 @@ UiScreenSnapshot SynthUiModel::BuildScreenSnapshot(const ISynthEngine* engine) c
     snapshot.primaryText = presetSearchText_.empty() ? "Preset" : presetSearchText_ + "_";
     snapshot.secondaryText = BuildPresetBrowserListText(presets, presetBrowserSelectionIndex_);
     snapshot.showPresetBrowser = true;
+    snapshot.showSecondaryText = true;
+  }
+  else if (activeModifier_ == UiModifier::Sound && presetNameEntryMode_)
+  {
+    snapshot.headerPrimary = "SAVE";
+    snapshot.primaryText = "Save As";
+    snapshot.secondaryText = presetNameText_.empty() ? "_" : presetNameText_ + "_";
     snapshot.showSecondaryText = true;
   }
   else if (activeModifier_ == UiModifier::Sound && !enginePickerMode_)
@@ -674,13 +1244,67 @@ UiScreenSnapshot SynthUiModel::BuildScreenSnapshot(const ISynthEngine* engine) c
     }
     snapshot.showSecondaryText = true;
   }
+  else if (snapshot.engineKind == SynthEngineKind::Sampler && activeModifier_ == UiModifier::Parameter)
+  {
+    const SamplerTrackUiState& sampler = tracks_[activeTrack_].sampler;
+    PopulateSamplerSnapshotValues(snapshot, engine, sampler);
+    snapshot.samplerTrimCursor = samplerTrimCursor_;
+    snapshot.samplerRecordConfirmMode = samplerRecordConfirmMode_;
+    if (samplerNameEntryMode_)
+    {
+      snapshot.headerPrimary = samplerRenameEntryMode_ ? "REN" : "SAVE";
+      snapshot.primaryText = samplerRenameEntryMode_ ? "Rename" : "Save";
+      snapshot.secondaryText = samplerNameText_.empty() ? "_" : samplerNameText_ + "_";
+    }
+    else if (sampler.overwritePending)
+    {
+      snapshot.headerPrimary = "SAVE";
+      snapshot.primaryText = "Replace?";
+      snapshot.secondaryText = sampler.draftName.empty() ? sampler.sampleName : sampler.draftName;
+    }
+    else if (sampler.deleteConfirm)
+    {
+      snapshot.headerPrimary = "Sampler";
+      snapshot.primaryText = "Delete?";
+      snapshot.secondaryText = sampler.sampleName;
+    }
+    else if (parameterAdjustMode_ && hasContextSelection_)
+    {
+      const std::string groupId = SamplerGroupIdForParameterId(selectedItemId_);
+      snapshot.headerPrimary = SamplerGroupLabel(groupId);
+      snapshot.primaryText = ContextParameterName(engine);
+      snapshot.secondaryText = ContextValueText(engine);
+    }
+    else if (samplerBrowserMode_)
+    {
+      snapshot.headerPrimary = "SAMP";
+      snapshot.primaryText = samplerBrowserSearchText_.empty() ? "Samples" : samplerBrowserSearchText_ + "_";
+      snapshot.secondaryText = BuildSamplerBrowserListText(samplerBrowserEntries_, samplerBrowserSearchText_, samplerBrowserSelectionIndex_);
+      snapshot.showPresetBrowser = true;
+    }
+    else if (!selectedParameterGroupId_.empty())
+    {
+      snapshot.headerPrimary = SamplerGroupLabel(selectedParameterGroupId_);
+      snapshot.primaryText = SamplerGroupTitle(selectedParameterGroupId_);
+      snapshot.secondaryText = SamplerGroupSummary(engine, sampler, selectedParameterGroupId_);
+    }
+    else
+    {
+      snapshot.headerPrimary = "Sampler";
+      snapshot.primaryText = sampler.sampleName;
+      snapshot.secondaryText = SamplerOverviewSummary(engine, sampler);
+    }
+    snapshot.showSecondaryText = true;
+  }
   else
   {
-    snapshot.primaryText = hasContextSelection_ ? ContextParameterName(engine) : std::string{"Settings"};
+    snapshot.primaryText = hasContextSelection_ ? ContextParameterName(engine)
+                                                : (activeModifier_ == UiModifier::Layout ? std::string{"Keyboard"}
+                                                                                         : std::string{"Settings"});
     snapshot.secondaryText = hasContextSelection_ ? ContextValueText(engine) : std::string{};
     snapshot.showSecondaryText = hasContextSelection_;
   }
-  snapshot.leftBarItems = BuildModifierBarSnapshot(activeModifier_);
+  snapshot.leftBarItems = BuildContextBackBarSnapshot();
   snapshot.leftBarVisible = false;
   snapshot.leftBarColumns = 1;
   snapshot.leftBarWidthScale = 1.0f;
@@ -780,6 +1404,12 @@ void SynthUiModel::SelectStatus(const std::string& label, const std::string& val
   selectedValueText_ = value;
 }
 
+void SynthUiModel::AdjustKeyboardOctave(int delta)
+{
+  keyboardOctaveOffset_ = std::clamp(keyboardOctaveOffset_ + delta, kKeyboardOctaveMin, kKeyboardOctaveMax);
+  homeOctaveStatusUntil_ = std::chrono::steady_clock::now() + kHomeOctaveStatusDuration;
+}
+
 void SynthUiModel::EnterEnginePicker()
 {
   enginePickerMode_ = true;
@@ -811,6 +1441,46 @@ void SynthUiModel::EnterPresetBrowser(const ISynthEngine* engine)
   }
 }
 
+void SynthUiModel::EnterSamplerBrowser()
+{
+  samplerBrowserMode_ = true;
+  samplerEditFromBrowser_ = false;
+  samplerBrowserAllEntries_ = CollectSamplerBrowserEntries();
+  samplerBrowserSearchText_.clear();
+  samplerBrowserSelectionIndex_ = 0;
+  heldContextMenuIndex_ = -1;
+  hasMenuHighlight_ = false;
+  hasContextSelection_ = true;
+  selectionKind_ = ContextSelectionKind::Status;
+  selectedItemId_ = "par.sampler.browser";
+  selectedItemLabel_ = "Samples";
+  RefreshSamplerBrowserEntries();
+}
+
+void SynthUiModel::ExitSamplerBrowser()
+{
+  samplerBrowserMode_ = false;
+  samplerBrowserAllEntries_.clear();
+  samplerBrowserEntries_.clear();
+  samplerBrowserSearchText_.clear();
+  samplerBrowserSelectionIndex_ = 0;
+  heldContextMenuIndex_ = -1;
+}
+
+void SynthUiModel::RefreshSamplerBrowserEntries()
+{
+  samplerBrowserEntries_ = FilterSamplerBrowserEntries(samplerBrowserAllEntries_, samplerBrowserSearchText_);
+  if (samplerBrowserEntries_.empty())
+  {
+    samplerBrowserSelectionIndex_ = 0;
+    selectedValueText_ = samplerBrowserSearchText_.empty() ? "EMPTY" : samplerBrowserSearchText_;
+    return;
+  }
+
+  samplerBrowserSelectionIndex_ = std::min(samplerBrowserSelectionIndex_, samplerBrowserEntries_.size() - 1);
+  selectedValueText_ = samplerBrowserEntries_[samplerBrowserSelectionIndex_];
+}
+
 void SynthUiModel::EnterParameterAdjustMode(const SynthParameterInfo& parameter, std::size_t menuIndex)
 {
   hasContextSelection_ = true;
@@ -822,6 +1492,63 @@ void SynthUiModel::EnterParameterAdjustMode(const SynthParameterInfo& parameter,
   hasMenuHighlight_ = false;
   HighlightMenuIndex(menuIndex);
   hasMenuHighlight_ = false;
+}
+
+void SynthUiModel::QueueCommand(UiCommandType type, const std::string& text)
+{
+  UiCommand command;
+  command.type = type;
+  command.trackIndex = activeTrack_;
+  command.text = text;
+  pendingCommands_.push_back(command);
+}
+
+void SynthUiModel::ExitPresetNameEntry()
+{
+  presetNameEntryMode_ = false;
+  presetNameText_.clear();
+}
+
+void SynthUiModel::ExitSamplerNameEntry()
+{
+  samplerNameEntryMode_ = false;
+  samplerRenameEntryMode_ = false;
+  samplerNameText_.clear();
+}
+
+void SynthUiModel::ExitSamplerRecordConfirm()
+{
+  samplerRecordConfirmMode_ = false;
+}
+
+void SynthUiModel::MoveSamplerTrimCursor(int delta)
+{
+  samplerTrimCursor_ = std::clamp(samplerTrimCursor_ + delta, 0, 127);
+  SelectStatus("Cursor", std::to_string(samplerTrimCursor_), "par.sampler.group.trim");
+}
+
+void SynthUiModel::SetSamplerTrimBoundary(ISynthEngine* engine, bool begin)
+{
+  if (engine == nullptr)
+  {
+    return;
+  }
+
+  SynthParameterInfo start;
+  SynthParameterInfo end;
+  const int currentStart = engine->GetParameterInfo("sample.start", start) ? start.value : 0;
+  const int currentEnd = engine->GetParameterInfo("sample.end", end) ? end.value : 127;
+  if (begin)
+  {
+    samplerTrimCursor_ = std::min(samplerTrimCursor_, std::max(0, currentEnd - 1));
+    (void)engine->SetParameterValue("sample.start", samplerTrimCursor_);
+    SelectStatus("Begin", engine->DescribeParameterValue("sample.start"), "sample.start");
+    return;
+  }
+
+  samplerTrimCursor_ = std::max(samplerTrimCursor_, std::min(127, currentStart + 1));
+  (void)engine->SetParameterValue("sample.end", samplerTrimCursor_);
+  SelectStatus("End", engine->DescribeParameterValue("sample.end"), "sample.end");
 }
 
 void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& cell, std::size_t index)
@@ -855,6 +1582,18 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
     if (activeModifier_ == UiModifier::Sound && cell.itemId == "snd.preset")
     {
       EnterPresetBrowser(engine);
+      return;
+    }
+
+    if (activeModifier_ == UiModifier::Sound && cell.itemId == "snd.save")
+    {
+      ApplyMenuCell(engine, MakeActionCell("SAVE", ContextActionId::SavePreset), index);
+      return;
+    }
+
+    if (activeModifier_ == UiModifier::Sound && cell.itemId == "snd.saveas")
+    {
+      ApplyMenuCell(engine, MakeActionCell("SAVEAS", ContextActionId::SavePresetAs), index);
       return;
     }
 
@@ -938,6 +1677,53 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
       }
     }
 
+    if (activeModifier_ == UiModifier::Parameter && IsSamplerParameterEngine(engine))
+    {
+      if (IsSamplerParameterGroupId(cell.itemId))
+      {
+        ExitSamplerRecordConfirm();
+        selectedParameterGroupId_ = cell.itemId;
+        currentPage_ = 0;
+        if (cell.itemId == "par.sampler.group.trim" && engine != nullptr)
+        {
+          SynthParameterInfo start;
+          samplerTrimCursor_ = engine->GetParameterInfo("sample.start", start) ? start.value : 0;
+        }
+
+        if (IsSamplerDirectAdjustGroupId(cell.itemId) && engine != nullptr)
+        {
+          SynthParameterInfo parameter;
+          const std::string parameterId = SamplerDirectAdjustParameterId(cell.itemId);
+          if (!parameterId.empty() && engine->GetParameterInfo(parameterId, parameter))
+          {
+            EnterParameterAdjustMode(parameter, index);
+            return;
+          }
+        }
+
+        ClearContextSelection();
+        return;
+      }
+
+      if (cell.itemId == "par.sampler.back")
+      {
+        selectedParameterGroupId_.clear();
+        currentPage_ = 0;
+        ClearContextSelection();
+        return;
+      }
+
+      if (engine != nullptr)
+      {
+        SynthParameterInfo parameter;
+        if (engine->GetParameterInfo(cell.itemId, parameter))
+        {
+          EnterParameterAdjustMode(parameter, index);
+          return;
+        }
+      }
+    }
+
     const auto presentation = MenuItemPresentation(activeModifier_, cell.itemId, tracks_[activeTrack_].patchName, engine);
     SelectStatus(presentation.first, presentation.second, cell.itemId);
     return;
@@ -983,6 +1769,19 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
       }
       break;
     case ContextActionId::PresetLoad:
+      if (samplerBrowserMode_)
+      {
+        if (!samplerBrowserEntries_.empty())
+        {
+          const std::size_t selectedIndex = std::min(samplerBrowserSelectionIndex_, samplerBrowserEntries_.size() - 1);
+          QueueCommand(UiCommandType::SamplerOpenBrowser, samplerBrowserEntries_[selectedIndex]);
+          ExitSamplerBrowser();
+          selectedParameterGroupId_.clear();
+          currentPage_ = 0;
+          SelectStatus("Sample", "LOAD", "par.sampler.group.samp");
+        }
+        break;
+      }
       if (presetBrowserMode_ && engine != nullptr)
       {
         const auto presets = CollectPresetMatches(engine, presetSearchText_);
@@ -1002,12 +1801,24 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
       }
       break;
     case ContextActionId::PresetPrev:
+      if (samplerBrowserMode_ && samplerBrowserSelectionIndex_ > 0)
+      {
+        --samplerBrowserSelectionIndex_;
+        SelectStatus("Samples", samplerBrowserEntries_[samplerBrowserSelectionIndex_], "par.sampler.browser");
+        break;
+      }
       if (presetBrowserMode_ && presetBrowserSelectionIndex_ > 0)
       {
         --presetBrowserSelectionIndex_;
       }
       break;
     case ContextActionId::PresetNext:
+      if (samplerBrowserMode_ && !samplerBrowserEntries_.empty())
+      {
+        samplerBrowserSelectionIndex_ = std::min(samplerBrowserSelectionIndex_ + 1, samplerBrowserEntries_.size() - 1);
+        SelectStatus("Samples", samplerBrowserEntries_[samplerBrowserSelectionIndex_], "par.sampler.browser");
+        break;
+      }
       if (presetBrowserMode_ && engine != nullptr)
       {
         const auto presets = CollectPresetMatches(engine, presetSearchText_);
@@ -1018,6 +1829,13 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
       }
       break;
     case ContextActionId::PresetDelete:
+      if (samplerBrowserMode_ && !samplerBrowserSearchText_.empty())
+      {
+        samplerBrowserSearchText_.pop_back();
+        samplerBrowserSelectionIndex_ = 0;
+        RefreshSamplerBrowserEntries();
+        break;
+      }
       if (presetBrowserMode_ && !presetSearchText_.empty())
       {
         presetSearchText_.pop_back();
@@ -1032,10 +1850,27 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
         presetBrowserSelectionIndex_ = ActivePresetMatchIndex(CollectPresetMatches(engine, presetSearchText_));
       }
       break;
+    case ContextActionId::PresetNameSave:
+      if (engine != nullptr && !presetNameText_.empty())
+      {
+        (void)engine->SavePreset("", presetNameText_);
+        tracks_[activeTrack_].patchName = engine->CurrentPresetName();
+        ExitPresetNameEntry();
+        SelectStatus("Save As", tracks_[activeTrack_].patchName, "snd.preset");
+      }
+      break;
+    case ContextActionId::PresetNameBackspace:
+      if (!presetNameText_.empty())
+      {
+        presetNameText_.pop_back();
+      }
+      SelectStatus("Name", presetNameText_.empty() ? "_" : presetNameText_, "snd.preset");
+      break;
     case ContextActionId::ParameterDecLarge:
       if (engine != nullptr)
       {
-        (void)engine->AdjustParameterValue(selectedItemId_, -10);
+        const int delta = selectedItemId_ == "sample.root" ? -12 : -10;
+        (void)engine->AdjustParameterValue(selectedItemId_, delta);
         hasContextSelection_ = true;
         selectionKind_ = ContextSelectionKind::Parameter;
       }
@@ -1059,7 +1894,8 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
     case ContextActionId::ParameterIncLarge:
       if (engine != nullptr)
       {
-        (void)engine->AdjustParameterValue(selectedItemId_, 10);
+        const int delta = selectedItemId_ == "sample.root" ? 12 : 10;
+        (void)engine->AdjustParameterValue(selectedItemId_, delta);
         hasContextSelection_ = true;
         selectionKind_ = ContextSelectionKind::Parameter;
       }
@@ -1188,13 +2024,234 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
         SelectStatus("HPF", DescribeParameterValueOrFallback(engine, "hpf.mode"), "hpf.mode");
       }
       break;
+    case ContextActionId::SamplerRecord:
+      selectedParameterGroupId_ = "par.sampler.group.samp";
+      currentPage_ = 0;
+      samplerRecordConfirmMode_ = true;
+      SelectStatus("Record", "READY", "par.sampler.group.samp");
+      break;
+    case ContextActionId::SamplerRecordStart:
+      selectedParameterGroupId_ = "par.sampler.group.samp";
+      currentPage_ = 0;
+      QueueCommand(UiCommandType::SamplerStartRecord);
+      SelectStatus("Record", "START", "par.sampler.group.samp");
+      break;
+    case ContextActionId::SamplerStop:
+      QueueCommand(UiCommandType::SamplerStopRecord);
+      selectedParameterGroupId_ = "par.sampler.group.trim";
+      currentPage_ = 0;
+      SelectStatus("Trim", "DRAFT", "par.sampler.group.trim");
+      break;
+    case ContextActionId::SamplerCancel:
+      if (samplerRecordConfirmMode_)
+      {
+        ExitSamplerRecordConfirm();
+      }
+      else
+      {
+        QueueCommand(UiCommandType::SamplerCancelRecord);
+      }
+      SelectStatus("Record", "CANCEL", "par.sampler.group.samp");
+      break;
+    case ContextActionId::SamplerPlay:
+      QueueCommand(UiCommandType::SamplerPreview);
+      SelectStatus("Sample", "PLAY", "par.sampler.group.samp");
+      break;
+    case ContextActionId::SamplerEdit:
+      if (!tracks_[activeTrack_].sampler.hasSample)
+      {
+        SelectStatus("Sample", "NO SAMPLE", samplerBrowserMode_ ? "par.sampler.browser" : "par.sampler.group.edit");
+        break;
+      }
+      samplerEditFromBrowser_ = samplerBrowserMode_;
+      if (samplerBrowserMode_)
+      {
+        ExitSamplerBrowser();
+      }
+      selectedParameterGroupId_ = "par.sampler.group.edit";
+      currentPage_ = 0;
+      ClearContextSelection();
+      break;
+    case ContextActionId::SamplerSelect:
+      selectedParameterGroupId_ = "par.sampler.group.samp";
+      currentPage_ = 0;
+      EnterSamplerBrowser();
+      break;
+    case ContextActionId::SamplerName:
+    case ContextActionId::SamplerTrimSet:
+      if (!tracks_[activeTrack_].sampler.hasDraft)
+      {
+        SelectStatus("Sample",
+                     "NO DRAFT",
+                     selectedParameterGroupId_.empty() ? std::string{"par.sampler.group.samp"} : selectedParameterGroupId_);
+        break;
+      }
+      samplerNameEntryMode_ = true;
+      samplerNameText_ = tracks_[activeTrack_].sampler.draftName.empty() ? "sample" : tracks_[activeTrack_].sampler.draftName;
+      QueueCommand(UiCommandType::SamplerEnterNaming);
+      SelectStatus("Name",
+                   samplerNameText_,
+                   selectedParameterGroupId_.empty() ? std::string{"par.sampler.group.samp"} : selectedParameterGroupId_);
+      break;
+    case ContextActionId::SamplerNameSave:
+      if (!samplerNameText_.empty())
+      {
+        const bool renaming = samplerRenameEntryMode_;
+        if (renaming)
+        {
+          QueueCommand(UiCommandType::SamplerRenameCurrent, samplerNameText_);
+        }
+        else
+        {
+          QueueCommand(UiCommandType::SamplerCommitName, samplerNameText_);
+        }
+        ExitSamplerNameEntry();
+        selectedParameterGroupId_ = renaming ? std::string{"par.sampler.group.edit"} : std::string{};
+        currentPage_ = 0;
+        SelectStatus("Sample", renaming ? "RENAME" : "SAVE", renaming ? std::string{"par.sampler.group.edit"} : std::string{"par.sampler.group.samp"});
+      }
+      break;
+    case ContextActionId::SamplerNameBackspace:
+      if (!samplerNameText_.empty())
+      {
+        samplerNameText_.pop_back();
+      }
+      SelectStatus("Name",
+                   samplerNameText_.empty() ? "_" : samplerNameText_,
+                   selectedParameterGroupId_.empty() ? std::string{"par.sampler.group.samp"} : selectedParameterGroupId_);
+      break;
+    case ContextActionId::SamplerNameCancel:
+    {
+      const bool cancellingDelete = tracks_[activeTrack_].sampler.deleteConfirm;
+      const bool cancellingRename = samplerRenameEntryMode_;
+      QueueCommand(UiCommandType::SamplerCancelOverlay);
+      ExitSamplerNameEntry();
+      if (cancellingDelete)
+      {
+        selectedParameterGroupId_ = "par.sampler.group.edit";
+        currentPage_ = 0;
+      }
+      else if (cancellingRename)
+      {
+        selectedParameterGroupId_ = "par.sampler.group.edit";
+        currentPage_ = 0;
+      }
+      SelectStatus("Sample",
+                   "CANCEL",
+                   selectedParameterGroupId_.empty() ? std::string{"par.sampler.group.samp"} : selectedParameterGroupId_);
+      break;
+    }
+    case ContextActionId::SamplerConfirmOverwrite:
+      QueueCommand(UiCommandType::SamplerConfirmOverwrite);
+      selectedParameterGroupId_.clear();
+      currentPage_ = 0;
+      SelectStatus("Sample", "REPLACE", "par.sampler.group.samp");
+      break;
+    case ContextActionId::SamplerRename:
+      if (!tracks_[activeTrack_].sampler.hasSample)
+      {
+        SelectStatus("Sample", "NO SAMPLE", "par.sampler.group.edit");
+        break;
+      }
+      samplerNameEntryMode_ = true;
+      samplerRenameEntryMode_ = true;
+      samplerNameText_ = tracks_[activeTrack_].sampler.sampleName.empty() ? "sample" : tracks_[activeTrack_].sampler.sampleName;
+      SelectStatus("Rename", samplerNameText_, "par.sampler.group.edit");
+      break;
+    case ContextActionId::SamplerDelete:
+    {
+      const bool confirmingDelete = tracks_[activeTrack_].sampler.deleteConfirm;
+      QueueCommand(UiCommandType::SamplerDeleteCurrent);
+      if (confirmingDelete)
+      {
+        selectedParameterGroupId_.clear();
+        samplerEditFromBrowser_ = false;
+        currentPage_ = 0;
+      }
+      SelectStatus("Sample", "DELETE", "par.sampler.group.edit");
+      break;
+    }
+    case ContextActionId::SamplerTrimLeft:
+      MoveSamplerTrimCursor(-4);
+      break;
+    case ContextActionId::SamplerTrimRight:
+      MoveSamplerTrimCursor(4);
+      break;
+    case ContextActionId::SamplerTrimBegin:
+      SetSamplerTrimBoundary(engine, true);
+      break;
+    case ContextActionId::SamplerTrimEnd:
+      SetSamplerTrimBoundary(engine, false);
+      break;
+    case ContextActionId::SamplerTrimPreview:
+      QueueCommand(UiCommandType::SamplerPreview);
+      SelectStatus("Trim", "PLAY", "par.sampler.group.trim");
+      break;
     case ContextActionId::Back:
+      if (samplerRecordConfirmMode_)
+      {
+        ExitSamplerRecordConfirm();
+        selectedParameterGroupId_.clear();
+        currentPage_ = 0;
+        ClearContextSelection();
+        break;
+      }
+
+      if (tracks_[activeTrack_].sampler.recording)
+      {
+        break;
+      }
+
+      if (samplerNameEntryMode_ || tracks_[activeTrack_].sampler.overwritePending || tracks_[activeTrack_].sampler.deleteConfirm)
+      {
+        const bool cancellingDelete = tracks_[activeTrack_].sampler.deleteConfirm;
+        const bool cancellingRename = samplerRenameEntryMode_;
+        QueueCommand(UiCommandType::SamplerCancelOverlay);
+        ExitSamplerNameEntry();
+        if (cancellingDelete)
+        {
+          selectedParameterGroupId_ = "par.sampler.group.edit";
+          currentPage_ = 0;
+        }
+        else if (cancellingRename)
+        {
+          selectedParameterGroupId_ = "par.sampler.group.edit";
+          currentPage_ = 0;
+        }
+        ClearContextSelection();
+        break;
+      }
+
+      if (samplerBrowserMode_)
+      {
+        if (!samplerBrowserSearchText_.empty())
+        {
+          samplerBrowserSearchText_.clear();
+          samplerBrowserSelectionIndex_ = 0;
+          RefreshSamplerBrowserEntries();
+          break;
+        }
+
+        ExitSamplerBrowser();
+        selectedParameterGroupId_.clear();
+        currentPage_ = 0;
+        ClearContextSelection();
+        break;
+      }
+
       if (presetBrowserMode_)
       {
         presetBrowserMode_ = false;
         presetSearchText_.clear();
         presetBrowserSelectionIndex_ = 0;
         heldContextMenuIndex_ = -1;
+        ClearContextSelection();
+        break;
+      }
+
+      if (presetNameEntryMode_)
+      {
+        ExitPresetNameEntry();
         ClearContextSelection();
         break;
       }
@@ -1211,7 +2268,7 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
 
       if (activeModifier_ == UiModifier::Parameter && parameterAdjustMode_)
       {
-        if (IsJunoDirectAdjustGroupId(selectedParameterGroupId_))
+        if (IsJunoDirectAdjustGroupId(selectedParameterGroupId_) || IsSamplerDirectAdjustGroupId(selectedParameterGroupId_))
         {
           selectedParameterGroupId_.clear();
         }
@@ -1226,6 +2283,23 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
       }
       else
       {
+        if (activeModifier_ == UiModifier::Parameter && selectedParameterGroupId_ == "par.sampler.group.edit")
+        {
+          if (samplerEditFromBrowser_)
+          {
+            selectedParameterGroupId_ = "par.sampler.group.samp";
+            currentPage_ = 0;
+            EnterSamplerBrowser();
+            ClearContextSelection();
+            break;
+          }
+
+          selectedParameterGroupId_.clear();
+          currentPage_ = 0;
+          ClearContextSelection();
+          break;
+        }
+
         if (activeModifier_ == UiModifier::Parameter && !selectedParameterGroupId_.empty())
         {
           selectedParameterGroupId_.clear();
@@ -1243,13 +2317,9 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
       }
       break;
     case ContextActionId::SavePresetAs:
-      if (engine != nullptr)
-      {
-        const std::string name = tracks_[activeTrack_].patchName + " Copy";
-        (void)engine->SavePreset("", name);
-        tracks_[activeTrack_].patchName = engine->CurrentPresetName();
-        SelectStatus("Save As", tracks_[activeTrack_].patchName);
-      }
+      presetNameEntryMode_ = true;
+      presetNameText_ = tracks_[activeTrack_].patchName.empty() ? "preset" : tracks_[activeTrack_].patchName;
+      SelectStatus("Name", presetNameText_, "snd.preset");
       break;
     case ContextActionId::LayoutChromatic:
       SelectStatus("Layout", "CHROMATIC");
@@ -1326,7 +2396,39 @@ std::size_t SynthUiModel::PageCountForModifier(const ISynthEngine* engine) const
       {
         return JunoParameterPageCount(engine, selectedParameterGroupId_);
       }
-      return (IsDx7ParameterEngine(engine) || IsJunoParameterEngine(engine)) ? 1 : PagedMenuPageCount(kGenericParameterMenuItemCount);
+      if (IsSamplerParameterEngine(engine))
+      {
+        const SamplerTrackUiState& sampler = tracks_[activeTrack_].sampler;
+        if (samplerNameEntryMode_ || samplerRecordConfirmMode_ || sampler.recording || sampler.overwritePending || sampler.deleteConfirm)
+        {
+          return 1;
+        }
+        if (samplerBrowserMode_)
+        {
+          return 1;
+        }
+        if (selectedParameterGroupId_.empty())
+        {
+          return 1;
+        }
+        if (selectedParameterGroupId_ == "par.sampler.group.samp")
+        {
+          return 1;
+        }
+        if (selectedParameterGroupId_ == "par.sampler.group.trim")
+        {
+          return 1;
+        }
+        if (selectedParameterGroupId_ == "par.sampler.group.edit")
+        {
+          return 1;
+        }
+        const std::size_t singleColumnPagedItemCount = kContextMenuRows - 1;
+        const std::size_t itemCount = CollectSamplerGroupParameters(engine, selectedParameterGroupId_).size();
+        return std::max<std::size_t>(1, (itemCount + singleColumnPagedItemCount - 1) / singleColumnPagedItemCount);
+      }
+      return (IsDx7ParameterEngine(engine) || IsJunoParameterEngine(engine) || IsSamplerParameterEngine(engine)) ? 1
+                                                                                                               : PagedMenuPageCount(kGenericParameterMenuItemCount);
     case UiModifier::Layout:
       return PagedMenuPageCount(kLayoutMenuItemCount);
     case UiModifier::Other:
@@ -1356,6 +2458,20 @@ ContextMenuGrid SynthUiModel::BuildSoundMenu(const ISynthEngine* engine) const
     };
   }
 
+  if (presetNameEntryMode_)
+  {
+    return ContextMenuGrid{
+        MakeActionCell("DEL", ContextActionId::PresetNameBackspace),
+        ContextMenuCell{},
+        MakeActionCell("BACK", ContextActionId::Back),
+        MakeActionCell("SAVE", ContextActionId::PresetNameSave),
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+    };
+  }
+
   if (enginePickerMode_)
   {
     return ContextMenuGrid{
@@ -1373,8 +2489,8 @@ ContextMenuGrid SynthUiModel::BuildSoundMenu(const ISynthEngine* engine) const
   return ContextMenuGrid{
       MakeItemCell("ENGINE", "snd.engine"),
       MakeItemCell("PRESET", "snd.preset"),
-      MakeItemCell("VOLUME", "snd.volume"),
-      MakeItemCell("FILTER", "snd.filter"),
+      MakeItemCell("SAVE", "snd.save"),
+      MakeItemCell("SAVEAS", "snd.saveas"),
       ContextMenuCell{},
       ContextMenuCell{},
       ContextMenuCell{},
@@ -1403,19 +2519,26 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
     ContextMenuGrid menu = BlankGrid();
     const auto parameters = CollectDx7GroupParameters(engine, selectedParameterGroupId_);
     const std::size_t pageCount = Dx7ParameterPageCount(engine, selectedParameterGroupId_);
-    const std::size_t pageStart = currentPage_ * kPagedMenuItemCount;
-    const std::size_t pageEnd = std::min(parameters.size(), pageStart + kPagedMenuItemCount);
+    const std::size_t pageStart = currentPage_ * kDx7ParameterMenuItemCount;
+    const std::size_t pageEnd = std::min(parameters.size(), pageStart + kDx7ParameterMenuItemCount);
     std::size_t menuIndex = 0;
-    for (std::size_t parameterIndex = pageStart; parameterIndex < pageEnd && menuIndex < kPagedMenuItemCount;
+    for (std::size_t parameterIndex = pageStart; parameterIndex < pageEnd && menuIndex < kDx7ParameterMenuItemCount;
          ++parameterIndex, ++menuIndex)
     {
-      menu[menuIndex] = MakeItemCell(Dx7ParameterMenuLabel(parameters[parameterIndex]), parameters[parameterIndex].id);
+      ContextMenuCell cell = MakeItemCell(Dx7ParameterMenuLabel(parameters[parameterIndex]), parameters[parameterIndex].id);
+      cell.fullName = Dx7ParameterHelpTitle(parameters[parameterIndex]);
+      cell.description = Dx7ParameterHelpDescription(parameters[parameterIndex]);
+      menu[menuIndex] = std::move(cell);
     }
+    menu[6] = MakeActionCell("BACK", ContextActionId::Back);
     if (pageCount > 1)
     {
-      menu[6] = MakeNextPageCell(std::to_string(currentPage_ + 1) + "/" + std::to_string(pageCount));
+      menu[7] = MakeNextPageCell(std::to_string(currentPage_ + 1) + "/" + std::to_string(pageCount));
     }
-    menu[7] = MakeActionCell("BACK", ContextActionId::Back);
+    else
+    {
+      menu[7] = ContextMenuCell{};
+    }
     return menu;
   }
 
@@ -1445,7 +2568,7 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
           ContextMenuCell{},
           ContextMenuCell{},
           MakeActionCell("RST", ContextActionId::JunoHpfReset),
-          MakeActionCell("BACK", ContextActionId::Back),
+          MakeActionCell("DONE", ContextActionId::Back),
       };
     }
 
@@ -1455,7 +2578,7 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
           MakeActionCell("OFF", ContextActionId::JunoChorusOff),
           MakeActionCell("I", ContextActionId::JunoChorusI),
           MakeActionCell("II", ContextActionId::JunoChorusII),
-          MakeActionCell("BACK", ContextActionId::Back),
+          MakeActionCell("DONE", ContextActionId::Back),
           ContextMenuCell{},
           ContextMenuCell{},
           ContextMenuCell{},
@@ -1477,9 +2600,156 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
 
     if (pageCount > 1)
     {
-      menu[6] = MakeNextPageCell(std::to_string(currentPage_ + 1) + "/" + std::to_string(pageCount));
+      menu[7] = MakeNextPageCell(std::to_string(currentPage_ + 1) + "/" + std::to_string(pageCount));
     }
-    menu[7] = MakeActionCell("BACK", ContextActionId::Back);
+    else
+    {
+      menu[7] = MakeActionCell("DONE", ContextActionId::Back);
+    }
+    return menu;
+  }
+
+  if (IsSamplerParameterEngine(engine))
+  {
+    const SamplerTrackUiState& sampler = tracks_[activeTrack_].sampler;
+    if (samplerNameEntryMode_)
+    {
+      return ContextMenuGrid{
+          MakeActionCell("DEL", ContextActionId::SamplerNameBackspace),
+          ContextMenuCell{},
+          MakeActionCell("BACK", ContextActionId::Back),
+          MakeActionCell("SAVE", ContextActionId::SamplerNameSave),
+          ContextMenuCell{},
+          ContextMenuCell{},
+          ContextMenuCell{},
+          ContextMenuCell{},
+      };
+    }
+
+    if (sampler.overwritePending)
+    {
+      return ContextMenuGrid{
+          MakeActionCell("BACK", ContextActionId::Back),
+          ContextMenuCell{},
+          ContextMenuCell{},
+          MakeActionCell("RPLC", ContextActionId::SamplerConfirmOverwrite),
+          ContextMenuCell{},
+          ContextMenuCell{},
+          ContextMenuCell{},
+          ContextMenuCell{},
+      };
+    }
+
+    if (sampler.deleteConfirm)
+    {
+      return ContextMenuGrid{
+          MakeActionCell("BACK", ContextActionId::Back),
+          ContextMenuCell{},
+          ContextMenuCell{},
+          MakeActionCell("DEL", ContextActionId::SamplerDelete),
+          ContextMenuCell{},
+          ContextMenuCell{},
+          ContextMenuCell{},
+          ContextMenuCell{},
+      };
+    }
+
+    if (selectedParameterGroupId_.empty())
+    {
+      if (!sampler.hasSample && !sampler.hasDraft)
+      {
+        return BuildMenuAt({
+            {0, MakeActionCell("FILE", ContextActionId::SamplerSelect)},
+            {3, MakeActionCell("REC", ContextActionId::SamplerRecord)},
+        });
+      }
+
+      return ContextMenuGrid{
+          MakeActionCell("FILE", ContextActionId::SamplerSelect),
+          MakeActionCell("REC", ContextActionId::SamplerRecord),
+          MakeItemCell("TRIM", "par.sampler.group.trim"),
+          MakeItemCell("ROOT", "par.sampler.group.root"),
+          MakeItemCell("LOOP", "par.sampler.group.loop"),
+          MakeItemCell("GAIN", "par.sampler.group.amp"),
+          MakeItemCell("FLT", "par.sampler.group.filter"),
+          MakeItemCell("ENV", "par.sampler.group.env"),
+        };
+    }
+
+    if (selectedParameterGroupId_ == "par.sampler.group.samp")
+    {
+      if (samplerBrowserMode_)
+      {
+        const bool samplerBrowserHasSearch = !samplerBrowserSearchText_.empty();
+        return BuildMenuAt({
+          {0, MakeActionCell(samplerBrowserHasSearch ? "DEL" : "BACK",
+                             samplerBrowserHasSearch ? ContextActionId::PresetDelete : ContextActionId::Back)},
+          {1, MakeActionCell("PREV", ContextActionId::PresetPrev)},
+          {2, MakeActionCell("NEXT", ContextActionId::PresetNext)},
+          {3, MakeActionCell("LOAD", ContextActionId::PresetLoad)},
+        });
+      }
+
+      if (samplerRecordConfirmMode_)
+      {
+        return BuildMenuAt({
+            {2, MakeActionCell("BACK", ContextActionId::Back)},
+            {3, MakeActionCell("START", ContextActionId::SamplerRecordStart)},
+        });
+      }
+
+      if (sampler.recording)
+      {
+        return BlankGrid();
+      }
+
+      return sampler.hasDraft
+          ? BuildMenuAt({
+              {0, MakeActionCell("REC", ContextActionId::SamplerRecord)},
+              {1, MakeActionCell("SAVE", ContextActionId::SamplerName)},
+              {7, MakeActionCell("BACK", ContextActionId::Back)},
+            })
+          : BuildMenuAt({
+              {0, MakeActionCell("BACK", ContextActionId::Back)},
+            });
+    }
+
+    if (selectedParameterGroupId_ == "par.sampler.group.edit")
+    {
+      return BuildMenuAt({
+          {0, MakeActionCell("REN", ContextActionId::SamplerRename)},
+          {1, MakeActionCell("DEL", ContextActionId::SamplerDelete)},
+          {7, MakeActionCell("BACK", ContextActionId::Back)},
+      });
+    }
+
+    if (selectedParameterGroupId_ == "par.sampler.group.trim")
+    {
+      return BuildMenuAt({
+          {0, MakeActionCell("LEFT", ContextActionId::SamplerTrimLeft)},
+          {1, MakeActionCell("RGHT", ContextActionId::SamplerTrimRight)},
+          {2, MakeActionCell("BEG", ContextActionId::SamplerTrimBegin)},
+          {3, MakeActionCell("END", ContextActionId::SamplerTrimEnd)},
+          {4, MakeActionCell("PLAY", ContextActionId::SamplerTrimPreview)},
+          {7, MakeActionCell("DONE", ContextActionId::Back)},
+      });
+    }
+
+    ContextMenuGrid menu = BlankGrid();
+    const auto parameters = CollectSamplerGroupParameters(engine, selectedParameterGroupId_);
+    const std::size_t singleColumnPagedItemCount = kContextMenuRows - 1;
+    const std::size_t pageCount = std::max<std::size_t>(1, (parameters.size() + singleColumnPagedItemCount - 1) / singleColumnPagedItemCount);
+    const std::size_t pageStart = currentPage_ * singleColumnPagedItemCount;
+    const std::size_t pageEnd = std::min(parameters.size(), pageStart + singleColumnPagedItemCount);
+    std::size_t menuIndex = 0;
+    for (std::size_t parameterIndex = pageStart; parameterIndex < pageEnd && menuIndex < singleColumnPagedItemCount;
+         ++parameterIndex, ++menuIndex)
+    {
+      menu[menuIndex] = MakeItemCell(SamplerParameterMenuLabel(parameters[parameterIndex]), parameters[parameterIndex].id);
+    }
+
+    menu[3] = pageCount > 1 ? MakeNextPageCell(std::to_string(currentPage_ + 1) + "/" + std::to_string(pageCount))
+                            : MakeActionCell("BACK", ContextActionId::Back);
     return menu;
   }
 
@@ -1510,7 +2780,7 @@ ContextMenuGrid SynthUiModel::BuildParameterAdjustMenu() const
         MakeActionCell("16'", ContextActionId::JunoRange16),
         MakeActionCell("8'", ContextActionId::JunoRange8),
         MakeActionCell("4'", ContextActionId::JunoRange4),
-        MakeActionCell("BACK", ContextActionId::Back),
+        MakeActionCell("DONE", ContextActionId::Back),
         ContextMenuCell{},
         ContextMenuCell{},
         ContextMenuCell{},
@@ -1524,11 +2794,39 @@ ContextMenuGrid SynthUiModel::BuildParameterAdjustMenu() const
         MakeActionCell("ON", ContextActionId::JunoSawOn),
         MakeActionCell("OFF", ContextActionId::JunoSawOff),
         ContextMenuCell{},
-        MakeActionCell("BACK", ContextActionId::Back),
+        MakeActionCell("DONE", ContextActionId::Back),
         ContextMenuCell{},
         ContextMenuCell{},
         ContextMenuCell{},
         ContextMenuCell{},
+    };
+  }
+
+  if (selectedItemId_ == "sample.loop")
+  {
+    return ContextMenuGrid{
+        MakeActionCell("ON", ContextActionId::ParameterMax),
+        MakeActionCell("OFF", ContextActionId::ParameterMin),
+        MakeActionCell("RST", ContextActionId::ParameterReset),
+        MakeActionCell("DONE", ContextActionId::Back),
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+        ContextMenuCell{},
+    };
+  }
+
+  if (selectedItemId_ == "sample.root")
+  {
+    return ContextMenuGrid{
+        MakeActionCell("-1", ContextActionId::ParameterDecSmall),
+        MakeActionCell("+1", ContextActionId::ParameterIncSmall),
+        MakeActionCell("OCT-", ContextActionId::ParameterDecLarge),
+        MakeActionCell("OCT+", ContextActionId::ParameterIncLarge),
+        MakeActionCell("MIN", ContextActionId::ParameterMin),
+        MakeActionCell("MAX", ContextActionId::ParameterMax),
+        MakeActionCell("RST", ContextActionId::ParameterReset),
+        MakeActionCell("DONE", ContextActionId::Back),
     };
   }
 
@@ -1540,7 +2838,7 @@ ContextMenuGrid SynthUiModel::BuildParameterAdjustMenu() const
       MakeActionCell("MIN", ContextActionId::ParameterMin),
       MakeActionCell("MAX", ContextActionId::ParameterMax),
       MakeActionCell("RST", ContextActionId::ParameterReset),
-      MakeActionCell("BACK", ContextActionId::Back),
+      MakeActionCell("DONE", ContextActionId::Back),
   };
 }
 

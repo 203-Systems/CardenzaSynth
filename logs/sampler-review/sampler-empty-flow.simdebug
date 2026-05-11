@@ -1,0 +1,24 @@
+wait 8
+# Select sampler track (track 3)
+tap LAY
+wait 8
+screenshot 01-home.bmp
+# Hold PARAM for sampler root menu
+down SND
+wait 18
+screenshot 02-root.bmp
+# Open SAMP
+tap =
+wait 8
+screenshot 03-samp.bmp
+# Open browser from SAMP page
+tap del
+wait 18
+screenshot 04-browser-empty.bmp
+# Return to SAMP, then back to root
+tap space
+wait 8
+tap ]
+wait 8
+screenshot 05-root-return.bmp
+quit

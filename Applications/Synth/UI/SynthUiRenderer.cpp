@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <string>
 
@@ -14,6 +15,9 @@ namespace synth {
 namespace {
 
 using namespace ui_render;
+
+constexpr float kRecordingWaveformNoiseFloor = 0.02f;
+constexpr float kRecordingWaveformDisplayThreshold = 0.08f;
 
 void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
 {
@@ -66,10 +70,11 @@ void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiS
                                           ? snapshot.secondaryText.substr(start)
                                           : snapshot.secondaryText.substr(start, newline - start);
       const bool selected = !encodedLine.empty() && encodedLine.front() == '>';
-      const std::string line = !encodedLine.empty() && (encodedLine.front() == '>' || encodedLine.front() == ' ')
+      const bool active = !encodedLine.empty() && encodedLine.front() == '*';
+      const std::string line = !encodedLine.empty() && (encodedLine.front() == '>' || encodedLine.front() == ' ' || encodedLine.front() == '*')
                                    ? encodedLine.substr(1)
                                    : encodedLine;
-      const ui::Color lineColor = selected ? accent : text;
+      const ui::Color lineColor = selected || active ? accent : text;
                       canvas.DrawText(rect.x,
                       lineY,
                               TruncateText(canvas, line, rect.width, lineScale),
@@ -103,13 +108,19 @@ void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiS
                   rect.x + rect.width - 1,
                   rect.y + 58,
                   divider);
-  const int presetScale = canvas.MeasureTextWidth(snapshot.secondaryText, 5) <= rect.width ? 5 : 4;
-  DrawMarqueeTextInRect(canvas,
-                        MakeRect(rect.x, rect.y + 64, rect.width, 42),
-                        snapshot.secondaryText,
-                        text,
-                        presetScale,
-                        ui::TextAlign::Left);
+  int presetScale = 5;
+  while (presetScale > 1 && canvas.MeasureTextWidth(snapshot.secondaryText, presetScale) > rect.width)
+  {
+    --presetScale;
+  }
+  const ui::Rect valueRect = MakeRect(rect.x, rect.y + 64, rect.width, 42);
+  if (canvas.MeasureTextWidth(snapshot.secondaryText, presetScale) <= valueRect.width)
+  {
+    canvas.DrawTextInRect(valueRect, snapshot.secondaryText, text, presetScale, ui::TextAlign::Left, ui::VerticalAlign::Middle);
+    return;
+  }
+
+  DrawMarqueeTextInRect(canvas, valueRect, snapshot.secondaryText, text, presetScale, ui::TextAlign::Left);
 }
 
 void DrawHomeTrackLabel(ui::Canvas& canvas, const ui::Rect& rect, const std::string& trackLabel, float alpha)
@@ -138,6 +149,615 @@ void DrawHomeTrackLabel(ui::Canvas& canvas, const ui::Rect& rect, const std::str
 
   canvas.DrawText(labelX, rect.y, label, text, 1);
   canvas.DrawText(numberX, rect.y, number, accent, 1);
+}
+
+std::string FormatSamplerSeconds(float seconds, bool fractional)
+{
+  const float clampedSeconds = std::max(0.0f, seconds);
+  int wholeSeconds = static_cast<int>(std::floor(clampedSeconds));
+  if (!fractional)
+  {
+    return std::to_string(wholeSeconds) + "s";
+  }
+
+  int tenths = static_cast<int>(std::floor((clampedSeconds - static_cast<float>(wholeSeconds)) * 10.0f + 0.5f));
+  if (tenths >= 10)
+  {
+    ++wholeSeconds;
+    tenths = 0;
+  }
+
+  return std::to_string(wholeSeconds) + "." + std::to_string(tenths) + "s";
+}
+
+std::string FormatSignedValue(int value)
+{
+  return value > 0 ? "+" + std::to_string(value) : std::to_string(value);
+}
+
+std::string FormatPercentValue(int value)
+{
+  return std::to_string((std::clamp(value, 0, 127) * 100) / 127) + "%";
+}
+
+std::string FormatSamplerRootNote(int value)
+{
+  static constexpr std::array<const char*, 12> kNoteNames = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+  const int note = std::clamp(value, 0, 127);
+  return std::string(kNoteNames[static_cast<std::size_t>(note % 12)]) + std::to_string(note / 12 - 1);
+}
+
+std::string WrapTextToWidth(const ui::Canvas& canvas,
+                            std::string_view text,
+                            int maxWidth,
+                            int scale,
+                            int maxLines)
+{
+  if (text.empty() || maxWidth <= 0 || maxLines <= 0)
+  {
+    return {};
+  }
+
+  std::vector<std::string> lines;
+  std::size_t paragraphStart = 0;
+  while (paragraphStart <= text.size() && static_cast<int>(lines.size()) < maxLines)
+  {
+    const std::size_t paragraphEnd = text.find('\n', paragraphStart);
+    std::string paragraph = std::string(paragraphEnd == std::string_view::npos
+        ? text.substr(paragraphStart)
+        : text.substr(paragraphStart, paragraphEnd - paragraphStart));
+
+    if (paragraph.empty())
+    {
+      lines.push_back({});
+    }
+    else
+    {
+      std::size_t wordStart = 0;
+      std::string currentLine;
+      while (wordStart < paragraph.size() && static_cast<int>(lines.size()) < maxLines)
+      {
+        while (wordStart < paragraph.size() && paragraph[wordStart] == ' ')
+        {
+          ++wordStart;
+        }
+        if (wordStart >= paragraph.size())
+        {
+          break;
+        }
+
+        std::size_t wordEnd = paragraph.find(' ', wordStart);
+        std::string word = paragraph.substr(wordStart, wordEnd == std::string::npos ? std::string::npos : wordEnd - wordStart);
+        const std::string candidate = currentLine.empty() ? word : currentLine + " " + word;
+        if (canvas.MeasureTextWidth(candidate, scale) <= maxWidth)
+        {
+          currentLine = candidate;
+        }
+        else
+        {
+          if (!currentLine.empty())
+          {
+            lines.push_back(currentLine);
+            currentLine.clear();
+            if (static_cast<int>(lines.size()) >= maxLines)
+            {
+              break;
+            }
+            continue;
+          }
+
+          currentLine = TruncateText(canvas, word, maxWidth, scale);
+          lines.push_back(currentLine);
+          currentLine.clear();
+        }
+
+        if (wordEnd == std::string::npos)
+        {
+          break;
+        }
+        wordStart = wordEnd + 1;
+      }
+
+      if (!currentLine.empty() && static_cast<int>(lines.size()) < maxLines)
+      {
+        lines.push_back(currentLine);
+      }
+    }
+
+    if (paragraphEnd == std::string_view::npos)
+    {
+      break;
+    }
+    paragraphStart = paragraphEnd + 1;
+  }
+
+  if (lines.empty())
+  {
+    return {};
+  }
+
+  std::string wrapped;
+  for (std::size_t index = 0; index < lines.size(); ++index)
+  {
+    if (index > 0)
+    {
+      wrapped += '\n';
+    }
+    wrapped += lines[index];
+  }
+
+  return wrapped;
+}
+
+void DrawSamplerOverviewStrip(ui::Canvas& canvas,
+                              const ui::Rect& rect,
+                              const std::string& label,
+                              const std::string& value,
+                              ui::Color accent,
+                              ui::Color divider,
+                              ui::Color text,
+                              bool drawDivider)
+{
+  if (rect.width <= 0 || rect.height <= 0)
+  {
+    return;
+  }
+
+  const int labelWidth = std::max(20, canvas.MeasureTextWidth(label, 1));
+  const int valueX = rect.x + labelWidth + 12;
+  canvas.DrawText(rect.x, rect.y, TruncateText(canvas, label, labelWidth + 4, 1), accent, 1);
+  canvas.DrawTextInRect(MakeRect(valueX,
+                                 rect.y - 1,
+                                 std::max(0, rect.x + rect.width - valueX),
+                                 rect.height + 2),
+                        TruncateText(canvas, value, std::max(0, rect.x + rect.width - valueX), 1),
+                        text,
+                        1,
+                        ui::TextAlign::Left,
+                        ui::VerticalAlign::Middle);
+
+  if (drawDivider)
+  {
+    canvas.DrawLine(rect.x, rect.y + rect.height, rect.x + rect.width - 1, rect.y + rect.height, divider);
+  }
+}
+
+bool IsSamplerOverviewContext(const UiScreenSnapshot& snapshot)
+{
+  return snapshot.engineKind == SynthEngineKind::Sampler &&
+         snapshot.modifier == UiModifier::Parameter &&
+         !snapshot.samplerRecording &&
+         !snapshot.samplerRecordConfirmMode &&
+         snapshot.focusItemId.empty();
+}
+
+void DrawSamplerOverviewContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
+{
+  if (rect.width <= 0 || rect.height <= 0)
+  {
+    return;
+  }
+
+  const ui::Color accent = FadeColor(kAccent, alpha);
+  const ui::Color text = FadeColor(kText, alpha);
+  const ui::Color divider = FadeColor(kDivider, alpha);
+  const std::string sampleTitle = snapshot.samplerHasDraft
+      ? (snapshot.samplerDraftName.empty() ? std::string{"Unsaved draft"} : snapshot.samplerDraftName)
+      : (snapshot.samplerSampleName.empty() ? std::string{"EMPTY"} : snapshot.samplerSampleName);
+  const bool hasAudio = snapshot.samplerHasSample || snapshot.samplerHasDraft;
+  const std::string status = hasAudio
+      ? (snapshot.samplerStatusText.empty() ? std::string{"READY"} : snapshot.samplerStatusText)
+      : std::string{};
+  const int headerHeight = 24;
+  const int statusWidth = std::min(84, std::max(48, rect.width / 3));
+
+  canvas.DrawText(rect.x, rect.y + 8, "Sampler", accent, 1);
+  if (!status.empty())
+  {
+    canvas.DrawTextInRect(MakeRect(rect.x + rect.width - statusWidth,
+                                   rect.y + 8,
+                                   statusWidth,
+                                   12),
+                          status,
+                          accent,
+                          1,
+                          ui::TextAlign::Right,
+                          ui::VerticalAlign::Middle);
+  }
+  canvas.DrawLine(rect.x, rect.y + headerHeight, rect.x + rect.width - 1, rect.y + headerHeight, divider);
+
+  if (!hasAudio)
+  {
+    canvas.DrawTextInRect(MakeRect(rect.x, rect.y + 42, rect.width, 34),
+                          "Load from file\nor Record new",
+                          accent,
+                          1,
+                          ui::TextAlign::Center,
+                          ui::VerticalAlign::Middle);
+    return;
+  }
+
+  const int titleScale = canvas.MeasureTextWidth(sampleTitle, 2) <= rect.width ? 2 : 1;
+  canvas.DrawTextInRect(MakeRect(rect.x, rect.y + 34, rect.width, 16),
+                        TruncateText(canvas, sampleTitle, rect.width, titleScale),
+                        text,
+                        titleScale,
+                        ui::TextAlign::Left,
+                        ui::VerticalAlign::Middle);
+
+  const int rowGap = 1;
+  const int rowHeight = canvas.FontHeight(1) + 2;
+  const int stripsTop = rect.y + 56;
+  const float sampleSeconds = snapshot.samplerSampleRate == 0
+      ? 0.0f
+      : static_cast<float>(snapshot.samplerFrameCount) / static_cast<float>(snapshot.samplerSampleRate);
+  const std::string playMode = snapshot.samplerLoop != 0 ? "LOOP" : "1SHOT";
+
+  DrawSamplerOverviewStrip(canvas,
+                           MakeRect(rect.x, stripsTop, rect.width, rowHeight),
+                           "PLAY",
+                 FormatSamplerRootNote(snapshot.samplerRoot) + "  " + playMode,
+                           accent,
+                           divider,
+                           text,
+                           true);
+  DrawSamplerOverviewStrip(canvas,
+                           MakeRect(rect.x, stripsTop + (rowHeight + rowGap), rect.width, rowHeight),
+                           "LEN",
+                           FormatSamplerSeconds(sampleSeconds, true),
+                           accent,
+                           divider,
+                           text,
+                           false);
+}
+
+bool IsSamplerTrimWaveformFocus(const std::string& focusItemId)
+{
+  return focusItemId == "par.sampler.group.trim" || focusItemId == "sample.start" || focusItemId == "sample.end";
+}
+
+std::string SamplerWaveformTitle(const UiScreenSnapshot& snapshot)
+{
+  if (snapshot.focusItemId == "par.sampler.page.save")
+  {
+    return "Save";
+  }
+  return "Trim";
+}
+
+void DrawSamplerWaveform(ui::Canvas& canvas,
+                         const ui::Rect& rect,
+                         const UiScreenSnapshot& snapshot,
+                         float alpha)
+{
+  if (rect.width <= 0 || rect.height <= 0)
+  {
+    return;
+  }
+
+  const ui::Color divider = FadeColor(kDivider, alpha);
+  const ui::Color accent = FadeColor(kAccent, alpha);
+  const ui::Color cursor = FadeColor(kText, alpha);
+  canvas.StrokeRect(rect, divider);
+
+  const bool recording = snapshot.samplerRecording;
+  const int usableWaveformWidth = std::max(1, rect.width - 4);
+  const int waveformWidth = usableWaveformWidth;
+  const int midY = rect.y + rect.height / 2;
+  if (!recording)
+  {
+    canvas.DrawLine(rect.x + 1, midY, rect.x + rect.width - 2, midY, divider);
+  }
+
+  const bool zoomTrim = false &&
+                        snapshot.samplerFrameCount > 0 && !snapshot.samplerRecording;
+  const std::uint32_t totalFrames = std::max<std::uint32_t>(1, snapshot.samplerFrameCount);
+  std::uint32_t displayStartFrame = 0;
+  std::uint32_t displayEndFrame = totalFrames;
+  if (zoomTrim)
+  {
+    displayStartFrame = std::min(snapshot.samplerTrimStartFrame, totalFrames - 1);
+    displayEndFrame = std::clamp<std::uint32_t>(std::max(snapshot.samplerTrimEndFrame, displayStartFrame + 1),
+                                                displayStartFrame + 1,
+                                                totalFrames);
+  }
+  const std::uint32_t displayFrameSpan = std::max<std::uint32_t>(1, displayEndFrame - displayStartFrame);
+
+  int startX = rect.x + 1;
+  int endX = rect.x + rect.width - 2;
+  if (!zoomTrim && snapshot.samplerFrameCount > 0 && !snapshot.samplerRecording)
+  {
+    const int usableWidth = std::max(1, rect.width - 3);
+    startX = rect.x + 1 + static_cast<int>((static_cast<std::uint64_t>(snapshot.samplerTrimStartFrame) * usableWidth) /
+                                           std::max<std::uint32_t>(1, snapshot.samplerFrameCount));
+    endX = rect.x + 1 + static_cast<int>((static_cast<std::uint64_t>(snapshot.samplerTrimEndFrame) * usableWidth) /
+                                         std::max<std::uint32_t>(1, snapshot.samplerFrameCount));
+  }
+
+  if (!zoomTrim && snapshot.samplerFrameCount > 0 && !snapshot.samplerRecording)
+  {
+    const int selectionLeft = std::min(startX, endX);
+    const int selectionRight = std::max(startX, endX);
+    const int selectionWidth = std::max(0, selectionRight - selectionLeft - 1);
+    if (selectionWidth > 0)
+    {
+      canvas.FillRect(MakeRect(selectionLeft + 1,
+                               rect.y + 1,
+                               selectionWidth,
+                               std::max(0, rect.height - 2)),
+                      MixColor(kBackground, accent, 0.28f));
+    }
+  }
+
+  bool hasVisibleWaveform = false;
+
+  for (std::size_t bin = 0; bin < snapshot.samplerWaveform.size(); ++bin)
+  {
+    const int x0 = rect.x + 2 + static_cast<int>((bin * waveformWidth) / snapshot.samplerWaveform.size());
+    int x1 = rect.x + 2 + static_cast<int>(((bin + 1) * waveformWidth) / snapshot.samplerWaveform.size()) - 1;
+    if (bin + 1 == snapshot.samplerWaveform.size())
+    {
+      x1 = rect.x + 1 + waveformWidth;
+    }
+    const int xEnd = std::max(x0, x1);
+
+    float peak = snapshot.samplerWaveform[bin];
+    if (zoomTrim)
+    {
+      const std::uint32_t srcFrameStart = displayStartFrame + static_cast<std::uint32_t>((static_cast<std::uint64_t>(displayFrameSpan) * bin) /
+                                                                                          snapshot.samplerWaveform.size());
+      std::uint32_t srcFrameEnd = displayStartFrame + static_cast<std::uint32_t>((static_cast<std::uint64_t>(displayFrameSpan) * (bin + 1)) /
+                                                                                 snapshot.samplerWaveform.size());
+      srcFrameEnd = std::max(srcFrameEnd, srcFrameStart + 1);
+      const std::size_t srcBinBegin = std::min(snapshot.samplerWaveform.size() - 1,
+                                               static_cast<std::size_t>((static_cast<std::uint64_t>(srcFrameStart) * snapshot.samplerWaveform.size()) /
+                                                                        totalFrames));
+      const std::size_t srcBinEnd = std::max(srcBinBegin + 1,
+                                             std::min(snapshot.samplerWaveform.size(),
+                                                      static_cast<std::size_t>((static_cast<std::uint64_t>(srcFrameEnd) * snapshot.samplerWaveform.size() + totalFrames - 1) /
+                                                                               totalFrames)));
+      peak = 0.0f;
+      for (std::size_t sourceBin = srcBinBegin; sourceBin < srcBinEnd; ++sourceBin)
+      {
+        peak = std::max(peak, snapshot.samplerWaveform[sourceBin]);
+      }
+    }
+
+    if (recording)
+    {
+      peak = std::clamp((std::clamp(peak, 0.0f, 1.0f) - kRecordingWaveformNoiseFloor) /
+                            (1.0f - kRecordingWaveformNoiseFloor),
+                        0.0f,
+                        1.0f);
+      if (peak < kRecordingWaveformDisplayThreshold)
+      {
+        peak = 0.0f;
+      }
+      peak = std::pow(peak, 0.55f);
+    }
+
+    if (peak <= 0.0f)
+    {
+      continue;
+    }
+
+    hasVisibleWaveform = true;
+
+    int halfHeight = std::max(1, static_cast<int>(peak * static_cast<float>(rect.height / 2 - 3)));
+    if (recording && peak > 0.0f)
+    {
+      halfHeight = std::max(2, halfHeight);
+    }
+    for (int x = x0; x <= xEnd; ++x)
+    {
+      canvas.DrawLine(x, midY - halfHeight, x, midY + halfHeight, accent);
+    }
+  }
+
+  const int usableWidth = std::max(1, rect.width - 3);
+  if (recording)
+  {
+    if (!hasVisibleWaveform)
+    {
+      canvas.DrawLine(rect.x + 3,
+                      midY,
+                      rect.x + rect.width - 4,
+                      midY,
+                      MixColor(divider, accent, 0.2f));
+    }
+    return;
+  }
+
+  if (snapshot.samplerFrameCount == 0)
+  {
+    return;
+  }
+
+  if (!zoomTrim)
+  {
+    canvas.DrawLine(startX, rect.y + 1, startX, rect.y + rect.height - 2, accent);
+    canvas.DrawLine(endX, rect.y + 1, endX, rect.y + rect.height - 2, accent);
+  }
+
+  const std::uint32_t cursorFrame = snapshot.samplerPreviewing ? snapshot.samplerPreviewCursorFrame
+                                                               : static_cast<std::uint32_t>((snapshot.samplerTrimCursor * snapshot.samplerFrameCount) / 127);
+  const std::uint32_t clampedCursorFrame = displayEndFrame > displayStartFrame
+      ? std::clamp(cursorFrame, displayStartFrame, displayEndFrame - 1)
+      : displayStartFrame;
+  const int cursorX = rect.x + 1 + static_cast<int>((static_cast<std::uint64_t>(clampedCursorFrame - displayStartFrame) * usableWidth) /
+                                                    displayFrameSpan);
+  canvas.DrawLine(cursorX, rect.y + 3, cursorX, rect.y + rect.height - 4, cursor);
+}
+
+void DrawSamplerProgress(ui::Canvas& canvas, const ui::Rect& rect, float progress, float alpha)
+{
+  if (rect.width <= 0 || rect.height <= 0)
+  {
+    return;
+  }
+
+  const ui::Color divider = FadeColor(kDivider, alpha);
+  const ui::Color accent = FadeColor(kAccent, alpha);
+  canvas.StrokeRect(rect, divider);
+  const int fillWidth = std::clamp(static_cast<int>(static_cast<float>(rect.width - 2) * Clamp01(progress)), 0, rect.width - 2);
+  if (fillWidth > 0)
+  {
+    canvas.FillRect(MakeRect(rect.x + 1, rect.y + 1, fillWidth, std::max(0, rect.height - 2)), accent);
+  }
+}
+
+void DrawSamplerRecordPanel(ui::Canvas& canvas,
+                            const ui::Rect& rect,
+                            const UiScreenSnapshot& snapshot,
+                            float alpha)
+{
+  if (rect.width <= 0 || rect.height <= 0)
+  {
+    return;
+  }
+
+  const ui::Color accent = FadeColor(kAccent, alpha);
+  const ui::Color text = FadeColor(kText, alpha);
+  const ui::Color divider = FadeColor(kDivider, alpha);
+  const bool recording = snapshot.samplerRecording;
+  const bool inputError = snapshot.samplerRecordConfirmMode && snapshot.samplerStatusText == "INPUT ERR";
+  const std::string headline = inputError ? "INPUT ERR" : (recording ? "RECORDING" : "START REC");
+  const std::string detail = inputError ? "Check mic input" : "Capture to draft";
+
+  canvas.StrokeRect(rect, divider);
+
+  const int panelPadding = 8;
+  const int progressReservedHeight = recording ? 20 : 0;
+  const int contentHeight = std::max(0, rect.height - panelPadding * 2 - progressReservedHeight);
+  const int headlineHeight = canvas.FontHeight(2);
+  const int detailHeight = canvas.FontHeight(1);
+  const int textGap = 8;
+  const int textBlockHeight = headlineHeight + textGap + detailHeight;
+  const int textTop = rect.y + panelPadding + std::max(0, (contentHeight - textBlockHeight) / 2);
+  const ui::Rect headlineRect = MakeRect(rect.x + panelPadding,
+                                         textTop,
+                                         std::max(0, rect.width - panelPadding * 2),
+                                         headlineHeight + 2);
+  const ui::Rect detailRect = MakeRect(rect.x + panelPadding,
+                                       textTop + headlineHeight + textGap - 1,
+                                       std::max(0, rect.width - panelPadding * 2),
+                                       detailHeight + 2);
+
+  canvas.DrawTextInRect(headlineRect,
+                        headline,
+                        accent,
+                        2,
+                        ui::TextAlign::Center,
+                        ui::VerticalAlign::Middle);
+  canvas.DrawTextInRect(detailRect,
+                        detail,
+                        text,
+                        1,
+                        ui::TextAlign::Center,
+                        ui::VerticalAlign::Middle);
+
+  if (!recording)
+  {
+    return;
+  }
+
+  const int progressBarWidth = std::max(0, rect.width - panelPadding * 2);
+  const int progressBarY = rect.y + rect.height - panelPadding - 10;
+  const float elapsedSeconds = snapshot.samplerSampleRate == 0
+      ? 0.0f
+      : static_cast<float>(snapshot.samplerFrameCount) / static_cast<float>(snapshot.samplerSampleRate);
+  const float totalSeconds = snapshot.samplerSampleRate == 0 || snapshot.samplerRecordMaxFrameCount == 0
+      ? elapsedSeconds
+      : static_cast<float>(snapshot.samplerRecordMaxFrameCount) / static_cast<float>(snapshot.samplerSampleRate);
+  const std::string timeText = FormatSamplerSeconds(elapsedSeconds, true) + " / " +
+                               FormatSamplerSeconds(std::max(totalSeconds, elapsedSeconds), false);
+
+  DrawSamplerProgress(canvas,
+                      MakeRect(rect.x + panelPadding, progressBarY, progressBarWidth, 6),
+                      snapshot.samplerRecordProgress,
+                      alpha);
+  canvas.DrawTextInRect(MakeRect(rect.x + panelPadding,
+                                 progressBarY - 12,
+                                 progressBarWidth,
+                                 10),
+                        timeText,
+                        text,
+                        1,
+                        ui::TextAlign::Right,
+                        ui::VerticalAlign::Middle);
+}
+
+bool IsSamplerWaveformContext(const UiScreenSnapshot& snapshot)
+{
+  return snapshot.engineKind == SynthEngineKind::Sampler &&
+         snapshot.modifier == UiModifier::Parameter &&
+         (IsSamplerOverviewContext(snapshot) ||
+          snapshot.samplerRecording ||
+          snapshot.samplerRecordConfirmMode ||
+          IsSamplerTrimWaveformFocus(snapshot.focusItemId));
+}
+
+void DrawSamplerParameterContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
+{
+  if (alpha <= 0.01f || rect.width <= 0 || rect.height <= 0)
+  {
+    return;
+  }
+
+  const ui::Color accent = FadeColor(kAccent, alpha);
+  const ui::Color text = FadeColor(kText, alpha);
+  const ui::Color divider = FadeColor(kDivider, alpha);
+  const bool recording = snapshot.samplerRecording;
+  const bool recordConfirm = snapshot.samplerRecordConfirmMode;
+  const bool parameterValuePage = false;
+
+  if (IsSamplerOverviewContext(snapshot))
+  {
+    DrawSamplerOverviewContent(canvas, rect, snapshot, alpha);
+    return;
+  }
+
+  canvas.DrawText(rect.x,
+                  rect.y + 8,
+                  TruncateText(canvas, (recording || recordConfirm) ? "Record" : SamplerWaveformTitle(snapshot), rect.width, 2),
+                  accent,
+                  2);
+
+  if (parameterValuePage && !snapshot.secondaryText.empty())
+  {
+    canvas.DrawTextInRect(MakeRect(rect.x, rect.y + 8, rect.width, canvas.FontHeight(2)),
+                          TruncateText(canvas, snapshot.secondaryText, rect.width, 2),
+                          text,
+                          2,
+                          ui::TextAlign::Right,
+                          ui::VerticalAlign::Top);
+  }
+
+  const int dividerY = rect.y + 30;
+  canvas.DrawLine(rect.x, dividerY, rect.x + rect.width - 1, dividerY, divider);
+
+  if (recordConfirm || recording)
+  {
+    DrawSamplerRecordPanel(canvas,
+                           MakeRect(rect.x,
+                                    dividerY + 8,
+                                    rect.width,
+                                    std::max(28, rect.height - (dividerY - rect.y) - 12)),
+                           snapshot,
+                           alpha);
+    return;
+  }
+
+  const int waveformY = dividerY + 8;
+  const int bottomReserve = recording ? 28 : 4;
+  const int waveformHeight = std::max(28, rect.height - (waveformY - rect.y) - bottomReserve);
+  const int waveformInsetX = recording ? 8 : 0;
+  const ui::Rect waveformRect = MakeRect(rect.x + waveformInsetX,
+                                         waveformY,
+                                         std::max(0, rect.width - waveformInsetX * 2),
+                                         waveformHeight);
+  DrawSamplerWaveform(canvas, waveformRect, snapshot, alpha);
+
 }
 
 ScreenLayout LayoutForSnapshot(const ui::Canvas& canvas, const UiScreenSnapshot& snapshot)
@@ -219,7 +839,19 @@ void DrawContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreen
     return;
   }
 
+  if (IsSamplerWaveformContext(snapshot))
+  {
+    DrawSamplerParameterContent(canvas, rect, snapshot, alpha);
+    return;
+  }
+
   if (snapshot.modifier == UiModifier::Sound)
+  {
+    DrawSoundContextContent(canvas, rect, snapshot, alpha);
+    return;
+  }
+
+  if (snapshot.showPresetBrowser)
   {
     DrawSoundContextContent(canvas, rect, snapshot, alpha);
     return;
@@ -273,6 +905,63 @@ void DrawSnapshotContent(ui::Canvas& canvas,
   DrawContextContent(canvas, rect, snapshot, alpha);
 }
 
+void DrawHelpPopup(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
+{
+  if (!snapshot.showHelpPopup || alpha <= 0.01f || rect.width <= 0 || rect.height <= 0)
+  {
+    return;
+  }
+
+  const ui::Color background = FadeColor(kBackground, alpha);
+  const ui::Color border = FadeColor(kAccent, alpha);
+  const ui::Color text = FadeColor(kText, alpha);
+  const ui::Color accent = FadeColor(kAccent, alpha);
+  const ui::Color divider = FadeColor(kDivider, alpha);
+  const int titleScale = 3;
+  const int bodyScale = 2;
+  const int horizontalPadding = 12;
+  const int titleTop = 10;
+  const int titleBottomGap = 8;
+  const int bodyTopGap = 14;
+  const int bodyBottomPadding = 16;
+
+  const int popupWidth = rect.width;
+  const int popupHeight = rect.height;
+  const int popupX = rect.x;
+  const int popupY = rect.y;
+  const ui::Rect popup = MakeRect(popupX, popupY, popupWidth, popupHeight);
+
+  canvas.FillRect(popup, background);
+  canvas.DrawLine(popup.x, popup.y, popup.x + popup.width - 1, popup.y, border);
+  canvas.DrawLine(popup.x, popup.y + popup.height - 1, popup.x + popup.width - 1, popup.y + popup.height - 1, border);
+  canvas.DrawLine(popup.x, popup.y, popup.x, popup.y + popup.height - 1, border);
+  canvas.DrawLine(popup.x + popup.width - 1, popup.y, popup.x + popup.width - 1, popup.y + popup.height - 1, border);
+  const int titleY = popup.y + titleTop;
+  const int dividerY = titleY + canvas.FontHeight(titleScale) + titleBottomGap;
+  canvas.DrawText(popup.x + horizontalPadding,
+                  titleY,
+                  TruncateText(canvas, snapshot.helpPopupTitle, popup.width - horizontalPadding * 2, titleScale),
+                  accent,
+                  titleScale);
+  canvas.DrawLine(popup.x + horizontalPadding,
+                  dividerY,
+                  popup.x + popup.width - horizontalPadding - 1,
+                  dividerY,
+                  divider);
+
+  const ui::Rect bodyRect = MakeRect(popup.x + horizontalPadding,
+                                     dividerY + bodyTopGap,
+                                     popup.width - horizontalPadding * 2,
+                                     std::max(0, popup.height - (dividerY - popup.y) - bodyTopGap - bodyBottomPadding));
+  const int maxBodyLines = std::max(1, bodyRect.height / (canvas.FontHeight(bodyScale) + 2));
+  canvas.DrawTextInRect(bodyRect,
+                        WrapTextToWidth(canvas, snapshot.helpPopupText, bodyRect.width, bodyScale, maxBodyLines),
+                        text,
+                        bodyScale,
+                        ui::TextAlign::Left,
+                        ui::VerticalAlign::Top);
+}
+
 void DrawSnapshotFrame(ui::Canvas& canvas,
                        const UiScreenSnapshot& snapshot,
                        const ScreenLayout& layout,
@@ -282,6 +971,7 @@ void DrawSnapshotFrame(ui::Canvas& canvas,
   DrawSegmentedBar(canvas, layout.leftBar, snapshot.leftBarColumns, snapshot.leftBarItems, BarAnchor::Left, alpha);
   DrawSegmentedBar(canvas, layout.rightBar, snapshot.rightBarColumns, snapshot.rightBarItems, BarAnchor::Right, alpha);
   DrawSnapshotContent(canvas, layout.content, snapshot, activeKeys, alpha);
+  DrawHelpPopup(canvas, MakeRect(0, 0, canvas.Width(), canvas.Height()), snapshot, alpha);
 }
 
 void DrawTransitionFrame(ui::Canvas& canvas,

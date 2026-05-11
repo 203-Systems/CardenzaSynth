@@ -9,6 +9,8 @@
 
 namespace synth::ui_model {
 
+inline constexpr std::size_t kDx7ParameterMenuItemCount = kContextMenuCellCount - 2;
+
 std::string FormatDx7OperatorSummary(const ISynthEngine* engine, int op);
 std::string FormatDx7AlgorithmSummary(const ISynthEngine* engine);
 std::string FormatDx7GlobalSummary(const ISynthEngine* engine);
@@ -17,6 +19,8 @@ bool IsDx7ParameterGroupId(const std::string& itemId);
 std::string Dx7GroupLabel(const std::string& groupId);
 std::string Dx7GroupSummary(const ISynthEngine* engine, const std::string& groupId);
 std::string Dx7ParameterMenuLabel(const SynthParameterInfo& parameter);
+std::string Dx7ParameterHelpTitle(const SynthParameterInfo& parameter);
+std::string Dx7ParameterHelpDescription(const SynthParameterInfo& parameter);
 std::vector<SynthParameterInfo> CollectDx7GroupParameters(const ISynthEngine* engine, const std::string& groupId);
 std::size_t Dx7ParameterPageCount(const ISynthEngine* engine, const std::string& groupId);
 std::size_t Dx7ParameterMenuIndex(const ISynthEngine* engine,

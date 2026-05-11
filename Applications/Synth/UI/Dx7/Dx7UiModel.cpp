@@ -8,11 +8,20 @@
 
 namespace synth::ui_model {
 
+namespace {
+
+std::string DescribeDx7AlgorithmPage()
+{
+  return "FM routing and feedback";
+}
+
+}  // namespace
+
 std::string FormatDx7OperatorSummary(const ISynthEngine* engine, int op)
 {
-  const std::string prefix = "op" + std::to_string(op) + ".";
-  return "OUT " + DescribeParameterValueOrFallback(engine, prefix + "output") +
-         " CRS " + DescribeParameterValueOrFallback(engine, prefix + "coarse");
+  (void)engine;
+  (void)op;
+  return "Level, ratio, and envelope";
 }
 
 std::string FormatDx7AlgorithmSummary(const ISynthEngine* engine)
@@ -23,8 +32,8 @@ std::string FormatDx7AlgorithmSummary(const ISynthEngine* engine)
 
 std::string FormatDx7GlobalSummary(const ISynthEngine* engine)
 {
-  return "TR " + DescribeParameterValueOrFallback(engine, "global.transpose") +
-         " LFO " + DescribeParameterValueOrFallback(engine, "global.lfo_speed");
+  (void)engine;
+  return "Transpose and shared LFO";
 }
 
 bool IsDx7ParameterEngine(const ISynthEngine* engine)
@@ -60,7 +69,7 @@ std::string Dx7GroupSummary(const ISynthEngine* engine, const std::string& group
   if (groupId == "par.dx7.group.op4") return FormatDx7OperatorSummary(engine, 4);
   if (groupId == "par.dx7.group.op5") return FormatDx7OperatorSummary(engine, 5);
   if (groupId == "par.dx7.group.op6") return FormatDx7OperatorSummary(engine, 6);
-  if (groupId == "par.dx7.group.alg") return FormatDx7AlgorithmSummary(engine);
+  if (groupId == "par.dx7.group.alg") return DescribeDx7AlgorithmPage();
   if (groupId == "par.dx7.group.glb") return FormatDx7GlobalSummary(engine);
   return "SELECT GROUP";
 }
@@ -85,6 +94,33 @@ std::string Dx7ParameterMenuLabel(const SynthParameterInfo& parameter)
   if (parameter.label == "Velocity") return "VEL";
   if (parameter.label == "Amp Mod") return "AMOD";
   return parameter.label;
+}
+
+std::string Dx7ParameterHelpTitle(const SynthParameterInfo& parameter)
+{
+  return parameter.label;
+}
+
+std::string Dx7ParameterHelpDescription(const SynthParameterInfo& parameter)
+{
+  if (parameter.id == "global.algorithm") return "Choose the FM routing algorithm for all six operators";
+  if (parameter.id == "global.feedback") return "Set how much the feedback loop reinforces the selected operator";
+  if (parameter.id == "global.transpose") return "Shift the full patch pitch in semitones";
+  if (parameter.id == "global.lfo_speed") return "Set the speed of the shared DX7 LFO";
+  if (parameter.id == "global.lfo_delay") return "Delay the shared LFO fade-in after note start";
+  if (parameter.id == "global.lfo_pitch") return "Set how strongly the shared LFO bends pitch";
+  if (parameter.id == "global.lfo_amp") return "Set how strongly the shared LFO modulates level";
+  if (parameter.label == "Output") return "Set this operator's output level in the FM stack";
+  if (parameter.label == "Coarse") return "Set the operator's coarse frequency ratio";
+  if (parameter.label == "Fine") return "Fine-tune the operator frequency around the coarse ratio";
+  if (parameter.label == "Detune") return "Offset the operator slightly sharp or flat for thickness";
+  if (parameter.label == "Attack") return "Control how quickly the operator envelope rises";
+  if (parameter.label == "Decay") return "Control how quickly the operator falls after attack";
+  if (parameter.label == "Sustain") return "Set the held level of the operator envelope";
+  if (parameter.label == "Release") return "Control how quickly the operator fades after key release";
+  if (parameter.label == "Velocity") return "Set how much note velocity affects this operator";
+  if (parameter.label == "Amp Mod") return "Set how strongly the shared LFO modulates this operator level";
+  return {};
 }
 
 std::vector<SynthParameterInfo> CollectDx7GroupParameters(const ISynthEngine* engine, const std::string& groupId)
@@ -135,7 +171,7 @@ std::vector<SynthParameterInfo> CollectDx7GroupParameters(const ISynthEngine* en
 std::size_t Dx7ParameterPageCount(const ISynthEngine* engine, const std::string& groupId)
 {
   const std::size_t count = CollectDx7GroupParameters(engine, groupId).size();
-  return PagedMenuPageCount(count);
+  return std::max<std::size_t>(1, (count + kDx7ParameterMenuItemCount - 1) / kDx7ParameterMenuItemCount);
 }
 
 std::size_t Dx7ParameterMenuIndex(const ISynthEngine* engine,
@@ -153,8 +189,8 @@ std::size_t Dx7ParameterMenuIndex(const ISynthEngine* engine,
   }
 
   const std::size_t absoluteIndex = static_cast<std::size_t>(std::distance(parameters.begin(), iterator));
-  const std::size_t pageStart = pageIndex * kPagedMenuItemCountWithBack;
-  if (absoluteIndex < pageStart || absoluteIndex >= (pageStart + kPagedMenuItemCountWithBack))
+  const std::size_t pageStart = pageIndex * kDx7ParameterMenuItemCount;
+  if (absoluteIndex < pageStart || absoluteIndex >= (pageStart + kDx7ParameterMenuItemCount))
   {
     return 0;
   }

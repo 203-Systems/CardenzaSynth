@@ -336,13 +336,25 @@ int SelectedDx7Operator(const std::string& focusItemId)
 
 std::string Dx7OperatorTitle(const UiScreenSnapshot& snapshot)
 {
+  if (snapshot.focusItemId == "par.dx7.group.alg" || snapshot.focusItemId == "snd.dx7.alg" ||
+      snapshot.focusItemId == "global.algorithm" || snapshot.focusItemId == "global.feedback")
+  {
+    return "Algorithm";
+  }
+
+  if (snapshot.focusItemId == "par.dx7.group.glb" || snapshot.focusItemId == "snd.dx7.glb" ||
+      snapshot.focusItemId.rfind("global.", 0) == 0)
+  {
+    return "Global";
+  }
+
   const int selectedOperator = SelectedDx7Operator(snapshot.focusItemId);
   return selectedOperator >= 0 ? "Operator " + std::to_string(selectedOperator + 1) : std::string{};
 }
 
 bool ShouldShowDx7OperatorPane(const UiScreenSnapshot& snapshot)
 {
-  return SelectedDx7Operator(snapshot.focusItemId) >= 0;
+  return !Dx7OperatorTitle(snapshot).empty();
 }
 
 std::array<ui::Rect, 6> MakeDx7OperatorRects(const ui::Rect& rect, const Dx7AlgoVisual& algorithm)

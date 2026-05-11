@@ -1,0 +1,17 @@
+wait 8
+tap 2,0
+wait 8
+# enter sampler param root
+down 1,0
+wait 18
+screenshot 01-root.bmp
+# open SAMP from root
+tap =
+wait 8
+# open browser and load first sample
+tap del
+wait 18
+tap del
+wait 24
+screenshot 02-samp-page1.bmp
+quit

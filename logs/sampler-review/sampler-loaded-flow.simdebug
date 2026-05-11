@@ -1,0 +1,29 @@
+wait 8
+tap LAY
+wait 8
+# enter sampler param root
+down SND
+wait 18
+tap =
+wait 8
+# SAMP page -> SEL
+tap del
+wait 18
+screenshot 06-browser-loaded.bmp
+# browser -> LOAD
+tap del
+wait 24
+screenshot 07-samp-loaded.bmp
+# loaded SAMP -> BACK
+tap '
+wait 8
+screenshot 08-root-loaded.bmp
+# root -> ROOT
+tap ]
+wait 8
+screenshot 09-root-loaded.bmp
+# leave context back to home
+up SND
+wait 10
+screenshot 10-home-loaded.bmp
+quit

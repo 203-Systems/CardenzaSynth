@@ -9,7 +9,7 @@
 
 namespace synth::ui_model {
 
-inline constexpr std::size_t kPagedMenuItemCountWithBack = kContextMenuCellCount - 2;
+inline constexpr std::size_t kPagedMenuItemCountWithBack = kContextMenuCellCount - 1;
 
 const char* ModifierDisplayName(UiModifier modifier);
 UiModifier ModifierForRow(std::size_t row);

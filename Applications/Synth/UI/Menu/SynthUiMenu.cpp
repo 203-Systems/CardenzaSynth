@@ -28,7 +28,7 @@ const char* ModifierDisplayName(UiModifier modifier)
     case UiModifier::Parameter:
       return "Sound";
     case UiModifier::Layout:
-      return "Layout";
+      return "Keyboard";
     case UiModifier::Other:
       return "System";
     case UiModifier::None:
@@ -93,7 +93,9 @@ ContextMenuCell MakeActionCell(const std::string& label, ContextActionId actionI
 ContextMenuCell MakeNextPageCell(const std::string& label)
 {
   ContextMenuCell cell;
-  cell.label = label;
+  cell.label = label.empty() ? "NEXT" : label;
+  cell.fullName = "Next Page";
+  cell.description = "Show more controls";
   cell.type = MenuCellType::NextPage;
   return cell;
 }
@@ -124,9 +126,12 @@ ContextMenuGrid BuildPagedMenuWithBack(const std::vector<ContextMenuCell>& items
 
   if (pageCount > 1)
   {
-    menu[6] = MakeNextPageCell(std::to_string(pageIndex + 1) + "/" + std::to_string(pageCount));
+    menu[7] = MakeNextPageCell(std::to_string(pageIndex + 1) + "/" + std::to_string(pageCount));
   }
-  menu[7] = MakeActionCell("BACK", ContextActionId::Back);
+  else
+  {
+    menu[7] = MakeActionCell("DONE", ContextActionId::Back);
+  }
   return menu;
 }
 
@@ -208,7 +213,7 @@ std::string BuildPresetBrowserListText(const std::vector<SynthPresetInfo>& prese
       stream << '\n';
     }
 
-    stream << (index == clampedSelection ? ">" : " ") << presets[index].name;
+    stream << (index == clampedSelection ? ">" : (presets[index].active ? "*" : " ")) << presets[index].name;
   }
 
   return stream.str();

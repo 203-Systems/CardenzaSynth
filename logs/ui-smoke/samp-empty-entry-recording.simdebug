@@ -1,0 +1,19 @@
+wait 8
+tap LAY
+wait 8
+down SND
+wait 18
+screenshot 01-root-empty.bmp
+tap del
+wait 18
+screenshot 02-browser-empty.bmp
+tap enter
+wait 8
+screenshot 03-root-return.bmp
+tap space
+wait 18
+screenshot 04-record-confirm.bmp
+tap space
+wait 24
+screenshot 05-recording.bmp
+quit
