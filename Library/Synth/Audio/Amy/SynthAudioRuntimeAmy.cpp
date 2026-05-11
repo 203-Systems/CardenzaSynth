@@ -9,6 +9,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <inttypes.h>
 #include <limits.h>
@@ -74,6 +75,8 @@ struct SamplerParams {
   int sampleEnd = 127;
   int sampleLoop = 0;
   int sampleTune = 0;
+  int sampleRoot = 60;
+  int sampleGain = 96;
   int attack = 4;
   int release = 18;
   int cutoff = 96;
@@ -82,6 +85,8 @@ struct SamplerParams {
   int send = 24;
   int level = 96;
   int pan = 64;
+  std::vector<std::int16_t> sampleFrames;
+  std::uint32_t sampleRate = kSampleRate;
 };
 
 struct SamplerVoice {
@@ -91,6 +96,7 @@ struct SamplerVoice {
   float velocity = 0.0f;
   float envelope = 0.0f;
   float samplePosition = 0.0f;
+  double sampleCursor = 0.0;
   double phase = 0.0;
   float filterState = 0.0f;
   std::uint32_t noiseState = 0x87654321u;
@@ -115,6 +121,7 @@ enum class PendingEventType {
   EnsureEngine,
   SetPreset,
   SetParameter,
+  SetSamplerFrames,
   NoteOn,
   NoteOff,
   AllNotesOff,
@@ -128,6 +135,8 @@ struct PendingEvent {
   std::uint8_t velocity = 0;
   int value = 0;
   std::string text;
+  std::vector<std::int16_t> frames;
+  std::uint32_t sampleRate = kSampleRate;
 };
 
 std::once_flag g_amyInitFlag;
@@ -177,6 +186,48 @@ double AdvancePhase(double phase, float frequency)
     phase -= kTwoPi * std::floor(phase / kTwoPi);
   }
   return phase;
+}
+
+std::size_t SamplerStartFrame(const SamplerParams& params)
+{
+  if (params.sampleFrames.empty())
+  {
+    return 0;
+  }
+
+  const std::size_t lastFrame = params.sampleFrames.size() - 1;
+  return (std::min)(lastFrame,
+                    static_cast<std::size_t>((static_cast<std::uint64_t>(lastFrame) * static_cast<std::uint64_t>(std::clamp(params.sampleStart, 0, 127))) /
+                                             127u));
+}
+
+std::size_t SamplerEndFrame(const SamplerParams& params, std::size_t startFrame)
+{
+  if (params.sampleFrames.empty())
+  {
+    return 0;
+  }
+
+  const std::size_t frameCount = params.sampleFrames.size();
+  const std::size_t endFrame = static_cast<std::size_t>((static_cast<std::uint64_t>(frameCount) * static_cast<std::uint64_t>(std::clamp(params.sampleEnd, 0, 127))) /
+                                                        127u);
+  return std::clamp(endFrame, startFrame + 1, frameCount);
+}
+
+float ReadSamplerFrame(const SamplerParams& params, double frameCursor, std::size_t endFrame)
+{
+  if (params.sampleFrames.empty())
+  {
+    return 0.0f;
+  }
+
+  const std::size_t clampedEnd = std::clamp<std::size_t>(endFrame, 1, params.sampleFrames.size());
+  const std::size_t index0 = (std::min)(clampedEnd - 1, static_cast<std::size_t>((std::max)(0.0, std::floor(frameCursor))));
+  const std::size_t index1 = (std::min)(clampedEnd - 1, index0 + 1);
+  const float fraction = static_cast<float>(std::clamp(frameCursor - static_cast<double>(index0), 0.0, 1.0));
+  const float sample0 = static_cast<float>(params.sampleFrames[index0]) / 32768.0f;
+  const float sample1 = static_cast<float>(params.sampleFrames[index1]) / 32768.0f;
+  return sample0 + (sample1 - sample0) * fraction;
 }
 
 float NextNoise(SamplerVoice& voice)
@@ -379,7 +430,46 @@ float RenderSamplerVoice(const SamplerParams& params, SamplerVoice& voice)
     voice.envelope = (std::min)(1.0f, voice.envelope + attackStep);
   }
 
-  const float frequency = MidiNoteToFrequency(static_cast<int>(voice.note) + params.sampleTune);
+  if (!params.sampleFrames.empty())
+  {
+    const std::size_t startFrame = SamplerStartFrame(params);
+    const std::size_t endFrame = SamplerEndFrame(params, startFrame);
+    if (voice.sampleCursor < static_cast<double>(startFrame) || voice.sampleCursor >= static_cast<double>(endFrame))
+    {
+      voice.sampleCursor = static_cast<double>(startFrame);
+    }
+
+    const double sourceRate = static_cast<double>(params.sampleRate == 0 ? kSampleRate : params.sampleRate);
+    const double pitchRatio = std::pow(2.0,
+                                       static_cast<double>(static_cast<int>(voice.note) - params.sampleRoot + params.sampleTune) /
+                                           12.0);
+    const double step = (std::max)(0.0001, (sourceRate / static_cast<double>(kSampleRate)) * pitchRatio);
+    float sample = ReadSamplerFrame(params, voice.sampleCursor, endFrame);
+    sample = OnePoleLowpass(sample,
+                            80.0f + std::pow(Normalize(params.cutoff, 0, 127), 2.2f) * 12000.0f,
+                            voice.filterState);
+    sample = std::tanh(sample * (1.0f + Normalize(params.drive, 0, 127) * 4.0f));
+    sample *= voice.envelope * (0.2f + 0.8f * voice.velocity) * Normalize(params.sampleGain, 0, 127) * Normalize(params.level, 0, 127);
+
+    voice.sampleCursor += step;
+    if (params.sampleLoop != 0)
+    {
+      const double loopStart = static_cast<double>(startFrame);
+      const double loopSpan = static_cast<double>((std::max)(std::size_t{1}, endFrame - startFrame));
+      while (voice.sampleCursor >= static_cast<double>(endFrame))
+      {
+        voice.sampleCursor = loopStart + std::fmod(voice.sampleCursor - loopStart, loopSpan);
+      }
+    }
+    else if (voice.sampleCursor >= static_cast<double>(endFrame))
+    {
+      voice.releasing = true;
+    }
+
+    return sample;
+  }
+
+  const float frequency = MidiNoteToFrequency(static_cast<int>(voice.note) - params.sampleRoot + 60 + params.sampleTune);
   voice.phase = AdvancePhase(voice.phase, frequency);
   const float start = Normalize(params.sampleStart, 0, 127);
   const float end = (std::max)(start + 0.05f, Normalize(params.sampleEnd, 0, 127));
@@ -392,7 +482,7 @@ float RenderSamplerVoice(const SamplerParams& params, SamplerVoice& voice)
                           80.0f + std::pow(Normalize(params.cutoff, 0, 127), 2.2f) * 12000.0f,
                           voice.filterState);
   sample = std::tanh(sample * (1.0f + Normalize(params.drive, 0, 127) * 4.0f));
-  sample *= voice.envelope * (0.2f + 0.8f * voice.velocity) * Normalize(params.level, 0, 127);
+  sample *= voice.envelope * (0.2f + 0.8f * voice.velocity) * Normalize(params.sampleGain, 0, 127) * Normalize(params.level, 0, 127);
 
   voice.samplePosition += (std::max)(1.0f / static_cast<float>(kSampleRate), frequency / 12000.0f / static_cast<float>(kSampleRate));
   if (params.sampleLoop != 0)
@@ -492,6 +582,8 @@ void ApplyPendingEvent(const PendingEvent& event)
           else if (event.text == "sample.end") engine.sampler.sampleEnd = event.value;
           else if (event.text == "sample.loop") engine.sampler.sampleLoop = event.value;
           else if (event.text == "sample.tune") engine.sampler.sampleTune = event.value;
+          else if (event.text == "sample.root") engine.sampler.sampleRoot = event.value;
+          else if (event.text == "sample.gain") engine.sampler.sampleGain = event.value;
           else if (event.text == "env.attack") engine.sampler.attack = event.value;
           else if (event.text == "env.release") engine.sampler.release = event.value;
           else if (event.text == "filter.cutoff") engine.sampler.cutoff = event.value;
@@ -505,6 +597,15 @@ void ApplyPendingEvent(const PendingEvent& event)
         default:
           break;
       }
+      break;
+    case PendingEventType::SetSamplerFrames:
+      engine.sampler.sampleFrames = event.frames;
+      engine.sampler.sampleRate = event.sampleRate == 0 ? kSampleRate : event.sampleRate;
+      for (SamplerVoice& voice : engine.samplerVoices)
+      {
+        voice = SamplerVoice{};
+      }
+      engine.activeNotes.fill(false);
       break;
     case PendingEventType::NoteOn:
       if (!engine.configured || engine.kind == SynthEngineKind::None)
@@ -529,6 +630,7 @@ void ApplyPendingEvent(const PendingEvent& event)
         SamplerVoice& voice = AllocateSamplerVoice(engine);
         voice.note = event.note;
         voice.velocity = std::clamp(static_cast<float>(event.velocity) / 127.0f, 0.0f, 1.0f);
+        voice.sampleCursor = static_cast<double>(SamplerStartFrame(engine.sampler));
       }
       break;
     case PendingEventType::NoteOff:
@@ -620,6 +722,21 @@ void SetEngineParameter(std::size_t engineIndex, std::string_view parameterId, i
   event.engineIndex = engineIndex;
   event.value = value;
   event.text = parameterId;
+  QueuePendingEvent(event);
+}
+
+void SetSamplerFrames(std::size_t engineIndex, const std::vector<std::int16_t>& frames, std::uint32_t sampleRate)
+{
+  if (engineIndex >= g_engines.size())
+  {
+    return;
+  }
+
+  PendingEvent event;
+  event.type = PendingEventType::SetSamplerFrames;
+  event.engineIndex = engineIndex;
+  event.frames = frames;
+  event.sampleRate = sampleRate;
   QueuePendingEvent(event);
 }
 

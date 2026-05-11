@@ -1,10 +1,12 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 
 #include "Applications/Application.h"
+#include "Applications/Synth/Runtime/Sampler/SamplerManager.h"
 #include "Applications/Synth/Runtime/SynthRack.h"
 #include "Applications/Synth/UI/SynthUiModel.h"
 
@@ -42,8 +44,10 @@ private:
 
   bool initialized_ = false;
   synth::SynthRack rack_;
+  synth::SamplerManager samplerManager_;
   synth::SynthUiModel ui_;
   std::array<std::array<bool, synth::kKeyboardMatrixRows * synth::kKeyboardMatrixColumns>, synth::kSynthTrackCount> activeKeys_{};
+  std::array<std::array<std::uint8_t, synth::kKeyboardMatrixRows * synth::kKeyboardMatrixColumns>, synth::kSynthTrackCount> activeNotes_{};
 };
 
 void RegisterSynthApplication();

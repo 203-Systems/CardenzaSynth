@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <vector>
 
 #include "Library/Synth/Core/SynthTypes.h"
 
@@ -13,6 +14,7 @@ inline constexpr std::uint32_t kSampleRate = 44100;
 void EnsureEngine(std::size_t engineIndex, SynthEngineKind kind);
 void SetEnginePreset(std::size_t engineIndex, std::string_view presetId);
 void SetEngineParameter(std::size_t engineIndex, std::string_view parameterId, int value);
+void SetSamplerFrames(std::size_t engineIndex, const std::vector<std::int16_t>& frames, std::uint32_t sampleRate);
 void NoteOn(std::size_t engineIndex, std::uint8_t note, std::uint8_t velocity);
 void NoteOff(std::size_t engineIndex, std::uint8_t note);
 void AllNotesOff(std::size_t engineIndex);

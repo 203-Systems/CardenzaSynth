@@ -6,6 +6,11 @@
 #include <filesystem>
 #include <system_error>
 
+#if defined(_WIN32)
+#define NOMINMAX
+#include <Windows.h>
+#endif
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -30,8 +35,22 @@ std::uint8_t ClampLedBrightness(std::uint8_t brightness) {
   return std::min(brightness, Device::LED::kBrightnessMax);
 }
 
+fs::path SimulatorExecutableDirectory() {
+#if defined(_WIN32)
+  std::array<char, MAX_PATH> buffer{};
+  const DWORD length = GetModuleFileNameA(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+  if (length != 0 && length < buffer.size()) {
+    return fs::path(std::string(buffer.data(), length)).parent_path();
+  }
+#endif
+
+  std::error_code error;
+  const fs::path currentDirectory = fs::current_path(error);
+  return error ? fs::path{"."} : currentDirectory;
+}
+
 const fs::path& StorageRootDirectory() {
-  static const fs::path root = fs::absolute("sdcard") / "ComputeCardOS";
+  static const fs::path root = SimulatorExecutableDirectory() / "sdcard" / "ComputeCardOS";
   return root;
 }
 
@@ -153,11 +172,9 @@ std::string ProjectDirectoryPath() {
 
 bool EnsureDirectoryLayout() {
   std::error_code error;
-  const std::array<fs::path, 9> directories = {
+  const std::array<fs::path, 7> directories = {
       StorageRootDirectory(),
       StorageRootDirectory() / "Sample",
-      StorageRootDirectory() / "Sample" / "Imported",
-      StorageRootDirectory() / "Sample" / "Recorded",
       StorageRootDirectory() / "Preset",
       StorageRootDirectory() / "Preset" / "DX7",
       StorageRootDirectory() / "Preset" / "Juno",

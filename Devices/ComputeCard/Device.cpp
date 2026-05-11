@@ -33,8 +33,6 @@ bool displayCallbacksInstalled = false;
 
 constexpr std::string_view kStorageRoot = "/sdcard/ComputeCardOS";
 constexpr std::string_view kSampleDirectory = "Sample";
-constexpr std::string_view kImportedSampleDirectory = "Imported";
-constexpr std::string_view kRecordedSampleDirectory = "Recorded";
 constexpr std::string_view kPresetDirectory = "Preset";
 constexpr std::string_view kProjectDirectory = "Project";
 
@@ -260,11 +258,9 @@ bool EnsureDirectoryLayout() {
     return false;
   }
 
-  const std::array<std::string, 9> directories = {
+  const std::array<std::string, 7> directories = {
       RootPath(),
       SampleDirectoryPath(),
-      JoinPath(SampleDirectoryPath(), kImportedSampleDirectory),
-      JoinPath(SampleDirectoryPath(), kRecordedSampleDirectory),
       PresetDirectoryPath(),
       PresetDirectoryPath("DX7"),
       PresetDirectoryPath("Juno"),

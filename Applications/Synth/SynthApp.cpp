@@ -1,5 +1,6 @@
 #include "Applications/Synth/SynthApp.h"
 
+#include <algorithm>
 #include <array>
 #include <iomanip>
 #include <sstream>
@@ -106,19 +107,28 @@ void SynthApp::Setup(const std::vector<std::string>& args) {
 
   os::midi::Initialize();
   rack_.AttachEngine(0, synth::SynthEngineKind::Dx7);
+  samplerManager_.OnTrackEngineChanged(0, synth::SynthEngineKind::Dx7);
   ui_.InitializeTrack(0, synth::SynthEngineKind::Dx7);
   rack_.AttachEngine(1, synth::SynthEngineKind::Juno);
+  samplerManager_.OnTrackEngineChanged(1, synth::SynthEngineKind::Juno);
   ui_.InitializeTrack(1, synth::SynthEngineKind::Juno);
   rack_.AttachEngine(2, synth::SynthEngineKind::Sampler);
+  samplerManager_.OnTrackEngineChanged(2, synth::SynthEngineKind::Sampler);
   ui_.InitializeTrack(2, synth::SynthEngineKind::Sampler);
   rack_.AttachEngine(3, synth::SynthEngineKind::Dx7);
+  samplerManager_.OnTrackEngineChanged(3, synth::SynthEngineKind::Dx7);
   ui_.InitializeTrack(3, synth::SynthEngineKind::Dx7);
   ui_.SetActiveTrack(0);
+  for (auto& trackNotes : activeNotes_)
+  {
+    trackNotes.fill(0xFF);
+  }
   SyncUiTracks();
   initialized_ = true;
 }
 
 void SynthApp::Tick() {
+  samplerManager_.Tick();
   ui_.Tick(ActiveEngine());
   rack_.DispatchPendingMessages();
   SyncUiTracks();
@@ -183,7 +193,8 @@ void SynthApp::ReleaseMatrixKey(std::size_t row, std::size_t col) {
                                 col < contextMenuFirstColumn + contextMenuColumns;
   if (col == synth::kHomeLeftBarColumn || col == synth::kHomeRightBarColumn || isContextMenuKey)
   {
-    ui_.ReleaseMatrixKey(ActiveEngine(), row, col);
+    ui_.ReleaseMatrixKey(ActiveEngineMutable(), row, col);
+    ApplyPendingUiActions();
     SyncUiTracks();
     return;
   }
@@ -197,6 +208,65 @@ void SynthApp::ApplyPendingUiActions()
   if (ui_.ConsumePendingEngineKind(nextEngineKind))
   {
     SwitchTrackEngine(ui_.ActiveTrack(), nextEngineKind);
+  }
+
+  synth::UiCommand command;
+  while (ui_.ConsumePendingCommand(command))
+  {
+    switch (command.type)
+    {
+      case synth::UiCommandType::SamplerStartRecord:
+        (void)samplerManager_.BeginRecord(command.trackIndex);
+        break;
+      case synth::UiCommandType::SamplerStopRecord:
+        (void)samplerManager_.StopRecord(command.trackIndex);
+        break;
+      case synth::UiCommandType::SamplerCancelRecord:
+        samplerManager_.CancelRecord(command.trackIndex);
+        break;
+      case synth::UiCommandType::SamplerPreview:
+      {
+        std::uint8_t previewNote = 60;
+        if (command.trackIndex < synth::kSynthTrackCount)
+        {
+          const auto& slot = rack_.Slot(command.trackIndex);
+          if (slot.engine != nullptr)
+          {
+            synth::SynthParameterInfo root;
+            if (slot.engine->GetParameterInfo("sample.root", root))
+            {
+              previewNote = static_cast<std::uint8_t>(std::clamp(root.value, 0, 127));
+            }
+          }
+        }
+        (void)samplerManager_.PreviewCurrentSample(command.trackIndex, previewNote);
+        break;
+      }
+      case synth::UiCommandType::SamplerOpenBrowser:
+        (void)samplerManager_.SelectBrowserSample(command.trackIndex, command.text);
+        break;
+      case synth::UiCommandType::SamplerEnterNaming:
+        samplerManager_.EnterDraftNaming(command.trackIndex);
+        break;
+      case synth::UiCommandType::SamplerCommitName:
+        (void)samplerManager_.CommitDraftName(command.trackIndex, command.text);
+        break;
+      case synth::UiCommandType::SamplerConfirmOverwrite:
+        (void)samplerManager_.ConfirmOverwriteDraft(command.trackIndex);
+        break;
+      case synth::UiCommandType::SamplerRenameCurrent:
+        (void)samplerManager_.RenameCurrentSample(command.trackIndex, command.text);
+        break;
+      case synth::UiCommandType::SamplerCancelOverlay:
+        samplerManager_.CancelNameEntry(command.trackIndex);
+        break;
+      case synth::UiCommandType::SamplerDeleteCurrent:
+        (void)samplerManager_.DeleteCurrentSample(command.trackIndex);
+        break;
+      case synth::UiCommandType::None:
+      default:
+        break;
+    }
   }
 }
 
@@ -219,12 +289,30 @@ void SynthApp::SwitchTrackEngine(std::size_t trackIndex, synth::SynthEngineKind 
 
   ReleaseTrackPerformanceKeys(trackIndex);
   (void)rack_.AttachEngine(trackIndex, kind);
+  samplerManager_.OnTrackEngineChanged(trackIndex, kind);
 }
 
 void SynthApp::SyncUiTracks() {
   for (std::size_t index = 0; index < synth::kSynthTrackCount; ++index)
   {
-    ui_.SyncTrackState(index, rack_.Slot(index).engine.get());
+    const auto& slot = rack_.Slot(index);
+    if (slot.kind == synth::SynthEngineKind::Sampler && slot.engine != nullptr)
+    {
+      synth::SynthParameterInfo start;
+      synth::SynthParameterInfo end;
+      synth::SynthParameterInfo loop;
+      if (slot.engine->GetParameterInfo("sample.start", start) && slot.engine->GetParameterInfo("sample.end", end))
+      {
+        samplerManager_.SetDraftTrimWindow(index, start.value, end.value);
+      }
+      if (slot.engine->GetParameterInfo("sample.loop", loop))
+      {
+        samplerManager_.SetDraftLoopEnabled(index, loop.value != 0);
+      }
+    }
+
+    ui_.SyncTrackState(index, slot.engine.get());
+    ui_.SyncSamplerTrackState(index, samplerManager_.BuildUiState(index));
   }
 }
 
@@ -246,7 +334,11 @@ void SynthApp::ReleaseTrackPerformanceKeys(std::size_t trackIndex)
       }
 
       activeKeys_[trackIndex][keyIndex] = false;
-      os::midi::Send(midi::MidiPacket::NoteOff(0, synth::HomePerformanceMidiNote(row, col), 0), rack_.PortForTrack(trackIndex));
+        const std::uint8_t note = activeNotes_[trackIndex][keyIndex] == 0xFF
+          ? ui_.HomePerformanceMidiNote(row, col)
+          : activeNotes_[trackIndex][keyIndex];
+        activeNotes_[trackIndex][keyIndex] = 0xFF;
+        os::midi::Send(midi::MidiPacket::NoteOff(0, note, 0), rack_.PortForTrack(trackIndex));
     }
   }
 }
@@ -277,7 +369,7 @@ void SynthApp::PressPerformanceKey(std::size_t row, std::size_t col) {
     return;
   }
 
-  const std::uint8_t note = synth::HomePerformanceMidiNote(row, col);
+  const std::uint8_t note = ui_.HomePerformanceMidiNote(row, col);
   for (std::size_t heldTrackIndex = 0; heldTrackIndex < activeKeys_.size(); ++heldTrackIndex)
   {
     if (keyIndex >= activeKeys_[heldTrackIndex].size() || !activeKeys_[heldTrackIndex][keyIndex])
@@ -286,16 +378,20 @@ void SynthApp::PressPerformanceKey(std::size_t row, std::size_t col) {
     }
 
     activeKeys_[heldTrackIndex][keyIndex] = false;
-    os::midi::Send(midi::MidiPacket::NoteOff(0, note, 0), rack_.PortForTrack(heldTrackIndex));
+    const std::uint8_t heldNote = activeNotes_[heldTrackIndex][keyIndex] == 0xFF
+        ? note
+        : activeNotes_[heldTrackIndex][keyIndex];
+    activeNotes_[heldTrackIndex][keyIndex] = 0xFF;
+    os::midi::Send(midi::MidiPacket::NoteOff(0, heldNote, 0), rack_.PortForTrack(heldTrackIndex));
   }
 
   activeKeys_[trackIndex][keyIndex] = true;
+  activeNotes_[trackIndex][keyIndex] = note;
   os::midi::Send(midi::MidiPacket::NoteOn(0, note, 110), rack_.PortForTrack(trackIndex));
 }
 
 void SynthApp::ReleasePerformanceKey(std::size_t row, std::size_t col) {
   const std::size_t keyIndex = KeyIndex(row, col);
-  const std::uint8_t note = synth::HomePerformanceMidiNote(row, col);
   for (std::size_t trackIndex = 0; trackIndex < activeKeys_.size(); ++trackIndex)
   {
     if (keyIndex >= activeKeys_[trackIndex].size() || !activeKeys_[trackIndex][keyIndex])
@@ -304,6 +400,10 @@ void SynthApp::ReleasePerformanceKey(std::size_t row, std::size_t col) {
     }
 
     activeKeys_[trackIndex][keyIndex] = false;
+    const std::uint8_t note = activeNotes_[trackIndex][keyIndex] == 0xFF
+        ? ui_.HomePerformanceMidiNote(row, col)
+        : activeNotes_[trackIndex][keyIndex];
+    activeNotes_[trackIndex][keyIndex] = 0xFF;
     os::midi::Send(midi::MidiPacket::NoteOff(0, note, 0), rack_.PortForTrack(trackIndex));
   }
 }
