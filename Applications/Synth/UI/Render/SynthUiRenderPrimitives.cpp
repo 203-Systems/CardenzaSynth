@@ -273,34 +273,85 @@ void DrawMiniKeyboard(ui::Canvas& canvas,
 
   const ui::Color divider = FadeColor(kDivider, alpha);
   const ui::Color accent = FadeColor(kAccent, alpha);
+  const ui::Color text = FadeColor(kText, alpha);
+  const ui::Color background = FadeColor(kBackground, alpha);
+  std::array<bool, 12> activeNotes{};
 
-  canvas.StrokeRect(rect, divider);
-
-  constexpr int kWhiteKeyCount = 10;
-  for (int index = 1; index < kWhiteKeyCount; ++index)
+  for (std::size_t row = 0; row < kKeyboardMatrixRows; ++row)
   {
-    const int x = rect.x + index * rect.width / kWhiteKeyCount;
-    canvas.DrawLine(x, rect.y, x, rect.y + rect.height - 1, divider);
-  }
-
-  const int blackKeyHeight = rect.height * 3 / 5;
-  const int blackKeyWidth = std::max(4, rect.width / 28);
-  constexpr std::array<int, 7> kBlackKeySlots = {1, 2, 4, 5, 6, 8, 9};
-  for (int slot : kBlackKeySlots)
-  {
-    const int centerX = rect.x + slot * rect.width / kWhiteKeyCount;
-    canvas.StrokeRect(MakeRect(centerX - blackKeyWidth / 2, rect.y, blackKeyWidth, blackKeyHeight), divider);
-  }
-
-  for (std::size_t index = 0; index < activeKeys.size(); ++index)
-  {
-    if (!activeKeys[index])
+    for (std::size_t column = kHomePerformanceFirstColumn; column <= kHomePerformanceLastColumn; ++column)
     {
-      continue;
+      const std::size_t keyIndex = row * kKeyboardMatrixColumns + column;
+      if (!activeKeys[keyIndex])
+      {
+        continue;
+      }
+
+      activeNotes[column - kHomePerformanceFirstColumn] = true;
+    }
+  }
+
+  constexpr std::array<std::size_t, 7> kWhiteSemitones = {0, 2, 4, 5, 7, 9, 11};
+  constexpr std::array<std::size_t, 5> kBlackSemitones = {1, 3, 6, 8, 10};
+  constexpr std::array<std::size_t, 5> kBlackKeyLeftWhite = {0, 1, 3, 4, 5};
+  std::array<int, kWhiteSemitones.size() + 1> whiteBoundaries{};
+  std::array<ui::Rect, kWhiteSemitones.size()> whiteKeys{};
+
+  canvas.FillRect(InsetRect(rect, 1, 1), background);
+  canvas.StrokeRect(rect, MixColor(divider, text, 0.35f));
+
+  const int keybedPadding = std::max(3, rect.height / 8);
+  const ui::Rect keybed = InsetRect(rect, keybedPadding, keybedPadding);
+  if (keybed.width <= 0 || keybed.height <= 0)
+  {
+    return;
+  }
+
+  const int nominalWhiteWidth = std::max(1, keybed.width / static_cast<int>(kWhiteSemitones.size()));
+
+  for (std::size_t index = 0; index <= kWhiteSemitones.size(); ++index)
+  {
+    whiteBoundaries[index] = keybed.x + static_cast<int>(index) * keybed.width / static_cast<int>(kWhiteSemitones.size());
+  }
+
+  for (std::size_t index = 0; index < kWhiteSemitones.size(); ++index)
+  {
+    int left = whiteBoundaries[index];
+    int right = whiteBoundaries[index + 1];
+    if (index > 0)
+    {
+      ++left;
+    }
+    if (index + 1 < kWhiteSemitones.size())
+    {
+      --right;
     }
 
-    const int x = rect.x + 2 + static_cast<int>(index) * std::max(1, rect.width - 4) / static_cast<int>(activeKeys.size());
-    canvas.DrawLine(x, rect.y + rect.height - 4, x + 3, rect.y + rect.height - 4, accent);
+    whiteKeys[index] = MakeRect(left, keybed.y, std::max(1, right - left), keybed.height);
+    canvas.FillRect(whiteKeys[index], activeNotes[kWhiteSemitones[index]] ? accent : text);
+  }
+
+  const int blackKeyHeight = std::max(4, keybed.height * 3 / 5);
+  for (std::size_t index = 0; index < kBlackSemitones.size(); ++index)
+  {
+    int blackKeyWidth = std::max(5, nominalWhiteWidth * 11 / 20);
+
+    const int seamX = whiteBoundaries[kBlackKeyLeftWhite[index] + 1];
+    const int left = std::clamp(seamX - blackKeyWidth / 2,
+                                keybed.x + 1,
+                                keybed.x + keybed.width - blackKeyWidth - 1);
+    const ui::Rect blackKey = MakeRect(left, keybed.y, blackKeyWidth, blackKeyHeight);
+    const bool isActive = activeNotes[kBlackSemitones[index]];
+    canvas.FillRect(blackKey, background);
+    canvas.StrokeRect(blackKey, background);
+    if (isActive)
+    {
+      canvas.FillRect(MakeRect(blackKey.x + 1,
+                               blackKey.y,
+                               std::max(0, blackKey.width - 2),
+                               std::max(0, blackKey.height - 1)),
+                      accent);
+    }
   }
 }
 

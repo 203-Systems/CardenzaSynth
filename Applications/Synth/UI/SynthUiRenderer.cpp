@@ -809,15 +809,20 @@ void DrawHomeContent(ui::Canvas& canvas,
                      snapshot.headerSecondary,
                      alpha);
   canvas.DrawLine(rect.x + 4, rect.y + 24, rect.x + rect.width - 5, rect.y + 24, divider);
+  const ui::Rect titleRect = MakeRect(rect.x + 4, rect.y + 34, rect.width - 8, 34);
   DrawMarqueeTextInRect(canvas,
-                        MakeRect(rect.x + 4, rect.y + 34, rect.width - 8, 34),
+                        titleRect,
                         snapshot.primaryText,
                         text,
                         3,
                         ui::TextAlign::Center);
 
-  DrawMiniKeyboard(canvas, MakeRect(rect.x + 16, rect.y + 74, rect.width - 32, 28), activeKeys, alpha);
-  DrawThinLooperBar(canvas, MakeRect(rect.x + 4, rect.y + rect.height - 11, rect.width - 8, 4), snapshot.looperProgress, alpha);
+  const ui::Rect looperRect = MakeRect(rect.x + 4, rect.y + rect.height - 11, rect.width - 8, 4);
+  constexpr int kHomeKeyboardHeight = 42;
+  const int keyboardTop = titleRect.y + titleRect.height +
+                          std::max(2, (looperRect.y - (titleRect.y + titleRect.height) - kHomeKeyboardHeight) / 2) - 2;
+  DrawMiniKeyboard(canvas, MakeRect(rect.x + 10, keyboardTop, rect.width - 20, kHomeKeyboardHeight), activeKeys, alpha);
+  DrawThinLooperBar(canvas, looperRect, snapshot.looperProgress, alpha);
 }
 
 void DrawContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
