@@ -75,6 +75,13 @@ enum class ContextActionId {
   PresetNameBackspace,
   LayoutChromatic,
   LayoutScale,
+  KeyboardRootPrev,
+  KeyboardRootNext,
+  KeyboardScalePrev,
+  KeyboardScaleNext,
+  KeyboardModePiano,
+  KeyboardModeOctave,
+  KeyboardModeChromatic,
   LayoutArp,
   LayoutLatch,
   LayoutOctaveDown,
@@ -85,6 +92,12 @@ enum class ContextActionId {
   AudioSetup,
   MidiSetup,
   ResetPatch,
+};
+
+enum class KeyboardLayoutMode {
+  Piano,
+  Octave,
+  Chromatic,
 };
 
 enum class UiCommandType {
@@ -115,6 +128,7 @@ struct ContextMenuCell {
   MenuCellType type = MenuCellType::Empty;
   ContextActionId actionId = ContextActionId::None;
   std::string itemId;
+  bool disabled = false;
 };
 
 using ContextMenuGrid = std::array<ContextMenuCell, kContextMenuCellCount>;
@@ -133,6 +147,7 @@ struct UiBarItemSnapshot {
   std::string description;
   UiBarIcon icon = UiBarIcon::None;
   bool active = false;
+  bool disabled = false;
 };
 
 using UiBarSnapshot = std::array<UiBarItemSnapshot, kContextMenuCellCount>;
@@ -146,6 +161,11 @@ struct UiScreenSnapshot {
   std::string primaryText;
   std::string secondaryText;
   std::string focusItemId;
+  KeyboardLayoutMode keyboardLayoutMode = KeyboardLayoutMode::Octave;
+  std::string keyboardRootName;
+  std::string keyboardScaleName;
+  bool keyboardRootDisabled = false;
+  bool keyboardScaleDisabled = false;
   bool showPresetBrowser = false;
   bool showHelpPopup = false;
   bool showSecondaryText = false;

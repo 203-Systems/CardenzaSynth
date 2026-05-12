@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <string>
+#include <string_view>
 
 namespace synth {
 
@@ -18,6 +19,130 @@ using namespace ui_render;
 
 constexpr float kRecordingWaveformNoiseFloor = 0.02f;
 constexpr float kRecordingWaveformDisplayThreshold = 0.08f;
+
+bool IsKeyboardLayoutSnapshot(const UiScreenSnapshot& snapshot)
+{
+  return snapshot.mode == UiMode::ContextMenu && snapshot.modifier == UiModifier::Layout;
+}
+
+int FitTextScale(const ui::Canvas& canvas, std::string_view text, int maxWidth, int maxScale, int minScale)
+{
+  int scale = maxScale;
+  while (scale > minScale && canvas.MeasureTextWidth(text, scale) > maxWidth)
+  {
+    --scale;
+  }
+  return scale;
+}
+
+const char* KeyboardOverviewModeText(KeyboardLayoutMode mode)
+{
+  switch (mode)
+  {
+    case KeyboardLayoutMode::Piano:
+      return "Piano Mode";
+    case KeyboardLayoutMode::Chromatic:
+      return "Chromatic Mode";
+    case KeyboardLayoutMode::Octave:
+    default:
+      return "Scale Mode";
+  }
+}
+
+ui::Color KeyboardFieldColor(const UiScreenSnapshot& snapshot,
+                             std::string_view itemId,
+                             ui::Color activeColor,
+                             ui::Color defaultColor,
+                             ui::Color disabledColor)
+{
+  if ((itemId == "lay.root" && snapshot.keyboardRootDisabled) ||
+      (itemId == "lay.scl" && snapshot.keyboardScaleDisabled))
+  {
+    return disabledColor;
+  }
+
+  return snapshot.focusItemId == itemId ? activeColor : defaultColor;
+}
+
+void DrawKeyboardContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
+{
+  if (alpha <= 0.01f || rect.width <= 0 || rect.height <= 0)
+  {
+    return;
+  }
+
+  const ui::Color accent = FadeColor(kAccent, alpha);
+  const ui::Color text = FadeColor(kText, alpha);
+  const ui::Color divider = FadeColor(kDivider, alpha);
+  const int titleScale = 2;
+  const int titleY = rect.y + 10;
+  const int dividerY = titleY + canvas.FontHeight(titleScale) + 6;
+
+  canvas.DrawText(rect.x,
+                  titleY,
+                  TruncateText(canvas, snapshot.headerPrimary.empty() ? std::string{"Keyboard"} : snapshot.headerPrimary, rect.width, titleScale),
+                  accent,
+                  titleScale);
+  canvas.DrawLine(rect.x, dividerY, rect.x + rect.width - 1, dividerY, divider);
+
+  const ui::Rect body = MakeRect(rect.x,
+                                 dividerY + 6,
+                                 rect.width,
+                                 std::max(0, rect.height - (dividerY - rect.y) - 10));
+
+  if (snapshot.keyboardLayoutMode == KeyboardLayoutMode::Piano)
+  {
+    const ui::Color modeColor = text;
+    const int lineGap = 1;
+    const int pianoScale = FitTextScale(canvas, "Piano", body.width, 5, 3);
+    const int modeScale = FitTextScale(canvas, "Mode", body.width, 5, 3);
+    const int pianoHeight = canvas.FontHeight(pianoScale) + 2;
+    const int modeHeight = canvas.FontHeight(modeScale) + 2;
+    const ui::Rect pianoRect = MakeRect(body.x, body.y + 2, body.width, pianoHeight);
+    const ui::Rect modeRect = MakeRect(body.x,
+                                       pianoRect.y + pianoRect.height + lineGap,
+                                       body.width,
+                                       modeHeight);
+
+    DrawMarqueeTextInRect(canvas, pianoRect, "Piano", text, pianoScale, ui::TextAlign::Left);
+    DrawMarqueeTextInRect(canvas, modeRect, "Mode", modeColor, modeScale, ui::TextAlign::Left);
+    return;
+  }
+
+  const int modeScale = 2;
+  const int rootScale = FitTextScale(canvas, snapshot.keyboardRootName, body.width, 5, 3);
+  const int scaleScale = FitTextScale(canvas, snapshot.keyboardScaleName, body.width, 4, 2);
+  const int rootHeight = canvas.FontHeight(rootScale) + 2;
+  const int scaleHeight = canvas.FontHeight(scaleScale) + 2;
+  const int modeHeight = canvas.FontHeight(modeScale) + 2;
+  const int sectionGap = 2;
+
+  const ui::Rect rootValueRect = MakeRect(body.x,
+                                          body.y + 2,
+                                          body.width,
+                                          rootHeight);
+  const ui::Rect scaleValueRect = MakeRect(body.x,
+                                           rootValueRect.y + rootValueRect.height + sectionGap,
+                                           body.width,
+                                           scaleHeight);
+  const ui::Rect modeRect = MakeRect(body.x,
+                                     scaleValueRect.y + scaleValueRect.height + sectionGap,
+                                     body.width,
+                                     modeHeight);
+
+  const ui::Color rootColor = KeyboardFieldColor(snapshot, "lay.root", accent, text, divider);
+  const ui::Color scaleColor = KeyboardFieldColor(snapshot, "lay.scl", accent, text, divider);
+  const ui::Color modeColor = text;
+
+  DrawMarqueeTextInRect(canvas, rootValueRect, snapshot.keyboardRootName, rootColor, rootScale, ui::TextAlign::Left);
+  DrawMarqueeTextInRect(canvas, scaleValueRect, snapshot.keyboardScaleName, scaleColor, scaleScale, ui::TextAlign::Left);
+  canvas.DrawTextInRect(modeRect,
+                        KeyboardOverviewModeText(snapshot.keyboardLayoutMode),
+                        modeColor,
+                        modeScale,
+                        ui::TextAlign::Left,
+                        ui::VerticalAlign::Middle);
+}
 
 void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
 {
@@ -859,6 +984,12 @@ void DrawContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreen
   if (snapshot.showPresetBrowser)
   {
     DrawSoundContextContent(canvas, rect, snapshot, alpha);
+    return;
+  }
+
+  if (IsKeyboardLayoutSnapshot(snapshot))
+  {
+    DrawKeyboardContextContent(canvas, rect, snapshot, alpha);
     return;
   }
 

@@ -203,8 +203,10 @@ void DrawBarItem(ui::Canvas& canvas, const ui::Rect& rect, const UiBarItemSnapsh
     return;
   }
 
-  const ui::Color border = FadeColor(item.active ? kAccent : kDivider, alpha);
-  const ui::Color text = FadeColor(item.active ? kAccent : kText, alpha);
+  const ui::Color border = FadeColor(item.disabled ? MixColor(kBackground, kDivider, 0.55f)
+                                                   : (item.active ? kAccent : kDivider),
+                                     alpha);
+  const ui::Color text = FadeColor(item.disabled ? kDivider : (item.active ? kAccent : kText), alpha);
 
   canvas.StrokeRect(rect, border);
 

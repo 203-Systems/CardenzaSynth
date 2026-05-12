@@ -35,6 +35,8 @@ public:
 
   std::string HeaderEngine(const ISynthEngine* engine) const;
   std::string HeaderTrack() const;
+  bool IsHomePerformanceKey(std::size_t row, std::size_t col) const;
+  bool IsHomePerformanceKeyLit(std::size_t row, std::size_t col) const;
   std::uint8_t HomePerformanceMidiNote(std::size_t row, std::size_t col) const;
   const std::string& PatchName() const;
   float LooperProgress() const;
@@ -74,6 +76,15 @@ private:
   void HighlightMenuIndex(std::size_t index);
   void SelectStatus(const std::string& label, const std::string& value, const std::string& itemId = "");
   void AdjustKeyboardOctave(int delta);
+  void AdjustKeyboardRoot(int delta);
+  void AdjustKeyboardScale(int delta);
+  void SetKeyboardLayoutMode(KeyboardLayoutMode mode);
+  bool KeyboardMidiNoteForKey(std::size_t row, std::size_t col, int& note) const;
+  bool IsKeyboardScaleNote(int note) const;
+  std::string KeyboardRootName() const;
+  std::string KeyboardScaleName() const;
+  std::string KeyboardLayoutName() const;
+  std::string KeyboardSummaryText() const;
   void EnterEnginePicker();
   void EnterPresetBrowser(const ISynthEngine* engine);
   void EnterSamplerBrowser();
@@ -109,6 +120,9 @@ private:
   std::array<std::chrono::steady_clock::time_point, kKeyboardMatrixRows> modifierPressStartedAt_{};
   std::size_t activeTrack_ = 0;
   int keyboardOctaveOffset_ = 0;
+  int keyboardRootNote_ = 0;
+  std::size_t keyboardScaleIndex_ = 1;
+  KeyboardLayoutMode keyboardLayoutMode_ = KeyboardLayoutMode::Octave;
   std::chrono::steady_clock::time_point homeOctaveStatusUntil_{};
   UiMode mode_ = UiMode::Home;
   UiModifier activeModifier_ = UiModifier::None;

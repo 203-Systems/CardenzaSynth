@@ -20,7 +20,9 @@ constexpr std::size_t KeyIndex(std::size_t row, std::size_t col) {
 }
 
 constexpr std::uint8_t kActiveLedBrightness = Device::LED::kBrightnessMax;
+constexpr std::uint8_t kPerformanceHintLedBrightness = Device::LED::kBrightnessMax / 2;
 constexpr std::uint8_t kHintLedBrightness = 5;
+constexpr std::uint8_t kDisabledLedBrightness = 2;
 
 bool HasVisibleBarItem(const synth::UiBarItemSnapshot& item) {
   return !item.label.empty() || item.icon != synth::UiBarIcon::None;
@@ -29,6 +31,10 @@ bool HasVisibleBarItem(const synth::UiBarItemSnapshot& item) {
 std::uint8_t LedBrightnessForBarItem(const synth::UiBarItemSnapshot& item) {
   if (!HasVisibleBarItem(item)) {
     return Device::LED::kBrightnessOff;
+  }
+
+  if (item.disabled) {
+    return kDisabledLedBrightness;
   }
 
   return item.active ? kActiveLedBrightness : kHintLedBrightness;
@@ -148,6 +154,10 @@ void SynthApp::UpdateLeds() {
         if (activeKeys_[activeTrack][KeyIndex(row, column)])
         {
           Device::LED::SetKey(row, column, kActiveLedBrightness);
+        }
+        else if (ui_.IsHomePerformanceKeyLit(row, column))
+        {
+          Device::LED::SetKey(row, column, kPerformanceHintLedBrightness);
         }
       }
     }

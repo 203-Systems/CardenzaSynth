@@ -12,7 +12,7 @@ namespace ComputeCardSim::DesktopHost {
 
 std::string DesktopSimulator::FooterText() const
 {
-  return "Scale: 1 / 2 / 4. Home: left edge = track/modifier bar, middle 12 keys = one octave per row, right edge = action bar. Context: hold left edge and use the two right-most columns as the menu.";
+  return "Scale: 1 / 2 / 4. Home: left edge = track/modifier bar, columns 1-8 perform, right edge = action bar. Context: hold left edge and use the right-side menu.";
 }
 
 std::string DesktopSimulator::KeyboardHeaderText() const
@@ -21,7 +21,7 @@ std::string DesktopSimulator::KeyboardHeaderText() const
   {
     return "Context mode: release the held left key to cancel, or choose a right-side item to keep this page latched.";
   }
-  return "Home mode: left column switches tracks or opens modifiers, the center 12 keys perform, and the right column is reserved for home actions.";
+  return "Home mode: left column switches tracks or opens modifiers, columns 1-8 perform, and the right column is reserved for home actions.";
 }
 
 std::size_t DesktopSimulator::ContextMenuFirstColumn() const

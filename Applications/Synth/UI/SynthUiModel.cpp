@@ -40,9 +40,48 @@ constexpr std::array<UiBarIcon, 4> kHomeActionBarIcons = {
 constexpr std::size_t kPresetSearchMaxLength = 18;
 constexpr std::size_t kSamplerNameMaxLength = 18;
 constexpr std::size_t kGenericParameterMenuItemCount = 14;
-constexpr std::size_t kLayoutMenuItemCount = 14;
 constexpr std::size_t kOtherMenuItemCount = 13;
 constexpr std::size_t kSelectableListVisibleRows = 7;
+constexpr std::uint16_t kScaleMinor = 0b010110101101;
+constexpr std::uint16_t kScaleMajor = 0b101010110101;
+constexpr std::uint16_t kScaleDorian = 0b011010101101;
+constexpr std::uint16_t kScaleMixolydian = 0b011010110101;
+constexpr std::uint16_t kScaleMinorPentatonic = 0b010010101001;
+constexpr std::uint16_t kScaleMajorPentatonic = 0b001010010101;
+constexpr std::uint16_t kScaleBlues = 0b010011101001;
+constexpr std::uint16_t kScaleHarmonicMinor = 0b100110101101;
+
+struct KeyboardScaleDefinition {
+  const char* label;
+  const char* fullName;
+  std::uint16_t mask;
+};
+
+constexpr std::array<KeyboardScaleDefinition, 8> kKeyboardScales = {{
+    {"MAJ", "Major", kScaleMajor},
+    {"MIN", "Minor", kScaleMinor},
+    {"DOR", "Dorian", kScaleDorian},
+    {"MIX", "Mixolydian", kScaleMixolydian},
+    {"MPEN", "Minor Pentatonic", kScaleMinorPentatonic},
+    {"PENT", "Major Pentatonic", kScaleMajorPentatonic},
+    {"BLUE", "Blues", kScaleBlues},
+    {"HMIN", "Harmonic Minor", kScaleHarmonicMinor},
+}};
+
+constexpr std::array<const char*, 12> kKeyboardRootNames = {
+  "C",
+  "C#",
+  "D",
+  "D#",
+  "E",
+  "F",
+  "F#",
+  "G",
+  "G#",
+  "A",
+  "A#",
+  "B",
+};
 
 constexpr std::array<std::array<const char*, kKeyboardMatrixColumns>, kKeyboardMatrixRows> kPresetSearchKeyMap = {{
     {{"", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", ""}},
@@ -50,6 +89,72 @@ constexpr std::array<std::array<const char*, kKeyboardMatrixColumns>, kKeyboardM
     {{"", "", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "", ""}},
     {{"", "", "", "z", "x", "c", "v", "b", "n", "m", ",", ".", "", ""}},
 }};
+
+constexpr std::size_t CountScaleNotes(std::uint16_t mask)
+{
+  std::size_t count = 0;
+  for (std::size_t bit = 0; bit < 12; ++bit)
+  {
+    count += (mask & (static_cast<std::uint16_t>(1u) << bit)) != 0 ? 1 : 0;
+  }
+  return count;
+}
+
+static_assert(CountScaleNotes(kScaleMinor) <= kHomePerformanceColumnCount);
+static_assert(CountScaleNotes(kScaleMajor) <= kHomePerformanceColumnCount);
+static_assert(CountScaleNotes(kScaleDorian) <= kHomePerformanceColumnCount);
+static_assert(CountScaleNotes(kScaleMixolydian) <= kHomePerformanceColumnCount);
+static_assert(CountScaleNotes(kScaleMinorPentatonic) <= kHomePerformanceColumnCount);
+static_assert(CountScaleNotes(kScaleMajorPentatonic) <= kHomePerformanceColumnCount);
+static_assert(CountScaleNotes(kScaleBlues) <= kHomePerformanceColumnCount);
+static_assert(CountScaleNotes(kScaleHarmonicMinor) <= kHomePerformanceColumnCount);
+
+int PositiveModulo(int value, int modulo)
+{
+  const int remainder = value % modulo;
+  return remainder < 0 ? remainder + modulo : remainder;
+}
+
+const KeyboardScaleDefinition& KeyboardScaleAt(std::size_t index)
+{
+  return kKeyboardScales[index % kKeyboardScales.size()];
+}
+
+int KeyboardScaleDegreeOffset(std::uint16_t mask, std::size_t degree)
+{
+  const std::size_t noteCount = std::max<std::size_t>(1, CountScaleNotes(mask));
+  const std::size_t wrappedDegree = degree % noteCount;
+  std::size_t currentDegree = 0;
+  for (int note = 0; note < 12; ++note)
+  {
+    if ((mask & (static_cast<std::uint16_t>(1u) << note)) == 0)
+    {
+      continue;
+    }
+
+    if (currentDegree == wrappedDegree)
+    {
+      return note;
+    }
+    ++currentDegree;
+  }
+  return 0;
+}
+
+const char* KeyboardLayoutModeLabel(KeyboardLayoutMode mode)
+{
+  switch (mode)
+  {
+    case KeyboardLayoutMode::Piano:
+      return "Piano";
+    case KeyboardLayoutMode::Octave:
+      return "Octave";
+    case KeyboardLayoutMode::Chromatic:
+      return "Chromatic";
+    default:
+      return "Keyboard";
+  }
+}
 
 bool IsSamplerNameCharacter(const char* mappedValue)
 {
@@ -250,20 +355,10 @@ std::pair<std::string, std::string> MenuItemPresentation(UiModifier modifier,
 
   if (modifier == UiModifier::Layout)
   {
-    if (itemId == "lay.scl") return {"Scale", "C MIN"};
-    if (itemId == "lay.root") return {"Root", "C"};
-    if (itemId == "lay.mode") return {"Mode", "IONIAN"};
-    if (itemId == "lay.chrd") return {"Chord", "TRIAD"};
-    if (itemId == "lay.oct") return {"Octave", "+0"};
-    if (itemId == "lay.trns") return {"Transpose", "0"};
-    if (itemId == "lay.key") return {"Key Layout", "GRID"};
-    if (itemId == "lay.grid") return {"Grid", "4X14"};
-    if (itemId == "lay.keyb") return {"Keyboard", "PIANO"};
-    if (itemId == "lay.drum") return {"Drum", "OFF"};
-    if (itemId == "lay.mpe") return {"MPE", "OFF"};
-    if (itemId == "lay.latch") return {"Latch", "OFF"};
-    if (itemId == "lay.arp") return {"Arp", "OFF"};
-    if (itemId == "lay.save") return {"Save Layout", "DONE"};
+    if (itemId == "lay.scl") return {"Scale", "Select keyboard scale"};
+    if (itemId == "lay.root") return {"Root", "Select root note"};
+    if (itemId == "lay.mode") return {"Mode", "Select performance layout"};
+    if (itemId == "lay.fx") return {"Effect", "EMPTY"};
   }
 
   if (modifier == UiModifier::Other)
@@ -360,6 +455,18 @@ std::pair<std::string, std::string> ActionHelp(ContextActionId actionId, const s
       return {"Maximum", "Set the value to maximum"};
     case ContextActionId::ParameterReset:
       return {"Reset", "Restore the entry value"};
+    case ContextActionId::KeyboardRootPrev:
+    case ContextActionId::KeyboardScalePrev:
+      return {"Previous", "Move to the previous keyboard value"};
+    case ContextActionId::KeyboardRootNext:
+    case ContextActionId::KeyboardScaleNext:
+      return {"Next", "Move to the next keyboard value"};
+    case ContextActionId::KeyboardModePiano:
+      return {"Piano", "Use the piano-style keyboard layout"};
+    case ContextActionId::KeyboardModeOctave:
+      return {"Octave", "Use one scale octave per row"};
+    case ContextActionId::KeyboardModeChromatic:
+      return {"Chromatic", "Use chromatic note steps"};
     default:
       return {label.empty() ? "Command" : label, "Run this command"};
   }
@@ -401,18 +508,8 @@ std::pair<std::string, std::string> ItemHelp(UiModifier modifier,
   {
     if (itemId == "lay.scl") return {"Scale", "Set the keyboard scale"};
     if (itemId == "lay.root") return {"Root", "Set the keyboard root note"};
-    if (itemId == "lay.mode") return {"Mode", "Choose the scale mode"};
-    if (itemId == "lay.chrd") return {"Chord", "Choose chord behavior"};
-    if (itemId == "lay.oct") return {"Octave", "Shift the keyboard octave"};
-    if (itemId == "lay.trns") return {"Transpose", "Shift notes by semitone"};
-    if (itemId == "lay.key") return {"Key Layout", "Choose the performance layout"};
-    if (itemId == "lay.grid") return {"Grid", "Choose the keyboard grid"};
-    if (itemId == "lay.keyb") return {"Keyboard", "Use piano-style mapping"};
-    if (itemId == "lay.drum") return {"Drum", "Use drum-pad mapping"};
-    if (itemId == "lay.mpe") return {"MPE", "Toggle expressive MIDI mode"};
-    if (itemId == "lay.latch") return {"Latch", "Hold played notes"};
-    if (itemId == "lay.arp") return {"Arpeggiator", "Toggle note arpeggiation"};
-    if (itemId == "lay.save") return {"Save Keyboard", "Save keyboard settings"};
+    if (itemId == "lay.mode") return {"Mode", "Choose piano, octave, or chromatic layout"};
+    if (itemId == "lay.fx") return {"Effect", "Empty effect page placeholder"};
   }
 
   const auto presentation = MenuItemPresentation(modifier, itemId, patchName, engine);
@@ -685,7 +782,7 @@ MatrixKeyHandling SynthUiModel::PressMatrixKey(ISynthEngine* engine, std::size_t
     return MatrixKeyHandling::MenuAction;
   }
 
-  if (mode_ == UiMode::Home && (col < kHomePerformanceFirstColumn || col > kHomePerformanceLastColumn))
+  if (!IsHomePerformanceKey(row, col))
   {
     return MatrixKeyHandling::Ignored;
   }
@@ -803,9 +900,88 @@ std::string SynthUiModel::HeaderTrack() const
   return "Track " + std::to_string(activeTrack_ + 1);
 }
 
+bool SynthUiModel::KeyboardMidiNoteForKey(std::size_t row, std::size_t col, int& note) const
+{
+  if (row >= kKeyboardMatrixRows || col < kHomePerformanceFirstColumn || col > kHomePerformanceLastColumn)
+  {
+    return false;
+  }
+
+  const std::size_t x = col - kHomePerformanceFirstColumn;
+  const std::size_t y = kKeyboardMatrixRows - 1 - row;
+  const int octaveShift = keyboardOctaveOffset_ * 12;
+
+  if (keyboardLayoutMode_ == KeyboardLayoutMode::Piano)
+  {
+    static constexpr std::array<int, 7> kWhiteKeys = {0, 2, 4, 5, 7, 9, 11};
+    static constexpr std::array<int, 7> kBlackKeys = {-1, 1, 3, -1, 6, 8, 10};
+    const std::size_t keyIndex = x % kWhiteKeys.size();
+    const int octave = static_cast<int>(y / 2 + x / kWhiteKeys.size()) * 12;
+    if ((y % 2) == 0)
+    {
+      note = static_cast<int>(kHomePerformanceBaseMidiNote) + octaveShift + octave + kWhiteKeys[keyIndex];
+      return note >= 0 && note <= 127;
+    }
+
+    const int blackKey = kBlackKeys[keyIndex];
+    if (blackKey < 0)
+    {
+      return false;
+    }
+    note = static_cast<int>(kHomePerformanceBaseMidiNote) + octaveShift + octave + blackKey;
+    return note >= 0 && note <= 127;
+  }
+
+  const int base = static_cast<int>(kHomePerformanceBaseMidiNote) + keyboardRootNote_ + octaveShift;
+  if (keyboardLayoutMode_ == KeyboardLayoutMode::Octave)
+  {
+    const std::uint16_t scaleMask = KeyboardScaleAt(keyboardScaleIndex_).mask;
+    const std::size_t scaleNoteCount = std::max<std::size_t>(1, CountScaleNotes(scaleMask));
+    note = base + static_cast<int>(y) * 12 +
+           static_cast<int>(x / scaleNoteCount) * 12 +
+           KeyboardScaleDegreeOffset(scaleMask, x);
+    return note >= 0 && note <= 127;
+  }
+
+  note = base + static_cast<int>(y * kHomePerformanceColumnCount + x);
+  return note >= 0 && note <= 127;
+}
+
+bool SynthUiModel::IsHomePerformanceKey(std::size_t row, std::size_t col) const
+{
+  int note = 0;
+  return KeyboardMidiNoteForKey(row, col, note);
+}
+
+bool SynthUiModel::IsKeyboardScaleNote(int note) const
+{
+  const int noteFromRoot = PositiveModulo(note - keyboardRootNote_, 12);
+  return (KeyboardScaleAt(keyboardScaleIndex_).mask & (static_cast<std::uint16_t>(1u) << noteFromRoot)) != 0;
+}
+
+bool SynthUiModel::IsHomePerformanceKeyLit(std::size_t row, std::size_t col) const
+{
+  int note = 0;
+  if (!KeyboardMidiNoteForKey(row, col, note))
+  {
+    return false;
+  }
+
+  if (keyboardLayoutMode_ == KeyboardLayoutMode::Piano)
+  {
+    return true;
+  }
+
+  return IsKeyboardScaleNote(note);
+}
+
 std::uint8_t SynthUiModel::HomePerformanceMidiNote(std::size_t row, std::size_t col) const
 {
-  const int note = static_cast<int>(synth::HomePerformanceMidiNote(row, col)) + keyboardOctaveOffset_ * 12;
+  int note = 0;
+  if (!KeyboardMidiNoteForKey(row, col, note))
+  {
+    return 0;
+  }
   return static_cast<std::uint8_t>(std::clamp(note, 0, 127));
 }
 
@@ -916,6 +1092,11 @@ std::size_t SynthUiModel::ContextMenuColumnCount() const
   const SamplerTrackUiState& sampler = tracks_[activeTrack_].sampler;
 
   if (activeModifier_ == UiModifier::Sound)
+  {
+    return 1;
+  }
+
+  if (activeModifier_ == UiModifier::Layout)
   {
     return 1;
   }
@@ -1103,8 +1284,16 @@ UiBarSnapshot SynthUiModel::BuildContextBarSnapshot(const ISynthEngine* engine) 
         const auto help = ContextCellHelp(menu[index], activeModifier_, tracks_[activeTrack_].patchName, engine);
         items[index].fullName = help.first;
         items[index].description = help.second;
+      items[index].disabled = menu[index].disabled;
       items[index].active = heldContextMenuIndex_ == static_cast<int>(index) ||
                             (hasMenuHighlight_ && row == activeMenuRow_ && column == activeMenuColumn_);
+      if (!items[index].active && activeModifier_ == UiModifier::Layout && selectedParameterGroupId_ == "lay.mode")
+      {
+        items[index].active =
+            (menu[index].actionId == ContextActionId::KeyboardModePiano && keyboardLayoutMode_ == KeyboardLayoutMode::Piano) ||
+            (menu[index].actionId == ContextActionId::KeyboardModeOctave && keyboardLayoutMode_ == KeyboardLayoutMode::Octave) ||
+            (menu[index].actionId == ContextActionId::KeyboardModeChromatic && keyboardLayoutMode_ == KeyboardLayoutMode::Chromatic);
+      }
     }
   }
   return items;
@@ -1296,6 +1485,48 @@ UiScreenSnapshot SynthUiModel::BuildScreenSnapshot(const ISynthEngine* engine) c
     }
     snapshot.showSecondaryText = true;
   }
+  else if (activeModifier_ == UiModifier::Layout)
+  {
+    snapshot.headerPrimary = "Keyboard";
+    snapshot.keyboardLayoutMode = keyboardLayoutMode_;
+    snapshot.keyboardRootName = KeyboardRootName();
+    snapshot.keyboardScaleName = KeyboardScaleName();
+    snapshot.keyboardRootDisabled = keyboardLayoutMode_ == KeyboardLayoutMode::Piano;
+    snapshot.keyboardScaleDisabled = keyboardLayoutMode_ == KeyboardLayoutMode::Piano;
+    bool showLayoutValue = true;
+    if (selectedParameterGroupId_.empty() && hasContextSelection_ && selectedItemId_ == "lay.scl")
+    {
+      snapshot.primaryText = "Scale";
+      snapshot.secondaryText = selectedValueText_;
+    }
+    else if (selectedParameterGroupId_ == "lay.root")
+    {
+      snapshot.primaryText = "Root";
+      snapshot.secondaryText = KeyboardRootName();
+    }
+    else if (selectedParameterGroupId_ == "lay.scl")
+    {
+      snapshot.primaryText = "Scale";
+      snapshot.secondaryText = keyboardLayoutMode_ == KeyboardLayoutMode::Piano ? "Disabled in Piano" : KeyboardScaleName();
+    }
+    else if (selectedParameterGroupId_ == "lay.mode")
+    {
+      snapshot.primaryText = "Mode";
+      snapshot.secondaryText = KeyboardLayoutName();
+    }
+    else if (selectedParameterGroupId_ == "lay.fx")
+    {
+      snapshot.primaryText = "Effect";
+      snapshot.secondaryText = "EMPTY";
+    }
+    else
+    {
+      snapshot.primaryText = KeyboardSummaryText();
+      snapshot.secondaryText.clear();
+      showLayoutValue = false;
+    }
+    snapshot.showSecondaryText = showLayoutValue;
+  }
   else
   {
     snapshot.primaryText = hasContextSelection_ ? ContextParameterName(engine)
@@ -1408,6 +1639,57 @@ void SynthUiModel::AdjustKeyboardOctave(int delta)
 {
   keyboardOctaveOffset_ = std::clamp(keyboardOctaveOffset_ + delta, kKeyboardOctaveMin, kKeyboardOctaveMax);
   homeOctaveStatusUntil_ = std::chrono::steady_clock::now() + kHomeOctaveStatusDuration;
+}
+
+void SynthUiModel::AdjustKeyboardRoot(int delta)
+{
+  keyboardRootNote_ = PositiveModulo(keyboardRootNote_ + delta, 12);
+  SelectStatus("Root", KeyboardRootName(), "lay.root");
+}
+
+void SynthUiModel::AdjustKeyboardScale(int delta)
+{
+  if (keyboardLayoutMode_ == KeyboardLayoutMode::Piano)
+  {
+    SelectStatus("Scale", "PIANO", "lay.scl");
+    return;
+  }
+
+  const int scaleCount = static_cast<int>(kKeyboardScales.size());
+  keyboardScaleIndex_ = static_cast<std::size_t>(PositiveModulo(static_cast<int>(keyboardScaleIndex_) + delta, scaleCount));
+  SelectStatus("Scale", KeyboardScaleName(), "lay.scl");
+}
+
+void SynthUiModel::SetKeyboardLayoutMode(KeyboardLayoutMode mode)
+{
+  keyboardLayoutMode_ = mode;
+  SelectStatus("Mode", KeyboardLayoutName(), "lay.mode");
+}
+
+std::string SynthUiModel::KeyboardRootName() const
+{
+  return kKeyboardRootNames[static_cast<std::size_t>(PositiveModulo(keyboardRootNote_, 12))];
+}
+
+std::string SynthUiModel::KeyboardScaleName() const
+{
+  return KeyboardScaleAt(keyboardScaleIndex_).fullName;
+}
+
+std::string SynthUiModel::KeyboardLayoutName() const
+{
+  return KeyboardLayoutModeLabel(keyboardLayoutMode_);
+}
+
+std::string SynthUiModel::KeyboardSummaryText() const
+{
+  if (keyboardLayoutMode_ == KeyboardLayoutMode::Piano)
+  {
+    return "Piano";
+  }
+
+  const char* layoutLabel = keyboardLayoutMode_ == KeyboardLayoutMode::Chromatic ? "CHRM" : "OCT";
+  return KeyboardRootName() + " " + KeyboardScaleAt(keyboardScaleIndex_).label + " " + layoutLabel;
 }
 
 void SynthUiModel::EnterEnginePicker()
@@ -1564,6 +1846,14 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
   }
 
   HighlightMenuIndex(index);
+  if (cell.disabled)
+  {
+    SelectStatus(cell.fullName.empty() ? cell.label : cell.fullName,
+                 cell.description.empty() ? "DISABLED" : cell.description,
+                 cell.itemId);
+    return;
+  }
+
   if (cell.type == MenuCellType::NextPage)
   {
     currentPage_ = (currentPage_ + 1) % std::max<std::size_t>(1, PageCountForModifier(engine));
@@ -1573,6 +1863,39 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
 
   if (cell.type == MenuCellType::Item)
   {
+    if (activeModifier_ == UiModifier::Layout)
+    {
+      if (cell.itemId == "lay.root" || cell.itemId == "lay.scl" || cell.itemId == "lay.mode" || cell.itemId == "lay.fx")
+      {
+        if (cell.itemId == "lay.scl" && keyboardLayoutMode_ == KeyboardLayoutMode::Piano)
+        {
+          SelectStatus("Scale", "PIANO", "lay.scl");
+          return;
+        }
+
+        selectedParameterGroupId_ = cell.itemId;
+        currentPage_ = 0;
+        ClearContextSelection();
+        if (cell.itemId == "lay.root")
+        {
+          SelectStatus("Root", KeyboardRootName(), "lay.root");
+        }
+        else if (cell.itemId == "lay.scl")
+        {
+          SelectStatus("Scale", KeyboardScaleName(), "lay.scl");
+        }
+        else if (cell.itemId == "lay.mode")
+        {
+          SelectStatus("Mode", KeyboardLayoutName(), "lay.mode");
+        }
+        else
+        {
+          SelectStatus("Effect", "EMPTY", "lay.fx");
+        }
+        return;
+      }
+    }
+
     if (activeModifier_ == UiModifier::Sound && cell.itemId == "snd.engine")
     {
       EnterEnginePicker();
@@ -2304,6 +2627,10 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
         {
           selectedParameterGroupId_.clear();
         }
+        if (activeModifier_ == UiModifier::Layout && !selectedParameterGroupId_.empty())
+        {
+          selectedParameterGroupId_.clear();
+        }
         currentPage_ = 0;
         ClearContextSelection();
       }
@@ -2326,6 +2653,27 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
       break;
     case ContextActionId::LayoutScale:
       SelectStatus("Layout", "SCALE");
+      break;
+    case ContextActionId::KeyboardRootPrev:
+      AdjustKeyboardRoot(-1);
+      break;
+    case ContextActionId::KeyboardRootNext:
+      AdjustKeyboardRoot(1);
+      break;
+    case ContextActionId::KeyboardScalePrev:
+      AdjustKeyboardScale(-1);
+      break;
+    case ContextActionId::KeyboardScaleNext:
+      AdjustKeyboardScale(1);
+      break;
+    case ContextActionId::KeyboardModePiano:
+      SetKeyboardLayoutMode(KeyboardLayoutMode::Piano);
+      break;
+    case ContextActionId::KeyboardModeOctave:
+      SetKeyboardLayoutMode(KeyboardLayoutMode::Octave);
+      break;
+    case ContextActionId::KeyboardModeChromatic:
+      SetKeyboardLayoutMode(KeyboardLayoutMode::Chromatic);
       break;
     case ContextActionId::LayoutArp:
       SelectStatus("Arp", "ON");
@@ -2430,7 +2778,7 @@ std::size_t SynthUiModel::PageCountForModifier(const ISynthEngine* engine) const
       return (IsDx7ParameterEngine(engine) || IsJunoParameterEngine(engine) || IsSamplerParameterEngine(engine)) ? 1
                                                                                                                : PagedMenuPageCount(kGenericParameterMenuItemCount);
     case UiModifier::Layout:
-      return PagedMenuPageCount(kLayoutMenuItemCount);
+      return 1;
     case UiModifier::Other:
       return PagedMenuPageCount(kOtherMenuItemCount);
     case UiModifier::None:
@@ -2844,22 +3192,53 @@ ContextMenuGrid SynthUiModel::BuildParameterAdjustMenu() const
 
 ContextMenuGrid SynthUiModel::BuildLayoutMenu() const
 {
-  return BuildPagedMenuWithBack({
-      MakeItemCell("SCL", "lay.scl"),
-      MakeItemCell("ROOT", "lay.root"),
-      MakeItemCell("MODE", "lay.mode"),
-      MakeItemCell("CHRD", "lay.chrd"),
-      MakeItemCell("OCT", "lay.oct"),
-      MakeItemCell("TRNS", "lay.trns"),
-      MakeItemCell("KEY", "lay.key"),
-      MakeItemCell("GRID", "lay.grid"),
-      MakeItemCell("KEYB", "lay.keyb"),
-      MakeItemCell("DRUM", "lay.drum"),
-      MakeItemCell("MPE", "lay.mpe"),
-      MakeItemCell("LATCH", "lay.latch"),
-      MakeItemCell("ARP", "lay.arp"),
-      MakeItemCell("SAVE", "lay.save"),
-  }, currentPage_);
+  if (selectedParameterGroupId_ == "lay.root")
+  {
+    return BuildMenuAt({
+        {0, MakeActionCell("PREV", ContextActionId::KeyboardRootPrev)},
+        {1, MakeActionCell("NEXT", ContextActionId::KeyboardRootNext)},
+        {3, MakeActionCell("DONE", ContextActionId::Back)},
+    });
+  }
+
+  if (selectedParameterGroupId_ == "lay.scl")
+  {
+    return BuildMenuAt({
+        {0, MakeActionCell("PREV", ContextActionId::KeyboardScalePrev)},
+        {1, MakeActionCell("NEXT", ContextActionId::KeyboardScaleNext)},
+        {3, MakeActionCell("DONE", ContextActionId::Back)},
+    });
+  }
+
+  if (selectedParameterGroupId_ == "lay.mode")
+  {
+    return BuildMenuAt({
+        {0, MakeActionCell("PIANO", ContextActionId::KeyboardModePiano)},
+        {1, MakeActionCell("OCT", ContextActionId::KeyboardModeOctave)},
+        {2, MakeActionCell("CHRM", ContextActionId::KeyboardModeChromatic)},
+        {3, MakeActionCell("DONE", ContextActionId::Back)},
+    });
+  }
+
+  if (selectedParameterGroupId_ == "lay.fx")
+  {
+    return BuildMenuAt({
+        {3, MakeActionCell("DONE", ContextActionId::Back)},
+    });
+  }
+
+  ContextMenuCell rootCell = MakeItemCell("ROOT", "lay.root");
+  rootCell.disabled = keyboardLayoutMode_ == KeyboardLayoutMode::Piano;
+  rootCell.description = rootCell.disabled ? "Disabled in Piano mode" : "Set the keyboard root note";
+  ContextMenuCell scaleCell = MakeItemCell("SCALE", "lay.scl");
+  scaleCell.disabled = keyboardLayoutMode_ == KeyboardLayoutMode::Piano;
+  scaleCell.description = scaleCell.disabled ? "Disabled in Piano mode" : "Set the keyboard scale";
+  return BuildMenuAt({
+      {0, MakeItemCell("MODE", "lay.mode")},
+      {1, scaleCell},
+      {2, rootCell},
+      {3, MakeItemCell("FX", "lay.fx")},
+  });
 }
 
 ContextMenuGrid SynthUiModel::BuildOtherMenu() const
