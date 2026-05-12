@@ -10,6 +10,8 @@ public:
 
 protected:
   std::string FormatParameterValue(const SynthParameterInfo& parameter) const override;
+  bool ShouldSyncParameterToRuntime(const SynthParameterInfo& parameter) const override;
+  bool ShouldSyncParameterOnPresetLoad(const SynthParameterInfo& parameter) const override;
 };
 
 }  // namespace synth

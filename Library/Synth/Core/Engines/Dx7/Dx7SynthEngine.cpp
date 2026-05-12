@@ -1,47 +1,42 @@
 #include "Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.h"
+#include "Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.h"
 
-#include <map>
+#include <cctype>
+#include <string>
+#include <string_view>
 
 namespace synth {
 
 namespace {
 
-std::map<std::string, int> Dx7Preset(int algorithm,
-                                     int feedback,
-                                     int transpose,
-                                     int carrierOutput,
-                                     int modOutput,
-                                     int coarseCarrier,
-                                     int coarseMod)
+std::string NormalizeDx7PresetName(std::string_view name)
 {
-  std::map<std::string, int> preset;
-  preset["global.algorithm"] = algorithm;
-  preset["global.feedback"] = feedback;
-  preset["global.transpose"] = transpose;
-  preset["global.lfo_speed"] = 35 + algorithm;
-  preset["global.lfo_delay"] = 12 + feedback * 3;
-  preset["global.lfo_amp"] = 16 + algorithm % 10;
-  preset["op1.output"] = carrierOutput;
-  preset["op1.coarse"] = coarseCarrier;
-  preset["op1.attack"] = 92;
-  preset["op1.decay"] = 54;
-  preset["op1.sustain"] = 68;
-  preset["op1.release"] = 40;
-  preset["op2.output"] = modOutput;
-  preset["op2.coarse"] = coarseMod;
-  preset["op2.attack"] = 84;
-  preset["op2.decay"] = 60;
-  preset["op2.sustain"] = 44;
-  preset["op2.release"] = 32;
-  preset["op3.output"] = carrierOutput - 10;
-  preset["op3.coarse"] = coarseCarrier;
-  preset["op4.output"] = modOutput - 8;
-  preset["op4.coarse"] = coarseMod;
-  preset["op5.output"] = carrierOutput - 18;
-  preset["op5.coarse"] = coarseCarrier + 1;
-  preset["op6.output"] = modOutput - 18;
-  preset["op6.coarse"] = coarseMod + 1;
-  return preset;
+  std::string normalized;
+  normalized.reserve(name.size());
+
+  bool lastWasSpace = true;
+  for (char character : name)
+  {
+    if (std::isspace(static_cast<unsigned char>(character)) != 0)
+    {
+      if (!lastWasSpace)
+      {
+        normalized.push_back(' ');
+        lastWasSpace = true;
+      }
+      continue;
+    }
+
+    normalized.push_back(character);
+    lastWasSpace = false;
+  }
+
+  if (!normalized.empty() && normalized.back() == ' ')
+  {
+    normalized.pop_back();
+  }
+
+  return normalized;
 }
 
 }  // namespace
@@ -73,14 +68,13 @@ Dx7SynthEngine::Dx7SynthEngine()
     RegisterParameter({prefix + "amp_mod", "Amp Mod", group, SynthParameterKind::Continuous, 0, 3, 1, 0, 0});
   }
 
-  RegisterPreset("dx7.piano1", "Piano 1", Dx7Preset(5, 2, 0, 92, 72, 1, 2));
-  RegisterPreset("dx7.piano3", "Piano 3", Dx7Preset(6, 3, 0, 96, 68, 1, 3));
-  RegisterPreset("dx7.epiano1", "E.Piano 1", Dx7Preset(11, 4, 0, 88, 77, 1, 14));
-  RegisterPreset("dx7.brass1", "Brass 1", Dx7Preset(20, 2, -12, 84, 70, 2, 1));
-  RegisterPreset("dx7.organ1", "E.Organ 1", Dx7Preset(32, 1, 0, 90, 62, 1, 1));
-  RegisterPreset("dx7.bell", "FM Bell", Dx7Preset(1, 6, 0, 97, 83, 1, 8));
+  const auto& presets = Dx7FactoryPresets();
+  for (const Dx7FactoryPresetDefinition& preset : presets)
+  {
+    RegisterPreset(std::string(preset.id), NormalizeDx7PresetName(preset.name), {});
+  }
 
-  (void)LoadPreset("dx7.epiano1");
+  (void)LoadPreset("dx7.rom1a.11");
 }
 
 std::string Dx7SynthEngine::FormatParameterValue(const SynthParameterInfo& parameter) const
@@ -98,6 +92,17 @@ std::string Dx7SynthEngine::FormatParameterValue(const SynthParameterInfo& param
     return parameter.value >= 0 ? "+" + std::to_string(parameter.value) : std::to_string(parameter.value);
   }
   return PagedSynthEngine::FormatParameterValue(parameter);
+}
+
+bool Dx7SynthEngine::ShouldSyncParameterToRuntime(const SynthParameterInfo& parameter) const
+{
+  return parameter.id == "global.transpose";
+}
+
+bool Dx7SynthEngine::ShouldSyncParameterOnPresetLoad(const SynthParameterInfo& parameter) const
+{
+  (void)parameter;
+  return false;
 }
 
 }  // namespace synth

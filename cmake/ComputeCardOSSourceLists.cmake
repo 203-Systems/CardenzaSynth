@@ -32,7 +32,9 @@ endfunction()
 
 function(ccos_collect_synth_core_cpp_sources root_dir out_var)
     set(sources
+        ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.cpp
         ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.cpp
+        ${root_dir}/Library/Synth/Core/Engines/Juno/JunoFactoryPresets.cpp
         ${root_dir}/Library/Synth/Core/Engines/Juno/JunoSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/PagedSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Sampler/SamplerSynthEngine.cpp

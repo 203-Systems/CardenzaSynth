@@ -1,4 +1,6 @@
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.h"
+#include "Library/Synth/Core/Engines/Juno/JunoFactoryPresets.h"
 
 #include <algorithm>
 #include <array>
@@ -311,6 +313,7 @@ int MapDx7Preset(std::string_view presetId)
 
 int MapJunoPreset(std::string_view presetId)
 {
+  if (const JunoFactoryPresetDefinition* preset = FindJunoFactoryPreset(presetId)) return preset->patchNumber;
   if (presetId == "juno.saw") return 32;
   if (presetId == "juno.pwm") return 47;
   if (presetId == "juno.hoover") return 34;
@@ -424,11 +427,12 @@ void ConfigureAmySynthNoLock(EngineState& engine)
   event.patch_number = static_cast<uint16_t>(engine.patchNumber < 0 ? DefaultPatchFor(engine.kind) : engine.patchNumber);
   event.num_voices = static_cast<uint16_t>(VoiceCountFor(engine.kind));
   amy_add_event(&event);
+}
 
-  if (engine.kind == SynthEngineKind::Juno)
-  {
-    ApplyJunoControlsNoLock(engine);
-  }
+void LoadDx7FactoryPresetNoLock(EngineState& engine, const Dx7FactoryPresetDefinition& preset)
+{
+  engine.patchNumber = preset.patchNumber;
+  ConfigureAmySynthNoLock(engine);
 }
 
 SamplerVoice& AllocateSamplerVoice(EngineState& engine)
@@ -546,6 +550,11 @@ float RenderSamplerVoice(const SamplerParams& params, SamplerVoice& voice)
 
 void ResetEngineNoLock(EngineState& engine, std::size_t engineIndex, SynthEngineKind kind)
 {
+  if (engine.configured && UsesAmy(engine.kind))
+  {
+    ReleaseAllAmyNotesNoLock(engine);
+  }
+
   engine = EngineState{};
   engine.kind = kind;
   engine.configured = kind != SynthEngineKind::None;
@@ -587,11 +596,28 @@ void ApplyPendingEvent(const PendingEvent& event)
 
       if (engine.kind == SynthEngineKind::Dx7)
       {
-        engine.patchNumber = MapDx7Preset(event.text);
-        ConfigureAmySynthNoLock(engine);
+        if (engine.noteOffset != 0)
+        {
+          ReleaseAllAmyNotesNoLock(engine);
+          engine.noteOffset = 0;
+        }
+        if (const Dx7FactoryPresetDefinition* preset = FindDx7FactoryPreset(event.text))
+        {
+          LoadDx7FactoryPresetNoLock(engine, *preset);
+        }
+        else
+        {
+          engine.patchNumber = MapDx7Preset(event.text);
+          ConfigureAmySynthNoLock(engine);
+        }
       }
       else if (engine.kind == SynthEngineKind::Juno)
       {
+        if (engine.noteOffset != 0)
+        {
+          ReleaseAllAmyNotesNoLock(engine);
+          engine.noteOffset = 0;
+        }
         engine.patchNumber = MapJunoPreset(event.text);
         ConfigureAmySynthNoLock(engine);
       }
@@ -602,13 +628,22 @@ void ApplyPendingEvent(const PendingEvent& event)
         case SynthEngineKind::Dx7:
           if (event.text == "global.transpose")
           {
+            if (engine.noteOffset != event.value)
+            {
+              ReleaseAllAmyNotesNoLock(engine);
+            }
             engine.noteOffset = event.value;
           }
           break;
         case SynthEngineKind::Juno:
           if (event.text == "dco.range")
           {
-            engine.noteOffset = event.value == 0 ? -12 : (event.value == 2 ? 12 : 0);
+            const int noteOffset = event.value == 0 ? -12 : (event.value == 2 ? 12 : 0);
+            if (engine.noteOffset != noteOffset)
+            {
+              ReleaseAllAmyNotesNoLock(engine);
+            }
+            engine.noteOffset = noteOffset;
           }
           else if (event.text == "vcf.cutoff")
           {

@@ -52,6 +52,8 @@ protected:
   virtual std::string FormatParameterValue(const SynthParameterInfo& parameter) const;
   virtual void OnParameterChanged(const SynthParameterInfo& parameter);
   virtual void OnPresetLoaded(const std::string& presetId);
+  virtual bool ShouldSyncParameterToRuntime(const SynthParameterInfo& parameter) const;
+  virtual bool ShouldSyncParameterOnPresetLoad(const SynthParameterInfo& parameter) const;
 
 private:
   void SyncRuntimeState();

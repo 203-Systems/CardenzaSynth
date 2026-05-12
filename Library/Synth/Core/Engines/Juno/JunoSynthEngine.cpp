@@ -1,43 +1,10 @@
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
+#include "Library/Synth/Core/Engines/Juno/JunoFactoryPresets.h"
 
 #include <algorithm>
-#include <map>
+#include <string>
 
 namespace synth {
-
-namespace {
-
-std::map<std::string, int> JunoPreset(int cutoff,
-                                      int resonance,
-                                      int attack,
-                                      int release,
-                                      int chorus,
-                                      int sub,
-                                      int noise)
-{
-  std::map<std::string, int> preset;
-  preset["dco.range"] = 1;
-  preset["dco.pwm"] = 48;
-  preset["dco.sub"] = sub;
-  preset["dco.noise"] = noise;
-  preset["dco.saw"] = 1;
-  preset["vcf.cutoff"] = cutoff;
-  preset["vcf.resonance"] = resonance;
-  preset["vcf.env"] = 54;
-  preset["vcf.lfo"] = 18;
-  preset["vca.level"] = 96;
-  preset["env.attack"] = attack;
-  preset["env.decay"] = 42;
-  preset["env.sustain"] = 78;
-  preset["env.release"] = release;
-  preset["chorus.mode"] = chorus;
-  preset["hpf.mode"] = 0;
-  preset["lfo.rate"] = 40;
-  preset["lfo.delay"] = 22;
-  return preset;
-}
-
-}  // namespace
 
 JunoSynthEngine::JunoSynthEngine()
     : PagedSynthEngine({SynthEngineKind::Juno, "juno", "Juno"})
@@ -61,15 +28,12 @@ JunoSynthEngine::JunoSynthEngine()
   RegisterParameter({"chorus.mode", "Chorus", "FX", SynthParameterKind::Choice, 0, 2, 1, 0, 0});
   RegisterParameter({"hpf.mode", "HPF", "VCF", SynthParameterKind::Choice, 0, 3, 1, 0, 0});
 
-  RegisterPreset("juno.saw", "Saw", JunoPreset(100, 10, 16, 24, 0, 40, 0));
-  RegisterPreset("juno.pwm", "PWM", JunoPreset(92, 14, 20, 28, 1, 32, 0));
-  RegisterPreset("juno.hoover", "Hoover", JunoPreset(88, 64, 4, 58, 2, 84, 10));
-  RegisterPreset("juno.strings", "Strings", JunoPreset(74, 22, 48, 50, 1, 74, 0));
-  RegisterPreset("juno.brass", "Brass", JunoPreset(68, 40, 6, 30, 0, 52, 5));
-  RegisterPreset("juno.bass", "Bass", JunoPreset(54, 32, 2, 18, 0, 96, 0));
-  RegisterPreset("juno.pad", "Pad", JunoPreset(82, 20, 54, 60, 2, 64, 0));
+  for (const JunoFactoryPresetDefinition& preset : JunoFactoryPresets())
+  {
+    RegisterPreset(std::string(preset.id), std::string(preset.name), {});
+  }
 
-  (void)LoadPreset("juno.saw");
+  (void)LoadPreset("juno.a51");
 }
 
 std::string JunoSynthEngine::FormatParameterValue(const SynthParameterInfo& parameter) const
@@ -90,6 +54,17 @@ std::string JunoSynthEngine::FormatParameterValue(const SynthParameterInfo& para
     return kModes[std::clamp(parameter.value, 0, 3)];
   }
   return PagedSynthEngine::FormatParameterValue(parameter);
+}
+
+bool JunoSynthEngine::ShouldSyncParameterToRuntime(const SynthParameterInfo& parameter) const
+{
+  return parameter.id == "dco.range" || parameter.id == "vcf.cutoff" || parameter.id == "vcf.resonance";
+}
+
+bool JunoSynthEngine::ShouldSyncParameterOnPresetLoad(const SynthParameterInfo& parameter) const
+{
+  (void)parameter;
+  return false;
 }
 
 }  // namespace synth

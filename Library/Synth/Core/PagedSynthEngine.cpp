@@ -1,6 +1,7 @@
 #include "Library/Synth/Core/PagedSynthEngine.h"
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 
 #include "Devices/DeviceAudio.h"
@@ -16,6 +17,47 @@ constexpr std::size_t kMaxMidiMessagesPerFrame = 24;
 int ClampToParameterRange(const SynthParameterInfo& parameter, int value)
 {
   return std::clamp(value, parameter.minValue, parameter.maxValue);
+}
+
+std::string NormalizePresetName(std::string_view name)
+{
+  std::string normalized;
+  normalized.reserve(name.size());
+
+  bool lastWasSpace = true;
+  for (char character : name)
+  {
+    if (std::isspace(static_cast<unsigned char>(character)) != 0)
+    {
+      if (!lastWasSpace)
+      {
+        normalized.push_back(' ');
+        lastWasSpace = true;
+      }
+      continue;
+    }
+
+    normalized.push_back(character);
+    lastWasSpace = false;
+  }
+
+  if (!normalized.empty() && normalized.back() == ' ')
+  {
+    normalized.pop_back();
+  }
+
+  return normalized;
+}
+
+std::string FoldAscii(std::string_view text)
+{
+  std::string folded;
+  folded.reserve(text.size());
+  for (char character : text)
+  {
+    folded.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(character))));
+  }
+  return folded;
 }
 
 }  // namespace
@@ -225,7 +267,6 @@ bool PagedSynthEngine::LoadPreset(const std::string& presetId)
   {
     const auto valueIterator = iterator->values.find(parameter.id);
     parameter.value = valueIterator == iterator->values.end() ? parameter.defaultValue : ClampToParameterRange(parameter, valueIterator->second);
-    OnParameterChanged(parameter);
   }
 
   currentPresetId_ = iterator->info.id;
@@ -304,10 +345,19 @@ void PagedSynthEngine::RegisterPreset(const std::string& presetId,
 {
   PresetState preset;
   preset.info.id = presetId;
-  preset.info.name = presetName;
+  preset.info.name = NormalizePresetName(presetName);
   preset.info.writable = writable;
   preset.values = values;
   presets_.push_back(std::move(preset));
+  std::stable_sort(presets_.begin(), presets_.end(), [](const PresetState& left, const PresetState& right) {
+    const std::string leftName = FoldAscii(left.info.name);
+    const std::string rightName = FoldAscii(right.info.name);
+    if (leftName != rightName)
+    {
+      return leftName < rightName;
+    }
+    return left.info.id < right.info.id;
+  });
 }
 
 SynthParameterInfo* PagedSynthEngine::FindParameterMutable(const std::string& parameterId)
@@ -341,6 +391,10 @@ void PagedSynthEngine::OnParameterChanged(const SynthParameterInfo& parameter)
   {
     return;
   }
+  if (!ShouldSyncParameterToRuntime(parameter))
+  {
+    return;
+  }
 
   audio::SetEngineParameter(engineIndex_, parameter.id, parameter.value);
 }
@@ -362,8 +416,23 @@ void PagedSynthEngine::SyncRuntimeState()
   audio::SetEnginePreset(engineIndex_, currentPresetId_);
   for (const SynthParameterInfo& parameter : parameters_)
   {
+    if (!ShouldSyncParameterOnPresetLoad(parameter))
+    {
+      continue;
+    }
     audio::SetEngineParameter(engineIndex_, parameter.id, parameter.value);
   }
+}
+
+bool PagedSynthEngine::ShouldSyncParameterToRuntime(const SynthParameterInfo& parameter) const
+{
+  (void)parameter;
+  return true;
+}
+
+bool PagedSynthEngine::ShouldSyncParameterOnPresetLoad(const SynthParameterInfo& parameter) const
+{
+  return ShouldSyncParameterToRuntime(parameter);
 }
 
 std::string PagedSynthEngine::NextUserPresetId() const
