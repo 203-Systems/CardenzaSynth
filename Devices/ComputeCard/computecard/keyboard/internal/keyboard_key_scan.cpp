@@ -13,35 +13,35 @@
 
 namespace ComputeCardHAL::Keyboard {
 
-void KeyboardDriver::_set_output(const std::vector<int>& pinList, uint8_t output)
+void KeyboardDriver::_set_output(uint8_t output)
 {
     output = output & 0B00000111;
 
     uint64_t set_mask = 0;
     if (output & 0B00000001)
     {
-        set_mask |= detail::PinMask(pinList[0]);
+        set_mask |= detail::PinMask(Pins::kKeyboardOutputs[0]);
     }
     if (output & 0B00000010)
     {
-        set_mask |= detail::PinMask(pinList[1]);
+        set_mask |= detail::PinMask(Pins::kKeyboardOutputs[1]);
     }
     if (output & 0B00000100)
     {
-        set_mask |= detail::PinMask(pinList[2]);
+        set_mask |= detail::PinMask(Pins::kKeyboardOutputs[2]);
     }
 
     detail::FastWriteMask(set_mask, detail::KeyboardOutputMask() & ~set_mask);
 }
 
-uint8_t KeyboardDriver::_get_input(const std::vector<int>& pinList)
+uint8_t KeyboardDriver::_get_input()
 {
     uint8_t buffer = 0x00;
     uint8_t pin_value = 0x00;
 
-    for (int i = 0; i < 7; i++)
+    for (int i = 0; i < static_cast<int>(Pins::kKeyboardInputs.size()); i++)
     {
-        pin_value = (detail::FastReadPin(pinList[i]) == 1) ? 0x00 : 0x01;
+        pin_value = (detail::FastReadPin(Pins::kKeyboardInputs[i]) == 1) ? 0x00 : 0x01;
         pin_value = pin_value << i;
         buffer = buffer | pin_value;
     }
@@ -61,6 +61,7 @@ void KeyboardDriver::init()
 
     detail::InitKeyboardLedSpi();
     _shift_led_columns(0x00);
+    _scan_led_shifted_columns = 0x00;
 
     for (auto i : output_list)
     {
@@ -77,7 +78,7 @@ void KeyboardDriver::init()
         gpio_set_pull_mode((gpio_num_t)i, GPIO_PULLUP_ONLY);
     }
 
-    _set_output(output_list, 0);
+    _set_output(0);
 
     _mutex = xSemaphoreCreateMutex();
 
@@ -261,7 +262,7 @@ void KeyboardDriver::suspendScan()
 {
     if (_scan_timer && _scan_running)
     {
-        ESP_ERROR_CHECK(gptimer_stop(reinterpret_cast<gptimer_handle_t>(_scan_timer)));
+        ESP_ERROR_CHECK(gptimer_stop(_scan_timer));
         _scan_running = false;
         detail::FastWritePin(led_pin_list[0], true);
     }
@@ -273,8 +274,9 @@ void KeyboardDriver::resumeScan()
     {
         _scan_row = 0;
         _diag_scan_row = 0;
+        _scan_led_shifted_columns = 0xFF;
         _commit_led_frame();
-        ESP_ERROR_CHECK(gptimer_start(reinterpret_cast<gptimer_handle_t>(_scan_timer)));
+        ESP_ERROR_CHECK(gptimer_start(_scan_timer));
         _scan_running = true;
     }
 }
@@ -293,9 +295,9 @@ bool KeyboardDriver::handleTimerTickFromIsr()
     if (_diag_direct_mode)
     {
         const uint8_t scan_row = _diag_scan_row;
-        _set_output(output_list, scan_row);
+        _set_output(scan_row);
         esp_rom_delay_us(detail::kLedRowSelectSettleUs);
-        _scan_raw_key_scan[scan_row] = _get_input(input_list);
+        _scan_raw_key_scan[scan_row] = _get_input();
 
         _diag_scan_row = static_cast<uint8_t>((scan_row + 1) & 0x07);
         if (_diag_scan_row == 0)
@@ -304,28 +306,36 @@ bool KeyboardDriver::handleTimerTickFromIsr()
             vTaskNotifyGiveFromISR(_scan_task_handle, &high_task_woken);
         }
 
-        _set_output(output_list, _diag_row);
+        _set_output(_diag_row);
         _shift_led_columns(_diag_col);
+        _scan_led_shifted_columns = _diag_col;
         detail::FastWritePin(led_pin_list[0], _diag_en_level != 0);
         return high_task_woken == pdTRUE;
     }
 
     const uint8_t row = _scan_row;
-    _scan_raw_key_scan[row] = _get_input(input_list);
+    _scan_raw_key_scan[row] = _get_input();
 
     const uint8_t next_row = static_cast<uint8_t>((row + 1) & 0x07);
     _scan_row = next_row;
     if (next_row == 0)
     {
         _pwm_phase = static_cast<uint8_t>((_pwm_phase + 1) % detail::kLedPwmPhaseCount);
-        vTaskNotifyGiveFromISR(_scan_task_handle, &high_task_woken);
+        if (_pwm_phase == 0)
+        {
+            vTaskNotifyGiveFromISR(_scan_task_handle, &high_task_woken);
+        }
     }
 
-    _set_output(output_list, next_row);
+    _set_output(next_row);
     const uint8_t next_col_mask = _scan_led_enabled ? _scan_led_col_mask[_pwm_phase][next_row] : 0;
-    _shift_led_columns(next_col_mask);
     if (_scan_led_enabled && next_col_mask)
     {
+        if (next_col_mask != _scan_led_shifted_columns)
+        {
+            _shift_led_columns(next_col_mask);
+            _scan_led_shifted_columns = next_col_mask;
+        }
         detail::FastWritePin(led_pin_list[0], false);
     }
 

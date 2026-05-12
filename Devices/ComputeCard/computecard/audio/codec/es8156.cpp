@@ -20,7 +20,7 @@ struct RegisterValue {
 };
 
 constexpr uint16_t kCodecAddress = 0x08;
-constexpr uint32_t kI2cSpeedHz = 100000;
+constexpr uint32_t kI2cSpeedHz = 10000;
 constexpr int kI2cTimeoutMs = 250;
 constexpr int kStartupSettleDelayUs = 10000;
 constexpr uint8_t kResetControlRunSequenceDisabled = 0x02;

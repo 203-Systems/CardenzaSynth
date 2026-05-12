@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cinttypes>
 #include <cstdint>
 #include <mutex>
@@ -11,40 +12,40 @@
 #include "computecard/mic/mic.h"
 
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
 namespace {
 
 device::SynthAudioRenderProvider g_audioProvider{};
+std::atomic<device::SynthAudioRenderCallback> g_audioRenderCallback{nullptr};
 std::mutex g_audioProviderMutex;
 std::mutex g_audioOutputMutex;
 std::mutex g_audioInputMutex;
 bool g_audioOutputEnabled = false;
 bool g_audioInputEnabled = false;
 
-device::SynthAudioRenderProvider CurrentAudioProvider()
-{
-  std::lock_guard<std::mutex> lock(g_audioProviderMutex);
-  return g_audioProvider;
-}
-
 std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
 {
-  const device::SynthAudioRenderProvider provider = CurrentAudioProvider();
-  if (provider.renderFrames == nullptr)
+  const device::SynthAudioRenderCallback renderFrames = g_audioRenderCallback.load(std::memory_order_acquire);
+  if (renderFrames == nullptr)
   {
     std::fill(destination, destination + frameCount, 0);
     return frameCount;
   }
 
-  return provider.renderFrames(destination, frameCount);
+  return renderFrames(destination, frameCount);
 }
 
 constexpr std::size_t kRenderFrameCount = 256;
 constexpr BaseType_t kAudioTaskPinnedCore = 1;
 constexpr UBaseType_t kAudioTaskPriority = 6;
 constexpr uint32_t kAudioTaskStackSize = 16 * 1024;
+constexpr int64_t kRenderBudgetUs =
+  static_cast<int64_t>((1000000ULL * kRenderFrameCount) / device::kDefaultSynthAudioSampleRate);
+constexpr uint32_t kTimingLogBlockInterval = 1024;
+constexpr std::int32_t kVolumeScaleUnity = 32768;
 constexpr char kLogTag[] = "ComputeCardAudio";
 std::mutex g_audioPumpMutex;
 TaskHandle_t g_audioPumpTask = nullptr;
@@ -73,20 +74,29 @@ bool EnsureOutputChannelEnabled()
   return true;
 }
 
-bool WriteOutputFrames(const std::int16_t* samples, std::size_t sampleCount)
+void ApplyVolume(std::int16_t* samples, std::size_t sampleCount, std::uint8_t volume)
 {
-  if (samples == nullptr || sampleCount == 0)
+  if (volume >= 100)
   {
-    return false;
+    return;
   }
 
-  if (!EnsureOutputChannelEnabled())
+  const std::int32_t gain = (static_cast<std::int32_t>(volume) * kVolumeScaleUnity + 50) / 100;
+  for (std::size_t index = 0; index < sampleCount; ++index)
+  {
+    samples[index] = static_cast<std::int16_t>((static_cast<std::int32_t>(samples[index]) * gain) / kVolumeScaleUnity);
+  }
+}
+
+bool WriteOutputFrames(i2s_chan_handle_t outputChannel, const std::int16_t* samples, std::size_t sampleCount)
+{
+  if (outputChannel == nullptr || samples == nullptr || sampleCount == 0)
   {
     return false;
   }
 
   std::size_t bytesWritten = 0;
-  return i2s_channel_write(ComputeCardHAL::Audio::GetTxChannel(),
+  return i2s_channel_write(outputChannel,
                            samples,
                            sampleCount * sizeof(std::int16_t),
                            &bytesWritten,
@@ -109,21 +119,30 @@ void AudioRenderTask(void*)
     return;
   }
 
+  const i2s_chan_handle_t outputChannel = ComputeCardHAL::Audio::GetTxChannel();
+  if (outputChannel == nullptr)
+  {
+    ESP_LOGE(kLogTag, "I2S output channel missing");
+    ResetAudioPumpState();
+    vTaskDelete(nullptr);
+    return;
+  }
+
   std::array<std::int16_t, kRenderFrameCount> buffer{};
   std::uint32_t renderedBlocks = 0;
+  int64_t maxRenderUs = 0;
+  int64_t maxWriteUs = 0;
+  std::uint32_t overBudgetRenderCount = 0;
   for (;;)
   {
+    const int64_t renderStartUs = esp_timer_get_time();
     RenderSynthFrames(buffer.data(), buffer.size());
-    const float gain = static_cast<float>(ComputeCardHAL::Audio::GetVolume()) / 100.0f;
-    if (gain < 0.999f)
-    {
-      for (std::int16_t& sample : buffer)
-      {
-        sample = static_cast<std::int16_t>(static_cast<float>(sample) * gain);
-      }
-    }
+    const int64_t renderEndUs = esp_timer_get_time();
+    ApplyVolume(buffer.data(), buffer.size(), ComputeCardHAL::Audio::GetVolume());
 
-    if (!WriteOutputFrames(buffer.data(), buffer.size()))
+    const int64_t writeStartUs = esp_timer_get_time();
+
+    if (!WriteOutputFrames(outputChannel, buffer.data(), buffer.size()))
     {
       ESP_LOGE(kLogTag, "I2S write failed after %" PRIu32 " rendered blocks", renderedBlocks);
       ResetAudioPumpState();
@@ -131,7 +150,37 @@ void AudioRenderTask(void*)
       return;
     }
 
+    const int64_t writeEndUs = esp_timer_get_time();
+    const int64_t renderUs = renderEndUs - renderStartUs;
+    const int64_t writeUs = writeEndUs - writeStartUs;
+    maxRenderUs = (std::max)(maxRenderUs, renderUs);
+    maxWriteUs = (std::max)(maxWriteUs, writeUs);
+    if (renderUs > kRenderBudgetUs)
+    {
+      ++overBudgetRenderCount;
+      if (overBudgetRenderCount == 1 || (overBudgetRenderCount % 16) == 0)
+      {
+        ESP_LOGW(kLogTag,
+                 "audio render over budget: render=%" PRId64 "us budget=%" PRId64 "us write=%" PRId64 "us block=%" PRIu32 " overruns=%" PRIu32,
+                 renderUs,
+                 kRenderBudgetUs,
+                 writeUs,
+                 renderedBlocks,
+                 overBudgetRenderCount);
+      }
+    }
+
     ++renderedBlocks;
+    if ((renderedBlocks % kTimingLogBlockInterval) == 0)
+    {
+      ESP_LOGI(kLogTag,
+               "audio timing: blocks=%" PRIu32 " max_render=%" PRId64 "us max_write=%" PRId64 "us budget=%" PRId64 "us overruns=%" PRIu32,
+               renderedBlocks,
+               maxRenderUs,
+               maxWriteUs,
+               kRenderBudgetUs,
+               overBudgetRenderCount);
+    }
   }
 }
 
@@ -265,6 +314,7 @@ void SetSynthAudioRenderProvider(SynthAudioRenderProvider provider)
 {
   std::lock_guard<std::mutex> lock(g_audioProviderMutex);
   g_audioProvider = provider;
+  g_audioRenderCallback.store(provider.renderFrames, std::memory_order_release);
 }
 
 SynthAudioPipelineBinding ConnectSynthAudioPipeline(std::size_t engineIndex) {

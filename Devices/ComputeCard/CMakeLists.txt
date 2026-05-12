@@ -4,6 +4,7 @@ get_filename_component(CCOS_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(CCOS_COMPUTECARD_FIRMWARE_BUILD_DIR "${CCOS_ROOT}/build/ComputeCard")
 set(CCOS_COMPUTECARD_IDF_PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(CCOS_COMPUTECARD_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe")
+option(CCOS_AMY_EXPERIMENTAL_MULTICORE "Enable experimental AMY ESP32 multicore rendering" OFF)
 
 if(DEFINED COMPONENT_DIR)
     set(AMY_SRC_DIR ${CCOS_ROOT}/Library/third_party/amy/src)
@@ -44,6 +45,9 @@ if(DEFINED COMPONENT_DIR)
         AMY_WAVETABLE
         AMY_NO_MINIAUDIO
     )
+    if(CCOS_AMY_EXPERIMENTAL_MULTICORE)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE CCOS_AMY_EXPERIMENTAL_MULTICORE=1)
+    endif()
 
     target_compile_options(${COMPONENT_LIB} PRIVATE
         $<$<COMPILE_LANGUAGE:C>:-Wno-unused-parameter>
@@ -53,6 +57,12 @@ if(DEFINED COMPONENT_DIR)
         $<$<COMPILE_LANGUAGE:C>:-Wno-int-to-pointer-cast>
         $<$<COMPILE_LANGUAGE:C>:-Wno-pointer-to-int-cast>
     )
+
+    set(CCOS_AUDIO_HOT_SOURCES
+        ${CCOS_ROOT}/Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp
+        ${AMY_C_SOURCES}
+    )
+    set_source_files_properties(${CCOS_AUDIO_HOT_SOURCES} PROPERTIES COMPILE_OPTIONS "-O3")
 elseif(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}")
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)

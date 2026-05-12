@@ -58,6 +58,7 @@ using amy_embed::amy_event;
 using amy_embed::amy_simple_fill_buffer;
 using amy_embed::amy_start;
 using amy_embed::amy_stop;
+using amy_embed::amy_update;
 using amy_embed::output_sample_type;
 
 namespace synth::audio {
@@ -67,7 +68,18 @@ namespace {
 constexpr std::size_t kAmyFramesPerBlock = AMY_BLOCK_SIZE;
 constexpr std::size_t kAmyChannelCount = AMY_NCHANS;
 constexpr std::size_t kSamplerVoiceCount = 4;
+constexpr int kAmyMaxSynths = 8;
+constexpr int kAmyMaxVoices = 24;
+constexpr int kAmyMaxOscs = 160;
+#if defined(ESP_PLATFORM) && defined(CCOS_AMY_EXPERIMENTAL_MULTICORE)
+constexpr bool kAmyUseExperimentalMulticore = true;
+#else
+constexpr bool kAmyUseExperimentalMulticore = false;
+#endif
 constexpr float kOutputGain = 0.75f;
+constexpr std::int32_t kAmyOnlyOutputGainNumerator = 3;
+constexpr std::int32_t kAmyOnlyOutputGainDenominator = 8;
+constexpr float kDx7MaxAmyVelocity = 88.0f / 127.0f;
 constexpr float kTwoPi = 6.28318530717958647692f;
 
 struct SamplerParams {
@@ -146,6 +158,7 @@ std::array<std::int16_t, kAmyFramesPerBlock * kAmyChannelCount> g_amyBlock{};
 std::size_t g_amyBlockCursor = kAmyFramesPerBlock;
 std::deque<PendingEvent> g_pendingEvents;
 std::mutex g_pendingEventMutex;
+std::mutex g_renderMutex;
 
 struct AmyShutdown {
   ~AmyShutdown()
@@ -162,6 +175,16 @@ AmyShutdown g_amyShutdown;
 float Clamp01(float value)
 {
   return std::clamp(value, 0.0f, 1.0f);
+}
+
+std::int16_t ClampToInt16(std::int32_t value)
+{
+  return static_cast<std::int16_t>(std::clamp<std::int32_t>(value, INT16_MIN, INT16_MAX));
+}
+
+std::int16_t FloatToInt16(float sample)
+{
+  return static_cast<std::int16_t>(std::clamp(sample, -1.0f, 1.0f) * 32767.0f);
 }
 
 float Normalize(int value, int minimum, int maximum)
@@ -249,6 +272,19 @@ bool UsesAmy(SynthEngineKind kind)
   return kind == SynthEngineKind::Dx7 || kind == SynthEngineKind::Juno;
 }
 
+int VoiceCountFor(SynthEngineKind kind)
+{
+  switch (kind)
+  {
+    case SynthEngineKind::Dx7:
+      return 4;
+    case SynthEngineKind::Juno:
+      return 6;
+    default:
+      return 0;
+  }
+}
+
 int DefaultPatchFor(SynthEngineKind kind)
 {
   switch (kind)
@@ -296,11 +332,19 @@ void EnsureAmyInitialized()
     config.features.audio_in = 0;
     config.features.custom = 0;
     config.features.partials = 0;
+    config.features.reverb = 0;
+    config.features.echo = 0;
+    config.features.chorus = 0;
+  #if defined(ESP_PLATFORM)
+    config.platform.multicore = kAmyUseExperimentalMulticore ? 1 : 0;
+    config.platform.multithread = 0;
+  #else
     config.platform.multicore = 0;
     config.platform.multithread = 0;
-    config.max_synths = 16;
-    config.max_voices = 32;
-    config.max_oscs = 180;
+  #endif
+    config.max_synths = kAmyMaxSynths;
+    config.max_voices = kAmyMaxVoices;
+    config.max_oscs = kAmyMaxOscs;
     amy_start(config);
     g_amyInitialized = true;
   });
@@ -378,7 +422,7 @@ void ConfigureAmySynthNoLock(EngineState& engine)
   amy_event event = amy_default_event();
   event.synth = static_cast<uint16_t>(engine.synthId);
   event.patch_number = static_cast<uint16_t>(engine.patchNumber < 0 ? DefaultPatchFor(engine.kind) : engine.patchNumber);
-  event.num_voices = 6;
+  event.num_voices = static_cast<uint16_t>(VoiceCountFor(engine.kind));
   amy_add_event(&event);
 
   if (engine.kind == SynthEngineKind::Juno)
@@ -620,7 +664,12 @@ void ApplyPendingEvent(const PendingEvent& event)
         {
           SendAmyNoteEventNoLock(engine, event.note, 0.0f);
         }
-        SendAmyNoteEventNoLock(engine, event.note, std::clamp(static_cast<float>(event.velocity) / 127.0f, 0.0f, 1.0f));
+        float velocity = std::clamp(static_cast<float>(event.velocity) / 127.0f, 0.0f, 1.0f);
+        if (engine.kind == SynthEngineKind::Dx7)
+        {
+          velocity = (std::min)(velocity, kDx7MaxAmyVelocity);
+        }
+        SendAmyNoteEventNoLock(engine, event.note, velocity);
         engine.activeNotes[event.note] = true;
         return;
       }
@@ -658,26 +707,158 @@ void ApplyPendingEvent(const PendingEvent& event)
   }
 }
 
-// UI and MIDI handlers enqueue state changes here so they do not block behind a
-// full AMY render while the audio task is generating the next block.
 void DrainPendingEvents()
 {
-  for (;;)
+  std::deque<PendingEvent> pending;
   {
-    PendingEvent event;
-    {
-      std::lock_guard<std::mutex> lock(g_pendingEventMutex);
-      if (g_pendingEvents.empty())
-      {
-        return;
-      }
+    std::lock_guard<std::mutex> lock(g_pendingEventMutex);
+    pending.swap(g_pendingEvents);
+  }
 
-      event = g_pendingEvents.front();
-      g_pendingEvents.pop_front();
-    }
-
+  for (const PendingEvent& event : pending)
+  {
     ApplyPendingEvent(event);
   }
+}
+
+bool HasAmyEnginesNoLock()
+{
+  for (const EngineState& engine : g_engines)
+  {
+    if (engine.configured && UsesAmy(engine.kind))
+    {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool HasActiveSamplerVoicesNoLock()
+{
+  for (const EngineState& engine : g_engines)
+  {
+    if (!engine.configured || engine.kind != SynthEngineKind::Sampler)
+    {
+      continue;
+    }
+
+    for (const SamplerVoice& voice : engine.samplerVoices)
+    {
+      if (voice.active)
+      {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+void FetchAmyBlockNoLock()
+{
+  EnsureAmyInitialized();
+#if defined(ESP_PLATFORM) && defined(CCOS_AMY_EXPERIMENTAL_MULTICORE)
+  const output_sample_type* block = amy_update();
+#else
+  const output_sample_type* block = amy_simple_fill_buffer();
+#endif
+  if (block != nullptr)
+  {
+    std::memcpy(g_amyBlock.data(), block, sizeof(std::int16_t) * g_amyBlock.size());
+  }
+  else
+  {
+    std::fill(g_amyBlock.begin(), g_amyBlock.end(), 0);
+  }
+  g_amyBlockCursor = 0;
+}
+
+void RenderAmyOnlyFramesNoLock(std::int16_t* destination, std::size_t frameCount)
+{
+  std::size_t frameIndex = 0;
+  while (frameIndex < frameCount)
+  {
+    if (g_amyBlockCursor >= kAmyFramesPerBlock)
+    {
+      FetchAmyBlockNoLock();
+    }
+
+    const std::size_t framesAvailable = (std::min)(frameCount - frameIndex, kAmyFramesPerBlock - g_amyBlockCursor);
+    for (std::size_t offset = 0; offset < framesAvailable; ++offset)
+    {
+      const std::size_t sampleIndex = (g_amyBlockCursor + offset) * kAmyChannelCount;
+      const std::int32_t stereoSum = static_cast<std::int32_t>(g_amyBlock[sampleIndex]) +
+                                     static_cast<std::int32_t>(g_amyBlock[sampleIndex + 1]);
+      destination[frameIndex + offset] = ClampToInt16((stereoSum * kAmyOnlyOutputGainNumerator) / kAmyOnlyOutputGainDenominator);
+    }
+
+    g_amyBlockCursor += framesAvailable;
+    frameIndex += framesAvailable;
+  }
+}
+
+std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount)
+{
+  if (destination == nullptr)
+  {
+    return 0;
+  }
+
+  DrainPendingEvents();
+
+  const bool hasAmyEngines = HasAmyEnginesNoLock();
+  const bool hasActiveSamplerVoices = HasActiveSamplerVoicesNoLock();
+  if (!hasAmyEngines && !hasActiveSamplerVoices)
+  {
+    std::fill(destination, destination + frameCount, 0);
+    return frameCount;
+  }
+
+  if (hasAmyEngines && !hasActiveSamplerVoices)
+  {
+    RenderAmyOnlyFramesNoLock(destination, frameCount);
+    return frameCount;
+  }
+
+  for (std::size_t frameIndex = 0; frameIndex < frameCount; ++frameIndex)
+  {
+    float mixedSample = 0.0f;
+
+    if (hasAmyEngines)
+    {
+      if (g_amyBlockCursor >= kAmyFramesPerBlock)
+      {
+        FetchAmyBlockNoLock();
+      }
+
+      const std::size_t sampleIndex = g_amyBlockCursor * kAmyChannelCount;
+      mixedSample += (static_cast<float>(g_amyBlock[sampleIndex]) + static_cast<float>(g_amyBlock[sampleIndex + 1])) / 65536.0f;
+      ++g_amyBlockCursor;
+    }
+
+    for (EngineState& engine : g_engines)
+    {
+      if (!engine.configured || engine.kind != SynthEngineKind::Sampler)
+      {
+        continue;
+      }
+
+      for (SamplerVoice& voice : engine.samplerVoices)
+      {
+        if (!voice.active)
+        {
+          continue;
+        }
+        mixedSample += RenderSamplerVoice(engine.sampler, voice) * 0.45f;
+      }
+    }
+
+    mixedSample = std::tanh(mixedSample * kOutputGain);
+    destination[frameIndex] = FloatToInt16(mixedSample);
+  }
+
+  return frameCount;
 }
 
 }  // namespace
@@ -782,70 +963,17 @@ void AllNotesOff(std::size_t engineIndex)
   QueuePendingEvent(event);
 }
 
+void WarmUp()
+{
+  std::array<std::int16_t, kAmyFramesPerBlock> scratch{};
+  std::lock_guard<std::mutex> lock(g_renderMutex);
+  (void)RenderFramesNoLock(scratch.data(), scratch.size());
+}
+
 std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
 {
-  if (destination == nullptr)
-  {
-    return 0;
-  }
-
-  std::fill(destination, destination + frameCount, 0);
-  DrainPendingEvents();
-
-  bool hasAmyEngines = false;
-  for (const EngineState& engine : g_engines)
-  {
-    if (engine.configured && UsesAmy(engine.kind))
-    {
-      hasAmyEngines = true;
-      break;
-    }
-  }
-
-  for (std::size_t frameIndex = 0; frameIndex < frameCount; ++frameIndex)
-  {
-    float mixedSample = 0.0f;
-
-    if (hasAmyEngines)
-    {
-      if (g_amyBlockCursor >= kAmyFramesPerBlock)
-      {
-        EnsureAmyInitialized();
-        const output_sample_type* block = amy_simple_fill_buffer();
-        if (block != nullptr)
-        {
-          std::memcpy(g_amyBlock.data(), block, sizeof(std::int16_t) * g_amyBlock.size());
-        }
-        else
-        {
-          std::fill(g_amyBlock.begin(), g_amyBlock.end(), 0);
-        }
-        g_amyBlockCursor = 0;
-      }
-
-      const std::size_t sampleIndex = g_amyBlockCursor * kAmyChannelCount;
-      mixedSample += (static_cast<float>(g_amyBlock[sampleIndex]) + static_cast<float>(g_amyBlock[sampleIndex + 1])) / 65536.0f;
-      ++g_amyBlockCursor;
-    }
-
-    for (EngineState& engine : g_engines)
-    {
-      if (!engine.configured || engine.kind != SynthEngineKind::Sampler)
-      {
-        continue;
-      }
-
-      for (SamplerVoice& voice : engine.samplerVoices)
-      {
-        mixedSample += RenderSamplerVoice(engine.sampler, voice) * 0.45f;
-      }
-    }
-
-    mixedSample = std::tanh(mixedSample * kOutputGain);
-    destination[frameIndex] = static_cast<std::int16_t>(std::clamp(mixedSample, -1.0f, 1.0f) * 32767.0f);
-  }
-
-  return frameCount;
+  std::lock_guard<std::mutex> lock(g_renderMutex);
+  return RenderFramesNoLock(destination, frameCount);
 }
 
 }  // namespace synth::audio

@@ -18,6 +18,7 @@ void SetSamplerFrames(std::size_t engineIndex, const std::vector<std::int16_t>& 
 void NoteOn(std::size_t engineIndex, std::uint8_t note, std::uint8_t velocity);
 void NoteOff(std::size_t engineIndex, std::uint8_t note);
 void AllNotesOff(std::size_t engineIndex);
+void WarmUp();
 std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount);
 
 }  // namespace synth::audio

@@ -1,6 +1,7 @@
 DEVICE ?= ComputeCard
 IDF_TARGET ?= esp32s3
 PORT ?=
+AMY_MULTICORE ?= 0
 
 ifeq ($(DEVICE),ComputeCard)
 BUILD := build/ComputeCard
@@ -29,6 +30,11 @@ endif
 
 IDF_PORT_ARG := $(if $(PORT),-p '$(PORT)',)
 COMPUTECARD_IDF_ARGS := -B '$(abspath $(BUILD))'
+ifeq ($(AMY_MULTICORE),1)
+COMPUTECARD_IDF_ARGS += -DCCOS_AMY_EXPERIMENTAL_MULTICORE=ON
+else
+COMPUTECARD_IDF_ARGS += -DCCOS_AMY_EXPERIMENTAL_MULTICORE=OFF
+endif
 
 .PHONY: all build run set-target flash bootloader-flash app-flash erase monitor flash-monitor clean fullclean validate-architecture firmware firmware-target host computecard computecard-firmware computecard-flash computecard-monitor computecard-flash-monitor computecard-host computecard-clean computecard-fullclean
 

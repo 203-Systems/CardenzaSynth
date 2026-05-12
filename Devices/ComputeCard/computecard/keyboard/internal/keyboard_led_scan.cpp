@@ -102,6 +102,7 @@ bool KeyboardDriver::enableLED(bool enabled)
     if (!enabled)
     {
         detail::FastWritePin(led_pin_list[0], true);
+        _scan_led_shifted_columns = 0xFF;
     }
     return _led_enabled;
 }

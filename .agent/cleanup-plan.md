@@ -194,7 +194,7 @@ Cleanup still needed:
 
 - The old `Devices/ComputeCard/main/hal` path is not actually present; `Devices/ComputeCard/main` is empty. Do not plan cleanup work around ghost search results.
 - `Devices/ComputeCard/esp-idf/main/CMakeLists.txt` still duplicates the ESP-IDF component registration path already handled by `Devices/ComputeCard/CMakeLists.txt` when `COMPONENT_DIR` is defined. Decide which one is canonical and remove the duplicate path after validating firmware builds.
-- `Devices/ComputeCard/CMakeLists.txt` hard-codes `C:/espressif/v5.3.4/export.ps1` for the `CardputerFirmware` target. That belongs in user environment config or a wrapper script, not project architecture.
+- `Devices/ComputeCard/CMakeLists.txt` hard-codes `C:/espressif/v5.3.4/export.ps1` for the `ComputeCardFirmware` target. That belongs in user environment config or a wrapper script, not project architecture.
 - `Makefile` and docs now agree on the Windows firmware path: run `make DEVICE=ComputeCard ...` from an already exported ESP-IDF shell, and let the Makefile `cd` into `Devices/ComputeCard` before invoking `idf.py` directly.
 
 ### Next review slice

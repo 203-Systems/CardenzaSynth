@@ -43,11 +43,12 @@ bool PagedSynthEngine::Init(const SynthEngineInit& init)
 
   audio::EnsureEngine(engineIndex_, descriptor_.kind);
   device::SetSynthAudioRenderProvider({audio::kSampleRate, audio::RenderFrames});
+  SyncRuntimeState();
+  audio::WarmUp();
   const device::SynthAudioPipelineBinding audioBinding = device::ConnectSynthAudioPipeline(init.engineIndex);
   audioBackendName_ = audioBinding.backendName;
   audioConnected_ = audioBinding.connected;
   audioHasNativeOutput_ = audioBinding.hasNativeOutput;
-  SyncRuntimeState();
   lastEvent_ = audioBinding.connected ? "ready" : "ready (audio pending)";
   return true;
 }

@@ -8,6 +8,8 @@
 #include <driver/i2s_std.h>
 #include <freertos/FreeRTOS.h>
 
+#include <atomic>
+
 namespace ComputeCardHAL::Audio {
 
 namespace {
@@ -20,7 +22,7 @@ enum class CodecStatus : uint8_t {
 
 i2s_chan_handle_t txChannel = nullptr;
 CodecStatus codecStatus = CodecStatus::NotProbed;
-uint8_t outputVolume = 100;
+std::atomic<uint8_t> outputVolume{100};
 
 constexpr char kLogTag[] = "ComputeCardAudio";
 
@@ -123,7 +125,7 @@ bool ApplyCachedVolume()
         return true;
     }
 
-    return Codec::ES8156::SetVolume(outputVolume);
+    return Codec::ES8156::SetVolume(outputVolume.load(std::memory_order_relaxed));
 }
 
 }  // namespace
@@ -150,13 +152,13 @@ bool SetVolume(uint8_t value)
         value = 100;
     }
 
-    outputVolume = value;
+    outputVolume.store(value, std::memory_order_relaxed);
     return ApplyCachedVolume();
 }
 
 uint8_t GetVolume()
 {
-    return outputVolume;
+    return outputVolume.load(std::memory_order_relaxed);
 }
 
 }  // namespace ComputeCardHAL::Audio

@@ -94,7 +94,7 @@ std::vector<std::string> CollectSamplerBrowserEntries()
 
   while (const dirent* entry = readdir(directory))
   {
-    if (entry == nullptr || entry->d_name == nullptr)
+    if (entry->d_name[0] == '\0')
     {
       continue;
     }
