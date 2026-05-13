@@ -149,13 +149,13 @@ void SynthApp::UpdateLeds() {
   {
     for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
     {
-      for (std::size_t column = synth::kHomePerformanceFirstColumn; column <= synth::kHomePerformanceLastColumn; ++column)
+      for (std::size_t column = synth::kHomeLeftBarColumn + 1; column < synth::kHomeRightBarColumn; ++column)
       {
         if (activeKeys_[activeTrack][KeyIndex(row, column)])
         {
           Device::LED::SetKey(row, column, kActiveLedBrightness);
         }
-        else if (ui_.IsHomePerformanceKeyLit(row, column))
+        else if (ui_.IsKeyboardHintKeyLit(row, column))
         {
           Device::LED::SetKey(row, column, kPerformanceHintLedBrightness);
         }

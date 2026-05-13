@@ -37,6 +37,7 @@ public:
   std::string HeaderEngine(const ISynthEngine* engine) const;
   std::string HeaderTrack() const;
   bool IsHomePerformanceKey(std::size_t row, std::size_t col) const;
+  bool IsKeyboardHintKeyLit(std::size_t row, std::size_t col) const;
   bool IsHomePerformanceKeyLit(std::size_t row, std::size_t col) const;
   std::uint8_t HomePerformanceMidiNote(std::size_t row, std::size_t col) const;
   const std::string& PatchName() const;

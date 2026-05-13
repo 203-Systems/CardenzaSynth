@@ -983,6 +983,23 @@ bool SynthUiModel::IsHomePerformanceKey(std::size_t row, std::size_t col) const
   return KeyboardMidiNoteForKey(row, col, note);
 }
 
+bool SynthUiModel::IsKeyboardHintKeyLit(std::size_t row, std::size_t col) const
+{
+  if (row >= kKeyboardMatrixRows || col <= kHomeLeftBarColumn || col >= kHomeRightBarColumn)
+  {
+    return false;
+  }
+
+  if (mode_ == UiMode::ContextMenu && presetBrowserMode_)
+  {
+    const std::size_t contextMenuColumns = ContextMenuColumnCount();
+    const std::size_t contextMenuFirstColumn = contextMenuColumns == 1 ? kHomeRightBarColumn : kContextMenuFirstColumn;
+    return col < contextMenuFirstColumn;
+  }
+
+  return IsHomePerformanceKeyLit(row, col);
+}
+
 bool SynthUiModel::IsKeyboardScaleNote(int note) const
 {
   const int noteFromRoot = PositiveModulo(note - keyboardRootNote_, 12);
