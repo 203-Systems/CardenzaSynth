@@ -97,6 +97,8 @@ private:
   void ExitSamplerRecordConfirm();
   void MoveSamplerTrimCursor(int delta);
   void SetSamplerTrimBoundary(ISynthEngine* engine, bool begin);
+  bool HandlePresetBrowserAutoScroll(const ISynthEngine* engine, std::chrono::steady_clock::time_point now);
+  void StepPresetBrowserSelection(const ISynthEngine* engine, int delta);
   void ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& cell, std::size_t index);
   std::size_t PageCountForModifier(const ISynthEngine* engine) const;
   ContextMenuGrid BuildSoundMenu(const ISynthEngine* engine) const;
@@ -140,6 +142,8 @@ private:
   std::string selectedParameterGroupId_;
   int heldContextMenuIndex_ = -1;
   std::chrono::steady_clock::time_point contextMenuPressStartedAt_{};
+  std::chrono::steady_clock::time_point presetBrowserAutoScrollLastAt_{};
+  bool heldContextMenuActionConsumed_ = false;
   bool contextMenuHintVisible_ = false;
   std::string heldContextMenuHintTitle_;
   std::string heldContextMenuHintText_;

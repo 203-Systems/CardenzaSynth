@@ -195,11 +195,10 @@ void DrawSoundContextContent(ui::Canvas& canvas, const ui::Rect& rect, const UiS
                                           ? snapshot.secondaryText.substr(start)
                                           : snapshot.secondaryText.substr(start, newline - start);
       const bool selected = !encodedLine.empty() && encodedLine.front() == '>';
-      const bool active = !encodedLine.empty() && encodedLine.front() == '*';
       const std::string line = !encodedLine.empty() && (encodedLine.front() == '>' || encodedLine.front() == ' ' || encodedLine.front() == '*')
                                    ? encodedLine.substr(1)
                                    : encodedLine;
-      const ui::Color lineColor = selected || active ? accent : text;
+      const ui::Color lineColor = selected ? accent : text;
                       canvas.DrawText(rect.x,
                       lineY,
                               TruncateText(canvas, line, rect.width, lineScale),

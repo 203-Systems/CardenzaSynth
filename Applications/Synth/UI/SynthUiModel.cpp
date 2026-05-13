@@ -27,6 +27,7 @@ namespace {
 constexpr float kTransitionStep = 0.18f;
 constexpr auto kModifierHoldDelay = std::chrono::milliseconds(200);
 constexpr auto kContextHintHoldDelay = std::chrono::milliseconds(450);
+constexpr auto kPresetBrowserAutoScrollInterval = std::chrono::milliseconds(90);
 constexpr auto kHomeOctaveStatusDuration = std::chrono::seconds(1);
 constexpr int kKeyboardOctaveMin = -3;
 constexpr int kKeyboardOctaveMax = 3;
@@ -647,7 +648,8 @@ void SynthUiModel::Tick(const ISynthEngine* engine)
     }
   }
 
-  if (mode_ == UiMode::ContextMenu && heldContextMenuIndex_ >= 0 && !contextMenuHintVisible_ &&
+  const bool heldPresetBrowserScroll = HandlePresetBrowserAutoScroll(engine, now);
+  if (!heldPresetBrowserScroll && mode_ == UiMode::ContextMenu && heldContextMenuIndex_ >= 0 && !contextMenuHintVisible_ &&
       contextMenuPressStartedAt_ != std::chrono::steady_clock::time_point{} &&
       (now - contextMenuPressStartedAt_) >= kContextHintHoldDelay)
   {
@@ -771,6 +773,8 @@ MatrixKeyHandling SynthUiModel::PressMatrixKey(ISynthEngine* engine, std::size_t
     heldContextMenuIndex_ = static_cast<int>(menuIndex);
     contextMenuHintVisible_ = false;
     contextMenuPressStartedAt_ = std::chrono::steady_clock::now();
+    presetBrowserAutoScrollLastAt_ = std::chrono::steady_clock::time_point{};
+    heldContextMenuActionConsumed_ = false;
     heldContextMenuHintTitle_.clear();
     heldContextMenuHintText_.clear();
     if (menuIndex < menu.size())
@@ -804,7 +808,8 @@ void SynthUiModel::ReleaseMatrixKey(ISynthEngine* engine, std::size_t row, std::
       col < contextMenuFirstColumn + contextMenuColumns)
   {
     const std::size_t menuIndex = contextMenuColumns == 1 ? row : row * kContextMenuColumns + (col - contextMenuFirstColumn);
-    const bool shouldApply = heldContextMenuIndex_ == static_cast<int>(menuIndex) && !contextMenuHintVisible_;
+    const bool shouldApply = heldContextMenuIndex_ == static_cast<int>(menuIndex) && !contextMenuHintVisible_ &&
+                             !heldContextMenuActionConsumed_;
     const auto menu = CurrentMenuCells(engine);
     if (shouldApply && menuIndex < menu.size())
     {
@@ -813,6 +818,8 @@ void SynthUiModel::ReleaseMatrixKey(ISynthEngine* engine, std::size_t row, std::
 
     heldContextMenuIndex_ = -1;
     contextMenuPressStartedAt_ = std::chrono::steady_clock::time_point{};
+    presetBrowserAutoScrollLastAt_ = std::chrono::steady_clock::time_point{};
+    heldContextMenuActionConsumed_ = false;
     contextMenuHintVisible_ = false;
     heldContextMenuHintTitle_.clear();
     heldContextMenuHintText_.clear();
@@ -865,6 +872,8 @@ void SynthUiModel::ExitToHome()
   activeMenuColumn_ = 0;
   heldContextMenuIndex_ = -1;
   contextMenuPressStartedAt_ = std::chrono::steady_clock::time_point{};
+  presetBrowserAutoScrollLastAt_ = std::chrono::steady_clock::time_point{};
+  heldContextMenuActionConsumed_ = false;
   contextMenuHintVisible_ = false;
   heldContextMenuHintTitle_.clear();
   heldContextMenuHintText_.clear();
@@ -1831,6 +1840,67 @@ void SynthUiModel::SetSamplerTrimBoundary(ISynthEngine* engine, bool begin)
   samplerTrimCursor_ = std::max(samplerTrimCursor_, std::min(127, currentStart + 1));
   (void)engine->SetParameterValue("sample.end", samplerTrimCursor_);
   SelectStatus("End", engine->DescribeParameterValue("sample.end"), "sample.end");
+}
+
+bool SynthUiModel::HandlePresetBrowserAutoScroll(const ISynthEngine* engine, std::chrono::steady_clock::time_point now)
+{
+  if (mode_ != UiMode::ContextMenu || !presetBrowserMode_ || activeModifier_ != UiModifier::Sound || heldContextMenuIndex_ < 0)
+  {
+    return false;
+  }
+
+  const auto menu = CurrentMenuCells(engine);
+  const std::size_t menuIndex = static_cast<std::size_t>(heldContextMenuIndex_);
+  if (menuIndex >= menu.size())
+  {
+    return false;
+  }
+
+  const ContextActionId actionId = menu[menuIndex].actionId;
+  if (actionId != ContextActionId::PresetPrev && actionId != ContextActionId::PresetNext)
+  {
+    return false;
+  }
+
+  if (contextMenuPressStartedAt_ == std::chrono::steady_clock::time_point{} ||
+      (now - contextMenuPressStartedAt_) < kContextHintHoldDelay)
+  {
+    return true;
+  }
+
+  if (presetBrowserAutoScrollLastAt_ != std::chrono::steady_clock::time_point{} &&
+      (now - presetBrowserAutoScrollLastAt_) < kPresetBrowserAutoScrollInterval)
+  {
+    return true;
+  }
+
+  StepPresetBrowserSelection(engine, actionId == ContextActionId::PresetNext ? 1 : -1);
+  presetBrowserAutoScrollLastAt_ = now;
+  heldContextMenuActionConsumed_ = true;
+  return true;
+}
+
+void SynthUiModel::StepPresetBrowserSelection(const ISynthEngine* engine, int delta)
+{
+  const auto presets = CollectPresetMatches(engine, presetSearchText_);
+  if (presets.empty())
+  {
+    return;
+  }
+
+  if (delta < 0)
+  {
+    if (presetBrowserSelectionIndex_ > 0)
+    {
+      --presetBrowserSelectionIndex_;
+    }
+    return;
+  }
+
+  if (delta > 0)
+  {
+    presetBrowserSelectionIndex_ = std::min(presetBrowserSelectionIndex_ + 1, presets.size() - 1);
+  }
 }
 
 void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& cell, std::size_t index)
