@@ -184,6 +184,17 @@ void SynthApp::HandleMatrixKeyEvent(std::size_t row, std::size_t col, bool press
   ReleaseMatrixKey(row, col);
 }
 
+void SynthApp::HandleHomeButtonEvent(bool pressed)
+{
+  if (!pressed)
+  {
+    return;
+  }
+
+  ui_.HandleHomeButton(ActiveEngine());
+  SyncUiTracks();
+}
+
 synth::MatrixKeyHandling SynthApp::PressMatrixKey(std::size_t row, std::size_t col) {
   const auto handling = ui_.PressMatrixKey(ActiveEngineMutable(), row, col);
   ApplyPendingUiActions();

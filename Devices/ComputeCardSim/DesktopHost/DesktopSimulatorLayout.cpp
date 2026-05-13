@@ -28,6 +28,7 @@ void DesktopSimulator::UpdateLayout()
     scaleButtons_[index] = MakeRect(currentX, currentY, kScaleButtonWidth, kScaleButtonHeight);
     currentX += kScaleButtonWidth + 8;
   }
+  homeButton_ = MakeRect(currentX, currentY, 88, kScaleButtonHeight);
 
   const int screenWidth = kScreenWidth * scale_;
   const int screenHeight = kScreenHeight * scale_;

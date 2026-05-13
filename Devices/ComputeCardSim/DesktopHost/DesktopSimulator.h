@@ -55,6 +55,7 @@ private:
   void OnLeftButtonUp();
   void OnKeyDown(UINT virtualKey);
 
+  void TapHomeButton();
   bool ShouldCaptureKey(MatrixPosition position) const;
   void SetVirtualKey(MatrixPosition position, bool pressed);
   void TapVirtualKey(MatrixPosition position);
@@ -92,6 +93,7 @@ private:
   std::unique_ptr<DesktopDebugSession> debugSession_;
   std::array<KeyVisual, kKeyboardRows * kKeyboardColumns> keyboard_{};
   std::array<RECT, 3> scaleButtons_{};
+  RECT homeButton_{};
   std::array<RECT, kKeyboardRows * kKeyboardColumns> keyButtons_{};
   RECT screenRect_{};
   RECT keyboardHeaderRect_{};

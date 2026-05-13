@@ -25,6 +25,13 @@ void DesktopSimulator::OnLeftButtonDown(int x, int y)
     }
   }
 
+  if (PointInRect(homeButton_, point))
+  {
+    TapHomeButton();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+    return;
+  }
+
   for (std::size_t index = 0; index < keyButtons_.size(); ++index)
   {
     if (PointInRect(keyButtons_[index], point))
@@ -115,7 +122,22 @@ void DesktopSimulator::OnKeyDown(UINT virtualKey)
       scale_ = nextScale;
       ResizeForScale();
     }
+    return;
   }
+
+  if (virtualKey == VK_HOME)
+  {
+    TapHomeButton();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+  }
+}
+
+void DesktopSimulator::TapHomeButton()
+{
+  ComputeCardSim::Input::SetHomeButton(true);
+  os::system::RunFrame();
+  ComputeCardSim::Input::SetHomeButton(false);
+  os::system::RunFrame();
 }
 
 bool DesktopSimulator::ShouldCaptureKey(MatrixPosition position) const

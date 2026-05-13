@@ -53,6 +53,12 @@ const MatrixKeyState& State();
 
 }  // namespace Keyboard
 
+namespace Buttons {
+
+bool HomePressed();
+
+}  // namespace Buttons
+
 namespace LED {
 
 inline constexpr int kRows = Keyboard::kRows;

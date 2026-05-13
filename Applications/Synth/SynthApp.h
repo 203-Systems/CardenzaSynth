@@ -19,6 +19,7 @@ public:
   void UpdateLeds() override;
   void RenderFrame() override;
   void HandleMatrixKeyEvent(std::size_t row, std::size_t col, bool pressed) override;
+  void HandleHomeButtonEvent(bool pressed) override;
 
   std::string DebugView() const;
   synth::MatrixKeyHandling PressMatrixKey(std::size_t row, std::size_t col);

@@ -19,6 +19,11 @@ Device::Keyboard::MatrixKeyState& PreviousKeyStateStorage() {
   return state;
 }
 
+bool& PreviousHomeButtonStateStorage() {
+  static bool pressed = false;
+  return pressed;
+}
+
 bool& StartedStorage() {
   static bool started = false;
   return started;
@@ -49,6 +54,18 @@ void DispatchMatrixKeyEvents(app::Application& application) {
   previousState = currentState;
 }
 
+void DispatchHomeButtonEvents(app::Application& application) {
+  bool& previousPressed = PreviousHomeButtonStateStorage();
+  const bool currentPressed = Device::Buttons::HomePressed();
+  if (currentPressed == previousPressed)
+  {
+    return;
+  }
+
+  application.HandleHomeButtonEvent(currentPressed);
+  previousPressed = currentPressed;
+}
+
 }  // namespace
 
 bool Begin(const BootOptions& options) {
@@ -72,6 +89,7 @@ bool Begin(const BootOptions& options) {
   ActiveApplicationStorage()->Setup(options.applicationArgs);
   Device::Start();
   PreviousKeyStateStorage() = Device::Keyboard::State();
+  PreviousHomeButtonStateStorage() = Device::Buttons::HomePressed();
   StartedStorage() = true;
 
   UpdateApplicationLeds(*ActiveApplicationStorage());
@@ -89,6 +107,7 @@ void RunFrame() {
   }
 
   DispatchMatrixKeyEvents(*application);
+  DispatchHomeButtonEvents(*application);
   application->Tick();
   UpdateApplicationLeds(*application);
   application->RenderFrame();

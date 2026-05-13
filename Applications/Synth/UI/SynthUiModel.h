@@ -23,6 +23,7 @@ public:
   void Tick(const ISynthEngine* engine);
   MatrixKeyHandling PressMatrixKey(ISynthEngine* engine, std::size_t row, std::size_t col);
   void ReleaseMatrixKey(ISynthEngine* engine, std::size_t row, std::size_t col);
+  void HandleHomeButton(const ISynthEngine* engine);
   void ExitToHome();
 
   std::size_t ActiveTrack() const { return activeTrack_; }
@@ -99,6 +100,7 @@ private:
   void SetSamplerTrimBoundary(ISynthEngine* engine, bool begin);
   bool HandlePresetBrowserAutoScroll(const ISynthEngine* engine, std::chrono::steady_clock::time_point now);
   void StepPresetBrowserSelection(const ISynthEngine* engine, int delta);
+  bool IsContextRoot() const;
   void ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& cell, std::size_t index);
   std::size_t PageCountForModifier(const ISynthEngine* engine) const;
   ContextMenuGrid BuildSoundMenu(const ISynthEngine* engine) const;

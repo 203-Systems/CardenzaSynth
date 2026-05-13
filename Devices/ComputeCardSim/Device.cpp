@@ -17,6 +17,7 @@ namespace fs = std::filesystem;
 
 std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
 Device::Keyboard::MatrixKeyState keyboardState{};
+bool homeButtonPressed = false;
 std::array<std::uint8_t, Device::LED::kLedCount> keyboardLedState{};
 std::uint8_t keyboardLedGlobalBrightness = Device::LED::kBrightnessMax;
 bool keyboardLedsEnabled = false;
@@ -70,6 +71,10 @@ void SetMatrixKey(std::size_t row, std::size_t column, bool pressed) {
   keyboardState.set(MatrixIndex(row, column), pressed);
 }
 
+void SetHomeButton(bool pressed) {
+  homeButtonPressed = pressed;
+}
+
 void ClearMatrixKeys() {
   keyboardState.reset();
 }
@@ -103,6 +108,14 @@ const MatrixKeyState& State() {
 }
 
 }  // namespace Keyboard
+
+namespace Buttons {
+
+bool HomePressed() {
+  return homeButtonPressed;
+}
+
+}  // namespace Buttons
 
 namespace LED {
 

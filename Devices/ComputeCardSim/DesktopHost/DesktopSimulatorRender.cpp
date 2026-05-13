@@ -12,7 +12,7 @@ namespace ComputeCardSim::DesktopHost {
 
 std::string DesktopSimulator::FooterText() const
 {
-  return "Scale: 1 / 2 / 4. Home: left edge = track/modifier bar, columns 1-8 perform, right edge = action bar. Context: hold left edge and use the right-side menu.";
+  return "Scale: 1 / 2 / 4 plus HOME. Left edge = track/modifier bar, columns 1-8 perform, right edge = action bar.";
 }
 
 std::string DesktopSimulator::KeyboardHeaderText() const
@@ -173,6 +173,10 @@ void DesktopSimulator::DrawScaleButtons(HDC dc)
     label << buttonScale << 'x';
     DrawTextBlock(dc, textRect, label.str(), DT_CENTER | DT_SINGLELINE | DT_VCENTER, kTextColor, 16, FW_SEMIBOLD);
   }
+
+  DrawRoundPanel(dc, homeButton_, kModifierColor, kPanelEdgeColor);
+  RECT textRect = homeButton_;
+  DrawTextBlock(dc, textRect, "HOME", DT_CENTER | DT_SINGLELINE | DT_VCENTER, kTextColor, 16, FW_SEMIBOLD);
 }
 
 void DesktopSimulator::DrawKeyboard(HDC dc)

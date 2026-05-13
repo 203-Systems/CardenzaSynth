@@ -668,13 +668,25 @@ MatrixKeyHandling SynthUiModel::PressMatrixKey(ISynthEngine* engine, std::size_t
   {
     if (mode_ == UiMode::ContextMenu && contextLatched_)
     {
-      if (row == 0)
+      const UiScreenSnapshot from = BuildScreenSnapshot(engine);
+      ClearHeldModifiers();
+      if (IsContextRoot())
       {
-        const UiScreenSnapshot from = BuildScreenSnapshot(engine);
-        ClearHeldModifiers();
         ExitToHome();
-        StartTransition(from, BuildScreenSnapshot(engine));
       }
+      else
+      {
+        ApplyMenuCell(engine, MakeActionCell("BACK", ContextActionId::Back), 0);
+        heldContextMenuIndex_ = -1;
+        contextMenuPressStartedAt_ = std::chrono::steady_clock::time_point{};
+        presetBrowserAutoScrollLastAt_ = std::chrono::steady_clock::time_point{};
+        heldContextMenuActionConsumed_ = false;
+        contextMenuHintVisible_ = false;
+        heldContextMenuHintTitle_.clear();
+        heldContextMenuHintText_.clear();
+        hasMenuHighlight_ = false;
+      }
+      StartTransition(from, BuildScreenSnapshot(engine));
       return MatrixKeyHandling::Ignored;
     }
 
@@ -889,6 +901,15 @@ void SynthUiModel::ExitToHome()
   contextLatched_ = false;
   selectedParameterGroupId_.clear();
   ClearContextSelection();
+}
+
+void SynthUiModel::HandleHomeButton(const ISynthEngine* engine)
+{
+  const UiScreenSnapshot from = BuildScreenSnapshot(engine);
+  ClearHeldModifiers();
+  heldHomeActionRows_.fill(false);
+  ExitToHome();
+  StartTransition(from, BuildScreenSnapshot(engine));
 }
 
 std::string SynthUiModel::HeaderEngine(const ISynthEngine* engine) const
@@ -1274,8 +1295,11 @@ UiBarSnapshot SynthUiModel::BuildHomeActionBarSnapshot() const
 UiBarSnapshot BuildContextBackBarSnapshot()
 {
   UiBarSnapshot items{};
-  items[0].label = "BACK";
-  items[0].active = true;
+  for (UiBarItemSnapshot& item : items)
+  {
+    item.label = "BACK";
+    item.active = true;
+  }
   return items;
 }
 
@@ -1901,6 +1925,24 @@ void SynthUiModel::StepPresetBrowserSelection(const ISynthEngine* engine, int de
   {
     presetBrowserSelectionIndex_ = std::min(presetBrowserSelectionIndex_ + 1, presets.size() - 1);
   }
+}
+
+bool SynthUiModel::IsContextRoot() const
+{
+  const SamplerTrackUiState& sampler = tracks_[activeTrack_].sampler;
+  return mode_ == UiMode::ContextMenu &&
+         !samplerRecordConfirmMode_ &&
+         !samplerNameEntryMode_ &&
+         !sampler.overwritePending &&
+         !sampler.deleteConfirm &&
+         !samplerBrowserMode_ &&
+         !presetBrowserMode_ &&
+         !presetNameEntryMode_ &&
+         !enginePickerMode_ &&
+         !parameterAdjustMode_ &&
+         selectedParameterGroupId_.empty() &&
+         currentPage_ == 0 &&
+         !hasContextSelection_;
 }
 
 void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& cell, std::size_t index)

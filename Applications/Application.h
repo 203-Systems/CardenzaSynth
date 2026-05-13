@@ -20,6 +20,9 @@ public:
     (void)column;
     (void)pressed;
   }
+  virtual void HandleHomeButtonEvent(bool pressed) {
+    (void)pressed;
+  }
 };
 
 using ApplicationFactory = std::unique_ptr<Application> (*)();
