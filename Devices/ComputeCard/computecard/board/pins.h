@@ -34,7 +34,7 @@ inline constexpr int kSdDat2 = 17;
 inline constexpr int kSdDat3 = 12;
 
 inline constexpr int kIrTx = 44;
-inline constexpr int kHomeButton = 0;
+inline constexpr int kFuncButton = 0;
 
 inline constexpr std::array<int, 3> kKeyboardOutputs = {8, 9, 11};
 inline constexpr std::array<int, 7> kKeyboardInputs = {13, 15, 3, 4, 5, 6, 7};

@@ -16,12 +16,10 @@
 #include <esp_attr.h>
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
-#include <driver/gpio.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
 #include "computecardHAL.h"
-#include "computecard/board/pins.h"
 
 namespace {
 
@@ -30,7 +28,6 @@ Device::Keyboard::MatrixKeyState keyboardState{};
 std::array<std::uint8_t, Device::LED::kLedCount> keyboardLedState{};
 std::uint8_t keyboardLedGlobalBrightness = Device::LED::kBrightnessMax;
 bool keyboardLedsEnabled = false;
-bool homeButtonInitialized = false;
 SemaphoreHandle_t framePresentDone = nullptr;
 bool displayCallbacksInstalled = false;
 
@@ -81,25 +78,6 @@ bool EnsureDisplayPresentSync(esp_lcd_panel_io_handle_t panelIo) {
   }
 
   displayCallbacksInstalled = true;
-  return true;
-}
-
-bool EnsureHomeButtonInitialized() {
-  if (homeButtonInitialized) {
-    return true;
-  }
-
-  gpio_config_t config{};
-  config.pin_bit_mask = 1ULL << ComputeCardHAL::Pins::kHomeButton;
-  config.mode = GPIO_MODE_INPUT;
-  config.pull_up_en = GPIO_PULLUP_ENABLE;
-  config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-  config.intr_type = GPIO_INTR_DISABLE;
-  if (gpio_config(&config) != ESP_OK) {
-    return false;
-  }
-
-  homeButtonInitialized = true;
   return true;
 }
 
@@ -203,8 +181,7 @@ const MatrixKeyState& State() {
 namespace Buttons {
 
 bool HomePressed() {
-  return EnsureHomeButtonInitialized() &&
-         gpio_get_level(static_cast<gpio_num_t>(ComputeCardHAL::Pins::kHomeButton)) == 0;
+  return ComputeCardHAL::System::GetFuncButton();
 }
 
 }  // namespace Buttons
@@ -323,8 +300,6 @@ bool Init() {
   if (!initialized) {
     return false;
   }
-
-  (void)EnsureHomeButtonInitialized();
 
   if (ComputeCardHAL::Storage::IsMounted()) {
     (void)Storage::EnsureDirectoryLayout();

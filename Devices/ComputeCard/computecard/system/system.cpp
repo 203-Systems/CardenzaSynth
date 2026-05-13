@@ -10,9 +10,7 @@ namespace {
 
 i2c_master_bus_handle_t i2cBus = nullptr;
 
-}  // namespace
-
-bool Init()
+bool InitializeI2CBus()
 {
     if (i2cBus != nullptr)
     {
@@ -30,6 +28,24 @@ bool Init()
     return i2c_new_master_bus(&busConfig, &i2cBus) == ESP_OK;
 }
 
+bool ConfigureFuncButton()
+{
+    gpio_config_t config = {};
+    config.pin_bit_mask = 1ULL << Pins::kFuncButton;
+    config.mode = GPIO_MODE_INPUT;
+    config.pull_up_en = GPIO_PULLUP_ENABLE;
+    config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    config.intr_type = GPIO_INTR_DISABLE;
+    return gpio_config(&config) == ESP_OK;
+}
+
+}  // namespace
+
+bool Init()
+{
+    return InitializeI2CBus() && ConfigureFuncButton();
+}
+
 void EnterDeepSleep()
 {
     if (i2cBus != nullptr)
@@ -42,6 +58,11 @@ void EnterDeepSleep()
 i2c_master_bus_handle_t GetI2CBus()
 {
     return i2cBus;
+}
+
+bool GetFuncButton()
+{
+    return gpio_get_level(static_cast<gpio_num_t>(Pins::kFuncButton)) == 0;
 }
 
 }  // namespace ComputeCardHAL::System
