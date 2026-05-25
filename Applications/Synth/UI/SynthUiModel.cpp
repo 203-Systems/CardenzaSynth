@@ -468,6 +468,22 @@ std::pair<std::string, std::string> ActionHelp(ContextActionId actionId, const s
       return {"Octave", "Use one scale octave per row"};
     case ContextActionId::KeyboardModeChromatic:
       return {"Chromatic", "Use chromatic note steps"};
+    case ContextActionId::JunoChorusOff:
+      return {"Chorus Off", "Disable the built-in chorus for the driest Juno tone"};
+    case ContextActionId::JunoChorusI:
+      return {"Chorus I", "Enable the lighter chorus mode for gentle width and motion"};
+    case ContextActionId::JunoChorusII:
+      return {"Chorus II", "Enable the deeper chorus mode for a wider, more animated sound"};
+    case ContextActionId::JunoHpf0:
+      return {"HPF 0", "Leave the low end intact with the high-pass filter at its lowest setting"};
+    case ContextActionId::JunoHpf1:
+      return {"HPF 1", "Trim a little bass before the main filter for a slightly leaner tone"};
+    case ContextActionId::JunoHpf2:
+      return {"HPF 2", "Cut more low end for a thinner and more focused sound"};
+    case ContextActionId::JunoHpf3:
+      return {"HPF 3", "Apply the strongest bass cut for the lightest and thinnest response"};
+    case ContextActionId::JunoHpfReset:
+      return {"Reset HPF", "Restore the high-pass filter to its default position"};
     default:
       return {label.empty() ? "Command" : label, "Run this command"};
   }
@@ -495,7 +511,7 @@ std::pair<std::string, std::string> ItemHelp(UiModifier modifier,
 
     if (IsJunoParameterGroupId(itemId))
     {
-      return {JunoGroupTitle(itemId), JunoGroupSummary(engine, itemId)};
+      return {JunoGroupTitle(itemId), JunoGroupHelpDescription(itemId)};
     }
 
     SynthParameterInfo parameter;
@@ -510,7 +526,7 @@ std::pair<std::string, std::string> ItemHelp(UiModifier modifier,
     if (itemId == "lay.scl") return {"Scale", "Set the keyboard scale"};
     if (itemId == "lay.root") return {"Root", "Set the keyboard root note"};
     if (itemId == "lay.mode") return {"Mode", "Choose piano, octave, or chromatic layout"};
-    if (itemId == "lay.fx") return {"Effect", "Empty effect page placeholder"};
+    if (itemId == "lay.fx") return {"Effect", "Live Performance Effects"};
   }
 
   const auto presentation = MenuItemPresentation(modifier, itemId, patchName, engine);
@@ -3072,7 +3088,10 @@ ContextMenuGrid SynthUiModel::BuildParameterBrowseMenu(const ISynthEngine* engin
         for (std::size_t parameterIndex = pageStart; parameterIndex < pageEnd && menuIndex < kPagedMenuItemCount;
          ++parameterIndex, ++menuIndex)
     {
-      menu[menuIndex] = MakeItemCell(JunoParameterMenuLabel(parameters[parameterIndex]), parameters[parameterIndex].id);
+      ContextMenuCell cell = MakeItemCell(JunoParameterMenuLabel(parameters[parameterIndex]), parameters[parameterIndex].id);
+      cell.fullName = JunoParameterHelpTitle(parameters[parameterIndex]);
+      cell.description = JunoParameterHelpDescription(parameters[parameterIndex]);
+      menu[menuIndex] = std::move(cell);
     }
 
     if (pageCount > 1)

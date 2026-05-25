@@ -36,7 +36,4 @@ Devices/ComputeCardSim/debug/**/*.bmp
 Devices/ComputeCardSim/debug/**/*.png
 
 # Local validation captures and logs
-logs/**/*.bmp
-logs/**/*.png
-logs/**/*.log
-logs/**/*.json
+logs/

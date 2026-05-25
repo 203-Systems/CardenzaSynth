@@ -55,6 +55,18 @@ std::string JunoGroupTitle(const std::string& groupId)
   return "Sections";
 }
 
+std::string JunoGroupHelpDescription(const std::string& groupId)
+{
+  if (groupId == "par.juno.group.lfo") return "Shape the shared LFO speed and fade-in before modulation reaches full depth";
+  if (groupId == "par.juno.group.dco") return "Set the oscillator mix, range, and pulse tone that feed the rest of the patch";
+  if (groupId == "par.juno.group.hpf") return "Trim low frequencies before the main filter to thin out the bottom end";
+  if (groupId == "par.juno.group.vcf") return "Shape brightness and filter motion with cutoff, resonance, envelope, and LFO depth";
+  if (groupId == "par.juno.group.amp") return "Set the final amplifier level that leaves the synth voice";
+  if (groupId == "par.juno.group.env") return "Control how the envelope rises, falls, holds, and releases over time";
+  if (groupId == "par.juno.group.fx") return "Choose the built-in chorus mode that widens and thickens the Juno sound";
+  return "Select a Juno section to edit its controls";
+}
+
 std::string JunoParameterMenuLabel(const SynthParameterInfo& parameter)
 {
   if (parameter.id == "dco.range") return "RNG";
@@ -76,6 +88,42 @@ std::string JunoParameterMenuLabel(const SynthParameterInfo& parameter)
   if (parameter.id == "vca.level") return "LVL";
   if (parameter.id == "chorus.mode") return "CHO";
   return parameter.label;
+}
+
+std::string JunoParameterHelpTitle(const SynthParameterInfo& parameter)
+{
+  if (parameter.id == "dco.range") return "DCO Range";
+  if (parameter.id == "dco.saw") return "Saw Wave";
+  if (parameter.id == "dco.sub") return "Sub Osc";
+  if (parameter.id == "vcf.env") return "Env Amount";
+  if (parameter.id == "vcf.lfo") return "LFO Amount";
+  if (parameter.id == "lfo.delay") return "LFO Delay";
+  if (parameter.id == "chorus.mode") return "Chorus Mode";
+  if (parameter.id == "hpf.mode") return "HPF Mode";
+  return parameter.label;
+}
+
+std::string JunoParameterHelpDescription(const SynthParameterInfo& parameter)
+{
+  if (parameter.id == "dco.range") return "Choose the oscillator octave range for a darker 16', balanced 8', or brighter 4' tone";
+  if (parameter.id == "dco.pwm") return "Change the pulse wave width to move from hollow tones toward a richer nasal edge";
+  if (parameter.id == "dco.saw") return "Turn the bright saw wave on or off in the oscillator mix";
+  if (parameter.id == "dco.sub") return "Blend in the sub oscillator to add extra weight one octave below the main pitch";
+  if (parameter.id == "dco.noise") return "Add noise to the oscillator mix for breath, attack, or synthetic texture";
+  if (parameter.id == "vcf.cutoff") return "Move the filter cutoff to make the patch darker and softer or brighter and more open";
+  if (parameter.id == "vcf.resonance") return "Emphasize the frequencies around the cutoff for a sharper, more vocal filter response";
+  if (parameter.id == "vcf.env") return "Set how strongly the envelope pushes the filter open and closed over the note";
+  if (parameter.id == "vcf.lfo") return "Set how much the LFO sweeps the filter cutoff over time";
+  if (parameter.id == "vca.level") return "Set the final output level of the voice before chorus and mixdown";
+  if (parameter.id == "env.attack") return "Control how quickly the envelope rises after a note starts";
+  if (parameter.id == "env.decay") return "Control how quickly the envelope falls from the peak toward sustain";
+  if (parameter.id == "env.sustain") return "Set the level the envelope holds while the key stays pressed";
+  if (parameter.id == "env.release") return "Control how quickly the sound fades after you release the key";
+  if (parameter.id == "lfo.rate") return "Set how fast the shared LFO cycles for vibrato or filter motion";
+  if (parameter.id == "lfo.delay") return "Delay the LFO fade-in so modulation starts after the note has already spoken";
+  if (parameter.id == "chorus.mode") return "Choose chorus off, mode I, or mode II to widen and thicken the sound";
+  if (parameter.id == "hpf.mode") return "Choose how much low end the high-pass filter removes before the main filter stage";
+  return {};
 }
 
 std::vector<SynthParameterInfo> CollectJunoGroupParameters(const ISynthEngine* engine, const std::string& groupId)
