@@ -53,11 +53,16 @@ private:
   void OnLeftButtonDown(int x, int y);
   void OnMouseMove(int x, int y, UINT flags);
   void OnLeftButtonUp();
-  void OnKeyDown(UINT virtualKey);
+  void OnKeyDown(UINT virtualKey, LPARAM keyInfo);
 
   void TapHomeButton();
+  bool IsControlModifierDown() const;
+  std::optional<MatrixPosition> ResolveVirtualKey(UINT virtualKey) const;
   bool ShouldCaptureKey(MatrixPosition position) const;
+  void ApplyVirtualKey(MatrixPosition position);
+  void ToggleVirtualKey(MatrixPosition position);
   void SetVirtualKey(MatrixPosition position, bool pressed);
+  void ReleaseVirtualKey(MatrixPosition position);
   void TapVirtualKey(MatrixPosition position);
 
   std::string FooterText() const;
@@ -92,6 +97,8 @@ private:
   DebugScriptOptions debugOptions_{};
   std::unique_ptr<DesktopDebugSession> debugSession_;
   std::array<KeyVisual, kKeyboardRows * kKeyboardColumns> keyboard_{};
+  std::array<bool, kKeyboardRows * kKeyboardColumns> momentaryKeys_{};
+  std::array<bool, kKeyboardRows * kKeyboardColumns> toggledKeys_{};
   std::array<RECT, 3> scaleButtons_{};
   RECT homeButton_{};
   std::array<RECT, kKeyboardRows * kKeyboardColumns> keyButtons_{};

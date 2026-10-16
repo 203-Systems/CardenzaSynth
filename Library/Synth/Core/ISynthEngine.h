@@ -3,11 +3,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <map>
 #include <string>
 #include <vector>
 
 #include "Library/Synth/Core/SynthTypes.h"
 #include "OS/Framework/Midi/MidiPacket.h"
+#include "OS/Framework/Midi/MidiPort.h"
 
 namespace synth {
 
@@ -63,6 +65,13 @@ struct SynthPresetPage {
   std::vector<SynthPresetInfo> items;
 };
 
+struct SynthEngineState {
+  std::string basePresetId;
+  std::string presetId;
+  std::string presetName;
+  std::map<std::string, int> values;
+};
+
 class ISynthEngine {
 public:
   virtual ~ISynthEngine() = default;
@@ -82,7 +91,26 @@ public:
   virtual bool SavePreset(const std::string& presetId, const std::string& presetName = "") = 0;
   virtual std::string CurrentPresetId() const = 0;
   virtual std::string CurrentPresetName() const = 0;
+  virtual SynthEngineState CaptureState() const = 0;
+  virtual bool RestoreState(const SynthEngineState& state) = 0;
+  virtual bool RefreshPresetCatalog() = 0;
+  virtual bool CanReplace(const ISynthEngine& previous) const = 0;
+  virtual void ReplaceBinding(ISynthEngine& previous) = 0;
   virtual std::string DebugState() const = 0;
+
+protected:
+  struct RuntimeBinding {
+    std::unique_ptr<midi::MidiPort> port;
+    std::size_t engineIndex;
+    std::string backendName;
+    bool connected;
+    bool nativeOutput;
+  };
+
+private:
+  friend class PagedSynthEngine;
+  virtual bool HasBinding() const = 0;
+  virtual RuntimeBinding TakeBinding() = 0;
 };
 
 std::unique_ptr<ISynthEngine> CreateSynthEngine(SynthEngineKind kind);

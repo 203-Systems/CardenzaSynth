@@ -12,6 +12,7 @@
 #include "computecard/mic/mic.h"
 
 #include <esp_log.h>
+#include <esp_attr.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -23,8 +24,15 @@ std::atomic<device::SynthAudioRenderCallback> g_audioRenderCallback{nullptr};
 std::mutex g_audioProviderMutex;
 std::mutex g_audioOutputMutex;
 std::mutex g_audioInputMutex;
+std::mutex g_audioInputDataMutex;
 bool g_audioOutputEnabled = false;
-bool g_audioInputEnabled = false;
+std::atomic<bool> g_audioInputEnabled{false};
+std::atomic<bool> g_audioInputOverflow{false};
+constexpr std::size_t kInputRingFrames = 16384;
+std::array<std::int16_t, kInputRingFrames> g_audioInputRing{};
+std::size_t g_audioInputHead = 0;
+std::size_t g_audioInputCount = 0;
+TaskHandle_t g_audioInputTask = nullptr;
 
 std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
 {
@@ -215,6 +223,49 @@ bool EnsureAudioPumpStarted()
   return true;
 }
 
+bool IRAM_ATTR InputQueueOverflow(i2s_chan_handle_t, i2s_event_data_t*, void*)
+{
+  g_audioInputOverflow.store(true, std::memory_order_relaxed);
+  return false;
+}
+
+void AudioInputTask(void*)
+{
+  std::array<std::int16_t, 256> frames{};
+  for (;;)
+  {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    while (g_audioInputEnabled.load(std::memory_order_acquire))
+    {
+      // Serialize native reads with channel enable/disable; UI drains a separate ring.
+      std::lock_guard<std::mutex> inputLock(g_audioInputMutex);
+      if (!g_audioInputEnabled.load(std::memory_order_relaxed))
+      {
+        break;
+      }
+      std::size_t bytesRead = 0;
+      const esp_err_t result = i2s_channel_read(ComputeCardHAL::Mic::InputChannel(),
+          frames.data(), frames.size() * sizeof(std::int16_t), &bytesRead, 20);
+      if (result != ESP_OK && result != ESP_ERR_TIMEOUT)
+      {
+        g_audioInputOverflow.store(true, std::memory_order_relaxed);
+      }
+      const std::size_t count = bytesRead / sizeof(std::int16_t);
+      std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
+      if (count > kInputRingFrames - g_audioInputCount)
+      {
+        g_audioInputOverflow.store(true, std::memory_order_relaxed);
+        continue;
+      }
+      for (std::size_t i = 0; i < count; ++i)
+      {
+        g_audioInputRing[(g_audioInputHead + g_audioInputCount + i) % kInputRingFrames] = frames[i];
+      }
+      g_audioInputCount += count;
+    }
+  }
+}
+
 }  // namespace
 
 namespace Device::Audio {
@@ -238,28 +289,45 @@ InputStatus StartInput()
     return InputStatus::Ready;
   }
 
+  if (g_audioInputTask == nullptr)
+  {
+    i2s_event_callbacks_t callbacks{};
+    callbacks.on_recv_q_ovf = InputQueueOverflow;
+    if (i2s_channel_register_event_callback(inputChannel, &callbacks, nullptr) != ESP_OK ||
+        xTaskCreate(AudioInputTask, "sample_input", 4096, nullptr, 7, &g_audioInputTask) != pdPASS)
+    {
+      return InputStatus::NotReady;
+    }
+  }
+  {
+    std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
+    g_audioInputHead = 0;
+    g_audioInputCount = 0;
+    g_audioInputOverflow.store(false, std::memory_order_relaxed);
+  }
   if (i2s_channel_enable(inputChannel) != ESP_OK)
   {
     return InputStatus::NotReady;
   }
 
-  g_audioInputEnabled = true;
+  g_audioInputEnabled.store(true, std::memory_order_release);
+  xTaskNotifyGive(g_audioInputTask);
   return InputStatus::Ready;
 }
 
 void StopInput()
 {
-  std::lock_guard<std::mutex> lock(g_audioInputMutex);
-  if (!g_audioInputEnabled)
+  // Clear before waiting on the read mutex, so the higher-priority reader exits.
+  if (!g_audioInputEnabled.exchange(false, std::memory_order_acq_rel))
   {
     return;
   }
+  std::lock_guard<std::mutex> lock(g_audioInputMutex);
 
   if (const i2s_chan_handle_t inputChannel = ComputeCardHAL::Mic::InputChannel(); inputChannel != nullptr)
   {
     (void)i2s_channel_disable(inputChannel);
   }
-  g_audioInputEnabled = false;
 }
 
 InputStatus ReadInputFrames(std::int16_t* destination,
@@ -278,32 +346,34 @@ InputStatus ReadInputFrames(std::int16_t* destination,
     return InputStatus::Ready;
   }
 
+  const int64_t deadline = esp_timer_get_time() + static_cast<int64_t>(timeoutMs) * 1000;
+  for (;;)
   {
-    std::lock_guard<std::mutex> lock(g_audioInputMutex);
-    if (!g_audioInputEnabled)
+    {
+      std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
+      if (g_audioInputOverflow.exchange(false, std::memory_order_relaxed))
+      {
+        ESP_LOGW(kLogTag, "microphone input overflow; recording must stop");
+        return InputStatus::Overflow;
+      }
+      framesRead = std::min(frameCount, g_audioInputCount);
+      for (std::size_t i = 0; i < framesRead; ++i)
+      {
+        destination[i] = g_audioInputRing[(g_audioInputHead + i) % kInputRingFrames];
+      }
+      g_audioInputHead = (g_audioInputHead + framesRead) % kInputRingFrames;
+      g_audioInputCount -= framesRead;
+    }
+    if (framesRead != 0 || timeoutMs == 0 || esp_timer_get_time() >= deadline)
+    {
+      return InputStatus::Ready;
+    }
+    if (!g_audioInputEnabled.load(std::memory_order_acquire))
     {
       return InputStatus::NotReady;
     }
+    vTaskDelay(1);
   }
-
-  const i2s_chan_handle_t inputChannel = ComputeCardHAL::Mic::InputChannel();
-  if (inputChannel == nullptr)
-  {
-    return InputStatus::NotReady;
-  }
-
-  std::size_t bytesRead = 0;
-  if (i2s_channel_read(inputChannel,
-                       destination,
-                       frameCount * sizeof(std::int16_t),
-                       &bytesRead,
-                       timeoutMs) != ESP_OK)
-  {
-    return InputStatus::NotReady;
-  }
-
-  framesRead = bytesRead / sizeof(std::int16_t);
-  return InputStatus::Ready;
 }
 
 }  // namespace Device::Audio

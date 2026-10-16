@@ -16,8 +16,8 @@ i2s_chan_handle_t micChannel = nullptr;
 
 constexpr i2s_port_t kMicPort = I2S_NUM_0;
 constexpr uint32_t kSampleRate = 44100;
-constexpr size_t kDmaFrameCount = 64;
-constexpr size_t kDmaDescriptorCount = 4;
+constexpr size_t kDmaFrameCount = 256;
+constexpr size_t kDmaDescriptorCount = 8;
 
 esp_err_t EnsureInitialized()
 {

@@ -22,6 +22,7 @@ enum class SamplerTrackPhase {
 struct SamplerTrackUiState {
   SamplerTrackPhase phase = SamplerTrackPhase::Empty;
   std::string sampleName = "EMPTY";
+  std::string sampleFileName;
   std::string statusText = "EMPTY";
   std::string draftName;
   std::uint32_t sampleRate = 44100;

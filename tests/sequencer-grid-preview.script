@@ -1,0 +1,71 @@
+# Start from neutral Piano Home. Physical HOME is not a debug-script target.
+wait 12
+down 3,1
+tap 0,9
+tap 1,10
+tap 2,11
+tap 3,12
+up 3,1
+wait 8
+screenshot sequencer-piano-before.bmp
+
+# The visible SYS > SEQ > GRID entry remains available as an alternative.
+down 3,0
+wait 18
+tap 1,13
+up 3,0
+wait 8
+screenshot sequencer-grid-menu.bmp
+tap 3,13
+tap 3,13
+
+# +/- together switches directly. While both remain held, the new grid must
+# already be visible; releasing in the opposite order must not change octave.
+down 0,13
+down 1,13
+wait 8
+screenshot sequencer-grid-combo.bmp
+up 1,13
+up 0,13
+wait 12
+screenshot sequencer-grid-home.bmp
+
+# Held-step and lane information remain on the visible 4x4 grid.
+down 0,9
+down 1,10
+wait 8
+screenshot sequencer-grid-held.bmp
+tap 2,0
+tap 3,5
+wait 8
+screenshot sequencer-grid-velocity.bmp
+tap 3,0
+tap 3,4
+wait 8
+screenshot sequencer-grid-micro.bmp
+up 0,9
+up 1,10
+tap 3,13
+wait 20
+screenshot sequencer-grid-playing.bmp
+
+# Switching track keeps the view; the new track's empty grid is distinct.
+tap 1,0
+wait 8
+screenshot sequencer-grid-track2.bmp
+down 0,9
+wait 8
+screenshot sequencer-grid-empty-step.bmp
+up 0,9
+tap 0,0
+
+# SYS > SEQ > KEYS returns to the performance keyboard without stopping playback.
+down 3,0
+wait 18
+tap 1,13
+up 3,0
+tap 3,12
+wait 12
+screenshot sequencer-piano-after.bmp
+tap 2,13
+quit

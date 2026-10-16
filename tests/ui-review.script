@@ -1,0 +1,176 @@
+# Native 240x135 captures for states the other preview scripts do not reach.
+# Uses the qafile.wav fixture in the simulator's isolated sdcard.
+wait 12
+
+# Piano Home: a held chord lights the key map and names the notes.
+down 3,1
+down 3,3
+down 3,5
+wait 4
+screenshot home-chord.bmp
+up 3,1
+up 3,3
+up 3,5
+tap 0,13
+wait 4
+screenshot home-octave.bmp
+tap 1,13
+wait 80
+
+# KEY: values beside their keys, then the layout preview on the same key map.
+down 2,0
+wait 18
+screenshot key-root.bmp
+tap 0,13
+up 2,0
+wait 8
+tap 0,13
+wait 8
+screenshot key-mode-piano.bmp
+tap 1,13
+wait 8
+tap 3,13
+wait 8
+tap 1,13
+wait 8
+screenshot key-scale.bmp
+tap 3,13
+wait 8
+tap 0,0
+wait 12
+
+# TRK root and the preset browser.
+down 0,0
+wait 18
+screenshot trk-root.bmp
+tap 1,13
+up 0,0
+wait 8
+screenshot preset-browser.bmp
+tap 0,13
+wait 8
+tap 0,0
+wait 12
+
+# DX7 algorithm, global and second operator page.
+down 1,0
+wait 18
+tap 3,12
+up 1,0
+wait 8
+screenshot dx7-alg.bmp
+tap 3,12
+wait 8
+tap 3,13
+wait 8
+screenshot dx7-glb.bmp
+tap 3,12
+wait 8
+tap 1,12
+wait 8
+tap 3,13
+wait 8
+screenshot dx7-operator-page2.bmp
+tap 3,12
+wait 8
+tap 0,0
+wait 12
+
+# Juno sections: graphs live in rows without keys.
+tap 1,0
+wait 8
+down 1,0
+wait 18
+tap 2,13
+up 1,0
+wait 8
+screenshot juno-env.bmp
+tap 3,13
+wait 8
+tap 1,13
+wait 8
+screenshot juno-vcf.bmp
+tap 3,13
+wait 8
+tap 0,12
+wait 8
+screenshot juno-lfo.bmp
+tap 3,13
+wait 8
+tap 0,13
+wait 8
+tap 0,12
+wait 8
+screenshot juno-range.bmp
+tap 3,13
+wait 8
+tap 3,13
+wait 8
+tap 0,0
+wait 12
+
+# Sampler: load the fixture, then overview, trim and record.
+tap 2,0
+wait 8
+down 1,0
+wait 18
+tap 0,13
+up 1,0
+wait 10
+tap 3,13
+wait 20
+screenshot sampler-loaded.bmp
+tap 1,12
+wait 8
+screenshot sampler-trim.bmp
+tap 3,13
+wait 8
+tap 0,13
+wait 8
+screenshot sampler-record-armed.bmp
+tap 3,13
+wait 40
+screenshot sampler-recording.bmp
+tap 3,13
+wait 20
+screenshot sampler-take.bmp
+tap 0,0
+wait 8
+tap 0,0
+wait 12
+tap 0,0
+wait 12
+
+# Pattern layer with sixteen slots while + is held.
+down 0,13
+wait 8
+tap 0,2
+tap 0,3
+tap 0,4
+tap 0,5
+tap 0,6
+tap 0,7
+tap 0,8
+tap 1,1
+tap 1,2
+tap 1,3
+tap 1,4
+tap 1,5
+tap 1,6
+tap 1,7
+tap 1,8
+wait 8
+screenshot pattern-16.bmp
+up 0,13
+wait 8
+screenshot home-16.bmp
+
+# Holding a context key opens its help.
+down 3,0
+wait 18
+down 1,13
+wait 40
+screenshot help.bmp
+up 1,13
+up 3,0
+quit

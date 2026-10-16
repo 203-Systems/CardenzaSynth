@@ -101,6 +101,7 @@ enum class InputStatus {
   Ready,
   NotReady,
   InvalidArgument,
+  Overflow,
 };
 
 InputStreamInfo InputInfo();

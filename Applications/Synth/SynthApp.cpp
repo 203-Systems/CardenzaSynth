@@ -2,12 +2,16 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <iomanip>
+#include <new>
 #include <sstream>
 
 #include "Applications/Application.h"
+#include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Applications/Synth/UI/SynthUiRenderer.h"
 #include "Devices/Device.h"
+#include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "OS/MIDI/MIDI.h"
 #include "OS/UI/Canvas.h"
 
@@ -23,6 +27,7 @@ constexpr std::uint8_t kActiveLedBrightness = Device::LED::kBrightnessMax;
 constexpr std::uint8_t kPerformanceHintLedBrightness = Device::LED::kBrightnessMax / 2;
 constexpr std::uint8_t kHintLedBrightness = 5;
 constexpr std::uint8_t kDisabledLedBrightness = 2;
+constexpr auto kSequencerShiftTapMax = std::chrono::milliseconds(150);
 
 bool HasVisibleBarItem(const synth::UiBarItemSnapshot& item) {
   return !item.label.empty() || item.icon != synth::UiBarIcon::None;
@@ -37,7 +42,7 @@ std::uint8_t LedBrightnessForBarItem(const synth::UiBarItemSnapshot& item) {
     return kDisabledLedBrightness;
   }
 
-  return item.active ? kActiveLedBrightness : kHintLedBrightness;
+  return item.active || item.pressed || item.playing ? kActiveLedBrightness : kHintLedBrightness;
 }
 
 void WriteActiveBarLeds(const synth::UiScreenSnapshot& snapshot) {
@@ -112,6 +117,7 @@ void SynthApp::Setup(const std::vector<std::string>& args) {
   }
 
   os::midi::Initialize();
+  sequencer_.SetMidiSink(&SynthApp::SendSequencerMidi, this);
   rack_.AttachEngine(0, synth::SynthEngineKind::Dx7);
   samplerManager_.OnTrackEngineChanged(0, synth::SynthEngineKind::Dx7);
   ui_.InitializeTrack(0, synth::SynthEngineKind::Dx7);
@@ -130,26 +136,32 @@ void SynthApp::Setup(const std::vector<std::string>& args) {
     trackNotes.fill(0xFF);
   }
   SyncUiTracks();
+  SyncSequencerUi();
   initialized_ = true;
 }
 
 void SynthApp::Tick() {
   samplerManager_.Tick();
+  sequencer_.SetActiveTrack(ui_.ActiveTrack());
   ui_.Tick(ActiveEngine());
   rack_.DispatchPendingMessages();
   SyncUiTracks();
+  SyncSequencerUi();
 }
 
 void SynthApp::UpdateLeds() {
-  Device::LED::SetGlobalBrightness(Device::LED::kBrightnessMax);
   Device::LED::Clear();
 
   const std::size_t activeTrack = ui_.ActiveTrack();
+  const synth::UiScreenSnapshot snapshot = ui_.CurrentScreenSnapshot(ActiveEngine());
   if (activeTrack < activeKeys_.size())
   {
+    const std::size_t hintLastColumn = snapshot.mode == synth::UiMode::Home
+        ? synth::kHomePerformanceLastColumn
+        : synth::kHomeRightBarColumn - 1;
     for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
     {
-      for (std::size_t column = synth::kHomeLeftBarColumn + 1; column < synth::kHomeRightBarColumn; ++column)
+      for (std::size_t column = synth::kHomePerformanceFirstColumn; column <= hintLastColumn; ++column)
       {
         if (activeKeys_[activeTrack][KeyIndex(row, column)])
         {
@@ -163,7 +175,87 @@ void SynthApp::UpdateLeds() {
     }
   }
 
-  WriteActiveBarLeds(ui_.CurrentScreenSnapshot(ActiveEngine()));
+  if (snapshot.mode == synth::UiMode::Home && snapshot.sequencer.visible)
+  {
+    if (snapshot.sequencer.hasHeldSteps && snapshot.sequencer.editValueCount > 0 && !snapshot.sequencer.patternSelectorVisible)
+    {
+      for (std::size_t column = synth::kHomePerformanceFirstColumn; column <= synth::kHomePerformanceLastColumn; ++column)
+      {
+        const std::size_t valueIndex = column - synth::kHomePerformanceFirstColumn;
+        const std::uint8_t brightness = !snapshot.sequencer.editValueMixed && valueIndex == snapshot.sequencer.editValueIndex
+            ? kActiveLedBrightness
+            : (valueIndex < snapshot.sequencer.editValueCount ? kPerformanceHintLedBrightness : kDisabledLedBrightness);
+        for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
+        {
+          Device::LED::SetKey(row, column, brightness);
+        }
+      }
+    }
+
+    if (snapshot.sequencer.patternSelectorVisible)
+    {
+      for (std::size_t row = 0; row < 2; ++row)
+      {
+        for (std::size_t column = synth::kHomePerformanceFirstColumn; column <= synth::kHomePerformanceLastColumn; ++column)
+        {
+          const std::size_t patternIndex = row * synth::kHomePerformanceColumnCount + (column - synth::kHomePerformanceFirstColumn);
+          std::uint8_t brightness = Device::LED::kBrightnessOff;
+          const bool existing = patternIndex < snapshot.sequencer.patternCount;
+          const bool addSlot = patternIndex == snapshot.sequencer.patternCount && snapshot.sequencer.patternCount < synth::kSequencerMaxPatternCount;
+          if (patternIndex < snapshot.sequencer.patternPressed.size() && snapshot.sequencer.patternPressed[patternIndex])
+          {
+            brightness = kActiveLedBrightness;
+          }
+          else if (snapshot.sequencer.hasCopySource && snapshot.sequencer.copySourceIsPattern && snapshot.sequencer.copySourceIndex == patternIndex)
+          {
+            brightness = kActiveLedBrightness;
+          }
+          else if (existing && patternIndex == snapshot.sequencer.activePattern)
+          {
+            brightness = kActiveLedBrightness;
+          }
+          else if (existing)
+          {
+            brightness = kPerformanceHintLedBrightness;
+          }
+          else if (addSlot)
+          {
+            brightness = kHintLedBrightness;
+          }
+          Device::LED::SetKey(row, column, brightness);
+        }
+      }
+    }
+
+    for (std::size_t stepIndex = 0; stepIndex < snapshot.sequencer.steps.size(); ++stepIndex)
+    {
+      const auto& step = snapshot.sequencer.steps[stepIndex];
+      std::uint8_t brightness = Device::LED::kBrightnessOff;
+      if (step.held)
+      {
+        brightness = kActiveLedBrightness;
+      }
+      else if (step.playing)
+      {
+        brightness = Device::LED::kBrightnessMax;
+      }
+      else if (step.hasEvents)
+      {
+        brightness = kPerformanceHintLedBrightness;
+      }
+      else
+      {
+        brightness = kDisabledLedBrightness;
+      }
+      if (snapshot.sequencer.hasCopySource && !snapshot.sequencer.copySourceIsPattern && snapshot.sequencer.copySourceIndex == stepIndex)
+      {
+        brightness = kActiveLedBrightness;
+      }
+      Device::LED::SetKey(synth::SequencerStepRow(stepIndex), synth::SequencerStepColumn(stepIndex), brightness);
+    }
+  }
+
+  WriteActiveBarLeds(snapshot);
   Device::LED::SetEnabled(true);
 }
 
@@ -191,14 +283,27 @@ void SynthApp::HandleHomeButtonEvent(bool pressed)
     return;
   }
 
+  const bool toggleView = ui_.Mode() == synth::UiMode::Home &&
+                          !sequencer_.HasHeldSteps() && !IsSequencerShiftActive() && !sequencerViewChordActive_;
   ui_.HandleHomeButton(ActiveEngine());
+  ApplyPendingUiActions();
+  ClearSequencerHomeGesture();
+  if (toggleView) ui_.ToggleHomeView();
   SyncUiTracks();
+  SyncSequencerUi();
 }
 
 synth::MatrixKeyHandling SynthApp::PressMatrixKey(std::size_t row, std::size_t col) {
+  if (HandleSequencerPress(row, col))
+  {
+    SyncSequencerUi();
+    return synth::MatrixKeyHandling::Ignored;
+  }
+
   const auto handling = ui_.PressMatrixKey(ActiveEngineMutable(), row, col);
   ApplyPendingUiActions();
   SyncUiTracks();
+  SyncSequencerUi();
   if (handling == synth::MatrixKeyHandling::PerformanceKey)
   {
     PressPerformanceKey(row, col);
@@ -207,6 +312,12 @@ synth::MatrixKeyHandling SynthApp::PressMatrixKey(std::size_t row, std::size_t c
 }
 
 void SynthApp::ReleaseMatrixKey(std::size_t row, std::size_t col) {
+  if (HandleSequencerRelease(row, col))
+  {
+    SyncSequencerUi();
+    return;
+  }
+
   const std::size_t contextMenuColumns = ui_.ContextMenuColumnCount();
   const std::size_t contextMenuFirstColumn = contextMenuColumns == 1 ? synth::kHomeRightBarColumn : synth::kContextMenuFirstColumn;
   const bool isContextMenuKey = ui_.Mode() == synth::UiMode::ContextMenu &&
@@ -217,6 +328,7 @@ void SynthApp::ReleaseMatrixKey(std::size_t row, std::size_t col) {
     ui_.ReleaseMatrixKey(ActiveEngineMutable(), row, col);
     ApplyPendingUiActions();
     SyncUiTracks();
+    SyncSequencerUi();
     return;
   }
 
@@ -237,7 +349,7 @@ void SynthApp::ApplyPendingUiActions()
     switch (command.type)
     {
       case synth::UiCommandType::SamplerStartRecord:
-        (void)samplerManager_.BeginRecord(command.trackIndex);
+        (void)samplerManager_.BeginRecord(command.trackIndex, command.text == "replace");
         break;
       case synth::UiCommandType::SamplerStopRecord:
         (void)samplerManager_.StopRecord(command.trackIndex);
@@ -264,8 +376,11 @@ void SynthApp::ApplyPendingUiActions()
         break;
       }
       case synth::UiCommandType::SamplerOpenBrowser:
-        (void)samplerManager_.SelectBrowserSample(command.trackIndex, command.text);
+      {
+        const bool success = samplerManager_.SelectBrowserSample(command.trackIndex, command.text);
+        ui_.SamplerFileResult(success, samplerManager_.BuildUiState(command.trackIndex).statusText);
         break;
+      }
       case synth::UiCommandType::SamplerEnterNaming:
         samplerManager_.EnterDraftNaming(command.trackIndex);
         break;
@@ -281,14 +396,243 @@ void SynthApp::ApplyPendingUiActions()
       case synth::UiCommandType::SamplerCancelOverlay:
         samplerManager_.CancelNameEntry(command.trackIndex);
         break;
+      case synth::UiCommandType::SequencerTogglePlayback:
+        sequencer_.TogglePlayback();
+        SyncSequencerUi();
+        break;
+      case synth::UiCommandType::SequencerToggleView:
+        ClearSequencerHomeGesture();
+        ui_.HandleHomeButton(ActiveEngine());
+        ui_.ToggleHomeView();
+        SyncSequencerUi();
+        break;
+      case synth::UiCommandType::SequencerStop:
+        sequencer_.Stop();
+        SyncSequencerUi();
+        break;
+      case synth::UiCommandType::SequencerPatternPrev:
+        sequencer_.StepPattern(-1);
+        SyncSequencerUi();
+        break;
+      case synth::UiCommandType::SequencerPatternNext:
+        sequencer_.StepPattern(1);
+        SyncSequencerUi();
+        break;
+      case synth::UiCommandType::SequencerPatternCountDec:
+        sequencer_.AdjustPatternCount(-1);
+        SyncSequencerUi();
+        break;
+      case synth::UiCommandType::SequencerPatternCountInc:
+        sequencer_.AdjustPatternCount(1);
+        SyncSequencerUi();
+        break;
+      case synth::UiCommandType::SequencerPatternDelete:
+        if (command.trackIndex == ui_.ActiveTrack())
+        {
+          sequencer_.SetActiveTrack(command.trackIndex);
+          (void)sequencer_.DeletePattern(command.patternIndex);
+          SyncSequencerUi();
+        }
+        break;
       case synth::UiCommandType::SamplerDeleteCurrent:
         (void)samplerManager_.DeleteCurrentSample(command.trackIndex);
+        break;
+      case synth::UiCommandType::SamplerRenameFile:
+      {
+        std::string renamedFile;
+        const bool success = samplerManager_.RenameBrowserSample(command.trackIndex, command.fileName, command.text, &renamedFile);
+        ui_.SamplerFileResult(success, samplerManager_.BuildUiState(command.trackIndex).statusText, renamedFile);
+        break;
+      }
+      case synth::UiCommandType::SamplerDeleteFile:
+      {
+        const bool success = samplerManager_.DeleteBrowserSample(command.trackIndex, command.text);
+        ui_.SamplerFileResult(success, samplerManager_.BuildUiState(command.trackIndex).statusText);
+        break;
+      }
+      case synth::UiCommandType::SequencerResume:
+        sequencer_.Resume();
+        break;
+      case synth::UiCommandType::SequencerTempoDec:
+        sequencer_.AdjustTempo(-1);
+        break;
+      case synth::UiCommandType::SequencerTempoInc:
+        sequencer_.AdjustTempo(1);
+        break;
+      case synth::UiCommandType::SequencerTempoDecLarge:
+        sequencer_.AdjustTempo(-10);
+        break;
+      case synth::UiCommandType::SequencerTempoIncLarge:
+        sequencer_.AdjustTempo(10);
+        break;
+      case synth::UiCommandType::SequencerMute:
+        sequencer_.ToggleTrackMuted();
+        break;
+      case synth::UiCommandType::SequencerEnable:
+        sequencer_.ToggleTrackEnabled();
+        break;
+      case synth::UiCommandType::SequencerTrackPrev:
+      case synth::UiCommandType::SequencerTrackNext:
+        ui_.SetActiveTrack((ui_.ActiveTrack() +
+            (command.type == synth::UiCommandType::SequencerTrackNext ? 1 : synth::kSynthTrackCount - 1)) % synth::kSynthTrackCount);
+        sequencer_.SetActiveTrack(ui_.ActiveTrack());
+        SyncSequencerUi();
+        break;
+      case synth::UiCommandType::ProjectList:
+        ui_.SetProjectList(synth::ListProjects());
+        break;
+      case synth::UiCommandType::ProjectSave:
+      case synth::UiCommandType::ProjectOverwrite:
+        SaveProject(command.text, command.type == synth::UiCommandType::ProjectOverwrite);
+        break;
+      case synth::UiCommandType::ProjectLoad:
+        ChangeProject(command.text, false);
+        break;
+      case synth::UiCommandType::ProjectNew:
+        ChangeProject("", true);
         break;
       case synth::UiCommandType::None:
       default:
         break;
     }
   }
+}
+
+void SynthApp::SaveProject(const std::string& name, bool overwrite)
+{
+  synth::ProjectData project;
+  project.sequence = sequencer_.CaptureState();
+  project.activeTrack = ui_.ActiveTrack();
+  const auto keyboard = ui_.KeyboardSettings();
+  project.octave = keyboard[0];
+  project.root = keyboard[1];
+  project.scale = static_cast<std::size_t>(keyboard[2]);
+  project.layout = keyboard[3];
+  project.ledBrightness = Device::LED::GlobalBrightness();
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) {
+    const auto sample = samplerManager_.BuildUiState(track);
+    if (sample.recording || sample.hasDraft) {
+      ui_.ProjectResult(name, "SAVE SAMPLE FIRST", false);
+      return;
+    }
+    const auto& slot = rack_.Slot(track);
+    if (!slot.engine || !project.sequence) {
+      ui_.ProjectResult(name, "SAVE FAILED", false);
+      return;
+    }
+    project.kinds[track] = slot.kind;
+    project.engines[track] = slot.engine->CaptureState();
+    project.samples[track] = sample.sampleFileName;
+  }
+  const auto result = synth::SaveProjectFile(name, project, overwrite);
+  if (result == synth::ProjectResult::Exists) ui_.ConfirmProjectOverwrite(name);
+  else ui_.ProjectResult(name, result == synth::ProjectResult::Ok ? "SAVED" : "SAVE FAILED", result == synth::ProjectResult::Ok);
+}
+
+void SynthApp::StopProjectPerformance()
+{
+  sequencer_.Stop();
+  sequencer_.ClearHeldSteps();
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) {
+    activeKeys_[track].fill(false);
+    activeNotes_[track].fill(0xFF);
+  }
+  for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row) ui_.SetHomeActionHeld(row, false);
+  sequencerShiftKeys_.fill(false);
+  sequencerShiftPressedAt_.fill(std::chrono::steady_clock::time_point{});
+  sequencerShiftActionHeld_.fill(false);
+  sequencerPatternPressed_.fill(false);
+  sequencerViewChordActive_ = false;
+  sequencerShiftEventOccurred_ = false;
+  ClearSequencerCopySource();
+}
+
+void SynthApp::ChangeProject(const std::string& name, bool createNew)
+{
+  // The command is emitted only by the Project YES confirmation. Even after
+  // confirmation an unsaved recording is protected until it is saved/discarded.
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) {
+    const auto sample = samplerManager_.BuildUiState(track);
+    if (sample.recording || sample.hasDraft) {
+      ui_.ProjectResult(name, "SAVE SAMPLE FIRST", false);
+      return;
+    }
+    if (!rack_.Slot(track).engine) {
+      ui_.ProjectResult(name, "ENGINE OFFLINE", false);
+      return;
+    }
+  }
+
+  synth::ProjectData project;
+  if (createNew) {
+    project.sequence.reset(new (std::nothrow) synth::SynthSequencer::ProjectState);
+    if (!project.sequence) {
+      ui_.ProjectResult(name, "NO MEMORY", false);
+      return;
+    }
+    project.kinds = {synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
+                     synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Dx7};
+  }
+  else if (synth::LoadProjectFile(name, project) != synth::ProjectResult::Ok) {
+    ui_.ProjectResult(name, "INVALID PROJECT", false);
+    return;
+  }
+
+  std::array<std::unique_ptr<synth::ISynthEngine>, synth::kSynthTrackCount> engines;
+  std::array<synth::SamplerManager::PreparedSample, synth::kSynthTrackCount> samples;
+  // Validate incoming state and preload files while the current session stays intact.
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) {
+    engines[track] = synth::CreateSynthEngine(project.kinds[track]);
+    if (!engines[track]) {
+      ui_.ProjectResult(name, "NO MEMORY", false);
+      return;
+    }
+    // A damaged independent preset bank must not prevent restoring the complete
+    // sound state stored in the project; the factory catalog remains available.
+    (void)engines[track]->RefreshPresetCatalog();
+    if ((!createNew && !engines[track]->RestoreState(project.engines[track])) ||
+        !engines[track]->CanReplace(*rack_.Slot(track).engine)) {
+      ui_.ProjectResult(name, "INVALID SOUND", false);
+      return;
+    }
+    if (project.samples[track].empty()) continue;
+    bool shared = false;
+    for (std::size_t previous = 0; previous < track; ++previous) {
+      if (project.samples[previous] == project.samples[track]) {
+        samples[track] = samples[previous];
+        shared = true;
+        break;
+      }
+    }
+    if (!shared && !synth::SamplerManager::PrepareSample(project.samples[track], samples[track])) {
+      ui_.ProjectResult(name, "SAMPLE UNAVAILABLE", false);
+      return;
+    }
+  }
+
+  // No file reads or MIDI port allocation remain. Transfer existing bindings
+  // instead of dropping old engines and attempting a fallible Init midway.
+  StopProjectPerformance();
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) {
+    samplerManager_.OnTrackEngineChanged(track, synth::SynthEngineKind::None);
+  }
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) {
+    auto& slot = rack_.Slot(track);
+    engines[track]->ReplaceBinding(*slot.engine);
+    slot.engine = std::move(engines[track]);
+    slot.kind = project.kinds[track];
+    samplerManager_.OnTrackEngineChanged(track, slot.kind);
+    if (!project.samples[track].empty()) (void)samplerManager_.ApplySample(track, samples[track]);
+    // The engine already has the project's saved trim. Suppress the reset used
+    // for a standalone sample load before SyncUiTracks runs again.
+    (void)samplerManager_.ConsumeTrimReset(track);
+    ui_.InitializeTrack(track, slot.kind);
+  }
+  sequencer_.RestoreState(*project.sequence);
+  ui_.RestoreKeyboardSettings({project.octave, project.root, static_cast<int>(project.scale), project.layout});
+  ui_.SetActiveTrack(project.activeTrack);
+  Device::LED::SetGlobalBrightness(static_cast<std::uint8_t>(project.ledBrightness));
+  ui_.ProjectResult(name, createNew ? "NEW" : "LOADED", true);
 }
 
 synth::ISynthEngine* SynthApp::ActiveEngineMutable() {
@@ -308,8 +652,25 @@ void SynthApp::SwitchTrackEngine(std::size_t trackIndex, synth::SynthEngineKind 
     return;
   }
 
+  const auto sample = samplerManager_.BuildUiState(trackIndex);
+  if (sample.recording || sample.hasDraft)
+  {
+    ui_.EngineChangeFailed("SAVE SAMPLE FIRST");
+    return;
+  }
+  auto& slot = rack_.Slot(trackIndex);
+  auto engine = synth::CreateSynthEngine(kind);
+  if (!engine || !slot.engine || !engine->CanReplace(*slot.engine))
+  {
+    ui_.EngineChangeFailed("ENGINE UNAVAILABLE");
+    return;
+  }
+  (void)engine->RefreshPresetCatalog();
   ReleaseTrackPerformanceKeys(trackIndex);
-  (void)rack_.AttachEngine(trackIndex, kind);
+  samplerManager_.OnTrackEngineChanged(trackIndex, synth::SynthEngineKind::None);
+  engine->ReplaceBinding(*slot.engine);
+  slot.engine = std::move(engine);
+  slot.kind = kind;
   samplerManager_.OnTrackEngineChanged(trackIndex, kind);
 }
 
@@ -319,6 +680,10 @@ void SynthApp::SyncUiTracks() {
     const auto& slot = rack_.Slot(index);
     if (slot.kind == synth::SynthEngineKind::Sampler && slot.engine != nullptr)
     {
+      if (samplerManager_.ConsumeTrimReset(index)) {
+        slot.engine->SetParameterValue("sample.start", 0);
+        slot.engine->SetParameterValue("sample.end", 127);
+      }
       synth::SynthParameterInfo start;
       synth::SynthParameterInfo end;
       synth::SynthParameterInfo loop;
@@ -335,6 +700,430 @@ void SynthApp::SyncUiTracks() {
     ui_.SyncTrackState(index, slot.engine.get());
     ui_.SyncSamplerTrackState(index, samplerManager_.BuildUiState(index));
   }
+}
+
+void SynthApp::SyncSequencerUi()
+{
+  sequencer_.SetActiveTrack(ui_.ActiveTrack());
+  synth::SequencerUiState state = sequencer_.BuildUiState(ui_.ActiveTrack());
+  state.shiftActive = IsSequencerShiftModifierActive();
+  state.patternSelectorVisible = IsSequencerShiftActive();
+  state.shiftActionPressed = sequencerShiftActionHeld_;
+  state.patternPressed = sequencerPatternPressed_;
+  state.clearMode = IsSequencerClearMode();
+  state.copyMode = IsSequencerCopyMode();
+  state.quantizeMode = IsSequencerQuantizeMode();
+  state.hasCopySource = sequencerCopySource_.type != SequencerCopySourceType::None;
+  state.copySourceIsPattern = sequencerCopySource_.type == SequencerCopySourceType::Pattern;
+  state.copySourceIndex = sequencerCopySource_.index;
+  ui_.SetSequencerUiState(state);
+}
+
+std::size_t SynthApp::CollectHeldPerformanceNotes(std::size_t trackIndex,
+                                                  std::array<std::uint8_t, synth::kKeyboardMatrixRows * synth::kHomePerformanceColumnCount>& notes) const
+{
+  if (trackIndex >= activeKeys_.size())
+  {
+    return 0;
+  }
+
+  std::size_t noteCount = 0;
+  for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
+  {
+    for (std::size_t col = synth::kHomePerformanceFirstColumn; col <= synth::kHomePerformanceLastColumn; ++col)
+    {
+      const std::size_t keyIndex = KeyIndex(row, col);
+      if (!activeKeys_[trackIndex][keyIndex] || noteCount >= notes.size())
+      {
+        continue;
+      }
+      notes[noteCount++] = activeNotes_[trackIndex][keyIndex] == 0xFF
+          ? ui_.HomePerformanceMidiNote(row, col)
+          : activeNotes_[trackIndex][keyIndex];
+    }
+  }
+  return noteCount;
+}
+
+bool SynthApp::IsSequencerShiftKey(std::size_t row, std::size_t col) const
+{
+  return ui_.Mode() == synth::UiMode::Home && col == synth::kHomeRightBarColumn && row < sequencerShiftKeys_.size();
+}
+
+bool SynthApp::IsSequencerShiftActive() const
+{
+  return IsSequencerShiftModifierActive();
+}
+
+bool SynthApp::IsSequencerShiftModifierActive() const
+{
+  return !sequencerViewChordActive_ &&
+         (std::any_of(sequencerShiftKeys_.begin(), sequencerShiftKeys_.end(), [](bool held) { return held; }) ||
+          std::any_of(sequencerShiftActionHeld_.begin(), sequencerShiftActionHeld_.end(), [](bool held) { return held; }));
+}
+
+bool SynthApp::IsSequencerPatternSelectorKey(std::size_t row, std::size_t col) const
+{
+  return ui_.Mode() == synth::UiMode::Home &&
+         IsSequencerShiftActive() &&
+         row < 2 &&
+         col >= synth::kHomePerformanceFirstColumn &&
+         col <= synth::kHomePerformanceLastColumn;
+}
+
+bool SynthApp::IsSequencerClearMode() const
+{
+  return sequencerShiftActionHeld_[0];
+}
+
+bool SynthApp::IsSequencerCopyMode() const
+{
+  return sequencerShiftActionHeld_[1];
+}
+
+bool SynthApp::IsSequencerQuantizeMode() const
+{
+  return sequencerShiftActionHeld_[2];
+}
+
+void SynthApp::MarkSequencerShiftEvent()
+{
+  sequencerShiftEventOccurred_ = true;
+}
+
+void SynthApp::ClearSequencerCopySource()
+{
+  sequencerCopySource_ = SequencerCopySource{};
+}
+
+void SynthApp::ClearSequencerHomeGesture()
+{
+  sequencer_.ClearHeldSteps();
+  sequencerShiftKeys_.fill(false);
+  sequencerShiftPressedAt_.fill(std::chrono::steady_clock::time_point{});
+  sequencerShiftActionHeld_.fill(false);
+  sequencerPatternPressed_.fill(false);
+  sequencerViewChordActive_ = false;
+  sequencerShiftEventOccurred_ = false;
+  ClearSequencerCopySource();
+  for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
+    ui_.SetHomeActionHeld(row, false);
+}
+
+bool SynthApp::HandleSequencerShiftPress(std::size_t row, std::size_t col)
+{
+  if (!IsSequencerShiftKey(row, col))
+  {
+    return false;
+  }
+
+  const std::size_t shiftIndex = row;
+  const std::size_t otherShiftIndex = shiftIndex == 0 ? 1 : 0;
+  if (sequencerShiftKeys_[shiftIndex]) return true;
+
+  sequencerShiftKeys_[shiftIndex] = true;
+  sequencerShiftPressedAt_[shiftIndex] = std::chrono::steady_clock::now();
+  ui_.SetHomeActionHeld(row, true);
+  if (sequencerShiftKeys_[otherShiftIndex] && !sequencerViewChordActive_)
+  {
+    // Consume the entire chord until BOTH keys are up. Keeping the physical
+    // held state prevents key repeats and either release order from retoggling
+    // the view or applying a stray octave change.
+    sequencerViewChordActive_ = true;
+    MarkSequencerShiftEvent();
+    sequencer_.ClearHeldSteps();
+    sequencerShiftActionHeld_.fill(false);
+    sequencerPatternPressed_.fill(false);
+    ClearSequencerCopySource();
+    ui_.ToggleHomeView();
+  }
+  return true;
+}
+
+bool SynthApp::HandleSequencerShiftRelease(std::size_t row, std::size_t col)
+{
+  if (row >= sequencerShiftKeys_.size() || col != synth::kHomeRightBarColumn ||
+      (ui_.Mode() != synth::UiMode::Home && !sequencerShiftKeys_[row]))
+  {
+    return false;
+  }
+
+  const std::size_t shiftIndex = row;
+  const auto now = std::chrono::steady_clock::now();
+  const bool wasHeld = sequencerShiftKeys_[shiftIndex];
+  const bool shortTap = wasHeld && sequencerShiftPressedAt_[shiftIndex] != std::chrono::steady_clock::time_point{} &&
+                        (now - sequencerShiftPressedAt_[shiftIndex]) < kSequencerShiftTapMax;
+
+  sequencerShiftKeys_[shiftIndex] = false;
+  sequencerShiftPressedAt_[shiftIndex] = std::chrono::steady_clock::time_point{};
+  ui_.SetHomeActionHeld(row, false);
+
+  if (sequencerViewChordActive_)
+  {
+    if (std::none_of(sequencerShiftKeys_.begin(), sequencerShiftKeys_.end(), [](bool held) { return held; }))
+    {
+      sequencerViewChordActive_ = false;
+      sequencerShiftEventOccurred_ = false;
+      ClearSequencerCopySource();
+    }
+    return true;
+  }
+
+  const bool anyActionHeld = std::any_of(sequencerShiftActionHeld_.begin(), sequencerShiftActionHeld_.end(), [](bool held) { return held; });
+  if (shortTap && !sequencerShiftEventOccurred_ && !anyActionHeld && ui_.Mode() == synth::UiMode::Home)
+  {
+    ui_.AdjustHomeKeyboardOctave(row == 0 ? 1 : -1);
+  }
+
+  if (!IsSequencerShiftModifierActive())
+  {
+    sequencerShiftEventOccurred_ = false;
+    ClearSequencerCopySource();
+  }
+  return true;
+}
+
+bool SynthApp::HandleSequencerShiftActionPress(std::size_t row)
+{
+  if (ui_.Mode() != synth::UiMode::Home || !IsSequencerShiftActive() || row >= sequencerShiftActionHeld_.size() || row > 2)
+  {
+    return false;
+  }
+
+  sequencerShiftActionHeld_[row] = true;
+  MarkSequencerShiftEvent();
+  if (row == 0 && sequencer_.HasHeldSteps())
+  {
+    sequencer_.ClearHeldStepEvents();
+  }
+  else if (row == 1)
+  {
+    ClearSequencerCopySource();
+  }
+  else if (row == 2)
+  {
+    if (sequencer_.HasHeldSteps())
+    {
+      sequencer_.QuantizeHeldSteps();
+    }
+  }
+  return true;
+}
+
+bool SynthApp::HandleSequencerShiftActionRelease(std::size_t row)
+{
+  if (row >= sequencerShiftActionHeld_.size() || !sequencerShiftActionHeld_[row])
+  {
+    return false;
+  }
+
+  sequencerShiftActionHeld_[row] = false;
+  if (!IsSequencerShiftModifierActive())
+  {
+    sequencerShiftEventOccurred_ = false;
+    ClearSequencerCopySource();
+  }
+  return true;
+}
+
+bool SynthApp::HandleSequencerPatternSelectorPress(std::size_t row, std::size_t col)
+{
+  if (!IsSequencerPatternSelectorKey(row, col))
+  {
+    return false;
+  }
+
+  const std::size_t patternIndex = row * synth::kHomePerformanceColumnCount + (col - synth::kHomePerformanceFirstColumn);
+  if (patternIndex >= sequencerPatternPressed_.size())
+  {
+    return true;
+  }
+
+  sequencerPatternPressed_[patternIndex] = true;
+  MarkSequencerShiftEvent();
+
+  if (IsSequencerClearMode())
+  {
+    if (sequencer_.PatternHasEvents(patternIndex))
+    {
+      // The confirmation owns input now; release the Home gesture and audition
+      // so its eventual key-up events cannot carry CLR into the next screen.
+      sequencer_.ClearHeldSteps();
+      ReleaseTrackPerformanceKeys(ui_.ActiveTrack());
+      sequencerShiftKeys_.fill(false);
+      sequencerShiftActionHeld_.fill(false);
+      sequencerPatternPressed_.fill(false);
+      sequencerShiftEventOccurred_ = false;
+      for (std::size_t actionRow = 0; actionRow < synth::kKeyboardMatrixRows; ++actionRow)
+        ui_.SetHomeActionHeld(actionRow, false);
+      ui_.ConfirmSequencerPatternDelete(patternIndex, true);
+    }
+    else
+    {
+      (void)sequencer_.DeletePattern(patternIndex);
+    }
+    ClearSequencerCopySource();
+    return true;
+  }
+
+  if (IsSequencerQuantizeMode())
+  {
+    sequencer_.QuantizePattern(patternIndex);
+    return true;
+  }
+
+  if (IsSequencerCopyMode())
+  {
+    const synth::SequencerUiState state = sequencer_.BuildUiState(ui_.ActiveTrack());
+    if (sequencerCopySource_.type == SequencerCopySourceType::None)
+    {
+      if (patternIndex < state.patternCount)
+      {
+        sequencerCopySource_.type = SequencerCopySourceType::Pattern;
+        sequencerCopySource_.index = patternIndex;
+      }
+      return true;
+    }
+
+    if (sequencerCopySource_.type == SequencerCopySourceType::Pattern)
+    {
+      (void)sequencer_.CopyPattern(sequencerCopySource_.index, patternIndex);
+    }
+    return true;
+  }
+
+  (void)sequencer_.SelectOrCreatePattern(patternIndex);
+  ClearSequencerCopySource();
+  return true;
+}
+
+bool SynthApp::HandleSequencerPatternSelectorRelease(std::size_t row, std::size_t col)
+{
+  if (row >= 2 || col < synth::kHomePerformanceFirstColumn || col > synth::kHomePerformanceLastColumn)
+  {
+    return false;
+  }
+
+  const std::size_t patternIndex = row * synth::kHomePerformanceColumnCount + (col - synth::kHomePerformanceFirstColumn);
+  if (patternIndex < sequencerPatternPressed_.size() && sequencerPatternPressed_[patternIndex])
+  {
+    sequencerPatternPressed_[patternIndex] = false;
+    return true;
+  }
+  return false;
+}
+
+bool SynthApp::HandleSequencerPress(std::size_t row, std::size_t col)
+{
+  if (ui_.Mode() != synth::UiMode::Home)
+  {
+    return false;
+  }
+
+  if (HandleSequencerShiftPress(row, col))
+  {
+    return true;
+  }
+
+  if (col == synth::kHomeLeftBarColumn && HandleSequencerShiftActionPress(row))
+  {
+    return true;
+  }
+
+  if (HandleSequencerPatternSelectorPress(row, col))
+  {
+    return true;
+  }
+
+  if (synth::IsSequencerStepKey(row, col) && (IsSequencerClearMode() || IsSequencerCopyMode() || IsSequencerQuantizeMode()))
+  {
+    const std::size_t stepIndex = synth::SequencerStepIndex(row, col);
+    MarkSequencerShiftEvent();
+    if (IsSequencerClearMode())
+    {
+      sequencer_.ClearStep(stepIndex);
+      ClearSequencerCopySource();
+    }
+    else if (IsSequencerCopyMode())
+    {
+      if (sequencerCopySource_.type == SequencerCopySourceType::None)
+      {
+        if (sequencer_.StepHasEvents(stepIndex))
+        {
+          sequencerCopySource_.type = SequencerCopySourceType::Step;
+          sequencerCopySource_.index = stepIndex;
+        }
+      }
+      else if (sequencerCopySource_.type == SequencerCopySourceType::Step)
+      {
+        (void)sequencer_.CopyStep(sequencerCopySource_.index, stepIndex);
+      }
+    }
+    else if (IsSequencerQuantizeMode())
+    {
+      sequencer_.QuantizeStep(stepIndex);
+    }
+    return true;
+  }
+
+  if (col == synth::kHomeLeftBarColumn && sequencer_.HasHeldSteps())
+  {
+    return sequencer_.PressEditLane(row);
+  }
+
+  if (synth::IsSequencerStepKey(row, col))
+  {
+    std::array<std::uint8_t, synth::kKeyboardMatrixRows * synth::kHomePerformanceColumnCount> heldNotes{};
+    const std::size_t noteCount = CollectHeldPerformanceNotes(ui_.ActiveTrack(), heldNotes);
+    sequencer_.PressStep(synth::SequencerStepIndex(row, col), heldNotes.data(), noteCount);
+    return true;
+  }
+
+  if (sequencer_.HasHeldSteps() && row < synth::kKeyboardMatrixRows && col >= 1 && col <= synth::kHomePerformanceColumnCount)
+  {
+    // Value lanes select a physical column, including gaps in the Piano layout.
+    if (!ui_.IsHomePerformanceKey(row, col) &&
+        sequencer_.BuildUiState(ui_.ActiveTrack()).editLane == synth::SequencerEditLane::Note) return true;
+    return sequencer_.HandlePerformanceKeyPress(row, col, ui_.HomePerformanceMidiNote(row, col));
+  }
+
+  return false;
+}
+
+bool SynthApp::HandleSequencerRelease(std::size_t row, std::size_t col)
+{
+  if (HandleSequencerShiftRelease(row, col))
+  {
+    return true;
+  }
+
+  if (col == synth::kHomeLeftBarColumn && HandleSequencerShiftActionRelease(row))
+  {
+    return true;
+  }
+
+  if (HandleSequencerPatternSelectorRelease(row, col))
+  {
+    return true;
+  }
+
+  if (synth::IsSequencerStepKey(row, col))
+  {
+    const std::size_t stepIndex = synth::SequencerStepIndex(row, col);
+    if (ui_.Mode() == synth::UiMode::Home || sequencer_.IsStepHeld(stepIndex))
+    {
+      sequencer_.ReleaseStep(stepIndex);
+      return true;
+    }
+    return false;
+  }
+
+  if (ui_.Mode() == synth::UiMode::Home && col == synth::kHomeLeftBarColumn && sequencer_.HasHeldSteps())
+  {
+    return sequencer_.ReleaseEditLane(row);
+  }
+
+  return false;
 }
 
 void SynthApp::ReleaseTrackPerformanceKeys(std::size_t trackIndex)
@@ -427,6 +1216,19 @@ void SynthApp::ReleasePerformanceKey(std::size_t row, std::size_t col) {
     activeNotes_[trackIndex][keyIndex] = 0xFF;
     os::midi::Send(midi::MidiPacket::NoteOff(0, note, 0), rack_.PortForTrack(trackIndex));
   }
+}
+
+void SynthApp::SendSequencerMidi(void* context, std::size_t trackIndex, const midi::MidiPacket& packet)
+{
+  (void)context;
+  if (trackIndex >= synth::kSynthTrackCount) return;
+  // Bypass the UI queue: the audio runtime synchronizes stable track indices.
+  if (packet.status == midi::MidiStatus::NoteOn && packet.data[2] != 0)
+    synth::audio::NoteOn(trackIndex, packet.data[1], packet.data[2]);
+  else if (packet.status == midi::MidiStatus::NoteOff || packet.status == midi::MidiStatus::NoteOn)
+    synth::audio::NoteOff(trackIndex, packet.data[1]);
+  else if (packet.status == midi::MidiStatus::ControlChange && (packet.data[1] == 120 || packet.data[1] == 123))
+    synth::audio::AllNotesOff(trackIndex);
 }
 
 std::string SynthApp::DebugView() const {

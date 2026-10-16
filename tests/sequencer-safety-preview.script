@@ -1,0 +1,60 @@
+# Start from a fresh default Home screen. Wait counts are simulator frames.
+# Only real matrix down/up/tap commands are used; HOME is not a debug target.
+wait 12
+
+# Populate P01 and give its note a visible timing offset (microstep slot 4).
+down 3,1
+tap 0,9
+up 3,1
+down 0,9
+tap 3,0
+tap 3,4
+up 0,9
+
+# Hold OCT for Pattern view, then populate P02 and P03. Keep P03 current so deleting
+# P01 proves the confirmation targets a non-current, non-last Pattern.
+down 0,13
+tap 0,2
+down 3,3
+tap 1,9
+up 3,3
+tap 0,3
+down 3,5
+tap 2,9
+up 3,5
+wait 8
+
+# QNT with no held steps waits for a target. Explicitly target existing P02
+# afterwards: this must leave P03 selected and the three Pattern slots intact.
+down 2,0
+wait 8
+screenshot sequencer-qnt-waiting.bmp
+tap 0,2
+up 2,0
+wait 8
+
+# Request deletion of populated P01, then cancel. The confirmation must show
+# P01, and BACK must return Home with all three Patterns and P03 current.
+down 0,0
+tap 0,1
+up 0,0
+up 0,13
+wait 12
+screenshot sequencer-home-pattern-delete.bmp
+tap 2,13
+wait 12
+screenshot sequencer-home-pattern-cancelled.bmp
+
+# Hold OCT again to enter the temporary selector.
+# Repeat exactly the same target and confirm YES. Home should now contain two
+# populated Patterns, with the original P03 shifted to P02 and still current.
+down 0,13
+down 0,0
+tap 0,1
+up 0,0
+up 0,13
+wait 12
+tap 3,13
+wait 12
+screenshot sequencer-home-pattern-deleted.bmp
+quit

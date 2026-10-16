@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "Library/Synth/Core/ISynthEngine.h"
@@ -33,12 +35,18 @@ public:
   bool SavePreset(const std::string& presetId, const std::string& presetName = "") override;
   std::string CurrentPresetId() const override;
   std::string CurrentPresetName() const override;
+  SynthEngineState CaptureState() const override;
+  bool RestoreState(const SynthEngineState& state) override;
+  bool RefreshPresetCatalog() override;
+  bool CanReplace(const ISynthEngine& previous) const override;
+  void ReplaceBinding(ISynthEngine& previous) override;
   std::string DebugState() const override;
 
 protected:
   struct PresetState {
     SynthPresetInfo info;
     std::map<std::string, int> values;
+    std::string basePresetId;
   };
 
   void RegisterParameter(const SynthParameterInfo& parameter);
@@ -46,6 +54,12 @@ protected:
                       const std::string& presetName,
                       const std::map<std::string, int>& values,
                       bool writable = false);
+  // Large factory catalogs stay in flash: derived engines expose them here and call
+  // IndexFactoryPresets() once; RAM keeps only the 16-bit sorted order.
+  void IndexFactoryPresets();
+  virtual std::size_t FactoryPresetCount() const;
+  virtual std::string_view FactoryPresetId(std::size_t index) const;
+  virtual std::string FactoryPresetName(std::size_t index) const;
   SynthParameterInfo* FindParameterMutable(const std::string& parameterId);
   const SynthParameterInfo* FindParameter(const std::string& parameterId) const;
 
@@ -54,16 +68,27 @@ protected:
   virtual void OnPresetLoaded(const std::string& presetId);
   virtual bool ShouldSyncParameterToRuntime(const SynthParameterInfo& parameter) const;
   virtual bool ShouldSyncParameterOnPresetLoad(const SynthParameterInfo& parameter) const;
+  virtual int FactoryParameterValue(const std::string& presetId, const SynthParameterInfo& parameter) const;
 
 private:
+  static constexpr std::size_t kNoFactoryPreset = static_cast<std::size_t>(-1);
+
   void SyncRuntimeState();
+  std::size_t FindFactoryPreset(const std::string& presetId) const;
+  std::string FactoryPresetDisplayName(std::size_t index) const;
   std::string NextUserPresetId() const;
+  bool ValidState(const SynthEngineState& state) const;
+  bool ReadUserPresets();
+  bool HasBinding() const override;
+  RuntimeBinding TakeBinding() override;
 
   SynthDescriptor descriptor_;
   std::vector<SynthParameterInfo> parameters_{};
+  std::vector<std::uint16_t> factoryOrder_{};
   std::vector<PresetState> presets_{};
   std::unique_ptr<midi::MidiPort> port_;
   std::string currentPresetId_;
+  std::string basePresetId_;
   std::string currentPresetName_ = "INIT";
   std::string lastEvent_ = "idle";
   std::string audioBackendName_ = "none";

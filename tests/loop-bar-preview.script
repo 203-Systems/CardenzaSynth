@@ -1,0 +1,45 @@
+# The Loop Bar follows independent Pattern slots, in both Home views.
+wait 12
+screenshot piano-1-pattern.bmp
+down 0,13
+wait 8
+tap 0,2
+tap 0,3
+tap 0,4
+up 0,13
+wait 8
+screenshot piano-4-patterns.bmp
+
+down 3,1
+tap 0,9
+up 3,1
+down 0,13
+down 1,13
+up 0,13
+up 1,13
+wait 8
+screenshot seq-4-patterns.bmp
+tap 3,13
+wait 16
+screenshot seq-4-patterns-playing.bmp
+tap 2,13
+
+# Fill the remaining Pattern slots; all sixteen segments must remain visible.
+down 0,13
+wait 8
+tap 0,5
+tap 0,6
+tap 0,7
+tap 0,8
+tap 1,1
+tap 1,2
+tap 1,3
+tap 1,4
+tap 1,5
+tap 1,6
+tap 1,7
+tap 1,8
+up 0,13
+wait 8
+screenshot seq-16-patterns.bmp
+quit

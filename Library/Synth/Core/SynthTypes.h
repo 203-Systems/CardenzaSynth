@@ -10,6 +10,7 @@ enum class SynthEngineKind {
   Dx7,
   Juno,
   Sampler,
+  Drums = 4,
 };
 
 enum class OverlayPage {
@@ -41,6 +42,15 @@ constexpr std::size_t kHomeRightBarColumn = kKeyboardMatrixColumns - 1;
 constexpr std::size_t kHomePerformanceFirstColumn = kHomeLeftBarColumn + 1;
 constexpr std::size_t kHomePerformanceColumnCount = 8;
 constexpr std::size_t kHomePerformanceLastColumn = kHomePerformanceFirstColumn + kHomePerformanceColumnCount - 1;
+constexpr std::size_t kSequencerStepFirstColumn = kHomePerformanceLastColumn + 1;
+constexpr std::size_t kSequencerStepColumnCount = 4;
+constexpr std::size_t kSequencerStepLastColumn = kSequencerStepFirstColumn + kSequencerStepColumnCount - 1;
+constexpr std::size_t kSequencerStepCount = kKeyboardMatrixRows * kSequencerStepColumnCount;
+constexpr std::size_t kSequencerMaxPatternCount = 16;
+constexpr std::uint16_t kSequencerPulsesPerQuarter = 96;
+constexpr std::uint16_t kSequencerPulsesPerStep = 24;
+constexpr std::uint8_t kSequencerMicrostepCount = 6;
+constexpr std::uint16_t kSequencerPulsesPerMicrostep = kSequencerPulsesPerStep / kSequencerMicrostepCount;
 constexpr std::uint8_t kHomePerformanceBaseMidiNote = 48;
 constexpr std::size_t kContextMenuRows = 4;
 constexpr std::size_t kContextMenuColumns = 2;
@@ -51,6 +61,10 @@ constexpr std::size_t kParamMatrixColumns = 4;
 constexpr std::size_t kParamMatrixCellCount = kParamMatrixRows * kParamMatrixColumns;
 
 static_assert(kHomePerformanceColumnCount == 8, "Home performance zone should expose an 8-column keyboard.");
+static_assert(kSequencerStepFirstColumn == 9, "Home sequencer should start at keyboard column 9.");
+static_assert(kSequencerStepLastColumn == 12, "Home sequencer should end before the right bar.");
+static_assert(kSequencerMaxPatternCount >= 1, "Sequencer needs at least one pattern.");
+static_assert(kSequencerPulsesPerStep % kSequencerMicrostepCount == 0, "Microsteps must map to whole sequencer pulses.");
 
 constexpr std::size_t HomePerformanceOctaveIndex(std::size_t row)
 {
@@ -62,6 +76,26 @@ constexpr std::uint8_t HomePerformanceMidiNote(std::size_t row, std::size_t col)
   return static_cast<std::uint8_t>(kHomePerformanceBaseMidiNote +
                                    HomePerformanceOctaveIndex(row) * kHomePerformanceColumnCount +
                                    (col - kHomePerformanceFirstColumn));
+}
+
+constexpr bool IsSequencerStepKey(std::size_t row, std::size_t col)
+{
+  return row < kKeyboardMatrixRows && col >= kSequencerStepFirstColumn && col <= kSequencerStepLastColumn;
+}
+
+constexpr std::size_t SequencerStepIndex(std::size_t row, std::size_t col)
+{
+  return row * kSequencerStepColumnCount + (col - kSequencerStepFirstColumn);
+}
+
+constexpr std::size_t SequencerStepRow(std::size_t stepIndex)
+{
+  return stepIndex / kSequencerStepColumnCount;
+}
+
+constexpr std::size_t SequencerStepColumn(std::size_t stepIndex)
+{
+  return kSequencerStepFirstColumn + (stepIndex % kSequencerStepColumnCount);
 }
 
 }  // namespace synth

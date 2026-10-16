@@ -51,5 +51,4 @@ The root CMake project is for desktop-style targets such as `ComputeCardSim`. Th
 
 ## Agent Workflow
 
-- Do not start builds from the agent unless the user explicitly asks for one. This repository can hang on build attempts from the agent environment.
 - Prefer static validation (`get_errors`, targeted searches, diff inspection) when changing the ComputeCard HAL layer.

@@ -1,0 +1,121 @@
+# Start from the default Home screen. Wait counts are simulator frames.
+# Debug key targets are matrix positions; HOME is not a supported debug target.
+wait 12
+
+# Hold C/Eb/G in the default Minor/Octave layout and place it on step 1.
+down 3,1
+down 3,3
+down 3,5
+tap 0,9
+up 3,1
+up 3,3
+up 3,5
+down 0,9
+wait 12
+screenshot sequencer-note.bmp
+
+# Cycle to the lowest chord note, then return to ALL before value editing.
+tap 0,0
+wait 8
+screenshot sequencer-scope.bmp
+tap 0,0
+tap 0,0
+tap 0,0
+tap 1,0
+tap 3,4
+wait 8
+screenshot sequencer-length.bmp
+tap 2,0
+tap 3,5
+wait 8
+screenshot sequencer-velocity.bmp
+tap 3,0
+tap 3,4
+wait 8
+screenshot sequencer-microstep.bmp
+up 0,9
+wait 8
+screenshot sequencer-home.bmp
+
+# Hold one octave key for Pattern view. Add P02, then select filled P01.
+down 0,13
+wait 8
+screenshot sequencer-patterns.bmp
+tap 0,2
+wait 8
+screenshot sequencer-pattern-added.bmp
+down 3,1
+tap 0,9
+up 3,1
+tap 0,1
+
+# COPY captures a step source, so the screenshot must identify S01, not P01.
+down 1,0
+up 0,13
+tap 0,9
+wait 8
+screenshot sequencer-copy-step.bmp
+tap 1,9
+up 1,0
+
+# Releasing COPY exits the temporary Pattern layer before opening SYS.
+wait 8
+down 3,0
+wait 18
+tap 1,13
+up 3,0
+wait 12
+screenshot sequencer-overview.bmp
+
+# SYS > SEQ > BPM: 120 -> 131.
+tap 1,13
+tap 0,13
+tap 1,13
+wait 12
+screenshot sequencer-tempo.bmp
+tap 3,13
+
+# SYS > SEQ > TRK: select T2, mute and disable it.
+tap 2,12
+tap 0,13
+tap 1,12
+tap 1,13
+wait 12
+screenshot sequencer-track.bmp
+tap 0,12
+tap 3,13
+
+# SYS > SEQ > PATT: remove the populated last pattern only after confirmation.
+tap 2,13
+wait 12
+screenshot sequencer-pattern-settings.bmp
+tap 1,12
+wait 12
+screenshot sequencer-pattern-delete.bmp
+tap 2,13
+# Check the two-digit Pattern numbers at the maximum 16-slot layout.
+tap 1,13
+tap 1,13
+tap 1,13
+tap 1,13
+tap 1,13
+tap 1,13
+tap 1,13
+tap 1,13
+tap 1,13
+tap 1,13
+tap 1,13
+tap 1,13
+tap 1,13
+tap 1,13
+tap 0,12
+wait 10
+screenshot sequencer-pattern-max-settings.bmp
+tap 3,13
+tap 3,13
+tap 3,13
+down 0,13
+wait 10
+screenshot sequencer-pattern-max.bmp
+up 0,13
+quit

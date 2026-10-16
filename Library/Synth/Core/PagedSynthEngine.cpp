@@ -1,9 +1,14 @@
 #include "Library/Synth/Core/PagedSynthEngine.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cctype>
+#include <cstdio>
+#include <fstream>
+#include <iomanip>
 #include <sstream>
 
+#include "Devices/Device.h"
 #include "Devices/DeviceAudio.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "OS/Framework/Midi/MidiPort.h"
@@ -13,6 +18,34 @@ namespace synth {
 namespace {
 
 constexpr std::size_t kMaxMidiMessagesPerFrame = 24;
+constexpr std::size_t kMaxUserPresets = 32;
+
+bool IsUserPresetId(const std::string& id)
+{
+  return id.size() > 5 && id.size() <= 16 && id.compare(0, 5, "user.") == 0 &&
+         std::all_of(id.begin() + 5, id.end(), [](unsigned char c) { return c >= '0' && c <= '9'; });
+}
+
+std::string PresetBankPath(const SynthDescriptor& descriptor)
+{
+  return Device::Storage::PresetDirectoryPath(descriptor.displayName) + "/user.ccpreset";
+}
+
+bool ReadQuoted(std::istream& file, std::string& value, std::size_t limit)
+{
+  file >> std::ws;
+  if (file.get() != '"') return false;
+  value.clear();
+  char character;
+  while (file.get(character))
+  {
+    if (character == '"') return true;
+    if (character == '\\' && !file.get(character)) return false;
+    if (value.size() >= limit) return false;
+    value.push_back(character);
+  }
+  return false;
+}
 
 int ClampToParameterRange(const SynthParameterInfo& parameter, int value)
 {
@@ -69,6 +102,7 @@ PagedSynthEngine::~PagedSynthEngine() = default;
 
 bool PagedSynthEngine::Init(const SynthEngineInit& init)
 {
+  (void)RefreshPresetCatalog();
   engineIndex_ = init.engineIndex;
   const std::string portName = init.portName.empty() ? "SynthTrack" + std::to_string(init.engineIndex + 1) : init.portName;
   port_ = std::make_unique<midi::MidiPort>(portName, init.portId, 128);
@@ -142,18 +176,27 @@ SynthParameterPage PagedSynthEngine::ListParameters(const SynthPageRequest& requ
 SynthPresetPage PagedSynthEngine::ListPresets(const SynthPageRequest& request) const
 {
   SynthPresetPage page;
-  page.totalCount = presets_.size();
-  if (request.offset >= presets_.size() || request.limit == 0)
+  // Indexed factory catalog first, then registered presets and user presets.
+  page.totalCount = factoryOrder_.size() + presets_.size();
+  if (request.offset >= page.totalCount || request.limit == 0)
   {
     return page;
   }
 
-  const std::size_t end = std::min(presets_.size(), request.offset + request.limit);
+  const std::size_t end = std::min(page.totalCount, request.offset + request.limit);
   page.items.reserve(end - request.offset);
   for (std::size_t index = request.offset; index < end; ++index)
   {
-    page.items.push_back(presets_[index].info);
-    page.items.back().active = (presets_[index].info.id == currentPresetId_);
+    if (index < factoryOrder_.size())
+    {
+      const std::size_t factory = factoryOrder_[index];
+      page.items.push_back({std::string(FactoryPresetId(factory)), FactoryPresetDisplayName(factory), false, false});
+    }
+    else
+    {
+      page.items.push_back(presets_[index - factoryOrder_.size()].info);
+    }
+    page.items.back().active = (page.items.back().id == currentPresetId_);
   }
   return page;
 }
@@ -255,22 +298,25 @@ std::string PagedSynthEngine::DescribeParameterValue(const std::string& paramete
 
 bool PagedSynthEngine::LoadPreset(const std::string& presetId)
 {
-  auto iterator = std::find_if(presets_.begin(), presets_.end(), [&](const PresetState& preset) {
+  const auto iterator = std::find_if(presets_.begin(), presets_.end(), [&](const PresetState& preset) {
     return preset.info.id == presetId;
   });
-  if (iterator == presets_.end())
+  const PresetState* stored = iterator == presets_.end() ? nullptr : &*iterator;
+  const std::size_t factory = stored ? kNoFactoryPreset : FindFactoryPreset(presetId);
+  if (!stored && factory == kNoFactoryPreset)
   {
     return false;
   }
 
   for (SynthParameterInfo& parameter : parameters_)
   {
-    const auto valueIterator = iterator->values.find(parameter.id);
-    parameter.value = valueIterator == iterator->values.end() ? parameter.defaultValue : ClampToParameterRange(parameter, valueIterator->second);
+    const auto valueIterator = stored ? stored->values.find(parameter.id) : std::map<std::string, int>::const_iterator{};
+    parameter.value = stored && valueIterator != stored->values.end() ? ClampToParameterRange(parameter, valueIterator->second) : FactoryParameterValue(presetId, parameter);
   }
 
-  currentPresetId_ = iterator->info.id;
-  currentPresetName_ = iterator->info.name;
+  currentPresetId_ = presetId;
+  basePresetId_ = stored ? stored->basePresetId : presetId;
+  currentPresetName_ = stored ? stored->info.name : FactoryPresetDisplayName(factory);
   lastEvent_ = "preset " + currentPresetName_;
   OnPresetLoaded(currentPresetId_);
   return true;
@@ -278,30 +324,183 @@ bool PagedSynthEngine::LoadPreset(const std::string& presetId)
 
 bool PagedSynthEngine::SavePreset(const std::string& presetId, const std::string& presetName)
 {
+  if ((!presetId.empty() && !IsUserPresetId(presetId)) || !Device::Storage::EnsureDirectoryLayout())
+  {
+    return false;
+  }
+  // Refresh the shared bank before selecting an ID; other tracks can save the same engine kind.
+  if (!ReadUserPresets()) return false;
   const std::string resolvedId = presetId.empty() ? NextUserPresetId() : presetId;
   auto iterator = std::find_if(presets_.begin(), presets_.end(), [&](const PresetState& preset) {
     return preset.info.id == resolvedId;
   });
 
-  if (iterator == presets_.end())
+  const std::size_t userCount = std::count_if(presets_.begin(), presets_.end(), [](const PresetState& p) { return p.info.writable; });
+  if (iterator == presets_.end() && userCount >= kMaxUserPresets)
   {
-    presets_.push_back(PresetState{});
-    iterator = presets_.end() - 1;
-    iterator->info.id = resolvedId;
+    return false;
+  }
+  SynthEngineState saved = CaptureState();
+  saved.presetId = resolvedId;
+  saved.presetName = NormalizePresetName(presetName.empty() ? currentPresetName_ : presetName);
+  if (!ValidState(saved))
+  {
+    return false;
   }
 
-  iterator->info.name = presetName.empty() ? resolvedId : presetName;
-  iterator->info.writable = true;
-  iterator->values.clear();
-  for (const SynthParameterInfo& parameter : parameters_)
+  const std::string path = PresetBankPath(descriptor_);
+  const std::string temporary = path + ".tmp";
+  const std::string backup = path + ".bak";
+  std::ofstream file(temporary, std::ios::trunc | std::ios::binary);
+  if (!file) return false;
+  file << "CCOS_PRESETS 1 " << std::quoted(descriptor_.id) << '\n';
+  const auto write = [&](const SynthEngineState& state) {
+    file << std::quoted(state.presetId) << ' ' << std::quoted(state.presetName) << ' '
+         << std::quoted(state.basePresetId) << ' ' << state.values.size() << '\n';
+    for (const auto& value : state.values) file << std::quoted(value.first) << ' ' << value.second << '\n';
+  };
+  for (const PresetState& preset : presets_)
   {
-    iterator->values.emplace(parameter.id, parameter.value);
+    if (preset.info.writable && preset.info.id != resolvedId)
+      write({preset.basePresetId, preset.info.id, preset.info.name, preset.values});
   }
+  write(saved);
+  file.flush();
+  const bool written = file.good();
+  file.close();
+  if (!written || file.fail()) { std::remove(temporary.c_str()); return false; }
 
-  currentPresetId_ = iterator->info.id;
-  currentPresetName_ = iterator->info.name;
+  const bool exists = std::ifstream(path, std::ios::binary).good();
+  if (exists)
+  {
+    std::remove(backup.c_str());
+    if (std::rename(path.c_str(), backup.c_str()) != 0) { std::remove(temporary.c_str()); return false; }
+  }
+  if (std::rename(temporary.c_str(), path.c_str()) != 0)
+  {
+    if (exists) std::rename(backup.c_str(), path.c_str());
+    std::remove(temporary.c_str());
+    return false;
+  }
+  if (exists) std::remove(backup.c_str());
+  (void)ReadUserPresets();
+  currentPresetId_ = saved.presetId;
+  currentPresetName_ = saved.presetName;
   lastEvent_ = "saved " + currentPresetName_;
   return true;
+}
+
+SynthEngineState PagedSynthEngine::CaptureState() const
+{
+  SynthEngineState state{basePresetId_, currentPresetId_, currentPresetName_, {}};
+  for (const auto& parameter : parameters_) state.values.emplace(parameter.id, parameter.value);
+  return state;
+}
+
+bool PagedSynthEngine::ValidState(const SynthEngineState& state) const
+{
+  if (state.presetName.empty() || state.presetName.size() > 48 || state.presetId.size() > 64 ||
+      state.values.size() != parameters_.size() ||
+      std::any_of(state.presetName.begin(), state.presetName.end(), [](unsigned char c) { return c < 32 || c == 127; })) return false;
+  const bool registeredBase = std::any_of(presets_.begin(), presets_.end(), [&](const PresetState& preset) {
+    return !preset.info.writable && preset.info.id == state.basePresetId;
+  });
+  if ((!registeredBase && FindFactoryPreset(state.basePresetId) == kNoFactoryPreset) ||
+      (state.presetId != state.basePresetId && !IsUserPresetId(state.presetId))) return false;
+  for (const auto& entry : state.values)
+  {
+    const auto* parameter = FindParameter(entry.first);
+    if (!parameter || entry.second < parameter->minValue || entry.second > parameter->maxValue) return false;
+  }
+  return true;
+}
+
+bool PagedSynthEngine::RestoreState(const SynthEngineState& state)
+{
+  if (!ValidState(state)) return false;
+  for (auto& parameter : parameters_) parameter.value = state.values.at(parameter.id);
+  basePresetId_ = state.basePresetId;
+  currentPresetId_ = state.presetId;
+  currentPresetName_ = state.presetName;
+  lastEvent_ = "restored " + currentPresetName_;
+  SyncRuntimeState();
+  return true;
+}
+
+bool PagedSynthEngine::HasBinding() const
+{
+  return port_ && port_->Id() != midi::MIDI_PORT_INVALID && engineIndex_ < kSynthTrackCount;
+}
+
+bool PagedSynthEngine::CanReplace(const ISynthEngine& previous) const
+{
+  return !port_ && !currentPresetId_.empty() && previous.HasBinding();
+}
+
+ISynthEngine::RuntimeBinding PagedSynthEngine::TakeBinding()
+{
+  RuntimeBinding binding{std::move(port_), engineIndex_, std::move(audioBackendName_), audioConnected_, audioHasNativeOutput_};
+  engineIndex_ = static_cast<std::size_t>(-1);
+  audioConnected_ = false;
+  audioHasNativeOutput_ = false;
+  return binding;
+}
+
+void PagedSynthEngine::ReplaceBinding(ISynthEngine& previous)
+{
+  assert(CanReplace(previous));
+  RuntimeBinding binding = previous.TakeBinding();
+  port_ = std::move(binding.port);
+  engineIndex_ = binding.engineIndex;
+  audioBackendName_ = std::move(binding.backendName);
+  audioConnected_ = binding.connected;
+  audioHasNativeOutput_ = binding.nativeOutput;
+  // Discard stale queued notes from the previous project before the new patch is activated.
+  midi::MidiPacket discarded;
+  while (port_->Get(&discarded)) {}
+  activeNotes_ = 0;
+  SyncRuntimeState();
+  audio::WarmUp();
+}
+
+bool PagedSynthEngine::ReadUserPresets()
+{
+  const std::string path = PresetBankPath(descriptor_);
+  std::ifstream file(path, std::ios::binary | std::ios::ate);
+  if (!file) { file.clear(); file.open(path + ".bak", std::ios::binary | std::ios::ate); }
+  if (!file) return true; // No saved bank yet.
+  if (file.tellg() < 0 || file.tellg() > 256 * 1024) return false;
+  file.seekg(0);
+  std::string magic, engineId;
+  int version = 0;
+  if (!(file >> std::setw(16) >> magic >> version) || !ReadQuoted(file, engineId, 16) ||
+      magic != "CCOS_PRESETS" || version != 1 || engineId != descriptor_.id) return false;
+  std::vector<PresetState> loaded;
+  while (file >> std::ws && file.peek() != std::char_traits<char>::eof())
+  {
+    SynthEngineState state;
+    std::size_t count = 0;
+    if (loaded.size() >= kMaxUserPresets || !ReadQuoted(file, state.presetId, 16) || !ReadQuoted(file, state.presetName, 48) ||
+        !ReadQuoted(file, state.basePresetId, 64) || !(file >> count) ||
+        count != parameters_.size() || !IsUserPresetId(state.presetId)) return false;
+    for (std::size_t i = 0; i < count; ++i)
+    {
+      std::string id;
+      int value;
+      if (!ReadQuoted(file, id, 64) || !(file >> value) || !state.values.emplace(id, value).second) return false;
+    }
+    if (!ValidState(state) || std::any_of(loaded.begin(), loaded.end(), [&](const PresetState& p) { return p.info.id == state.presetId; })) return false;
+    loaded.push_back({{state.presetId, state.presetName, true, false}, std::move(state.values), state.basePresetId});
+  }
+  if (file.bad()) return false;
+  presets_.erase(std::remove_if(presets_.begin(), presets_.end(), [](const PresetState& p) { return p.info.writable; }), presets_.end());
+  for (auto& preset : loaded) presets_.push_back(std::move(preset));
+  return true;
+}
+
+bool PagedSynthEngine::RefreshPresetCatalog()
+{
+  return ReadUserPresets();
 }
 
 std::string PagedSynthEngine::CurrentPresetId() const
@@ -347,6 +546,7 @@ void PagedSynthEngine::RegisterPreset(const std::string& presetId,
   preset.info.id = presetId;
   preset.info.name = NormalizePresetName(presetName);
   preset.info.writable = writable;
+  preset.basePresetId = presetId;
   preset.values = values;
   presets_.push_back(std::move(preset));
   std::stable_sort(presets_.begin(), presets_.end(), [](const PresetState& left, const PresetState& right) {
@@ -358,6 +558,58 @@ void PagedSynthEngine::RegisterPreset(const std::string& presetId,
     }
     return left.info.id < right.info.id;
   });
+}
+
+void PagedSynthEngine::IndexFactoryPresets()
+{
+  const std::size_t count = std::min<std::size_t>(FactoryPresetCount(), UINT16_MAX);
+  factoryOrder_.resize(count);
+  for (std::size_t index = 0; index < count; ++index)
+  {
+    factoryOrder_[index] = static_cast<std::uint16_t>(index);
+  }
+  // Same order RegisterPreset keeps: folded display name, then ID.
+  std::sort(factoryOrder_.begin(), factoryOrder_.end(), [&](std::uint16_t left, std::uint16_t right) {
+    const std::string leftName = FoldAscii(FactoryPresetDisplayName(left));
+    const std::string rightName = FoldAscii(FactoryPresetDisplayName(right));
+    if (leftName != rightName)
+    {
+      return leftName < rightName;
+    }
+    return FactoryPresetId(left) < FactoryPresetId(right);
+  });
+}
+
+std::size_t PagedSynthEngine::FactoryPresetCount() const
+{
+  return 0;
+}
+
+std::string_view PagedSynthEngine::FactoryPresetId(std::size_t) const
+{
+  return {};
+}
+
+std::string PagedSynthEngine::FactoryPresetName(std::size_t) const
+{
+  return {};
+}
+
+std::size_t PagedSynthEngine::FindFactoryPreset(const std::string& presetId) const
+{
+  for (std::size_t index = 0; index < factoryOrder_.size(); ++index)
+  {
+    if (FactoryPresetId(index) == presetId)
+    {
+      return index;
+    }
+  }
+  return kNoFactoryPreset;
+}
+
+std::string PagedSynthEngine::FactoryPresetDisplayName(std::size_t index) const
+{
+  return NormalizePresetName(FactoryPresetName(index));
 }
 
 SynthParameterInfo* PagedSynthEngine::FindParameterMutable(const std::string& parameterId)
@@ -413,7 +665,7 @@ void PagedSynthEngine::SyncRuntimeState()
   }
 
   audio::EnsureEngine(engineIndex_, descriptor_.kind);
-  audio::SetEnginePreset(engineIndex_, currentPresetId_);
+  audio::SetEnginePreset(engineIndex_, basePresetId_);
   for (const SynthParameterInfo& parameter : parameters_)
   {
     if (!ShouldSyncParameterOnPresetLoad(parameter))
@@ -432,7 +684,19 @@ bool PagedSynthEngine::ShouldSyncParameterToRuntime(const SynthParameterInfo& pa
 
 bool PagedSynthEngine::ShouldSyncParameterOnPresetLoad(const SynthParameterInfo& parameter) const
 {
-  return ShouldSyncParameterToRuntime(parameter);
+  return ShouldSyncParameterToRuntime(parameter) &&
+         (descriptor_.kind == SynthEngineKind::Sampler || parameter.value != FactoryParameterValue(basePresetId_, parameter));
+}
+
+int PagedSynthEngine::FactoryParameterValue(const std::string& presetId, const SynthParameterInfo& parameter) const
+{
+  const auto preset = std::find_if(presets_.begin(), presets_.end(), [&](const PresetState& p) { return p.info.id == presetId; });
+  if (preset != presets_.end())
+  {
+    const auto value = preset->values.find(parameter.id);
+    if (value != preset->values.end()) return value->second;
+  }
+  return parameter.defaultValue;
 }
 
 std::string PagedSynthEngine::NextUserPresetId() const

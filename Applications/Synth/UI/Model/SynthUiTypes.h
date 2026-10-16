@@ -6,6 +6,7 @@
 #include <string>
 
 #include "Applications/Synth/Runtime/Sampler/SamplerTrackState.h"
+#include "Applications/Synth/Runtime/Sequencer/SynthSequencerTypes.h"
 #include "Library/Synth/Core/SynthTypes.h"
 
 namespace synth {
@@ -88,10 +89,34 @@ enum class ContextActionId {
   LayoutOctaveUp,
   LayoutGrid,
   LayoutSave,
+  SequencerTogglePlayback,
+  SequencerStop,
+  SequencerPatternPrev,
+  SequencerPatternNext,
+  SequencerPatternCountDec,
+  SequencerPatternCountInc,
   ShowInfo,
   AudioSetup,
   MidiSetup,
+  ProjectSave,
+  ProjectSaveAs,
+  ProjectLoad,
+  ProjectNew,
+  ProjectNameSave,
+  ProjectNameBackspace,
+  ProjectConfirm,
+  SequencerResume,
+  SequencerTempoDec,
+  SequencerTempoInc,
+  SequencerTempoDecLarge,
+  SequencerTempoIncLarge,
+  SequencerMute,
+  SequencerEnable,
+  SequencerTrackPrev,
+  SequencerTrackNext,
+  SequencerPatternDeleteConfirm,
   ResetPatch,
+  SequencerToggleView,
 };
 
 enum class KeyboardLayoutMode {
@@ -112,13 +137,39 @@ enum class UiCommandType {
   SamplerConfirmOverwrite,
   SamplerRenameCurrent,
   SamplerDeleteCurrent,
+  SamplerRenameFile,
+  SamplerDeleteFile,
   SamplerCancelOverlay,
+  SequencerTogglePlayback,
+  SequencerStop,
+  SequencerPatternPrev,
+  SequencerPatternNext,
+  SequencerPatternCountDec,
+  SequencerPatternCountInc,
+  SequencerResume,
+  SequencerTempoDec,
+  SequencerTempoInc,
+  SequencerTempoDecLarge,
+  SequencerTempoIncLarge,
+  SequencerMute,
+  SequencerEnable,
+  SequencerTrackPrev,
+  SequencerTrackNext,
+  ProjectList,
+  ProjectSave,
+  ProjectOverwrite,
+  ProjectLoad,
+  ProjectNew,
+  SequencerPatternDelete,
+  SequencerToggleView,
 };
 
 struct UiCommand {
   UiCommandType type = UiCommandType::None;
   std::size_t trackIndex = 0;
   std::string text;
+  std::string fileName;
+  std::size_t patternIndex = 0;
 };
 
 struct ContextMenuCell {
@@ -145,12 +196,31 @@ struct UiBarItemSnapshot {
   std::string label;
   std::string fullName;
   std::string description;
+  // Current value shown beside the key on group pages; level is 0..1 for continuous values, otherwise negative.
+  std::string value;
+  float level = -1.0f;
   UiBarIcon icon = UiBarIcon::None;
+  // active is a latched selection; pressed is the physical key being held right now.
   bool active = false;
+  bool pressed = false;
+  bool playing = false;
+  bool danger = false;
   bool disabled = false;
 };
 
 using UiBarSnapshot = std::array<UiBarItemSnapshot, kContextMenuCellCount>;
+
+// Body template for context pages. Auto keeps the renderer's per-engine choice.
+enum class UiContentStyle {
+  Auto,
+  KeyValues,
+  List,
+  TextEntry,
+  Confirm,
+  Adjust,
+};
+
+inline constexpr std::size_t kHomePerformanceKeyCount = kKeyboardMatrixRows * kHomePerformanceColumnCount;
 
 struct UiScreenSnapshot {
   UiMode mode = UiMode::Home;
@@ -160,8 +230,25 @@ struct UiScreenSnapshot {
   std::string headerSecondary;
   std::string primaryText;
   std::string secondaryText;
+  // Presentation-only title bar: page name, a cyan first line (meta), a grey second line and top-right info.
+  UiContentStyle contentStyle = UiContentStyle::Auto;
+  std::string title;
+  std::string meta;
+  std::string subtitle;
+  std::string status;
+  std::string subject;
+  std::string note;
+  std::string searchText;
+  bool dangerous = false;
+  float valueLevel = -1.0f;
   std::string focusItemId;
   KeyboardLayoutMode keyboardLayoutMode = KeyboardLayoutMode::Octave;
+  // Performance zone, row-major for matrix rows 0..3 and columns 1..8: MIDI note or -1 when unmapped.
+  std::array<std::int16_t, kHomePerformanceKeyCount> performanceKeyNotes{};
+  std::array<bool, kHomePerformanceKeyCount> performanceKeyInScale{};
+  int keyboardRootNote = 0;
+  int keyboardOctave = 0;
+  bool keyboardOctaveChanged = false;
   std::string keyboardRootName;
   std::string keyboardScaleName;
   bool keyboardRootDisabled = false;
@@ -169,6 +256,7 @@ struct UiScreenSnapshot {
   bool showPresetBrowser = false;
   bool showHelpPopup = false;
   bool showSecondaryText = false;
+  bool showSequencerGrid = false;
   std::string helpPopupTitle;
   std::string helpPopupText;
   int dx7Algorithm = 0;
@@ -224,6 +312,7 @@ struct UiScreenSnapshot {
   bool samplerRecording = false;
   bool samplerPreviewing = false;
   float samplerRecordProgress = 0.0f;
+  SequencerUiState sequencer;
   float looperProgress = 0.0f;
   UiBarSnapshot leftBarItems{};
   bool leftBarVisible = true;

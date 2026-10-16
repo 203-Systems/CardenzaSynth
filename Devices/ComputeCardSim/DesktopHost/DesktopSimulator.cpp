@@ -146,7 +146,7 @@ LRESULT DesktopSimulator::HandleMessage(UINT message, WPARAM wParam, LPARAM lPar
       OnLeftButtonUp();
       return 0;
     case WM_KEYDOWN:
-      OnKeyDown(static_cast<UINT>(wParam));
+      OnKeyDown(static_cast<UINT>(wParam), lParam);
       return 0;
     case WM_TIMER:
       if (wParam == kFrameTimerId)

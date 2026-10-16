@@ -1,0 +1,23 @@
+# Read an existing saved project, confirm loading, then confirm New in this test session.
+wait 8
+down 3,0
+wait 18
+tap 0,13
+up 3,0
+wait 8
+tap 1,12
+wait 8
+screenshot project-browser.bmp
+tap 3,13
+wait 8
+screenshot project-confirm.bmp
+tap 3,13
+wait 15
+screenshot project-loaded.bmp
+tap 1,13
+wait 8
+screenshot project-new-confirm.bmp
+tap 3,13
+wait 15
+screenshot project-new.bmp
+quit

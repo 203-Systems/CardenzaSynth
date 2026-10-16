@@ -1,0 +1,31 @@
+# Uses the generated qafile.wav fixture in the simulator's isolated sdcard.
+wait 8
+tap 2,0
+down 1,0
+wait 18
+tap 0,13
+up 1,0
+wait 10
+tap 1,1
+tap 2,2
+wait 8
+screenshot file-browser.bmp
+tap 3,1
+wait 8
+screenshot file-actions.bmp
+tap 0,13
+wait 8
+screenshot file-rename.bmp
+tap 3,4
+tap 3,13
+wait 10
+screenshot file-renamed.bmp
+tap 1,13
+wait 8
+screenshot file-delete.bmp
+tap 2,13
+wait 8
+tap 3,13
+wait 8
+screenshot file-return.bmp
+quit

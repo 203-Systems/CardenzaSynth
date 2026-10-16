@@ -4,9 +4,11 @@
 #include <chrono>
 #include <cstddef>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "Applications/Synth/Runtime/Sampler/SamplerTrackState.h"
+#include "Applications/Synth/Runtime/Sequencer/SynthSequencerTypes.h"
 #include "Library/Synth/Core/ISynthEngine.h"
 #include "Applications/Synth/UI/Model/SynthUiTypes.h"
 
@@ -19,12 +21,25 @@ public:
   void InitializeTrack(std::size_t trackIndex, SynthEngineKind kind);
   void SyncTrackState(std::size_t trackIndex, const ISynthEngine* engine);
   void SyncSamplerTrackState(std::size_t trackIndex, const SamplerTrackUiState& state);
+  void SetSequencerUiState(const SequencerUiState& state);
+  void ConfirmSequencerPatternDelete(std::size_t patternIndex, bool returnHome);
   void SetActiveTrack(std::size_t trackIndex);
+  void SetHomeActionHeld(std::size_t row, bool held);
+  void AdjustHomeKeyboardOctave(int delta);
   void Tick(const ISynthEngine* engine);
   MatrixKeyHandling PressMatrixKey(ISynthEngine* engine, std::size_t row, std::size_t col);
   void ReleaseMatrixKey(ISynthEngine* engine, std::size_t row, std::size_t col);
   void HandleHomeButton(const ISynthEngine* engine);
   void ExitToHome();
+  void ToggleHomeView();
+  bool HomeShowsSequencerGrid() const { return showSequencerGrid_; }
+  std::array<int, 4> KeyboardSettings() const;
+  bool RestoreKeyboardSettings(const std::array<int, 4>& settings);
+  void SetProjectList(const std::vector<std::string>& names);
+  void ProjectResult(const std::string& name, const std::string& status, bool success);
+  void ConfirmProjectOverwrite(const std::string& name);
+  void EngineChangeFailed(const std::string& status);
+  void SamplerFileResult(bool success, const std::string& status, const std::string& renamedFile = {});
 
   std::size_t ActiveTrack() const { return activeTrack_; }
   UiMode Mode() const { return mode_; }
@@ -93,7 +108,7 @@ private:
   void ExitSamplerBrowser();
   void RefreshSamplerBrowserEntries();
   void EnterParameterAdjustMode(const SynthParameterInfo& parameter, std::size_t menuIndex);
-  void QueueCommand(UiCommandType type, const std::string& text = {});
+  void QueueCommand(UiCommandType type, const std::string& text = {}, const std::string& fileName = {});
   void ExitPresetNameEntry();
   void ExitSamplerNameEntry();
   void ExitSamplerRecordConfirm();
@@ -110,12 +125,17 @@ private:
   ContextMenuGrid BuildLayoutMenu() const;
   ContextMenuGrid BuildOtherMenu() const;
   UiBarSnapshot BuildModifierBarSnapshot(UiModifier highlightedModifier) const;
+  UiBarSnapshot BuildSequencerEditBarSnapshot() const;
+  UiBarSnapshot BuildSequencerShiftBarSnapshot() const;
   UiBarSnapshot BuildHomeActionBarSnapshot() const;
   UiBarSnapshot BuildContextBarSnapshot(const ISynthEngine* engine) const;
+  std::pair<std::string, float> CellPreview(const ContextMenuCell& cell, const ISynthEngine* engine) const;
+  void PopulatePerformanceKeys(UiScreenSnapshot& snapshot) const;
   UiScreenSnapshot BuildScreenSnapshot(const ISynthEngine* engine) const;
   void StartTransition(const UiScreenSnapshot& from, const UiScreenSnapshot& to);
   void CancelTransition();
   void ClearHeldModifiers();
+  void CloseSequencerPatternDelete();
   UiModifier FirstHeldModifier() const;
 
   std::array<TrackState, kSynthTrackCount> tracks_{};
@@ -130,6 +150,7 @@ private:
   KeyboardLayoutMode keyboardLayoutMode_ = KeyboardLayoutMode::Octave;
   std::chrono::steady_clock::time_point homeOctaveStatusUntil_{};
   UiMode mode_ = UiMode::Home;
+  bool showSequencerGrid_ = false;
   UiModifier activeModifier_ = UiModifier::None;
   std::size_t currentPage_ = 0;
   std::size_t activeMenuRow_ = 0;
@@ -171,8 +192,23 @@ private:
   std::string samplerNameText_;
   bool samplerRecordConfirmMode_ = false;
   bool samplerEditFromBrowser_ = false;
+  std::string samplerFileTarget_;
+  std::string samplerFileStatus_;
   int samplerTrimCursor_ = 0;
   bool contextLatched_ = false;
+  std::string projectName_;
+  std::string projectNameText_;
+  bool projectNameEntryMode_ = false;
+  std::vector<std::string> projectNames_;
+  std::size_t projectSelectionIndex_ = 0;
+  UiCommandType projectConfirmCommand_ = UiCommandType::None;
+  std::string projectConfirmName_;
+  std::string projectStatus_;
+  SequencerUiState sequencer_{};
+  bool sequencerDeleteConfirm_ = false;
+  bool sequencerDeleteReturnHome_ = false;
+  std::size_t sequencerDeleteTrack_ = 0;
+  std::size_t sequencerDeletePattern_ = 0;
   UiTransitionSnapshot transition_{};
 };
 

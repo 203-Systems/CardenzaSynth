@@ -10,8 +10,10 @@ public:
 
 protected:
   std::string FormatParameterValue(const SynthParameterInfo& parameter) const override;
-  bool ShouldSyncParameterToRuntime(const SynthParameterInfo& parameter) const override;
-  bool ShouldSyncParameterOnPresetLoad(const SynthParameterInfo& parameter) const override;
+  int FactoryParameterValue(const std::string& presetId, const SynthParameterInfo& parameter) const override;
+  std::size_t FactoryPresetCount() const override;
+  std::string_view FactoryPresetId(std::size_t index) const override;
+  std::string FactoryPresetName(std::size_t index) const override;
 };
 
 }  // namespace synth

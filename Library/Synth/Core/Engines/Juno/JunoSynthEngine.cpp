@@ -1,5 +1,6 @@
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
 #include "Library/Synth/Core/Engines/Juno/JunoFactoryPresets.h"
+#include "Library/Synth/Audio/Amy/FactoryParameters.h"
 
 #include <algorithm>
 #include <string>
@@ -25,13 +26,8 @@ JunoSynthEngine::JunoSynthEngine()
   RegisterParameter({"env.release", "Release", "ENV", SynthParameterKind::Continuous, 0, 127, 1, 36, 36});
   RegisterParameter({"lfo.rate", "LFO Rate", "LFO", SynthParameterKind::Continuous, 0, 127, 1, 40, 40});
   RegisterParameter({"lfo.delay", "LFO Delay", "LFO", SynthParameterKind::Continuous, 0, 127, 1, 22, 22});
-  RegisterParameter({"chorus.mode", "Chorus", "FX", SynthParameterKind::Choice, 0, 2, 1, 0, 0});
-  RegisterParameter({"hpf.mode", "HPF", "VCF", SynthParameterKind::Choice, 0, 3, 1, 0, 0});
 
-  for (const JunoFactoryPresetDefinition& preset : JunoFactoryPresets())
-  {
-    RegisterPreset(std::string(preset.id), std::string(preset.name), {});
-  }
+  IndexFactoryPresets();
 
   (void)LoadPreset("juno.a51");
 }
@@ -56,15 +52,25 @@ std::string JunoSynthEngine::FormatParameterValue(const SynthParameterInfo& para
   return PagedSynthEngine::FormatParameterValue(parameter);
 }
 
-bool JunoSynthEngine::ShouldSyncParameterToRuntime(const SynthParameterInfo& parameter) const
+int JunoSynthEngine::FactoryParameterValue(const std::string& presetId, const SynthParameterInfo& parameter) const
 {
-  return parameter.id == "dco.range" || parameter.id == "vcf.cutoff" || parameter.id == "vcf.resonance";
+  const auto* preset = FindJunoFactoryPreset(presetId);
+  return preset ? factory::JunoValue(factory::kJuno[preset->patchNumber], parameter.id) : parameter.defaultValue;
 }
 
-bool JunoSynthEngine::ShouldSyncParameterOnPresetLoad(const SynthParameterInfo& parameter) const
+std::size_t JunoSynthEngine::FactoryPresetCount() const
 {
-  (void)parameter;
-  return false;
+  return JunoFactoryPresets().size();
+}
+
+std::string_view JunoSynthEngine::FactoryPresetId(std::size_t index) const
+{
+  return JunoFactoryPresets()[index].id;
+}
+
+std::string JunoSynthEngine::FactoryPresetName(std::size_t index) const
+{
+  return std::string(JunoFactoryPresets()[index].name);
 }
 
 }  // namespace synth

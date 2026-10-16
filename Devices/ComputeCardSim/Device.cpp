@@ -185,13 +185,14 @@ std::string ProjectDirectoryPath() {
 
 bool EnsureDirectoryLayout() {
   std::error_code error;
-  const std::array<fs::path, 7> directories = {
+  const std::array<fs::path, 8> directories = {
       StorageRootDirectory(),
       StorageRootDirectory() / "Sample",
       StorageRootDirectory() / "Preset",
       StorageRootDirectory() / "Preset" / "DX7",
       StorageRootDirectory() / "Preset" / "Juno",
       StorageRootDirectory() / "Preset" / "Sampler",
+      StorageRootDirectory() / "Preset" / "Drums",
       StorageRootDirectory() / "Project",
   };
 

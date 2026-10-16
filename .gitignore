@@ -37,3 +37,6 @@ Devices/ComputeCardSim/debug/**/*.png
 
 # Local validation captures and logs
 logs/
+
+# UI review publication copy with its own Git history
+/sites/compute-card-ui-review/

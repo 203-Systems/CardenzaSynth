@@ -1,0 +1,23 @@
+wait 12
+screenshot home.bmp
+down 3,0
+wait 18
+screenshot system.bmp
+tap 0,13
+up 3,0
+wait 12
+screenshot project.bmp
+tap 0,13
+wait 12
+screenshot project-name.bmp
+tap 2,13
+wait 8
+tap 3,13
+wait 8
+tap 1,13
+wait 8
+screenshot transport.bmp
+tap 1,13
+wait 8
+screenshot tempo.bmp
+quit

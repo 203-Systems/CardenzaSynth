@@ -266,13 +266,14 @@ bool EnsureDirectoryLayout() {
     return false;
   }
 
-  const std::array<std::string, 7> directories = {
+  const std::array<std::string, 8> directories = {
       RootPath(),
       SampleDirectoryPath(),
       PresetDirectoryPath(),
       PresetDirectoryPath("DX7"),
       PresetDirectoryPath("Juno"),
       PresetDirectoryPath("Sampler"),
+      PresetDirectoryPath("Drums"),
       ProjectDirectoryPath(),
   };
 

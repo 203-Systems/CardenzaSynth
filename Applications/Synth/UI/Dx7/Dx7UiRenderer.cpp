@@ -300,11 +300,6 @@ constexpr std::array<Dx7AlgoVisual, 32> kDx7Algorithms = {{
                 DX7_CARRIERS(1, 2, 3, 4, 5, 6)),
 }};
 
-bool IsDx7AlgorithmSummaryText(std::string_view text)
-{
-  return text.rfind("ALG ", 0) == 0 && text.find(" FB ") != std::string_view::npos;
-}
-
 const Dx7AlgoVisual& LookupDx7Algorithm(int algorithm)
 {
   const std::size_t index = static_cast<std::size_t>(std::clamp(algorithm, 1, 32) - 1);
@@ -334,35 +329,12 @@ int SelectedDx7Operator(const std::string& focusItemId)
   return -1;
 }
 
-std::string Dx7OperatorTitle(const UiScreenSnapshot& snapshot)
-{
-  if (snapshot.focusItemId == "par.dx7.group.alg" || snapshot.focusItemId == "snd.dx7.alg" ||
-      snapshot.focusItemId == "global.algorithm" || snapshot.focusItemId == "global.feedback")
-  {
-    return "Algorithm";
-  }
-
-  if (snapshot.focusItemId == "par.dx7.group.glb" || snapshot.focusItemId == "snd.dx7.glb" ||
-      snapshot.focusItemId.rfind("global.", 0) == 0)
-  {
-    return "Global";
-  }
-
-  const int selectedOperator = SelectedDx7Operator(snapshot.focusItemId);
-  return selectedOperator >= 0 ? "Operator " + std::to_string(selectedOperator + 1) : std::string{};
-}
-
-bool ShouldShowDx7OperatorPane(const UiScreenSnapshot& snapshot)
-{
-  return !Dx7OperatorTitle(snapshot).empty();
-}
-
 std::array<ui::Rect, 6> MakeDx7OperatorRects(const ui::Rect& rect, const Dx7AlgoVisual& algorithm)
 {
   const int columnWidth = std::max(1, rect.width / 3);
   const int rowHeight = std::max(1, rect.height / 2);
-  const int boxWidth = std::min(32, std::max(22, columnWidth - 10));
-  const int boxHeight = std::min(22, std::max(14, rowHeight - 6));
+  const int boxWidth = std::min(24, std::max(18, columnWidth - 16));
+  const int boxHeight = std::min(15, std::max(11, rowHeight - 10));
 
   std::array<ui::Rect, 6> operatorRects{};
   const int halfWidth = boxWidth / 2;
@@ -563,7 +535,7 @@ void DrawDx7AlgorithmGraph(ui::Canvas& canvas, const ui::Rect& rect, const UiScr
     return;
   }
 
-  const ui::Color divider = FadeColor(kDivider, alpha);
+  const ui::Color divider = FadeColor(kDim, alpha);
   const ui::Color accent = FadeColor(kAccent, alpha);
   const ui::Color text = FadeColor(kText, alpha);
   const auto& algorithm = LookupDx7Algorithm(snapshot.dx7Algorithm);
@@ -593,66 +565,41 @@ void DrawDx7AlgorithmGraph(ui::Canvas& canvas, const ui::Rect& rect, const UiScr
     DrawDx7Edge(canvas, rect, operatorRects, edge, fromRect, toRect, edgeColor);
   }
 
+  // Carriers sit on a lit plate; modulators are outlined, so the audible path reads at a glance.
   for (std::size_t op = 0; op < operatorRects.size(); ++op)
   {
     const bool isCarrier = (algorithm.carriersMask & (1u << op)) != 0;
     const bool isSelected = selectedOperator == static_cast<int>(op);
     const ui::Rect operatorRect = operatorRects[op];
-    canvas.FillRect(InsetRect(operatorRect, 1, 1), kBackground);
-    if (isCarrier)
-    {
-      canvas.FillRect(InsetRect(operatorRect, 1, 1), FadeColor(kAccent, alpha * 0.12f));
-    }
-    canvas.StrokeRect(operatorRect, isSelected || isCarrier ? accent : text);
-    canvas.DrawTextInRect(operatorRect,
-                          std::to_string(op + 1),
-                          isSelected ? accent : text,
-                          1,
-                          ui::TextAlign::Center,
-                          ui::VerticalAlign::Middle);
+    canvas.FillRect(operatorRect, FadeColor(isCarrier ? MixColor(kRule, kDim, 0.35f) : kBackground, alpha));
+    canvas.StrokeRect(operatorRect, isSelected ? accent : (isCarrier ? FadeColor(MixColor(kRule, kDim, 0.35f), alpha) : divider));
+    const std::string label = std::to_string(op + 1);
+    DrawInk(canvas, operatorRect.x + (operatorRect.width - InkWidth(canvas, label, 1) + 1) / 2,
+            operatorRect.y + (operatorRect.height - InkHeight(1)) / 2, label, isSelected ? accent : text, 1);
   }
 }
 
-void DrawDx7OperatorPane(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
+std::string Dx7OperatorRole(const UiScreenSnapshot& snapshot)
 {
-  if (rect.width <= 0 || rect.height <= 0)
+  const int op = SelectedDx7Operator(snapshot.focusItemId);
+  if (op < 0 || snapshot.dx7Algorithm <= 0)
   {
-    return;
+    return {};
   }
-
-  const ui::Color accent = FadeColor(kAccent, alpha);
-  const ui::Color text = FadeColor(kText, alpha);
-  const ui::Color divider = FadeColor(kDivider, alpha);
-  const std::string title = Dx7OperatorTitle(snapshot);
-  if (title.empty())
+  const auto& algorithm = LookupDx7Algorithm(snapshot.dx7Algorithm);
+  // Edges are stored as (target, source): the second operator modulates the first.
+  std::string targets;
+  bool feedback = false;
+  for (std::size_t index = 0; index < algorithm.edgeCount; ++index)
   {
-    return;
+    const Dx7Edge edge = algorithm.edges[index];
+    if (edge.to != static_cast<std::uint8_t>(op)) continue;
+    if (edge.from == edge.to) feedback = true;
+    else targets += (targets.empty() ? "OP" : " ") + std::to_string(edge.from + 1);
   }
-  const bool showingParameterValue = snapshot.focusItemId.rfind("op", 0) == 0;
-  const std::string parameterText = showingParameterValue ? snapshot.primaryText : "Parameters";
-  const int valueScale = showingParameterValue ? 5 : 2;
-
-  canvas.DrawText(rect.x,
-                  rect.y + 10,
-                  TruncateText(canvas, title, rect.width, 1),
-                  accent,
-                  1);
-  canvas.DrawTextInRect(MakeRect(rect.x, rect.y + 30, rect.width, 24),
-                        TruncateText(canvas, parameterText, rect.width, 2),
-                        text,
-                        2,
-                        ui::TextAlign::Left,
-                        ui::VerticalAlign::Middle);
-  canvas.DrawLine(rect.x, rect.y + 58, rect.x + rect.width - 1, rect.y + 58, divider);
-  canvas.DrawTextInRect(MakeRect(rect.x,
-                                 rect.y + 64,
-                                 rect.width,
-                                 rect.height - 68),
-                        TruncateText(canvas, snapshot.secondaryText, rect.width, valueScale),
-                        text,
-                        valueScale,
-                        ui::TextAlign::Left,
-                        ui::VerticalAlign::Middle);
+  const bool carrier = (algorithm.carriersMask & (1u << op)) != 0;
+  std::string role = carrier ? "CARRIER" : (targets.empty() ? "MODULATOR" : "MODULATES " + targets);
+  return feedback ? role + " + FB" : role;
 }
 
 }  // namespace
@@ -670,73 +617,30 @@ void DrawDx7ParameterContent(ui::Canvas& canvas, const ui::Rect& rect, const UiS
     return;
   }
 
-  const ui::Color text = FadeColor(kText, alpha);
-  const ui::Color divider = FadeColor(kDivider, alpha);
-  const bool showingParameterValue = snapshot.focusItemId.rfind("op", 0) == 0 ||
-                                     snapshot.focusItemId.rfind("global.", 0) == 0;
-  if (ShouldShowDx7OperatorPane(snapshot))
+  // An operator page names its role in the title bar: carrier, or which operator it modulates.
+  const std::string role = Dx7OperatorRole(snapshot);
+  const int top = DrawPageTitle(canvas, rect, snapshot.title, snapshot.meta.empty() ? role : snapshot.meta, kAccent,
+                                snapshot.subtitle, snapshot.status, alpha);
+  if (snapshot.contentStyle == UiContentStyle::Adjust)
   {
-    DrawDx7OperatorPane(canvas, rect, snapshot, alpha);
+    DrawAdjustValue(canvas, MakeRect(rect.x, top, rect.width, rect.y + rect.height - top), snapshot.primaryText,
+                    snapshot.secondaryText, snapshot.valueLevel, alpha);
+    return;
+  }
+  if (snapshot.contentStyle == UiContentStyle::KeyValues)
+  {
+    DrawKeyValues(canvas, rect, snapshot.rightBarColumns, snapshot.rightBarItems, alpha);
+    if (snapshot.focusItemId == "par.dx7.group.alg")
+    {
+      // ALG and FB sit on the first row; the routing they produce fills the rows below.
+      const ui::Rect row1 = KeyValueEntryRect(rect, canvas.Height(), 1, 1, 0);
+      DrawDx7AlgorithmGraph(canvas, MakeRect(rect.x + 4, row1.y + 2, rect.width - 8, rect.y + rect.height - row1.y - 8), snapshot, alpha);
+      return;
+    }
     return;
   }
 
-  const int valueScale = showingParameterValue ? 4 : 2;
-  const bool showAlgorithmSummary = !showingParameterValue && IsDx7AlgorithmSummaryText(snapshot.secondaryText);
-  constexpr int kDx7AlgorithmSummaryHeight = 28;
-  constexpr int kDx7SummaryHeight = 46;
-  constexpr int kDx7EmptySummaryHeight = 34;
-  const int summaryHeight = showAlgorithmSummary ? kDx7AlgorithmSummaryHeight
-                                                 : (snapshot.showSecondaryText ? kDx7SummaryHeight : kDx7EmptySummaryHeight);
-  const int graphTop = rect.y + 2;
-  const int summaryTop = rect.y + rect.height - summaryHeight;
-  const ui::Rect graphRect = MakeRect(rect.x,
-                                      graphTop,
-                                      rect.width,
-                                      std::max(0, summaryTop - graphTop - 2));
-  DrawDx7AlgorithmGraph(canvas, graphRect, snapshot, alpha);
-
-  canvas.DrawLine(rect.x, summaryTop - 2, rect.x + rect.width - 1, summaryTop - 2, divider);
-
-  if (!snapshot.showSecondaryText)
-  {
-    return;
-  }
-
-  if (showAlgorithmSummary)
-  {
-    const std::string algorithmText = "ALG " + std::to_string(snapshot.dx7Algorithm);
-    const std::string feedbackText = "FB " + std::to_string(snapshot.dx7Feedback);
-    const int columnGap = 4;
-    const int columnWidth = std::max(0, (rect.width - columnGap) / 2);
-    const ui::Rect leftRect = MakeRect(rect.x,
-                                       summaryTop + 2,
-                                       columnWidth,
-                                       summaryHeight - 2);
-    const ui::Rect rightRect = MakeRect(rect.x + rect.width - columnWidth,
-                                        summaryTop + 2,
-                                        columnWidth,
-                                        summaryHeight - 2);
-    canvas.DrawTextInRect(leftRect,
-                          algorithmText,
-                          text,
-                          2,
-                          ui::TextAlign::Center,
-                          ui::VerticalAlign::Middle);
-    canvas.DrawTextInRect(rightRect,
-                          feedbackText,
-                          text,
-                          2,
-                          ui::TextAlign::Center,
-                          ui::VerticalAlign::Middle);
-    return;
-  }
-
-  canvas.DrawTextInRect(MakeRect(rect.x, summaryTop + 4, rect.width, summaryHeight - 4),
-                        TruncateText(canvas, snapshot.secondaryText, rect.width, valueScale),
-                        text,
-                        valueScale,
-                        ui::TextAlign::Left,
-                        ui::VerticalAlign::Middle);
+  DrawDx7AlgorithmGraph(canvas, MakeRect(rect.x + 4, top + 6, rect.width - 8, rect.y + rect.height - top - 12), snapshot, alpha);
 }
 
 }  // namespace synth::ui_render

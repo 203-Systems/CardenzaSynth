@@ -38,3 +38,10 @@ target_link_libraries(ComputeCardDeviceAudio PUBLIC
 )
 add_subdirectory(Applications)
 add_subdirectory(Devices)
+
+if(DEVICE STREQUAL "ComputeCardSim")
+  include(CTest)
+  if(BUILD_TESTING)
+    add_subdirectory(tests)
+  endif()
+endif()

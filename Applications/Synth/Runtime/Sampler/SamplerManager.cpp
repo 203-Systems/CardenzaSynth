@@ -2,15 +2,18 @@
 
 #include "Devices/Device.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
 
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cerrno>
 #include <cstdio>
 #include <cmath>
 #include <fstream>
 #include <limits>
 #include <string>
+#include <sys/stat.h>
 
 namespace synth {
 
@@ -45,9 +48,13 @@ std::string PhaseStatus(SamplerTrackPhase phase)
 std::string SanitizedSampleName(std::string_view name)
 {
   std::string sanitized;
-  sanitized.reserve(name.size());
+  sanitized.reserve(std::min<std::size_t>(name.size(), 80));
   for (char ch : name)
   {
+    if (sanitized.size() >= 80)
+    {
+      break;
+    }
     const unsigned char value = static_cast<unsigned char>(ch);
     if (std::isalnum(value) || ch == '_' || ch == '-')
     {
@@ -64,6 +71,20 @@ std::string SanitizedSampleName(std::string_view name)
     return "Sample";
   }
   return sanitized;
+}
+
+std::string SampleFileName(std::string_view id)
+{
+  if (id.empty() || id.size() > 96 || id.find_first_of("/\\:") != std::string_view::npos ||
+      id.find('\0') != std::string_view::npos || id == "." || id == "..")
+  {
+    return {};
+  }
+  const bool hasExtension = id.size() >= 4 && id[id.size() - 4] == '.' &&
+      std::tolower(static_cast<unsigned char>(id[id.size() - 3])) == 'w' &&
+      std::tolower(static_cast<unsigned char>(id[id.size() - 2])) == 'a' &&
+      std::tolower(static_cast<unsigned char>(id[id.size() - 1])) == 'v';
+  return hasExtension ? std::string(id) : std::string(id) + ".wav";
 }
 
 std::string JoinPath(const std::string& left, const std::string& right)
@@ -83,27 +104,42 @@ std::string JoinPath(const std::string& left, const std::string& right)
 
 bool FileExists(const std::string& path)
 {
-  std::ifstream file(path, std::ios::binary);
-  return file.good();
+  struct stat info{};
+  return stat(path.c_str(), &info) == 0;
+}
+
+bool IsRegularFile(const std::string& path)
+{
+  struct stat info{};
+  return stat(path.c_str(), &info) == 0 && (info.st_mode & S_IFMT) == S_IFREG;
+}
+
+bool SameSampleFile(std::string_view left, std::string_view right)
+{
+  // Firmware storage is FAT; keep reference handling consistent on host filesystems.
+  return left.size() == right.size() && std::equal(left.begin(), left.end(), right.begin(),
+      [](unsigned char a, unsigned char b) { return std::tolower(a) == std::tolower(b); });
 }
 
 bool RemoveFileIfPresent(const std::string& path)
 {
-  if (!FileExists(path))
+  struct stat info{};
+  if (stat(path.c_str(), &info) != 0)
   {
-    return true;
+    return errno == ENOENT;
   }
-  return std::remove(path.c_str()) == 0;
+  return (info.st_mode & S_IFMT) == S_IFREG && std::remove(path.c_str()) == 0;
 }
 
 bool RenameFileIfPossible(const std::string& sourcePath, const std::string& destinationPath)
 {
   if (sourcePath == destinationPath)
   {
-    return FileExists(sourcePath);
+    return IsRegularFile(sourcePath);
   }
 
-  if (!FileExists(sourcePath) || FileExists(destinationPath))
+  struct stat destination{};
+  if (!IsRegularFile(sourcePath) || stat(destinationPath.c_str(), &destination) == 0 || errno != ENOENT)
   {
     return false;
   }
@@ -119,146 +155,6 @@ std::string FileStem(std::string_view path)
   return std::string(dot == std::string_view::npos ? name : name.substr(0, dot));
 }
 
-void WriteU16(std::ofstream& file, std::uint16_t value)
-{
-  const char bytes[2] = {
-      static_cast<char>(value & 0xFF),
-      static_cast<char>((value >> 8) & 0xFF),
-  };
-  file.write(bytes, sizeof(bytes));
-}
-
-void WriteU32(std::ofstream& file, std::uint32_t value)
-{
-  const char bytes[4] = {
-      static_cast<char>(value & 0xFF),
-      static_cast<char>((value >> 8) & 0xFF),
-      static_cast<char>((value >> 16) & 0xFF),
-      static_cast<char>((value >> 24) & 0xFF),
-  };
-  file.write(bytes, sizeof(bytes));
-}
-
-std::uint16_t ReadU16(std::ifstream& file)
-{
-  std::array<unsigned char, 2> bytes{};
-  file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-  return static_cast<std::uint16_t>(bytes[0]) |
-         (static_cast<std::uint16_t>(bytes[1]) << 8);
-}
-
-std::uint32_t ReadU32(std::ifstream& file)
-{
-  std::array<unsigned char, 4> bytes{};
-  file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-  return static_cast<std::uint32_t>(bytes[0]) |
-         (static_cast<std::uint32_t>(bytes[1]) << 8) |
-         (static_cast<std::uint32_t>(bytes[2]) << 16) |
-         (static_cast<std::uint32_t>(bytes[3]) << 24);
-}
-
-bool ReadMono16Wav(const std::string& path, std::vector<std::int16_t>& frames, std::uint32_t& sampleRate)
-{
-  std::ifstream file(path, std::ios::binary);
-  if (!file)
-  {
-    return false;
-  }
-
-  std::array<char, 4> chunkId{};
-  file.read(chunkId.data(), 4);
-  if (std::string_view(chunkId.data(), 4) != "RIFF")
-  {
-    return false;
-  }
-
-  (void)ReadU32(file);
-  file.read(chunkId.data(), 4);
-  if (std::string_view(chunkId.data(), 4) != "WAVE")
-  {
-    return false;
-  }
-
-  bool foundFormat = false;
-  bool foundData = false;
-  std::uint16_t audioFormat = 0;
-  std::uint16_t channelCount = 0;
-  std::uint16_t bitsPerSample = 0;
-  sampleRate = 0;
-  frames.clear();
-
-  while (file && (!foundFormat || !foundData))
-  {
-    file.read(chunkId.data(), 4);
-    if (!file)
-    {
-      break;
-    }
-
-    const std::uint32_t chunkSize = ReadU32(file);
-    if (std::string_view(chunkId.data(), 4) == "fmt ")
-    {
-      audioFormat = ReadU16(file);
-      channelCount = ReadU16(file);
-      sampleRate = ReadU32(file);
-      (void)ReadU32(file);
-      (void)ReadU16(file);
-      bitsPerSample = ReadU16(file);
-      if (chunkSize > 16)
-      {
-        file.seekg(static_cast<std::streamoff>(chunkSize - 16), std::ios::cur);
-      }
-      foundFormat = true;
-    }
-    else if (std::string_view(chunkId.data(), 4) == "data")
-    {
-      frames.resize(chunkSize / sizeof(std::int16_t));
-      file.read(reinterpret_cast<char*>(frames.data()), static_cast<std::streamsize>(chunkSize));
-      foundData = file.good() || file.eof();
-    }
-    else
-    {
-      file.seekg(static_cast<std::streamoff>(chunkSize), std::ios::cur);
-    }
-
-    if ((chunkSize & 1u) != 0u)
-    {
-      file.seekg(1, std::ios::cur);
-    }
-  }
-
-  return foundFormat && foundData && audioFormat == 1 && channelCount == 1 && bitsPerSample == 16 && sampleRate > 0;
-}
-
-bool WriteMono16Wav(const std::string& path,
-                    const std::vector<std::int16_t>& frames,
-                    std::uint32_t sampleRate)
-{
-  std::ofstream file(path, std::ios::binary | std::ios::trunc);
-  if (!file)
-  {
-    return false;
-  }
-
-  const std::uint32_t dataBytes = static_cast<std::uint32_t>(frames.size() * sizeof(std::int16_t));
-  const std::uint32_t riffSize = 36 + dataBytes;
-  file.write("RIFF", 4);
-  WriteU32(file, riffSize);
-  file.write("WAVE", 4);
-  file.write("fmt ", 4);
-  WriteU32(file, 16);
-  WriteU16(file, 1);
-  WriteU16(file, 1);
-  WriteU32(file, sampleRate);
-  WriteU32(file, sampleRate * sizeof(std::int16_t));
-  WriteU16(file, sizeof(std::int16_t));
-  WriteU16(file, 16);
-  file.write("data", 4);
-  WriteU32(file, dataBytes);
-  file.write(reinterpret_cast<const char*>(frames.data()), static_cast<std::streamsize>(dataBytes));
-  return file.good();
-}
-
 float PeakLevel(const std::int16_t* frames, std::size_t frameCount)
 {
   std::int32_t peak = 0;
@@ -269,32 +165,32 @@ float PeakLevel(const std::int16_t* frames, std::size_t frameCount)
   return static_cast<float>(peak) / static_cast<float>(std::numeric_limits<std::int16_t>::max());
 }
 
-void BuildWaveform(std::array<float, kSamplerWaveformBinCount>& waveform, const std::vector<std::int16_t>& frames)
+void BuildWaveform(std::array<float, kSamplerWaveformBinCount>& waveform, const audio::SharedSampleBuffer& frames)
 {
   waveform.fill(0.0f);
-  if (frames.empty())
+  if (!frames || frames->frameCount == 0)
   {
     return;
   }
 
   for (std::size_t bin = 0; bin < waveform.size(); ++bin)
   {
-    const std::size_t begin = bin * frames.size() / waveform.size();
-    const std::size_t end = std::max<std::size_t>(begin + 1, (bin + 1) * frames.size() / waveform.size());
+    const std::size_t begin = bin * frames->frameCount / waveform.size();
+    const std::size_t end = std::max<std::size_t>(begin + 1, (bin + 1) * frames->frameCount / waveform.size());
     std::int32_t peak = 0;
-    for (std::size_t index = begin; index < end && index < frames.size(); ++index)
+    for (std::size_t index = begin; index < end && index < frames->frameCount; ++index)
     {
-      peak = std::max<std::int32_t>(peak, std::abs(static_cast<int>(frames[index])));
+      peak = std::max<std::int32_t>(peak, std::abs(static_cast<int>(frames->frames[index])));
     }
     waveform[bin] = static_cast<float>(peak) / static_cast<float>(std::numeric_limits<std::int16_t>::max());
   }
 }
 
 void BuildRecordingWaveform(std::array<float, kSamplerWaveformBinCount>& waveform,
-                            const std::vector<std::int16_t>& frames,
+                            const audio::SharedSampleBuffer& frames,
                             std::uint32_t sampleRate)
 {
-  if (frames.empty() || sampleRate == 0)
+  if ((!frames || frames->frameCount == 0) || sampleRate == 0)
   {
     BuildWaveform(waveform, frames);
     return;
@@ -302,24 +198,24 @@ void BuildRecordingWaveform(std::array<float, kSamplerWaveformBinCount>& wavefor
 
   const std::size_t windowFrames = std::max<std::size_t>(kInputReadFrames,
                                                           (static_cast<std::size_t>(sampleRate) * kRecordingWaveformWindowMs) / 1000);
-  if (frames.size() <= windowFrames)
+  if (frames->frameCount <= windowFrames)
   {
     BuildWaveform(waveform, frames);
     return;
   }
 
   waveform.fill(0.0f);
-  const std::size_t frameStart = frames.size() - windowFrames;
-  const std::size_t frameCount = frames.size() - frameStart;
+  const std::size_t frameStart = frames->frameCount - windowFrames;
+  const std::size_t frameCount = frames->frameCount - frameStart;
   for (std::size_t bin = 0; bin < waveform.size(); ++bin)
   {
     const std::size_t begin = frameStart + (bin * frameCount) / waveform.size();
     const std::size_t end = std::max<std::size_t>(begin + 1, frameStart + ((bin + 1) * frameCount) / waveform.size());
     double mean = 0.0;
     std::size_t sampleCount = 0;
-    for (std::size_t index = begin; index < end && index < frames.size(); ++index)
+    for (std::size_t index = begin; index < end && index < frames->frameCount; ++index)
     {
-      mean += static_cast<double>(frames[index]);
+      mean += static_cast<double>(frames->frames[index]);
       ++sampleCount;
     }
 
@@ -331,9 +227,9 @@ void BuildRecordingWaveform(std::array<float, kSamplerWaveformBinCount>& wavefor
 
     mean /= static_cast<double>(sampleCount);
     double energy = 0.0;
-    for (std::size_t index = begin; index < end && index < frames.size(); ++index)
+    for (std::size_t index = begin; index < end && index < frames->frameCount; ++index)
     {
-      const double centered = static_cast<double>(frames[index]) - mean;
+      const double centered = static_cast<double>(frames->frames[index]) - mean;
       energy += centered * centered;
     }
 
@@ -343,6 +239,14 @@ void BuildRecordingWaveform(std::array<float, kSamplerWaveformBinCount>& wavefor
 }
 
 }  // namespace
+
+SamplerManager::~SamplerManager()
+{
+  if (activeRecordingTrack_ >= 0)
+  {
+    Device::Audio::StopInput();
+  }
+}
 
 void SamplerManager::OnTrackEngineChanged(std::size_t trackIndex, SynthEngineKind kind)
 {
@@ -392,7 +296,7 @@ void SamplerManager::Tick()
     }
 
     const auto& frames = ActiveFrames(state);
-    const std::uint32_t totalFrames = static_cast<std::uint32_t>(frames.size());
+    const std::uint32_t totalFrames = frames ? static_cast<std::uint32_t>(frames->frameCount) : 0;
     const std::uint32_t previewEndFrame = std::min<std::uint32_t>(std::max(state.ui.trimEndFrame, state.ui.trimStartFrame + 1), totalFrames);
     if (totalFrames == 0 || state.ui.previewCursorFrame >= previewEndFrame)
     {
@@ -423,7 +327,7 @@ void SamplerManager::Tick()
   }
 }
 
-bool SamplerManager::BeginRecord(std::size_t trackIndex)
+bool SamplerManager::BeginRecord(std::size_t trackIndex, bool replaceDraft)
 {
   if (!IsValidSamplerTrack(trackIndex) || activeRecordingTrack_ >= 0)
   {
@@ -431,20 +335,45 @@ bool SamplerManager::BeginRecord(std::size_t trackIndex)
   }
 
   TrackState& state = tracks_[trackIndex];
+  if (state.ui.hasDraft && !replaceDraft)
+  {
+    state.ui.statusText = "SAVE SAMPLE FIRST";
+    return false;
+  }
   StopPreview(trackIndex, state);
+  const Device::Audio::InputStreamInfo info = Device::Audio::InputInfo();
+  if (info.sampleRate < sampler::kMinSampleRate || info.sampleRate > sampler::kMaxSampleRate ||
+      info.channelCount != 1 || info.bitsPerSample != 16)
+  {
+    state.ui.statusText = "INPUT FORMAT";
+    return false;
+  }
+  std::size_t capacity = std::min<std::size_t>(info.sampleRate * kMaxRecordSeconds, sampler::kMaxSampleFrames);
+  std::shared_ptr<audio::SampleBuffer> draft;
+  for (; capacity >= info.sampleRate / 4; capacity /= 2)
+  {
+    draft = sampler::AllocateFrames(capacity);
+    if (draft)
+    {
+      break;
+    }
+  }
+  if (!draft)
+  {
+    state.ui.statusText = "NO MEMORY";
+    return false;
+  }
   if (Device::Audio::StartInput() != Device::Audio::InputStatus::Ready)
   {
     state.ui.phase = SamplerTrackPhase::Error;
     state.ui.statusText = "INPUT ERR";
     return false;
   }
-  const Device::Audio::InputStreamInfo info = Device::Audio::InputInfo();
-
-  state.draftFrames.clear();
-  state.draftFrames.reserve(static_cast<std::size_t>(info.sampleRate) * kMaxRecordSeconds);
+  state.draftFrames = std::move(draft);
+  state.draftFrames->frameCount = 0;
   state.ui.sampleRate = info.sampleRate;
   state.ui.frameCount = 0;
-  state.ui.recordMaxFrameCount = static_cast<std::uint32_t>(static_cast<std::size_t>(info.sampleRate) * kMaxRecordSeconds);
+  state.ui.recordMaxFrameCount = static_cast<std::uint32_t>(capacity);
   state.ui.trimStartFrame = 0;
   state.ui.trimEndFrame = 0;
   state.ui.inputLevel = 0.0f;
@@ -454,7 +383,10 @@ bool SamplerManager::BeginRecord(std::size_t trackIndex)
   state.ui.hasDraft = false;
   state.ui.needsName = false;
   state.ui.overwritePending = false;
+  state.ui.deleteConfirm = false;
+  state.pendingDeleteFileName.clear();
   state.ui.previewing = false;
+  state.trimResetPending = true;
   state.ui.phase = SamplerTrackPhase::Recording;
   state.ui.recording = true;
   state.ui.statusText = PhaseStatus(state.ui.phase);
@@ -472,12 +404,20 @@ bool SamplerManager::StopRecord(std::size_t trackIndex)
   TrackState& state = tracks_[trackIndex];
   PumpInput(state);
   Device::Audio::StopInput();
+  if (state.ui.phase == SamplerTrackPhase::Recording)
+  {
+    PumpInput(state);
+  }
   activeRecordingTrack_ = -1;
   state.ui.recording = false;
-
-  if (state.draftFrames.empty())
+  if (state.ui.phase == SamplerTrackPhase::Error)
   {
-    state.ui.phase = state.ui.hasSample ? SamplerTrackPhase::Ready : SamplerTrackPhase::Empty;
+    return false;
+  }
+
+  if (!state.draftFrames || state.draftFrames->frameCount == 0)
+  {
+    DiscardDraftTake(trackIndex);
     state.ui.statusText = "NO INPUT";
     return false;
   }
@@ -509,20 +449,31 @@ void SamplerManager::DiscardDraftTake(std::size_t trackIndex)
   }
 
   TrackState& state = tracks_[trackIndex];
+  if (activeRecordingTrack_ == static_cast<int>(trackIndex))
+  {
+    Device::Audio::StopInput();
+    activeRecordingTrack_ = -1;
+  }
   StopPreview(trackIndex, state);
-  state.draftFrames.clear();
+  state.draftFrames.reset();
   state.ui.hasDraft = false;
   state.ui.needsName = false;
+  state.ui.overwritePending = false;
+  state.ui.deleteConfirm = false;
+  state.pendingDeleteFileName.clear();
   state.ui.recording = false;
   state.ui.recordProgress = 0.0f;
   state.ui.inputLevel = 0.0f;
   state.ui.recordMaxFrameCount = 0;
+  state.ui.sampleRate = state.currentSampleRate;
+  state.ui.frameCount = state.currentFrames ? static_cast<std::uint32_t>(state.currentFrames->frameCount) : 0;
   state.ui.trimStartFrame = 0;
   state.ui.trimEndFrame = state.ui.hasSample ? state.ui.frameCount : 0;
   state.ui.previewCursorFrame = state.ui.trimStartFrame;
   BuildWaveform(state.ui.waveform, state.currentFrames);
   state.ui.phase = state.ui.hasSample ? SamplerTrackPhase::Ready : SamplerTrackPhase::Empty;
   state.ui.statusText = PhaseStatus(state.ui.phase);
+  state.trimResetPending = true;
   SyncAudioSample(trackIndex, state);
 }
 
@@ -534,7 +485,8 @@ void SamplerManager::SetDraftTrimWindow(std::size_t trackIndex, int start127, in
   }
 
   TrackState& state = tracks_[trackIndex];
-  const std::uint32_t totalFrames = static_cast<std::uint32_t>(state.draftFrames.empty() ? state.currentFrames.size() : state.draftFrames.size());
+  const auto frames = ActiveFrames(state);
+  const std::uint32_t totalFrames = frames ? static_cast<std::uint32_t>(frames->frameCount) : 0;
   if (totalFrames == 0)
   {
     return;
@@ -579,7 +531,7 @@ bool SamplerManager::CommitDraftName(std::size_t trackIndex, std::string_view na
 
 bool SamplerManager::ConfirmOverwriteDraft(std::size_t trackIndex)
 {
-  if (!IsValidSamplerTrack(trackIndex))
+  if (!IsValidSamplerTrack(trackIndex) || !tracks_[trackIndex].ui.overwritePending)
   {
     return false;
   }
@@ -594,6 +546,7 @@ void SamplerManager::CancelNameEntry(std::size_t trackIndex)
   }
 
   TrackState& state = tracks_[trackIndex];
+  state.pendingDeleteFileName.clear();
   if (state.ui.hasDraft)
   {
     state.ui.phase = SamplerTrackPhase::DraftTrim;
@@ -623,7 +576,7 @@ bool SamplerManager::PreviewCurrentSample(std::size_t trackIndex, std::uint8_t r
 
   TrackState& state = tracks_[trackIndex];
   const auto& frames = ActiveFrames(state);
-  if (frames.empty())
+  if (!frames || frames->frameCount == 0)
   {
     return false;
   }
@@ -640,7 +593,7 @@ bool SamplerManager::PreviewCurrentSample(std::size_t trackIndex, std::uint8_t r
 
 bool SamplerManager::SelectBrowserSample(std::size_t trackIndex, std::string_view id)
 {
-  if (!IsValidSamplerTrack(trackIndex))
+  if (!CanReplaceSample(trackIndex))
   {
     return false;
   }
@@ -654,51 +607,107 @@ bool SamplerManager::SelectBrowserSample(std::size_t trackIndex, std::string_vie
     return false;
   }
 
-  const std::string fileName = idString.size() >= 4 && idString.substr(idString.size() - 4) == ".wav"
-      ? idString
-      : idString + ".wav";
-  std::vector<std::int16_t> loadedFrames;
-  std::uint32_t sampleRate = 0;
-  if (!ReadMono16Wav(JoinPath(Device::Storage::SampleDirectoryPath(), fileName), loadedFrames, sampleRate))
+  PreparedSample sample;
+  if (!PrepareSample(id, sample))
   {
     state.ui.phase = SamplerTrackPhase::Error;
     state.ui.statusText = "LOAD ERR";
     return false;
   }
 
+  return ApplySample(trackIndex, sample);
+}
+
+bool SamplerManager::PrepareSample(std::string_view id, PreparedSample& sample)
+{
+  PreparedSample prepared;
+  prepared.fileName = SampleFileName(id);
+  if (prepared.fileName.empty() || !sampler::ReadMono16Wav(
+          JoinPath(Device::Storage::SampleDirectoryPath(), prepared.fileName), prepared.frames, prepared.sampleRate))
+  {
+    return false;
+  }
+  sample = std::move(prepared);
+  return true;
+}
+
+bool SamplerManager::ApplySample(std::size_t trackIndex, const PreparedSample& sample)
+{
+  if (!CanReplaceSample(trackIndex) || !sample.frames || !sample.frames->frames || sample.frames->frameCount == 0 ||
+      sample.frames->frameCount > sampler::kMaxSampleFrames || sample.sampleRate < sampler::kMinSampleRate ||
+      sample.sampleRate > sampler::kMaxSampleRate || sample.fileName.empty() || SampleFileName(sample.fileName) != sample.fileName)
+  {
+    return false;
+  }
+  TrackState& state = tracks_[trackIndex];
   StopPreview(trackIndex, state);
-  state.currentFrames = std::move(loadedFrames);
-  state.draftFrames.clear();
-  state.ui.sampleName = FileStem(fileName);
-  state.ui.hasSample = !state.currentFrames.empty();
+  state.currentFrames = sample.frames;
+  state.currentSampleRate = sample.sampleRate;
+  state.draftFrames.reset();
+  state.ui.sampleName = FileStem(sample.fileName);
+  state.ui.sampleFileName = sample.fileName;
+  state.ui.hasSample = state.currentFrames && state.currentFrames->frameCount != 0;
   state.ui.hasDraft = false;
   state.ui.needsName = false;
   state.ui.overwritePending = false;
   state.ui.deleteConfirm = false;
-  state.ui.sampleRate = sampleRate;
-  state.ui.frameCount = static_cast<std::uint32_t>(state.currentFrames.size());
+  state.pendingDeleteFileName.clear();
+  state.ui.sampleRate = sample.sampleRate;
+  state.ui.frameCount = static_cast<std::uint32_t>((state.currentFrames ? state.currentFrames->frameCount : 0));
   state.ui.trimStartFrame = 0;
   state.ui.trimEndFrame = state.ui.frameCount;
   state.ui.previewCursorFrame = 0;
   BuildWaveform(state.ui.waveform, state.currentFrames);
   state.ui.phase = state.ui.hasSample ? SamplerTrackPhase::Ready : SamplerTrackPhase::Empty;
   state.ui.statusText = PhaseStatus(state.ui.phase);
+  state.trimResetPending = true;
   SyncAudioSample(trackIndex, state);
   return state.ui.hasSample;
 }
 
 bool SamplerManager::DeleteBrowserSample(std::size_t trackIndex, std::string_view id)
 {
-  if (!IsValidSamplerTrack(trackIndex) || id.empty())
+  if (!CanReplaceSample(trackIndex))
   {
     return false;
   }
 
-  const std::string idString(id);
-  const std::string fileName = idString.size() >= 4 && idString.substr(idString.size() - 4) == ".wav"
-      ? idString
-      : idString + ".wav";
-  return RemoveFileIfPresent(JoinPath(Device::Storage::SampleDirectoryPath(), fileName));
+  const std::string fileName = SampleFileName(id);
+  if (fileName.empty())
+  {
+    return false;
+  }
+  TrackState& state = tracks_[trackIndex];
+  if (!state.ui.deleteConfirm || state.pendingDeleteFileName != fileName)
+  {
+    state.pendingDeleteFileName = fileName;
+    state.ui.deleteConfirm = true;
+    state.ui.statusText = "DELETE?";
+    return false;
+  }
+  state.pendingDeleteFileName.clear();
+  state.ui.deleteConfirm = false;
+  if (FileUsedByOtherTrack(trackIndex, fileName))
+  {
+    state.ui.statusText = "FILE IN USE";
+    return false;
+  }
+  if (!RemoveFileIfPresent(JoinPath(Device::Storage::SampleDirectoryPath(), fileName)))
+  {
+    state.ui.statusText = "DEL ERR";
+    return false;
+  }
+  if (SameSampleFile(state.ui.sampleFileName, fileName))
+  {
+    StopPreview(trackIndex, state);
+    state.currentFrames.reset();
+    state.currentSampleRate = audio::kSampleRate;
+    state.ui = SamplerTrackUiState{};
+    state.trimResetPending = true;
+    SyncAudioSample(trackIndex, state);
+  }
+  state.ui.statusText = "DELETED";
+  return true;
 }
 
 bool SamplerManager::RenameCurrentSample(std::size_t trackIndex, std::string_view newName)
@@ -708,72 +717,53 @@ bool SamplerManager::RenameCurrentSample(std::size_t trackIndex, std::string_vie
     return false;
   }
 
-  TrackState& state = tracks_[trackIndex];
-  const std::string currentName = SanitizedSampleName(state.ui.sampleName);
-  const std::string renamedName = SanitizedSampleName(newName);
-  if (renamedName == currentName)
-  {
-    state.ui.sampleName = renamedName;
-    state.ui.statusText = PhaseStatus(state.ui.phase);
-    return true;
-  }
+  return RenameBrowserSample(trackIndex, tracks_[trackIndex].ui.sampleFileName, newName);
+}
 
-  const std::string sourcePath = JoinPath(Device::Storage::SampleDirectoryPath(), currentName + ".wav");
-  const std::string destinationPath = JoinPath(Device::Storage::SampleDirectoryPath(), renamedName + ".wav");
+bool SamplerManager::RenameBrowserSample(std::size_t trackIndex, std::string_view id, std::string_view newName,
+                                        std::string* renamedFile)
+{
+  if (!CanReplaceSample(trackIndex)) return false;
+  const std::string fileName = SampleFileName(id);
+  if (fileName.empty()) return false;
+  TrackState& state = tracks_[trackIndex];
+  const std::string renamedName = SanitizedSampleName(newName);
+  // Preserve the extension for a no-op rename, including imported uppercase .WAV.
+  const std::string destinationName = renamedName == FileStem(fileName) ? fileName : renamedName + ".wav";
+  const std::string sourcePath = JoinPath(Device::Storage::SampleDirectoryPath(), fileName);
+  const std::string destinationPath = JoinPath(Device::Storage::SampleDirectoryPath(), destinationName);
   if (!RenameFileIfPossible(sourcePath, destinationPath))
   {
     state.ui.statusText = "REN ERR";
     return false;
   }
 
-  state.ui.sampleName = renamedName;
-  state.ui.statusText = PhaseStatus(state.ui.phase);
+  for (auto& track : tracks_)
+  {
+    if (track.ui.hasSample && SameSampleFile(track.ui.sampleFileName, fileName))
+    {
+      track.ui.sampleName = renamedName;
+      track.ui.sampleFileName = destinationName;
+    }
+    if (SameSampleFile(track.pendingDeleteFileName, fileName))
+    {
+      track.pendingDeleteFileName.clear();
+      track.ui.deleteConfirm = false;
+    }
+  }
+  if (renamedFile) *renamedFile = destinationName;
+  state.ui.statusText = "RENAMED";
   return true;
 }
 
 bool SamplerManager::DeleteCurrentSample(std::size_t trackIndex)
 {
-  if (!IsValidSamplerTrack(trackIndex))
+  if (!IsValidSamplerTrack(trackIndex) || !tracks_[trackIndex].ui.hasSample)
   {
     return false;
   }
 
-  TrackState& state = tracks_[trackIndex];
-  if (!state.ui.hasSample)
-  {
-    return false;
-  }
-
-  if (!state.ui.deleteConfirm)
-  {
-    StopPreview(trackIndex, state);
-    state.ui.deleteConfirm = true;
-    state.ui.statusText = "DELETE?";
-    return false;
-  }
-
-  StopPreview(trackIndex, state);
-  const std::string filePath = JoinPath(Device::Storage::SampleDirectoryPath(), SanitizedSampleName(state.ui.sampleName) + ".wav");
-  if (!RemoveFileIfPresent(filePath))
-  {
-    state.ui.statusText = "DEL ERR";
-    state.ui.deleteConfirm = false;
-    return false;
-  }
-
-  state.currentFrames.clear();
-  state.ui.sampleName = "EMPTY";
-  state.ui.hasSample = false;
-  state.ui.deleteConfirm = false;
-  state.ui.frameCount = 0;
-  state.ui.trimStartFrame = 0;
-  state.ui.trimEndFrame = 0;
-  state.ui.previewCursorFrame = 0;
-  state.ui.waveform.fill(0.0f);
-  state.ui.phase = SamplerTrackPhase::Empty;
-  state.ui.statusText = PhaseStatus(state.ui.phase);
-  SyncAudioSample(trackIndex, state);
-  return true;
+  return DeleteBrowserSample(trackIndex, tracks_[trackIndex].ui.sampleFileName);
 }
 
 SamplerTrackUiState SamplerManager::BuildUiState(std::size_t trackIndex) const
@@ -785,12 +775,57 @@ SamplerTrackUiState SamplerManager::BuildUiState(std::size_t trackIndex) const
   return tracks_[trackIndex].ui;
 }
 
+bool SamplerManager::ConsumeTrimReset(std::size_t trackIndex)
+{
+  if (trackIndex >= tracks_.size())
+  {
+    return false;
+  }
+  const bool pending = tracks_[trackIndex].trimResetPending;
+  tracks_[trackIndex].trimResetPending = false;
+  return pending;
+}
+
+bool SamplerManager::ValidateSampleReference(std::string_view id)
+{
+  const std::string name = SampleFileName(id);
+  if (name.empty())
+  {
+    return false;
+  }
+  std::ifstream file(JoinPath(Device::Storage::SampleDirectoryPath(), name), std::ios::binary);
+  sampler::WavInfo info;
+  return file && sampler::InspectMono16Wav(file, info);
+}
+
 bool SamplerManager::IsValidSamplerTrack(std::size_t trackIndex) const
 {
   return trackIndex < tracks_.size() && tracks_[trackIndex].isSampler;
 }
 
-const std::vector<std::int16_t>& SamplerManager::ActiveFrames(const TrackState& state)
+bool SamplerManager::CanReplaceSample(std::size_t trackIndex)
+{
+  if (!IsValidSamplerTrack(trackIndex)) return false;
+  auto& state = tracks_[trackIndex];
+  if (state.ui.recording || state.ui.hasDraft)
+  {
+    state.ui.statusText = "SAVE SAMPLE FIRST";
+    return false;
+  }
+  return true;
+}
+
+bool SamplerManager::FileUsedByOtherTrack(std::size_t trackIndex, std::string_view fileName) const
+{
+  for (std::size_t index = 0; index < tracks_.size(); ++index)
+  {
+    if (index != trackIndex && tracks_[index].ui.hasSample && SameSampleFile(tracks_[index].ui.sampleFileName, fileName))
+      return true;
+  }
+  return false;
+}
+
+audio::SharedSampleBuffer SamplerManager::ActiveFrames(const TrackState& state)
 {
   return state.ui.hasDraft ? state.draftFrames : state.currentFrames;
 }
@@ -816,42 +851,58 @@ void SamplerManager::SyncAudioSample(std::size_t trackIndex, const TrackState& s
   }
 
   const auto& frames = ActiveFrames(state);
-  audio::SetSamplerFrames(trackIndex, frames, state.ui.sampleRate);
+  audio::SetSamplerFrames(trackIndex, frames, state.ui.hasDraft ? state.ui.sampleRate : state.currentSampleRate);
 }
 
 void SamplerManager::PumpInput(TrackState& state)
 {
-  const std::size_t maxFrames = static_cast<std::size_t>(state.ui.sampleRate) * kMaxRecordSeconds;
-  if (state.draftFrames.size() >= maxFrames)
+  if (!state.draftFrames || !state.ui.recording)
+  {
+    return;
+  }
+  const std::size_t maxFrames = state.ui.recordMaxFrameCount;
+  float peak = 0;
+  while (state.draftFrames->frameCount < maxFrames)
+  {
+    std::size_t framesRead = 0;
+    const std::size_t requestFrames = std::min<std::size_t>(kInputReadFrames, maxFrames - state.draftFrames->frameCount);
+    auto* destination = state.draftFrames->frames.get() + state.draftFrames->frameCount;
+    const auto status = Device::Audio::ReadInputFrames(destination, requestFrames, framesRead, 0);
+    if (status == Device::Audio::InputStatus::Overflow)
+    {
+      Device::Audio::StopInput();
+      activeRecordingTrack_ = -1;
+      FinishDraft(state);
+      state.ui.phase = SamplerTrackPhase::Error;
+      state.ui.statusText = "INPUT OVERRUN";
+      return;
+    }
+    if (status != Device::Audio::InputStatus::Ready || framesRead == 0)
+    {
+      break;
+    }
+    peak = std::max(peak, PeakLevel(destination, framesRead));
+    state.draftFrames->frameCount += framesRead;
+  }
+  state.ui.inputLevel = peak;
+  state.ui.frameCount = static_cast<std::uint32_t>(state.draftFrames->frameCount);
+  BuildRecordingWaveform(state.ui.waveform, state.draftFrames, state.ui.sampleRate);
+  state.ui.recordProgress = maxFrames == 0 ? 0.0f : static_cast<float>(state.draftFrames->frameCount) / static_cast<float>(maxFrames);
+  if (state.draftFrames->frameCount >= maxFrames)
   {
     Device::Audio::StopInput();
     activeRecordingTrack_ = -1;
     FinishDraft(state);
-    return;
   }
-
-  std::array<std::int16_t, kInputReadFrames> frames{};
-  std::size_t framesRead = 0;
-  const std::size_t requestFrames = std::min<std::size_t>(frames.size(), maxFrames - state.draftFrames.size());
-  if (Device::Audio::ReadInputFrames(frames.data(), requestFrames, framesRead, 0) != Device::Audio::InputStatus::Ready)
-  {
-    return;
-  }
-
-  state.ui.inputLevel = PeakLevel(frames.data(), framesRead);
-  state.draftFrames.insert(state.draftFrames.end(), frames.begin(), frames.begin() + static_cast<std::ptrdiff_t>(framesRead));
-  state.ui.frameCount = static_cast<std::uint32_t>(state.draftFrames.size());
-  BuildRecordingWaveform(state.ui.waveform, state.draftFrames, state.ui.sampleRate);
-  state.ui.recordProgress = maxFrames == 0 ? 0.0f : static_cast<float>(state.draftFrames.size()) / static_cast<float>(maxFrames);
 }
 
 void SamplerManager::FinishDraft(TrackState& state)
 {
-  state.ui.hasDraft = !state.draftFrames.empty();
+  state.ui.hasDraft = state.draftFrames && state.draftFrames->frameCount != 0;
   state.ui.recording = false;
   state.ui.phase = state.ui.hasDraft ? SamplerTrackPhase::DraftTrim : (state.ui.hasSample ? SamplerTrackPhase::Ready : SamplerTrackPhase::Empty);
   state.ui.statusText = PhaseStatus(state.ui.phase);
-  state.ui.frameCount = static_cast<std::uint32_t>(state.draftFrames.size());
+  state.ui.frameCount = state.draftFrames ? static_cast<std::uint32_t>(state.draftFrames->frameCount) : 0;
   state.ui.recordMaxFrameCount = 0;
   state.ui.trimStartFrame = 0;
   state.ui.trimEndFrame = state.ui.frameCount;
@@ -859,18 +910,26 @@ void SamplerManager::FinishDraft(TrackState& state)
   BuildWaveform(state.ui.waveform, state.draftFrames);
   state.ui.previewing = false;
   state.ui.recordProgress = 0.0f;
+  state.trimResetPending = true;
 }
 
 bool SamplerManager::SaveDraftAs(TrackState& state, std::string_view name, bool overwrite)
 {
-  if (!state.ui.hasDraft || state.draftFrames.empty())
+  if (!state.ui.hasDraft || (!state.draftFrames || state.draftFrames->frameCount == 0))
   {
     return false;
   }
 
   const std::string sanitizedName = SanitizedSampleName(name);
   const std::string filePath = JoinPath(Device::Storage::SampleDirectoryPath(), sanitizedName + ".wav");
+  const std::size_t trackIndex = static_cast<std::size_t>(&state - tracks_.data());
   state.ui.draftName = sanitizedName;
+  if (!overwrite) state.ui.overwritePending = false;
+  if (FileExists(filePath) && !IsRegularFile(filePath))
+  {
+    state.ui.statusText = "SAVE ERR";
+    return false;
+  }
   if (!overwrite && FileExists(filePath))
   {
     state.ui.overwritePending = true;
@@ -878,14 +937,30 @@ bool SamplerManager::SaveDraftAs(TrackState& state, std::string_view name, bool 
     state.ui.statusText = "NAME EXISTS";
     return false;
   }
+  if (FileUsedByOtherTrack(trackIndex, sanitizedName + ".wav"))
+  {
+    state.ui.statusText = "FILE IN USE";
+    return false;
+  }
 
-  const std::uint32_t totalFrames = static_cast<std::uint32_t>(state.draftFrames.size());
+  const std::uint32_t totalFrames = static_cast<std::uint32_t>(state.draftFrames->frameCount);
   const std::uint32_t startFrame = std::min<std::uint32_t>(state.ui.trimStartFrame, totalFrames - 1);
   const std::uint32_t endFrame = std::clamp<std::uint32_t>(state.ui.trimEndFrame, startFrame + 1, totalFrames);
-  const std::vector<std::int16_t> savedFrames(state.draftFrames.begin() + static_cast<std::ptrdiff_t>(startFrame),
-                                              state.draftFrames.begin() + static_cast<std::ptrdiff_t>(endFrame));
+  audio::SharedSampleBuffer savedFrames = state.draftFrames;
+  if (startFrame != 0 || endFrame != totalFrames)
+  {
+    auto trimmed = sampler::AllocateFrames(endFrame - startFrame);
+    if (!trimmed)
+    {
+      state.ui.statusText = "NO MEMORY";
+      return false;
+    }
+    std::copy_n(state.draftFrames->frames.get() + startFrame, trimmed->frameCount, trimmed->frames.get());
+    savedFrames = std::move(trimmed);
+  }
 
-  if (!Device::Storage::EnsureDirectoryLayout() || !WriteMono16Wav(filePath, savedFrames, state.ui.sampleRate))
+  if (!Device::Storage::EnsureDirectoryLayout() || !sampler::WriteMono16Wav(
+          filePath, savedFrames->frames.get(), savedFrames->frameCount, state.ui.sampleRate))
   {
     state.ui.phase = SamplerTrackPhase::Error;
     state.ui.statusText = "SAVE ERR";
@@ -893,21 +968,23 @@ bool SamplerManager::SaveDraftAs(TrackState& state, std::string_view name, bool 
   }
 
   state.currentFrames = savedFrames;
-  state.draftFrames.clear();
+  state.currentSampleRate = state.ui.sampleRate;
+  state.draftFrames.reset();
   state.ui.sampleName = sanitizedName;
+  state.ui.sampleFileName = sanitizedName + ".wav";
   state.ui.hasSample = true;
   state.ui.hasDraft = false;
   state.ui.needsName = false;
   state.ui.overwritePending = false;
   state.ui.phase = SamplerTrackPhase::Ready;
   state.ui.statusText = PhaseStatus(state.ui.phase);
-  state.ui.frameCount = static_cast<std::uint32_t>(state.currentFrames.size());
+  state.ui.frameCount = static_cast<std::uint32_t>((state.currentFrames ? state.currentFrames->frameCount : 0));
   state.ui.trimStartFrame = 0;
   state.ui.trimEndFrame = state.ui.frameCount;
   state.ui.previewCursorFrame = state.ui.trimStartFrame;
   BuildWaveform(state.ui.waveform, state.currentFrames);
   state.ui.previewing = false;
-  const std::size_t trackIndex = static_cast<std::size_t>(&state - tracks_.data());
+  state.trimResetPending = true;
   SyncAudioSample(trackIndex, state);
   return true;
 }

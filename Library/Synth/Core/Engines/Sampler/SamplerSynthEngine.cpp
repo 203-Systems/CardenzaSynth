@@ -31,7 +31,6 @@ std::map<std::string, int> SamplerPreset(int start,
   preset["filter.cutoff"] = cutoff;
   preset["filter.resonance"] = resonance;
   preset["amp.level"] = 96;
-  preset["amp.pan"] = 64;
   return preset;
 }
 
@@ -52,20 +51,6 @@ std::string FormatPercent127(int value)
   return std::to_string((std::clamp(value, 0, 127) * 100) / 127) + "%";
 }
 
-std::string FormatPan(int value)
-{
-  const int clamped = std::clamp(value, 0, 127);
-  const int offset = clamped - 64;
-  if (offset >= -1 && offset <= 1)
-  {
-    return "C";
-  }
-
-  const int amount = offset < 0 ? -offset : offset;
-  const int percent = (amount * 100) / 63;
-  return std::string(offset < 0 ? "L" : "R") + std::to_string(percent);
-}
-
 }  // namespace
 
 SamplerSynthEngine::SamplerSynthEngine()
@@ -82,7 +67,6 @@ SamplerSynthEngine::SamplerSynthEngine()
   RegisterParameter({"filter.cutoff", "Cutoff", "Filter", SynthParameterKind::Continuous, 0, 127, 1, 96, 96});
   RegisterParameter({"filter.resonance", "Resonance", "Filter", SynthParameterKind::Continuous, 0, 127, 1, 18, 18});
   RegisterParameter({"amp.level", "Level", "Amp", SynthParameterKind::Continuous, 0, 127, 1, 96, 96});
-  RegisterParameter({"amp.pan", "Pan", "Amp", SynthParameterKind::Continuous, 0, 127, 1, 64, 64});
 
   RegisterPreset("sampler.empty", "Empty Slot", SamplerPreset(0, 127, 0, 0, 60, 96, 96, 18, 18));
   RegisterPreset("sampler.oneshot", "One Shot", SamplerPreset(0, 112, 0, 0, 60, 104, 104, 12, 14));
@@ -112,10 +96,6 @@ std::string SamplerSynthEngine::FormatParameterValue(const SynthParameterInfo& p
       parameter.id == "amp.level")
   {
     return FormatPercent127(parameter.value);
-  }
-  if (parameter.id == "amp.pan")
-  {
-    return FormatPan(parameter.value);
   }
   return PagedSynthEngine::FormatParameterValue(parameter);
 }

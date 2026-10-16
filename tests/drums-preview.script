@@ -1,0 +1,56 @@
+# Start from the default Home screen. HOME is not a debug matrix target.
+wait 12
+
+# TRK > ENGINE, advance Dx7 -> Juno -> Sampler -> Drums, then LOAD.
+down 0,0
+wait 18
+tap 0,13
+up 0,0
+tap 2,13
+tap 2,13
+tap 2,13
+wait 12
+screenshot drums-engine.bmp
+tap 3,13
+wait 8
+
+# The latched TRK root exits via its left-bar Back gesture.
+tap 0,0
+wait 12
+screenshot drums-home.bmp
+down 3,1
+wait 2
+screenshot drums-kick.bmp
+up 3,1
+down 3,3
+wait 2
+screenshot drums-hat.bmp
+up 3,3
+
+# SND lists six kit controls on page 1; NEXT latches the menu on page 2.
+down 1,0
+wait 18
+screenshot drums-kit-page1.bmp
+tap 3,13
+up 1,0
+wait 12
+screenshot drums-kit-page2.bmp
+
+# Page 2: Cowbell, Maraca, Master. Edit Master from 100 to 80.
+tap 1,12
+tap 1,12
+tap 1,12
+wait 12
+screenshot drums-master.bmp
+
+# DONE, BACK to page 1, then the left-bar Back gesture returns Home.
+tap 3,13
+tap 3,12
+tap 0,0
+wait 12
+screenshot drums-home-adjusted.bmp
+down 2,0
+wait 18
+screenshot drums-key.bmp
+up 2,0
+quit

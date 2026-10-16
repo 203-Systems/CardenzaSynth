@@ -50,7 +50,11 @@ set(computecard_firmware_only_sources
 )
 
 foreach(relative_path IN LISTS computecard_firmware_only_sources)
-    ccos_require_text("${relative_path}" "ESP-IDF only")
+    ccos_require_file("${relative_path}")
+    file(READ "${CCOS_ROOT}/${relative_path}" firmware_source)
+    if(firmware_source MATCHES "#[ \t]*(if|ifdef|ifndef)[^\n]*ESP_PLATFORM")
+        message(FATAL_ERROR "${relative_path} must use native ESP-IDF APIs without host fallback guards")
+    endif()
 endforeach()
 
 ccos_require_file("Devices/ComputeCard/computecard/keyboard/types.h")

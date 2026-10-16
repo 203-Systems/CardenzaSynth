@@ -10,10 +10,11 @@
 namespace synth::ui_model {
 
 namespace {
-constexpr std::array<SynthEngineKind, 3> kSelectableEngineKinds = {
+constexpr std::array<SynthEngineKind, 4> kSelectableEngineKinds = {
   SynthEngineKind::Dx7,
   SynthEngineKind::Juno,
   SynthEngineKind::Sampler,
+  SynthEngineKind::Drums,
 };
 constexpr std::size_t kPresetBrowserVisibleRows = 7;
 constexpr std::size_t kPresetBrowserPageSize = 32;

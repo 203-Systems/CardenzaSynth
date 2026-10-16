@@ -9,7 +9,10 @@ function(ccos_collect_synth_app_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Applications/Synth/SynthApp.cpp
         ${root_dir}/Applications/Synth/Runtime/Sampler/SamplerManager.cpp
+        ${root_dir}/Applications/Synth/Runtime/ProjectStorage.cpp
+        ${root_dir}/Applications/Synth/Runtime/Sequencer/SynthSequencer.cpp
         ${root_dir}/Applications/Synth/Runtime/SynthRack.cpp
+        ${root_dir}/Applications/Synth/UI/Drums/DrumsUiRenderer.cpp
         ${root_dir}/Applications/Synth/UI/Dx7/Dx7UiModel.cpp
         ${root_dir}/Applications/Synth/UI/Dx7/Dx7UiRenderer.cpp
         ${root_dir}/Applications/Synth/UI/Juno/JunoUiModel.cpp
@@ -17,6 +20,7 @@ function(ccos_collect_synth_app_cpp_sources root_dir out_var)
         ${root_dir}/Applications/Synth/UI/Menu/SynthUiMenu.cpp
         ${root_dir}/Applications/Synth/UI/Render/SynthUiRenderPrimitives.cpp
         ${root_dir}/Applications/Synth/UI/Sampler/SamplerUiModel.cpp
+        ${root_dir}/Applications/Synth/UI/Sequencer/SequencerUiRenderer.cpp
         ${root_dir}/Applications/Synth/UI/SynthUiModel.cpp
         ${root_dir}/Applications/Synth/UI/SynthUiRenderer.cpp
     )
@@ -32,6 +36,7 @@ endfunction()
 
 function(ccos_collect_synth_core_cpp_sources root_dir out_var)
     set(sources
+        ${root_dir}/Library/Synth/Core/Engines/Drums/DrumsSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.cpp
         ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Juno/JunoFactoryPresets.cpp
@@ -180,11 +185,45 @@ function(ccos_collect_computecard_firmware_cpp_sources root_dir out_var)
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
+# AMY reserves its event pool in 2048-delta blocks (40 KB of internal RAM on ESP32-S3), but the
+# synth keeps only about 640 deltas live. Compile a copy of amy.c with 256-delta blocks instead;
+# the pool still grows on demand up to the same 32768-delta capacity. The submodule stays untouched.
+function(ccos_amy_core_source amy_src_dir out_var)
+    set(source ${amy_src_dir}/amy.c)
+    if(CMAKE_SCRIPT_MODE_FILE)
+        # ESP-IDF's requirement scan runs component CMake in script mode; it only needs the list.
+        set(${out_var} ${source} PARENT_SCOPE)
+        return()
+    endif()
+
+    file(READ ${source} content)
+    foreach(replacement
+            "#define MAX_DELTA_BLOCKS 16|#define MAX_DELTA_BLOCKS 128"
+            "#define DELTA_BLOCK_SIZE 2048|#define DELTA_BLOCK_SIZE 256")
+        string(REPLACE "|" ";" replacement "${replacement}")
+        list(GET replacement 0 original)
+        list(GET replacement 1 patched)
+        string(FIND "${content}" "${original}" match_index)
+        if(match_index EQUAL -1)
+            message(FATAL_ERROR "AMY delta pool patch no longer applies: '${original}' not found in ${source}")
+        endif()
+        string(REPLACE "${original}" "${patched}" content "${content}")
+    endforeach()
+
+    set(output_dir ${CMAKE_BINARY_DIR}/ccos_generated/amy)
+    file(WRITE ${output_dir}/amy.c.in "${content}")
+    # configure_file only touches amy.c when the content changes, so rebuilds stay incremental.
+    configure_file(${output_dir}/amy.c.in ${output_dir}/amy.c COPYONLY)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${source})
+    set(${out_var} ${output_dir}/amy.c PARENT_SCOPE)
+endfunction()
+
 function(ccos_collect_amy_c_sources root_dir out_var)
     set(amy_src_dir ${root_dir}/Library/third_party/amy/src)
+    ccos_amy_core_source(${amy_src_dir} amy_core_source)
     set(sources
         ${amy_src_dir}/algorithms.c
-        ${amy_src_dir}/amy.c
+        ${amy_core_source}
         ${amy_src_dir}/api.c
         ${amy_src_dir}/custom.c
         ${amy_src_dir}/delay.c
