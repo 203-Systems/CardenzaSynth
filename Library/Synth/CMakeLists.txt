@@ -1,25 +1,25 @@
 set(AMY_SRC_DIR ${PROJECT_SOURCE_DIR}/Library/third_party/amy/src)
 
-add_library(ComputeCardAmy)
+add_library(CardenzaAmy)
 
-ccos_collect_amy_c_sources(${PROJECT_SOURCE_DIR} computecard_amy_sources)
-target_sources(ComputeCardAmy PRIVATE
-    ${computecard_amy_sources}
+cardenza_collect_amy_c_sources(${PROJECT_SOURCE_DIR} cardenza_amy_sources)
+target_sources(CardenzaAmy PRIVATE
+    ${cardenza_amy_sources}
 )
 
-target_include_directories(ComputeCardAmy PUBLIC
+target_include_directories(CardenzaAmy PUBLIC
     ${AMY_SRC_DIR}
     ${PROJECT_SOURCE_DIR}
 )
 
-target_compile_definitions(ComputeCardAmy PUBLIC
+target_compile_definitions(CardenzaAmy PUBLIC
     AMY_WAVETABLE
     AMY_NO_MINIAUDIO
     _CRT_SECURE_NO_WARNINGS
 )
 
 if(MSVC)
-    target_compile_options(ComputeCardAmy PRIVATE
+    target_compile_options(CardenzaAmy PRIVATE
         $<$<COMPILE_LANGUAGE:C>:/std:c11>
         $<$<COMPILE_LANGUAGE:C>:/wd4018>
         $<$<COMPILE_LANGUAGE:C>:/wd4100>
@@ -31,43 +31,43 @@ if(MSVC)
         $<$<COMPILE_LANGUAGE:C>:/wd4996>
     )
 else()
-    target_compile_options(ComputeCardAmy PRIVATE
+    target_compile_options(CardenzaAmy PRIVATE
         $<$<COMPILE_LANGUAGE:C>:-Wno-unused-parameter>
         $<$<COMPILE_LANGUAGE:C>:-Wno-sign-compare>
         $<$<COMPILE_LANGUAGE:C>:-Wno-missing-field-initializers>
         $<$<COMPILE_LANGUAGE:C>:-Wno-float-conversion>
     )
-    target_link_libraries(ComputeCardAmy PUBLIC m pthread)
+    target_link_libraries(CardenzaAmy PUBLIC m pthread)
 endif()
 
-add_library(ComputeCardSynthRuntime)
+add_library(CardenzaSynthRuntime)
 
-ccos_collect_synth_runtime_cpp_sources(${PROJECT_SOURCE_DIR} computecard_synth_runtime_sources)
-target_sources(ComputeCardSynthRuntime PRIVATE
-    ${computecard_synth_runtime_sources}
+cardenza_collect_synth_runtime_cpp_sources(${PROJECT_SOURCE_DIR} cardenza_synth_runtime_sources)
+target_sources(CardenzaSynthRuntime PRIVATE
+    ${cardenza_synth_runtime_sources}
 )
 
-target_include_directories(ComputeCardSynthRuntime PUBLIC
+target_include_directories(CardenzaSynthRuntime PUBLIC
     ${PROJECT_SOURCE_DIR}
 )
 
-target_link_libraries(ComputeCardSynthRuntime PUBLIC
-    ComputeCardAmy
+target_link_libraries(CardenzaSynthRuntime PUBLIC
+    CardenzaAmy
 )
 
-add_library(ComputeCardSynth)
+add_library(CardenzaSynth)
 
-ccos_collect_synth_core_cpp_sources(${PROJECT_SOURCE_DIR} computecard_synth_core_sources)
-target_sources(ComputeCardSynth PRIVATE
-    ${computecard_synth_core_sources}
+cardenza_collect_synth_core_cpp_sources(${PROJECT_SOURCE_DIR} cardenza_synth_core_sources)
+target_sources(CardenzaSynth PRIVATE
+    ${cardenza_synth_core_sources}
 )
 
-target_include_directories(ComputeCardSynth PUBLIC
+target_include_directories(CardenzaSynth PUBLIC
     ${PROJECT_SOURCE_DIR}
 )
 
-target_link_libraries(ComputeCardSynth PUBLIC
-    ComputeCardDeviceAudio
-    ComputeCardMIDI
-    ComputeCardSynthRuntime
+target_link_libraries(CardenzaSynth PUBLIC
+    CardenzaDeviceAudio
+    CardenzaMIDI
+    CardenzaSynthRuntime
 )

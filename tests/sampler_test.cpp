@@ -53,7 +53,7 @@ InputStatus ReadInputFrames(std::int16_t* destination, std::size_t count, std::s
 int main() {
   using namespace synth;
   testDirectory = std::filesystem::temp_directory_path() /
-      ("computecard-sampler-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+      ("cardenza-sampler-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   std::filesystem::create_directory(testDirectory);
   const std::string path = (testDirectory / "original.WAV").string();
   const std::array<std::int16_t, 4> original{{-32768, -17, 0, 32767}};

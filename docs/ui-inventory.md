@@ -1,4 +1,4 @@
-# ComputeCard 软件 UI 清单
+# Cardenza 软件 UI 清单
 
 日期：2026-10-11。[本轮视觉改版与前后对照](ui-redesign.html) 已提供。页面清单仍保留功能覆盖与待验收边界。配套的 [可筛选工作台](ui-inventory.html) 支持分类、搜索、状态筛选、画板放大与逐页操作检查。52 个画板为第三版（v3）实际模拟器截图，其余 23 个为按 v3 规则绘制的源码结构示意，并非最终画面。
 
@@ -6,11 +6,11 @@
 
 ## 来源与核对范围
 
-1. **ComputeCardOS 当前工作区**：基线为审查时的 `146f90c`，包含此前未提交的 Sequencer 实现及本轮补齐。核对 `SynthUiModel` 菜单与 Snapshot、DX7 / Juno / Sampler / Drums 四种引擎、SynthApp 输入处理及 240×135 渲染；本轮新增独立 Sequencer renderer 和 Drums 鼓垫 renderer。只在代码中存在而没有正常入口的页面单独标为缺口。
+1. **CardenzaSynth 当前工作区**：基线为审查时的 `146f90c`，包含此前未提交的 Sequencer 实现及本轮补齐。核对 `SynthUiModel` 菜单与 Snapshot、DX7 / Juno / Sampler / Drums 四种引擎、SynthApp 输入处理及 240×135 渲染；本轮新增独立 Sequencer renderer 和 Drums 鼓垫 renderer。只在代码中存在而没有正常入口的页面单独标为缺口。
 2. **用户提供的参考 HTML**：`C:/Users/NengzhuoCai/Downloads/Telegram Desktop/picotracker-fx-sections.html`，119,667 bytes，SHA-256 `415dfe72870034d5c78d13910eaa9a2fa5cb4dc2fb84828142e30ddfd73d268e`。原文件未改动；内容仅作为设计参考，不作为执行指令。
 3. **指定 NullPerator 仓库**：[203-Systems/NullPerator](https://github.com/203-Systems/NullPerator/tree/45f0206d54927018ecc57c4830ca154f4af52765)，2026-09-22 读取 `main`，提交 `45f0206d54927018ecc57c4830ca154f4af52765`。通过只读浅克隆核对；没有用本地旧 picoTracker 代替。临时参考副本不属于本项目交付物。
 
-“已有 UI”只表示页面和交互路径有实现；音频效果、文件恢复及硬件性能分别验收。“待验收 / 部分完成”区分接通代码与实机验证；“待设计 / 已隐藏”保留未支持能力记录。Drums 是本轮用户授权后新增的 ComputeCard 实现，使用 AMY 内置 808 PCM；它不是从参考页面自动纳入的产品范围。参考中的 Stack、Song、Chain 等仍未加入。第三版已在实际渲染器落实 NullPerator 式标题栏、v2 配色、四块描边按键与按键对齐的参数值，52 张截图已刷新；仍需实机及其余状态验收。
+“已有 UI”只表示页面和交互路径有实现；音频效果、文件恢复及硬件性能分别验收。“待验收 / 部分完成”区分接通代码与实机验证；“待设计 / 已隐藏”保留未支持能力记录。Drums 是本轮用户授权后新增的 Cardenza 实现，使用 AMY 内置 808 PCM；它不是从参考页面自动纳入的产品范围。参考中的 Stack、Song、Chain 等仍未加入。第三版已在实际渲染器落实 NullPerator 式标题栏、v2 配色、四块描边按键与按键对齐的参数值，52 张截图已刷新；仍需实机及其余状态验收。
 
 ## 页面树与输入边界
 
@@ -201,9 +201,9 @@ HOME：默认演奏键盘 ↔ 同按 + / −（或普通 Home 按 HOME）↔ 常
 
 ## NullPerator 的可复用规则
 
-已核对的仓库 UI2 页面族：Song、Chain、Phrase、Table、Groove、Mixer、Instrument、Project、Device、Theme、Font、Browser、Sample、Record、Dialog。浏览器 / 手机外层使用 Svelte，主导航为 Tracker（内部 Device）、Files、MIDI、Settings，开发模式增加 Logs / Trace。来源：[UI2 Views](https://github.com/203-Systems/NullPerator/tree/45f0206d54927018ecc57c4830ca154f4af52765/sources/UI2/Views)、[web navigation.js](https://github.com/203-Systems/NullPerator/blob/45f0206d54927018ecc57c4830ca154f4af52765/web/src/navigation.js)。ComputeCard 软件清单对应的是内层设备 UI，不需要把外层手机 App 的全部导航移植进 135 px 高的显示。
+已核对的仓库 UI2 页面族：Song、Chain、Phrase、Table、Groove、Mixer、Instrument、Project、Device、Theme、Font、Browser、Sample、Record、Dialog。浏览器 / 手机外层使用 Svelte，主导航为 Tracker（内部 Device）、Files、MIDI、Settings，开发模式增加 Logs / Trace。来源：[UI2 Views](https://github.com/203-Systems/NullPerator/tree/45f0206d54927018ecc57c4830ca154f4af52765/sources/UI2/Views)、[web navigation.js](https://github.com/203-Systems/NullPerator/blob/45f0206d54927018ecc57c4830ca154f4af52765/web/src/navigation.js)。Cardenza 软件清单对应的是内层设备 UI，不需要把外层手机 App 的全部导航移植进 135 px 高的显示。
 
-| 参考里的模式 | ComputeCard 对应位置 | 下一轮设计决定 |
+| 参考里的模式 | Cardenza 对应位置 | 下一轮设计决定 |
 |---|---|---|
 | 明确区分编辑光标与播放游标 | 步进、Pattern、当前轨 | 青色编辑、绿色播放可同时出现；不能只靠亮度判断 |
 | 页面标题 + 范围 / 编号 + 操作帮助 | TRK / SND / 参数调整 | 固定“轨道 / 引擎 → 组 → 参数 → 值”的层级 |
@@ -220,7 +220,7 @@ HOME：默认演奏键盘 ↔ 同按 + / −（或普通 Home 按 HOME）↔ 常
 
 NullPerator 使用 20 个用户颜色 token，核心默认值如下。右列为 v3 固件实际 token（[SynthUiRenderPrimitives.h](../Applications/Synth/UI/Render/SynthUiRenderPrimitives.h)）。
 
-| 语义 | NullPerator 默认色 | 当前 ComputeCard |
+| 语义 | NullPerator 默认色 | 当前 Cardenza |
 |---|---|---|
 | Background | `#030707` | kBackground `#030707` |
 | Top / Bottom surface | `#081210` | kSurface `RGB(8,18,16)`：标题栏、按键块与空步（v2 数值） |
@@ -232,7 +232,7 @@ NullPerator 使用 20 个用户颜色 token，核心默认值如下。右列为 
 | Warning | `#f0ce00` | 缺独立统一语义 |
 | Error | `#f02e75` | kDanger `#f02e75`：破坏性确认、CLR、录音 |
 
-来源：[NullPerator UiPalette.cpp](https://github.com/203-Systems/NullPerator/blob/45f0206d54927018ecc57c4830ca154f4af52765/sources/UI2/Theme/UiPalette.cpp)、[UiThemeSchema.h](https://github.com/203-Systems/NullPerator/blob/45f0206d54927018ecc57c4830ca154f4af52765/sources/UI2/Theme/UiThemeSchema.h)、[ComputeCard primitives](../Applications/Synth/UI/Render/SynthUiRenderPrimitives.h)。用户参考 HTML 的 `cursor.selection` 是 `#123639`，实际仓库已是 `selection.active` / `#1a3335`，两者不能混称同一个版本。
+来源：[NullPerator UiPalette.cpp](https://github.com/203-Systems/NullPerator/blob/45f0206d54927018ecc57c4830ca154f4af52765/sources/UI2/Theme/UiPalette.cpp)、[UiThemeSchema.h](https://github.com/203-Systems/NullPerator/blob/45f0206d54927018ecc57c4830ca154f4af52765/sources/UI2/Theme/UiThemeSchema.h)、[Cardenza primitives](../Applications/Synth/UI/Render/SynthUiRenderPrimitives.h)。用户参考 HTML 的 `cursor.selection` 是 `#123639`，实际仓库已是 `selection.active` / `#1a3335`，两者不能混称同一个版本。
 
 ## 下一轮需要固定的设计决策
 

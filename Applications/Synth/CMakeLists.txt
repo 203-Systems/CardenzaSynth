@@ -1,16 +1,16 @@
-add_library(ComputeCardSynthApp)
+add_library(CardenzaSynthApp)
 
-ccos_collect_synth_app_cpp_sources(${PROJECT_SOURCE_DIR} computecard_synth_app_sources)
-target_sources(ComputeCardSynthApp PRIVATE
-    ${computecard_synth_app_sources}
+cardenza_collect_synth_app_cpp_sources(${PROJECT_SOURCE_DIR} cardenza_synth_app_sources)
+target_sources(CardenzaSynthApp PRIVATE
+    ${cardenza_synth_app_sources}
 )
 
-target_include_directories(ComputeCardSynthApp PUBLIC
+target_include_directories(CardenzaSynthApp PUBLIC
     ${PROJECT_SOURCE_DIR}
 )
 
-target_link_libraries(ComputeCardSynthApp PUBLIC
-    ComputeCardAppInterface
-    ComputeCardSynth
-    ComputeCardUI
+target_link_libraries(CardenzaSynthApp PUBLIC
+    CardenzaAppInterface
+    CardenzaSynth
+    CardenzaUI
 )

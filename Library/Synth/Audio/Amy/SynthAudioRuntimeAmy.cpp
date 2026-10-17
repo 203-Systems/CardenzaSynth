@@ -75,7 +75,7 @@ constexpr std::size_t kSamplerVoiceCount = 4;
 constexpr int kAmyMaxSynths = 8;
 constexpr int kAmyMaxVoices = 24;
 constexpr int kAmyMaxOscs = 160;
-#if defined(ESP_PLATFORM) && defined(CCOS_AMY_EXPERIMENTAL_MULTICORE)
+#if defined(ESP_PLATFORM) && defined(CARDENZA_AMY_EXPERIMENTAL_MULTICORE)
 constexpr bool kAmyUseExperimentalMulticore = true;
 #else
 constexpr bool kAmyUseExperimentalMulticore = false;
@@ -338,7 +338,7 @@ void EnsureAmyInitialized()
     config.platform.multicore = 0;
     config.platform.multithread = 0;
   #endif
-    // CCOS sequences in SynthSequencer; AMY's own tag table would only cost internal RAM.
+    // CARDENZA sequences in SynthSequencer; AMY's own tag table would only cost internal RAM.
     config.max_sequencer_tags = 1;
     config.max_synths = kAmyMaxSynths;
     config.max_voices = kAmyMaxVoices;
@@ -946,7 +946,7 @@ bool HasActiveSamplerVoicesNoLock()
 void FetchAmyBlockNoLock()
 {
   EnsureAmyInitialized();
-#if defined(ESP_PLATFORM) && defined(CCOS_AMY_EXPERIMENTAL_MULTICORE)
+#if defined(ESP_PLATFORM) && defined(CARDENZA_AMY_EXPERIMENTAL_MULTICORE)
   const output_sample_type* block = amy_update();
 #else
   const output_sample_type* block = amy_simple_fill_buffer();

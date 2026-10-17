@@ -9,12 +9,12 @@ if(NOT EXISTS "${FAMILY_PATH}")
   message(FATAL_ERROR "Unknown device family: ${DEVICE}")
 endif()
 
-project(ComputeCardOS LANGUAGES C CXX)
+project(CardenzaSynth LANGUAGES C CXX)
 
-include(${CMAKE_SOURCE_DIR}/cmake/ComputeCardOSSourceLists.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/CardenzaSynthSourceLists.cmake)
 
 add_custom_target(ValidateArchitecture
-  COMMAND ${CMAKE_COMMAND} -DCCOS_ROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/ValidateArchitecture.cmake
+  COMMAND ${CMAKE_COMMAND} -DCARDENZA_ROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/ValidateArchitecture.cmake
   VERBATIM
 )
 
@@ -24,8 +24,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_library(ComputeCardDeviceAudio)
-target_include_directories(ComputeCardDeviceAudio PUBLIC
+add_library(CardenzaDeviceAudio)
+target_include_directories(CardenzaDeviceAudio PUBLIC
   ${PROJECT_SOURCE_DIR}
 )
 
@@ -33,13 +33,13 @@ include("${FAMILY_PATH}/Config.cmake")
 
 add_subdirectory(OS)
 add_subdirectory(Library)
-target_link_libraries(ComputeCardDeviceAudio PUBLIC
-  ComputeCardSynthRuntime
+target_link_libraries(CardenzaDeviceAudio PUBLIC
+  CardenzaSynthRuntime
 )
 add_subdirectory(Applications)
 add_subdirectory(Devices)
 
-if(DEVICE STREQUAL "ComputeCardSim")
+if(DEVICE STREQUAL "CardenzaSim")
   include(CTest)
   if(BUILD_TESTING)
     add_subdirectory(tests)

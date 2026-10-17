@@ -353,7 +353,7 @@ bool PagedSynthEngine::SavePreset(const std::string& presetId, const std::string
   const std::string backup = path + ".bak";
   std::ofstream file(temporary, std::ios::trunc | std::ios::binary);
   if (!file) return false;
-  file << "CCOS_PRESETS 1 " << std::quoted(descriptor_.id) << '\n';
+  file << "CARDENZA_PRESETS 1 " << std::quoted(descriptor_.id) << '\n';
   const auto write = [&](const SynthEngineState& state) {
     file << std::quoted(state.presetId) << ' ' << std::quoted(state.presetName) << ' '
          << std::quoted(state.basePresetId) << ' ' << state.values.size() << '\n';
@@ -474,7 +474,7 @@ bool PagedSynthEngine::ReadUserPresets()
   std::string magic, engineId;
   int version = 0;
   if (!(file >> std::setw(16) >> magic >> version) || !ReadQuoted(file, engineId, 16) ||
-      magic != "CCOS_PRESETS" || version != 1 || engineId != descriptor_.id) return false;
+      magic != "CARDENZA_PRESETS" || version != 1 || engineId != descriptor_.id) return false;
   std::vector<PresetState> loaded;
   while (file >> std::ws && file.peek() != std::char_traits<char>::eof())
   {

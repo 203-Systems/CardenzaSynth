@@ -1,10 +1,10 @@
-add_library(ComputeCardUI)
+add_library(CardenzaUI)
 
-ccos_collect_ui_cpp_sources(${PROJECT_SOURCE_DIR} computecard_ui_sources)
-target_sources(ComputeCardUI PRIVATE
-    ${computecard_ui_sources}
+cardenza_collect_ui_cpp_sources(${PROJECT_SOURCE_DIR} cardenza_ui_sources)
+target_sources(CardenzaUI PRIVATE
+    ${cardenza_ui_sources}
 )
 
-target_include_directories(ComputeCardUI PUBLIC
+target_include_directories(CardenzaUI PUBLIC
     ${PROJECT_SOURCE_DIR}
 )

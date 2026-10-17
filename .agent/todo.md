@@ -1,4 +1,4 @@
-# ComputeCardOS Cleanup Todo
+# CardenzaSynth Cleanup Todo
 
 This is the execution todo for the repository cleanup/refactor. Commit after each completed task.
 
@@ -17,7 +17,7 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 
 ## Task 1 - Delete Browser Prototype
 
-- [x] Remove `Devices/ComputeCardSim/WebUI`.
+- [x] Remove `Devices/CardenzaSim/WebUI`.
 - [x] Remove WebUI config flags and documentation references.
 - [x] Keep desktop simulator as the only simulator surface for now.
 
@@ -48,12 +48,12 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 - [x] Remove device audio types from the synth engine public interface.
 - [x] Replace device-to-synth render calls with a registered audio provider/callback.
 
-## Task 6 - Tighten ComputeCard HAL
+## Task 6 - Tighten Cardenza HAL
 
 - [x] Remove keyboard non-ESP fallback bodies and keep the keyboard driver ESP-only in source lists.
 - [x] Remove remaining non-ESP fallback bodies from production HAL modules.
 - [x] Split keyboard into public types, layout, key scan, LED scan, diagnostics, and ESP implementation files.
-- [x] Move keyboard pin lists to `computecard/board/pins.h`.
+- [x] Move keyboard pin lists to `cardenza/board/pins.h`.
 - [x] Replace loose audio codec probe flags with an explicit output status contract.
 
 ## Task 7 - Simplify Simulator
@@ -66,7 +66,7 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 
 - [x] Add a short architecture doc with allowed dependency directions.
 - [x] Add a minimal architecture validation target for deleted prototypes, firmware-only HAL boundaries, and split-module files.
-- [x] Record `cmake/ComputeCardOSSourceLists.cmake` as compatibility glue until local CMake targets can own sources.
+- [x] Record `cmake/CardenzaSynthSourceLists.cmake` as compatibility glue until local CMake targets can own sources.
 
 ## Task 9 - Move Synth Ownership
 
@@ -76,6 +76,6 @@ This is the execution todo for the repository cleanup/refactor. Commit after eac
 
 ## Deferred Build-System Follow-Up
 
-- [ ] Shrink or retire `cmake/ComputeCardOSSourceLists.cmake` after local CMake targets own sources.
+- [ ] Shrink or retire `cmake/CardenzaSynthSourceLists.cmake` after local CMake targets own sources.
 - [ ] Add firmware smoke-build automation after ESP-IDF configuration works reliably in the local toolchain.
 - [ ] Add focused synth UI behavior tests before changing menu semantics.

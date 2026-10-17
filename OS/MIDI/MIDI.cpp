@@ -16,7 +16,7 @@ std::unique_ptr<::midi::MidiPort>& OsPortStorage() {
 void Initialize() {
   if (!OsPortStorage())
   {
-    OsPortStorage() = std::make_unique<::midi::MidiPort>("ComputeCardOS", ::midi::MIDI_PORT_OS, 256);
+    OsPortStorage() = std::make_unique<::midi::MidiPort>("CardenzaSynth", ::midi::MIDI_PORT_OS, 256);
   }
 }
 

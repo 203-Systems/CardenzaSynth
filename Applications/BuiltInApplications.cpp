@@ -18,7 +18,7 @@ void RegisterBuiltInApplications()
 
 const std::string& DefaultApplicationId()
 {
-  static const std::string applicationId = MakeApplicationId("ComputeCard", "Synth");
+  static const std::string applicationId = MakeApplicationId("Cardenza", "Synth");
   return applicationId;
 }
 

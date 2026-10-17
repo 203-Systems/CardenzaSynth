@@ -1,4 +1,4 @@
-# ComputeCardOS Cleanup Plan
+# CardenzaSynth Cleanup Plan
 
 > Review log for turning the current ESP32-S3 synth project into a more formal, maintainable codebase. This file is intentionally incremental: write findings as they are confirmed, then evolve them into a migration plan.
 
@@ -12,15 +12,15 @@ These are the first breakup candidates, excluding `build/`, `out/`, `.git/`, and
 |---|---:|---|
 | `Library/Synth/SynthUiModel.cpp` | 2000+ | Menu grammar, preset browser, DX7/Juno parameter grouping, modifier state, transitions, snapshots, and input handling live together. |
 | `Library/Synth/SynthUiRenderer.cpp` | 1800+ | Generic screen layout, marquee text, bar rendering, home rendering, context rendering, DX7 algorithm drawing, and Juno panel drawing live together. |
-| `Devices/ComputeCard/computecard/keyboard/keyboard.cpp` | ~900 | Matrix scan, LED multiplexing, debounce/public state, ISR/timer/task logic, and hardware details are likely mixed. |
-| `Devices/ComputeCardSim/DesktopHost.cpp` | ~750 | Host window, simulator shell, app/system bootstrapping, input mapping, and rendering bridge are likely mixed. |
+| `Devices/Cardenza/cardenza/keyboard/keyboard.cpp` | ~900 | Matrix scan, LED multiplexing, debounce/public state, ISR/timer/task logic, and hardware details are likely mixed. |
+| `Devices/CardenzaSim/DesktopHost.cpp` | ~750 | Host window, simulator shell, app/system bootstrapping, input mapping, and rendering bridge are likely mixed. |
 | `Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp` | ~650 | AMY platform integration, voice/event translation, and runtime render path should be reviewed before adding more engines. |
 
 `OS/UI/BuiltInFonts.cpp` is larger than all of these, but it is generated/static asset data, so it should be treated as a build/asset pipeline issue rather than hand-refactored application logic.
 
 ### Boundary smells already visible
 
-- `cmake/ComputeCardOSSourceLists.cmake` is a central handwritten source registry for apps, OS, synth core, device HAL, firmware sources, and AMY C files. It works as glue today, but it is becoming the unofficial architecture.
+- `cmake/CardenzaSynthSourceLists.cmake` is a central handwritten source registry for apps, OS, synth core, device HAL, firmware sources, and AMY C files. It works as glue today, but it is becoming the unofficial architecture.
 - The intended MatrixOS-like seams are already present (`Devices`, `OS`, `Library`, `Applications`), but several files appear to cross them directly: synth app touches device display/LEDs, device audio includes synth runtime, and OS system owns both application registry and device lifecycle.
 - `SynthUiModel.cpp` and `SynthUiRenderer.cpp` have become product-specific feature accumulators. The renderer especially contains synth-domain drawing code for DX7 and Juno rather than a small UI rendering surface plus engine-specific view modules.
 
@@ -29,13 +29,13 @@ These are the first breakup candidates, excluding `build/`, `out/`, `.git/`, and
 Do not start by rewriting everything. Start by making current boundaries explicit and moving code behind them in small, verifiable slices:
 
 1. Split `Library/Synth` UI into model/menu grammar, engine-specific UI adapters, snapshot types, and renderer modules.
-2. Split ComputeCard keyboard HAL into hardware scan, LED scan buffer/multiplexing, key state publishing, and public facade.
+2. Split Cardenza keyboard HAL into hardware scan, LED scan buffer/multiplexing, key state publishing, and public facade.
 3. Replace the central CMake source registry with ownership-local targets/source lists where practical, while keeping ESP-IDF compatibility.
 4. Convert app/device/audio reverse dependencies into interfaces owned by the layer above or a narrow shared runtime boundary.
 
 ### Next review slice
 
-Compare MatrixOS module wiring in `Applications`, `OS`, and `Devices` against ComputeCardOS equivalents. Then inspect the exact include/dependency graph around `SynthApp`, `DeviceAudio`, `OS/System`, and `OS/UI/Canvas`.
+Compare MatrixOS module wiring in `Applications`, `OS`, and `Devices` against CardenzaSynth equivalents. Then inspect the exact include/dependency graph around `SynthApp`, `DeviceAudio`, `OS/System`, and `OS/UI/Canvas`.
 
 ## 2026-05-08 MatrixOS Comparison: Keep The Seams, Fix The Direction
 
@@ -45,14 +45,14 @@ Compare MatrixOS module wiring in `Applications`, `OS`, and `Devices` against Co
 - Device families own their config and application list. Applications are added from `ApplicationList.txt`, and a generated `Applications.h` registers only enabled apps.
 - The OS owns app supervision and lifecycle. Applications are instantiated through metadata/factories instead of hard-coded direct construction in the main system loop.
 
-ComputeCardOS has the same top-level folders, but its actual source graph is less formal because `cmake/ComputeCardOSSourceLists.cmake` manually pulls large chunks of every layer into firmware/simulator targets.
+CardenzaSynth has the same top-level folders, but its actual source graph is less formal because `cmake/CardenzaSynthSourceLists.cmake` manually pulls large chunks of every layer into firmware/simulator targets.
 
 ### Confirmed dependency direction problems
 
 - `Applications/Synth/SynthApp.cpp` directly drives `Device::LED`, `Device::Display`, `os::midi`, `SynthRack`, `SynthUiModel`, and `SynthUiRenderer`. That makes the app both product logic and hardware presentation coordinator.
 - Before the runtime split, `Library/Synth/Core/ISynthEngine.h` included `Devices/DeviceAudio.h`. That board audio type has now been removed from the public synth engine interface; the remaining MIDI packet dependency should be reviewed separately.
 - `Library/Synth/Core/PagedSynthEngine.cpp` directly creates `midi::MidiPort`, calls `device::ConnectSynthAudioPipeline()`, and syncs `synth::audio::*` runtime state. This is too much ownership for a base engine class.
-- `Devices/ComputeCard/DeviceAudio.cpp` and `Devices/ComputeCardSim/DeviceAudio.cpp` call `synth::audio::RenderFrames()`. That creates a reverse dependency from device output back into synth runtime.
+- `Devices/Cardenza/DeviceAudio.cpp` and `Devices/CardenzaSim/DeviceAudio.cpp` call `synth::audio::RenderFrames()`. That creates a reverse dependency from device output back into synth runtime.
 - `OS/System/System.cpp` hard-codes built-in app registration and directly owns device display/LED frame cadence. This is fine as a prototype loop, but should become a scheduler/runtime service with clearer extension points.
 - `OS/UI/Canvas.h` aliases `ui::Color` to `Device::Display::Pixel` and stores `Device::Display::MutableFrameBufferView`. This is acceptable for a tiny embedded renderer short term, but it prevents the UI library from being tested without a device facade.
 
@@ -129,19 +129,19 @@ The current public header can remain `SynthUiRenderer.h` initially. Internals ca
 
 ### Next review slice
 
-Inspect ComputeCard HAL, especially keyboard/audio, and decide which parts are real hardware contracts versus bring-up scaffolding.
+Inspect Cardenza HAL, especially keyboard/audio, and decide which parts are real hardware contracts versus bring-up scaffolding.
 
-## 2026-05-08 ComputeCard HAL: Separate Contracts From Bring-Up Code
+## 2026-05-08 Cardenza HAL: Separate Contracts From Bring-Up Code
 
 ### Current hardware facade shape
 
 `Devices/Device.h` is already a useful application-facing facade: display framebuffer, keyboard state, LED state, audio constants, storage placeholder, `Init()`, and `Start()`. This is close to the MatrixOS-style device seam and should be preserved.
 
-The ComputeCard-specific HAL under `Devices/ComputeCard/computecard` is also mostly in the right place, but several modules still mix public contract, hardware implementation, diagnostic tooling, and host compatibility in the same files.
+The Cardenza-specific HAL under `Devices/Cardenza/cardenza` is also mostly in the right place, but several modules still mix public contract, hardware implementation, diagnostic tooling, and host compatibility in the same files.
 
 ### Keyboard HAL findings
 
-`Devices/ComputeCard/computecard/keyboard/keyboard.cpp` currently combines:
+`Devices/Cardenza/cardenza/keyboard/keyboard.cpp` currently combines:
 
 - physical pin setup and fast GPIO writes,
 - low-level SPI/shift-register LED column output,
@@ -152,15 +152,15 @@ The ComputeCard-specific HAL under `Devices/ComputeCard/computecard` is also mos
 - diagnostic direct LED/row mode,
 - non-ESP host fallback implementation.
 
-Task 6 cleanup started by removing the keyboard non-ESP fallback implementation and keeping `keyboard/keyboard.cpp` in ESP-IDF/embedded source lists only. `keyboard/keyboard.h` now derives its matrix and LED pin lists from `computecard/board/pins.h` and no longer publishes fake FreeRTOS typedefs for host builds.
+Task 6 cleanup started by removing the keyboard non-ESP fallback implementation and keeping `keyboard/keyboard.cpp` in ESP-IDF/embedded source lists only. `keyboard/keyboard.h` now derives its matrix and LED pin lists from `cardenza/board/pins.h` and no longer publishes fake FreeRTOS typedefs for host builds.
 
-The remaining ComputeCard hardware HAL implementations now fail explicitly outside ESP-IDF instead of returning host placeholder values. Desktop validation should go through `ComputeCardSim`; the hardware target is firmware-only. Audio output state has also been collapsed into `Audio::OutputStatus`, replacing separate codec probe/output flags.
+The remaining Cardenza hardware HAL implementations now fail explicitly outside ESP-IDF instead of returning host placeholder values. Desktop validation should go through `CardenzaSim`; the hardware target is firmware-only. Audio output state has also been collapsed into `Audio::OutputStatus`, replacing separate codec probe/output flags.
 
 The keyboard HAL split is now in place: `keyboard.h` is the facade, `types.h` owns public data types, `layout.h` owns matrix/keymap data, and `keyboard/internal` owns the driver declaration plus hardware, key scan, LED scan, and diagnostics implementations.
 
 Simulator cleanup has started by adding a simulator-only keyboard input bridge. The desktop host now mutates `Device::Keyboard` state and lets `os::system::RunFrame()` dispatch matrix key events, instead of calling `SynthApp::PressMatrixKey()`/`ReleaseMatrixKey()` directly.
 
-The desktop host implementation is now split under `Devices/ComputeCardSim/DesktopHost`: layout/key visuals, GDI drawing helpers, simulator window lifecycle, input handling, layout updates, and rendering are separate source files. `DesktopHost.cpp` is only the WinMain entrypoint.
+The desktop host implementation is now split under `Devices/CardenzaSim/DesktopHost`: layout/key visuals, GDI drawing helpers, simulator window lifecycle, input handling, layout updates, and rendering are separate source files. `DesktopHost.cpp` is only the WinMain entrypoint.
 
 Recommended split:
 
@@ -174,7 +174,7 @@ Recommended split:
 | `keyboard/keyboard_diagnostics.cpp` | `setDiagDirect()` and any future test-only scan modes. Build-gate it if it should not ship. |
 | `keyboard/internal/keyboard_hardware.cpp` | ESP-IDF-only GPIO/SPI/GPTimer integration shared by key and LED scanning. |
 
-Also move the hard-coded `output_list`, `input_list`, and `led_pin_list` out of `keyboard.h`; `computecard/board/pins.h` is already the board pin source of truth.
+Also move the hard-coded `output_list`, `input_list`, and `led_pin_list` out of `keyboard.h`; `cardenza/board/pins.h` is already the board pin source of truth.
 
 ### Audio HAL findings
 
@@ -192,10 +192,10 @@ Cleanup still needed:
 
 ### Build and tree hygiene findings
 
-- The old `Devices/ComputeCard/main/hal` path is not actually present; `Devices/ComputeCard/main` is empty. Do not plan cleanup work around ghost search results.
-- `Devices/ComputeCard/esp-idf/main/CMakeLists.txt` still duplicates the ESP-IDF component registration path already handled by `Devices/ComputeCard/CMakeLists.txt` when `COMPONENT_DIR` is defined. Decide which one is canonical and remove the duplicate path after validating firmware builds.
-- `Devices/ComputeCard/CMakeLists.txt` hard-codes `C:/espressif/v5.3.4/export.ps1` for the `ComputeCardFirmware` target. That belongs in user environment config or a wrapper script, not project architecture.
-- `Makefile` and docs now agree on the Windows firmware path: run `make DEVICE=ComputeCard ...` from an already exported ESP-IDF shell, and let the Makefile `cd` into `Devices/ComputeCard` before invoking `idf.py` directly.
+- The old `Devices/Cardenza/main/hal` path is not actually present; `Devices/Cardenza/main` is empty. Do not plan cleanup work around ghost search results.
+- `Devices/Cardenza/esp-idf/main/CMakeLists.txt` still duplicates the ESP-IDF component registration path already handled by `Devices/Cardenza/CMakeLists.txt` when `COMPONENT_DIR` is defined. Decide which one is canonical and remove the duplicate path after validating firmware builds.
+- `Devices/Cardenza/CMakeLists.txt` hard-codes `C:/espressif/v5.3.4/export.ps1` for the `CardenzaFirmware` target. That belongs in user environment config or a wrapper script, not project architecture.
+- `Makefile` and docs now agree on the Windows firmware path: run `make DEVICE=Cardenza ...` from an already exported ESP-IDF shell, and let the Makefile `cd` into `Devices/Cardenza` before invoking `idf.py` directly.
 
 ### Next review slice
 
@@ -205,7 +205,7 @@ Inspect simulator and WebUI boundaries, then turn the findings into prioritized 
 
 ### Desktop simulator findings
 
-`Devices/ComputeCardSim/DesktopHost.cpp` is useful, but it currently mixes:
+`Devices/CardenzaSim/DesktopHost.cpp` is useful, but it currently mixes:
 
 - Win32 window setup/message loop/timers,
 - simulator visual design and GDI drawing helpers,
@@ -267,9 +267,9 @@ Direction:
 
 ### Phase 3: Build system cleanup
 
-1. Make ownership-local CMake targets authoritative: `ComputeCardSynthCore`, `ComputeCardSynthUI`, `ComputeCardSynthAudioRuntime`, `ComputeCardHALKeyboard`, etc.
-2. Retire or shrink `cmake/ComputeCardOSSourceLists.cmake` after targets own their sources.
-3. Choose one ESP-IDF component registration path. Remove duplicate `esp-idf/main/CMakeLists.txt` if `Devices/ComputeCard/CMakeLists.txt` is the canonical project root/component.
+1. Make ownership-local CMake targets authoritative: `CardenzaSynthCore`, `CardenzaSynthUI`, `CardenzaSynthAudioRuntime`, `CardenzaHALKeyboard`, etc.
+2. Retire or shrink `cmake/CardenzaSynthSourceLists.cmake` after targets own their sources.
+3. Choose one ESP-IDF component registration path. Remove duplicate `esp-idf/main/CMakeLists.txt` if `Devices/Cardenza/CMakeLists.txt` is the canonical project root/component.
 4. Replace hard-coded `C:/espressif/v5.3.4/export.ps1` with an environment-driven wrapper or documented `IDF_PATH`/`IDF_PYTHON_ENV_PATH` invocation.
 
 ### Phase 4: Product model cleanup
@@ -285,11 +285,11 @@ Start with Phase 1 renderer split. It is the biggest readability win with the lo
 
 ## 2026-05-08 Architecture Guardrails Added
 
-The cleanup pass now has a short public architecture note in `docs/AGENT.md`. It records the allowed dependency direction, the ESP-IDF-only status of `Devices/ComputeCard/computecard`, the simulator input route through the public device facade, and the current module shape after the Synth/HAL/simulator splits.
+The cleanup pass now has a short public architecture note in `docs/AGENT.md`. It records the allowed dependency direction, the ESP-IDF-only status of `Devices/Cardenza/cardenza`, the simulator input route through the public device facade, and the current module shape after the Synth/HAL/simulator splits.
 
-The repository also has a lightweight CMake script-mode guardrail at `cmake/ValidateArchitecture.cmake`, exposed through `make validate-architecture` and the root `ValidateArchitecture` CMake target. It checks the decisions that are easiest to regress accidentally: the browser WebUI must stay deleted, ComputeCard HAL files must remain explicitly ESP-IDF-only, the keyboard and desktop simulator split files must exist, and the ComputeCard root CMake path must not expose the hardware HAL as a host subdirectory.
+The repository also has a lightweight CMake script-mode guardrail at `cmake/ValidateArchitecture.cmake`, exposed through `make validate-architecture` and the root `ValidateArchitecture` CMake target. It checks the decisions that are easiest to regress accidentally: the browser WebUI must stay deleted, Cardenza HAL files must remain explicitly ESP-IDF-only, the keyboard and desktop simulator split files must exist, and the Cardenza root CMake path must not expose the hardware HAL as a host subdirectory.
 
-`cmake/ComputeCardOSSourceLists.cmake` is still compatibility glue for ESP-IDF and root CMake collection. Retiring it properly requires local targets/source lists to own modules first, so that work is recorded as deferred build-system debt instead of being hidden inside this guardrail task.
+`cmake/CardenzaSynthSourceLists.cmake` is still compatibility glue for ESP-IDF and root CMake collection. Retiring it properly requires local targets/source lists to own modules first, so that work is recorded as deferred build-system debt instead of being hidden inside this guardrail task.
 
 ## 2026-05-08 Synth Ownership Move
 

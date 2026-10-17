@@ -1,23 +1,23 @@
-add_library(ComputeCardAppInterface INTERFACE)
-target_include_directories(ComputeCardAppInterface INTERFACE
+add_library(CardenzaAppInterface INTERFACE)
+target_include_directories(CardenzaAppInterface INTERFACE
     ${PROJECT_SOURCE_DIR}
 )
 
-add_library(ComputeCardApplications
+add_library(CardenzaApplications
     
 )
 
-ccos_collect_builtin_application_cpp_sources(${PROJECT_SOURCE_DIR} computecard_builtin_application_sources)
-target_sources(ComputeCardApplications PRIVATE
-    ${computecard_builtin_application_sources}
+cardenza_collect_builtin_application_cpp_sources(${PROJECT_SOURCE_DIR} cardenza_builtin_application_sources)
+target_sources(CardenzaApplications PRIVATE
+    ${cardenza_builtin_application_sources}
 )
 
-target_include_directories(ComputeCardApplications PUBLIC
+target_include_directories(CardenzaApplications PUBLIC
     ${PROJECT_SOURCE_DIR}
 )
 
-target_link_libraries(ComputeCardApplications PUBLIC
-    ComputeCardAppInterface
+target_link_libraries(CardenzaApplications PUBLIC
+    CardenzaAppInterface
 )
 
 function(add_enabled_applications config_file)
@@ -47,6 +47,6 @@ endfunction()
 
 add_enabled_applications("${FAMILY_PATH}/ApplicationList.txt")
 
-target_link_libraries(ComputeCardApplications PUBLIC
-    ComputeCardSynthApp
+target_link_libraries(CardenzaApplications PUBLIC
+    CardenzaSynthApp
 )

@@ -1,4 +1,4 @@
-# ComputeCard UI · 第三版：标题栏写清在哪，按键旁写清是什么
+# Cardenza UI · 第三版：标题栏写清在哪，按键旁写清是什么
 
 [查看原生画面对照](ui-redesign.html) · [完整 UI 清单](ui-inventory.html#sequencer)
 
@@ -36,7 +36,7 @@
 - 十份回放脚本共采集 92 张 240×135 原始 framebuffer。新增 `tests/ui-review.script`，覆盖 KEY、TRK、预设浏览、DX7 ALG / GLB / 第二页、Juno ENV / VCF / LFO / Range、Sampler 加载 / 裁剪 / 录音、16 个 Pattern 与按住帮助。
 - 定稿前的 mock 在独立目录编译评审（已清理）。与评审通过的 mock 相比，35 张截图中 32 张逐像素一致；其余 3 张为播放进度时序，以及两处有意的波形位置调整。
 - v2 对照截图来自本轮改动前的源码，在独立目录编译后用同一组脚本采集。截图保存在 `tests/build/ui-v2-reference-2026-10-11` 与 `tests/build/ui-v3-2026-10-13`。
-- 固件（ESP-IDF 5.3.4，`build/ComputeCard-ui-redesign`）编译通过，镜像 `0x179ed0` 字节，4 MB App 分区剩余 63%。**未烧录。**
+- 固件（ESP-IDF 5.3.4，`build/Cardenza-ui-redesign`）编译通过，镜像 `0x179ed0` 字节，4 MB App 分区剩余 63%。**未烧录。**
 
 ## 仍需实机确认
 
@@ -84,7 +84,7 @@
 - 模拟器与架构检查通过。
 - Core / Sampler / UI / Project 四组回归通过，17.68 秒。新增检查覆盖最低音/和弦摘要、空步、换轨、复制后摘要及多字号窄侧栏文字宽度。
 - 八份原生按键脚本成功运行，包含 `tests/ui-design-preview.script`；文件相关回放使用独立模拟器目录与复制的测试夹具。已检查 Seq 空闲/编辑/播放、Pattern、Piano、DX7、Juno、Sampler 浏览/重命名、工程确认、Drums 等画面。
-- 固件编译通过，镜像 `0x17a130` 字节，4 MB App 分区剩余 63%。构建目录为 `build/ComputeCard-ui-redesign`；旧缓存引用已迁移的 ESP-IDF 路径，因此使用独立目录，保留旧产物。
+- 固件编译通过，镜像 `0x17a130` 字节，4 MB App 分区剩余 63%。构建目录为 `build/Cardenza-ui-redesign`；旧缓存引用已迁移的 ESP-IDF 路径，因此使用独立目录，保留旧产物。
 - UI 清单的 32 张截图与对照页来自模拟器 240×135 原始 framebuffer；其余清单画板仍明确标为结构示意。
 
 未烧录。实机阅读距离、屏幕亮度和按键手感仍待设备验收；这版用于确认视觉方向，不代表 75 个状态都完成了逐页实机验收。

@@ -1,6 +1,6 @@
 # MatrixOS-Compatible Display And Audio APIs
 
-This document defines a forward-compatible display and audio API shape for ComputeCardOS. The intent is to keep new ComputeCardOS common APIs close to MatrixOS style so the same concepts can later be merged into MatrixOS as first-class `MatrixOS::Display` and `MatrixOS::Audio` modules.
+This document defines a forward-compatible display and audio API shape for CardenzaSynth. The intent is to keep new CardenzaSynth common APIs close to MatrixOS style so the same concepts can later be merged into MatrixOS as first-class `MatrixOS::Display` and `MatrixOS::Audio` modules.
 
 ## Goals
 
@@ -9,11 +9,11 @@ This document defines a forward-compatible display and audio API shape for Compu
 - Avoid exposing ESP-IDF, Win32, or board-specific handles through public application APIs.
 - Support screen-first devices without weakening the existing MatrixOS LED grid model.
 - Support low-latency audio output and optional audio input without tying audio timing to UI frame timing.
-- Let ComputeCardOS implement the API first, then upstream the stable contract into MatrixOS.
+- Let CardenzaSynth implement the API first, then upstream the stable contract into MatrixOS.
 
 ## Non-Goals
 
-- Do not rewrite ComputeCardOS into MatrixOS immediately.
+- Do not rewrite CardenzaSynth into MatrixOS immediately.
 - Do not force LED grid UI and screen UI into one renderer. They can share input and lifecycle but remain separate output surfaces.
 - Do not make audio a normal foreground application loop callback.
 - Do not expose native I2S, LCD, DMA, panel, codec, or simulator handles to applications.
@@ -28,7 +28,7 @@ The API should follow the existing MatrixOS dependency direction:
 3. Applications should prefer `MatrixOS::Display` and `MatrixOS::Audio` over direct `Device::` calls.
 4. Concrete hardware code remains under the selected device/family target.
 
-ComputeCardOS can keep its current `Device::Display` and `Device::Audio` namespaces while shaping them toward this contract. Once stable, MatrixOS can add feature flags and matching OS modules.
+CardenzaSynth can keep its current `Device::Display` and `Device::Audio` namespaces while shaping them toward this contract. Once stable, MatrixOS can add feature flags and matching OS modules.
 
 ## Feature Flags
 
@@ -143,7 +143,7 @@ struct RenderProvider {
 
 Notes:
 
-- RGB565 should be the initial display format because ComputeCardOS already uses it and it maps well to small TFT panels.
+- RGB565 should be the initial display format because CardenzaSynth already uses it and it maps well to small TFT panels.
 - Int16 PCM should be the initial audio format because the current synth/audio path uses signed 16-bit samples.
 - `preferredFrameCount` lets the target describe its low-latency block size without making applications know DMA details.
 
@@ -183,7 +183,7 @@ uint8_t Backlight();
 } // namespace Device::Display
 ```
 
-Compatibility with current ComputeCardOS:
+Compatibility with current CardenzaSynth:
 
 - `Device::Display::CurrentFrameBuffer()` already exists.
 - `Device::Display::MutableFrameBuffer()` already exists.
@@ -227,7 +227,7 @@ Recommended firmware model:
 - Panel ISR/callback only gives the semaphore or sends a task notification.
 - No application callbacks run from display ISR context.
 
-For ComputeCardOS, the current `Device::Display::Present()` pattern already follows this shape: the panel callback gives a semaphore and the caller waits for completion.
+For CardenzaSynth, the current `Device::Display::Present()` pattern already follows this shape: the panel callback gives a semaphore and the caller waits for completion.
 
 ## Device Audio Contract
 
@@ -268,12 +268,12 @@ Status ReadInputFrames(int16_t* destination,
 } // namespace Device::Audio
 ```
 
-Compatibility with current ComputeCardOS:
+Compatibility with current CardenzaSynth:
 
 - `Device::Audio::InputInfo()`, `StartInput()`, `StopInput()`, and `ReadInputFrames()` already exist.
 - `device::SetSynthAudioRenderProvider()` should evolve toward `MatrixOS::Audio::SetOutputRenderProvider()`.
 - `device::ConnectSynthAudioPipeline()` should evolve toward `MatrixOS::Audio::StartOutput()` or a small compatibility wrapper around it.
-- The current ComputeCard firmware audio pump task is already close to the target model: it renders fixed blocks, applies volume, writes I2S, and logs overruns outside interrupt context.
+- The current Cardenza firmware audio pump task is already close to the target model: it renders fixed blocks, applies volume, writes I2S, and logs overruns outside interrupt context.
 
 ## MatrixOS Audio API
 
@@ -327,7 +327,7 @@ For MatrixOS upstream, avoid requiring ESP-IDF-only APIs such as `xTaskCreatePin
 
 ## FreeRTOS Interface Rules
 
-Use these rules for both ComputeCardOS and future MatrixOS code:
+Use these rules for both CardenzaSynth and future MatrixOS code:
 
 - Public APIs use `uint32_t timeoutMs` for bounded waits, matching existing MatrixOS API style.
 - Internal firmware code converts to ticks with `pdMS_TO_TICKS()`.
@@ -349,7 +349,7 @@ Display and audio should not replace MatrixOS LED and input APIs.
 - Screen presentation must not happen from the high-frequency LED scan path.
 - Audio rendering must not depend on LED update callbacks.
 
-For ComputeCardOS, this means the keyboard LED scan buffer continues to be updated through the normal LED API and committed by the device keyboard driver, while display rendering uses `Display::Present()` and audio uses the audio pump task.
+For CardenzaSynth, this means the keyboard LED scan buffer continues to be updated through the normal LED API and committed by the device keyboard driver, while display rendering uses `Display::Present()` and audio uses the audio pump task.
 
 ## App Lifecycle Policy
 
@@ -358,14 +358,14 @@ MatrixOS currently assumes one foreground app. Audio-capable screen devices need
 - A foreground app may register an audio render provider.
 - Launching a new foreground app should either stop the previous provider or transfer ownership through a system service.
 - Long-lived instrument behavior should eventually use a privileged audio service or system app if playback must survive normal app switches.
-- The initial ComputeCardOS-compatible design may keep audio ownership with the active Synth app.
+- The initial CardenzaSynth-compatible design may keep audio ownership with the active Synth app.
 
 This policy should be decided before fully upstreaming a synth app into MatrixOS.
 
-## ComputeCardOS Migration Plan
+## CardenzaSynth Migration Plan
 
 1. Add a local documentation-backed API target shape matching this document.
-2. Rename or wrap `device::SetSynthAudioRenderProvider()` as `MatrixOS::Audio::SetOutputRenderProvider()` in ComputeCardOS.
+2. Rename or wrap `device::SetSynthAudioRenderProvider()` as `MatrixOS::Audio::SetOutputRenderProvider()` in CardenzaSynth.
 3. Rename or wrap `device::ConnectSynthAudioPipeline()` as `MatrixOS::Audio::StartOutput()` while keeping the synth compatibility call if needed.
 4. Add status-returning `Device::Display::Present(timeoutMs)` and `Device::Display::GetInfo()` while preserving existing convenience functions.
 5. Keep the existing `ui::Canvas` framebuffer renderer, but make it consume `MatrixOS::Display::MutableFrameBuffer()` once the wrapper exists.
@@ -392,7 +392,7 @@ This policy should be decided before fully upstreaming a synth app into MatrixOS
 
 ## Recommended First Version
 
-For ComputeCardOS, keep the first version deliberately small:
+For CardenzaSynth, keep the first version deliberately small:
 
 - RGB565 framebuffer display.
 - One mutable framebuffer owned by the device layer.
@@ -401,4 +401,4 @@ For ComputeCardOS, keep the first version deliberately small:
 - Optional int16 mono input with blocking reads.
 - No display layers, no audio graph, no multi-client mixer.
 
-This is enough for the Synth app, sampler, sequencer, simulator, and a future MatrixOS ComputeCard target while keeping the API narrow enough to upstream cleanly.
+This is enough for the Synth app, sampler, sequencer, simulator, and a future MatrixOS Cardenza target while keeping the API narrow enough to upstream cleanly.

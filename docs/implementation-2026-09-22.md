@@ -1,4 +1,4 @@
-# ComputeCardOS 实现与验收记录 — 2026-09-22
+# CardenzaSynth 实现与验收记录 — 2026-09-22
 
 这份记录对应本轮补齐后的代码；`review-2026-09-22.md` 保留修改前的问题证据，不能再作为当前状态清单。代码仍在工作区，未提交或烧录设备。
 
@@ -42,16 +42,16 @@
 在 Windows / MSVC 与本机 ESP-IDF 5.3.4、Xtensa GCC 13.2.0 上验证：
 
 ```powershell
-cmake -S . -B build/ComputeCardSim -DDEVICE=ComputeCardSim
-cmake --build build/ComputeCardSim --target ComputeCardSimDesktop ComputeCardCoreTests ComputeCardSamplerTests ComputeCardUiTests ComputeCardProjectTests ValidateArchitecture --config Debug
-ctest --test-dir build/ComputeCardSim -C Debug --output-on-failure
+cmake -S . -B build/CardenzaSim -DDEVICE=CardenzaSim
+cmake --build build/CardenzaSim --target CardenzaSimDesktop CardenzaCoreTests CardenzaSamplerTests CardenzaUiTests CardenzaProjectTests ValidateArchitecture --config Debug
+ctest --test-dir build/CardenzaSim -C Debug --output-on-failure
 
 cmake -S Library/Synth/tests -B build/synth-regression -G "Visual Studio 17 2022" -A x64
 cmake --build build/synth-regression --config Debug
 ctest --test-dir build/synth-regression -C Debug --output-on-failure
 
-# 先进入本机 ESP-IDF 环境，再在 Devices/ComputeCard 下执行：
-idf.py -B ../../build/ComputeCard build
+# 先进入本机 ESP-IDF 环境，再在 Devices/Cardenza 下执行：
+idf.py -B ../../build/Cardenza build
 ```
 
 - Core：Project round trip、备份恢复、截断/畸形输入保持旧数据、Windows 保留名、Stop 与 MIDI 批次的确定性并发测试。
@@ -98,9 +98,9 @@ idf.py -B ../../build/ComputeCard build
 
 ## Project 文件格式 v1
 
-文件位于 `ComputeCardOS/Project/<name>.ccproj`。名字为 1–24 个 ASCII 字母、数字、空格、下划线或短横线，不允许首尾空格、路径穿越或 Windows 设备保留名。
+文件位于 `CardenzaSynth/Project/<name>.ccproj`。名字为 1–24 个 ASCII 字母、数字、空格、下划线或短横线，不允许首尾空格、路径穿越或 Windows 设备保留名。
 
-文本格式以 `CCOS_PROJECT 1` 和 `BUILD ComputeCardOS 1` 开头，依次写 `UI`、四组 `TRACK` / `PARAM`、`SEQ` 和四组 `T` / `NOTES`，最后为 `END`。Preset 参数通过带引号字符串保存；音符使用稀疏记录，含 Pattern、Step、Pitch、Velocity、Length 和 Microstep。采样保存相对文件名，不打包 PCM；搬移工程时应一并复制所引用的 Sample 文件。
+文本格式以 `CARDENZA_PROJECT 1` 和 `BUILD CardenzaSynth 1` 开头，依次写 `UI`、四组 `TRACK` / `PARAM`、`SEQ` 和四组 `T` / `NOTES`，最后为 `END`。Preset 参数通过带引号字符串保存；音符使用稀疏记录，含 Pattern、Step、Pitch、Velocity、Length 和 Microstep。采样保存相对文件名，不打包 PCM；搬移工程时应一并复制所引用的 Sample 文件。
 
 引擎编号保留 DX7=1、Juno=2、Sampler=3，并追加 Drums=4；文本结构和已有字段语义保持 v1。新版继续读取旧工程，未知引擎编号仍被拒绝，Drums 不能携带 Sampler 文件引用。旧版软件不支持编号 4，因此不能读取含 Drums 的新工程。Drums 的九个参数和基础预设身份随工程保存，内置鼓样本不需要额外文件。
 

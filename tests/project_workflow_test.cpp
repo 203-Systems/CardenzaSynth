@@ -992,7 +992,7 @@ void TestDrumsWorkflow() {
   // remain invalid. The legacy 1/2/3 meanings must not shift.
   std::ifstream stored(storageRoot / "Project" / "drums-saved.ccproj");
   std::string serialized((std::istreambuf_iterator<char>(stored)), std::istreambuf_iterator<char>());
-  assert(serialized.find("CCOS_PROJECT 1\n") == 0 && serialized.find("TRACK 0 4 ") != std::string::npos);
+  assert(serialized.find("CARDENZA_PROJECT 1\n") == 0 && serialized.find("TRACK 0 4 ") != std::string::npos);
   saved.kinds[0] = static_cast<SynthEngineKind>(5);
   assert(SaveProjectFile("drums-invalid", saved, false) == ProjectResult::Invalid);
   saved.kinds[0] = SynthEngineKind::Drums;
@@ -1025,7 +1025,7 @@ int main()
   _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
 #endif
   storageRoot = std::filesystem::temp_directory_path() /
-      ("computecard-project-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+      ("cardenza-project-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   assert(Device::Storage::EnsureDirectoryLayout());
   TestSequencerWorkflow();
   TestSequencerDestructiveActions();

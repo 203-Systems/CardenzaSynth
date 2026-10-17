@@ -1,12 +1,12 @@
-add_library(ComputeCardMidiFramework)
+add_library(CardenzaMidiFramework)
 
-ccos_collect_midi_framework_cpp_sources(${PROJECT_SOURCE_DIR} computecard_midi_framework_sources)
-target_sources(ComputeCardMidiFramework PRIVATE
-    ${computecard_midi_framework_sources}
+cardenza_collect_midi_framework_cpp_sources(${PROJECT_SOURCE_DIR} cardenza_midi_framework_sources)
+target_sources(CardenzaMidiFramework PRIVATE
+    ${cardenza_midi_framework_sources}
 )
 
-target_include_directories(ComputeCardMidiFramework PUBLIC
+target_include_directories(CardenzaMidiFramework PUBLIC
     ${PROJECT_SOURCE_DIR}
 )
 
-target_compile_features(ComputeCardMidiFramework PUBLIC cxx_std_17)
+target_compile_features(CardenzaMidiFramework PUBLIC cxx_std_17)

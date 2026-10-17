@@ -1,6 +1,6 @@
-# ComputeCardOS
+# CardenzaSynth
 
-ComputeCard 的四轨合成器固件与 Windows 桌面模拟器。当前包括 DX7、Juno、Sampler、Drums，步进序列器，以及工程和用户音色保存／恢复。显示画布为 240×135。
+Cardenza 的四轨合成器固件与 Windows 桌面模拟器。当前包括 DX7、Juno、Sampler、Drums，步进序列器，以及工程和用户音色保存／恢复。显示画布为 240×135。
 
 ## 常用操作
 
@@ -27,13 +27,13 @@ Home 网格属于当前 UI 会话的视图选择，不改变 Project v1 文件�
 
 ```powershell
 git submodule update --init --recursive
-cmake -S . -B build/ComputeCardSim -DDEVICE=ComputeCardSim
-cmake --build build/ComputeCardSim --config Debug
-ctest --test-dir build/ComputeCardSim -C Debug --output-on-failure
-cmake --build build/ComputeCardSim --target ValidateArchitecture --config Debug
+cmake -S . -B build/CardenzaSim -DDEVICE=CardenzaSim
+cmake --build build/CardenzaSim --config Debug
+ctest --test-dir build/CardenzaSim -C Debug --output-on-failure
+cmake --build build/CardenzaSim --target ValidateArchitecture --config Debug
 ```
 
-程序位于 `build/ComputeCardSim/Devices/ComputeCardSim/Debug/ComputeCardSimDesktop.exe`。模拟器数据位于程序旁的 `sdcard/ComputeCardOS/`，使用 `Project`、`Sample`、`Preset` 子目录。脚本截图参数见 [模拟器说明](Devices/ComputeCardSim/README.md)。
+程序位于 `build/CardenzaSim/Devices/CardenzaSim/Debug/CardenzaSimDesktop.exe`。模拟器数据位于程序旁的 `sdcard/CardenzaSynth/`，使用 `Project`、`Sample`、`Preset` 子目录。脚本截图参数见 [模拟器说明](Devices/CardenzaSim/README.md)。
 
 真实音源回归独立构建：
 
@@ -45,7 +45,7 @@ ctest --test-dir build/synth-regression -C Debug --output-on-failure
 
 ## 固件与当前边界
 
-固件通过 ESP-IDF 构建，入口和烧录步骤见 [ComputeCard 说明](Devices/ComputeCard/README.md)。当前验证环境为 ESP-IDF 5.3.4；构建通过不代表实机录音、四轨负载、内存峰值或掉电恢复已经验收。
+固件通过 ESP-IDF 构建，入口和烧录步骤见 [Cardenza 说明](Devices/Cardenza/README.md)。当前验证环境为 ESP-IDF 5.3.4；构建通过不代表实机录音、四轨负载、内存峰值或掉电恢复已经验收。
 
 - [可筛选 UI 清单](docs/ui-inventory.html)：页面／状态清单、实际模拟器截图，以及 NullPerator 设计参考。新增页面的运行截图以该清单实际收录内容为准。
 - [实现与验收记录](docs/implementation-2026-09-22.md)：已完成工作、测试命令和剩余边界。

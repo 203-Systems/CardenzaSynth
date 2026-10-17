@@ -3,12 +3,12 @@ add_subdirectory(MIDI)
 add_subdirectory(System)
 add_subdirectory(UI)
 
-add_library(ComputeCardOSCore INTERFACE)
-target_include_directories(ComputeCardOSCore INTERFACE
+add_library(CardenzaSynthCore INTERFACE)
+target_include_directories(CardenzaSynthCore INTERFACE
     ${PROJECT_SOURCE_DIR}
 )
-target_link_libraries(ComputeCardOSCore INTERFACE
-    ComputeCardMidiFramework
-    ComputeCardMIDI
-    ComputeCardUI
+target_link_libraries(CardenzaSynthCore INTERFACE
+    CardenzaMidiFramework
+    CardenzaMIDI
+    CardenzaUI
 )

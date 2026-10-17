@@ -1,5 +1,5 @@
-add_library(ComputeCardDeviceInterface INTERFACE)
-target_include_directories(ComputeCardDeviceInterface INTERFACE
+add_library(CardenzaDeviceInterface INTERFACE)
+target_include_directories(CardenzaDeviceInterface INTERFACE
     ${PROJECT_SOURCE_DIR}
 )
 

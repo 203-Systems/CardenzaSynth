@@ -1,7 +1,7 @@
 /*
  * 5x7 glyphs adapted from NullPerator UI2/Text/UiFont5x7.cpp.
  * Copyright (c) 2026 PicoTracker contributors
- * Additional ASCII punctuation for ComputeCardOS.
+ * Additional ASCII punctuation for CardenzaSynth.
  * Source: https://github.com/203-Systems/NullPerator/blob/main/sources/UI2/Text/UiFont5x7.cpp
  *
  * BSD 3-Clause License

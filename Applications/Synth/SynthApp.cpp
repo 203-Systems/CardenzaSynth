@@ -95,9 +95,9 @@ std::unique_ptr<app::Application> CreateSynthApplication() {
 
 app::ApplicationInfo BuildSynthInfo() {
   app::ApplicationInfo info;
-  info.id = app::MakeApplicationId("ComputeCard", "Synth");
+  info.id = app::MakeApplicationId("Cardenza", "Synth");
   info.name = "Synth";
-  info.author = "ComputeCard";
+  info.author = "Cardenza";
   info.factory = &CreateSynthApplication;
   return info;
 }

@@ -1,0 +1,3 @@
+# Cardenza simulator application list
+
+Synth

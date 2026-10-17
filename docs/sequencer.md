@@ -7,8 +7,8 @@ The September 22 update adds distinct Home editing, Transport, Tempo, Track and 
 ### Reuse Strategy
 
 - Reuse the MatrixOS Sequencer data and editing ideas from `Sequence`, `SequenceData`, and `SequenceEvent` as much as practical: tracks, clips, patterns, timestamped events, note length, note-off scheduling, and helpers such as add/clear/has-event-in-range.
-- Do not copy MatrixOS UI components wholesale. `PatternPad`, `NotePad`, and `ControlBar` are behavioral references only; ComputeCardOS needs UI behavior in `Applications/Synth/UI` and runtime behavior in `Applications/Synth/Runtime`.
-- Do not reuse MatrixOS `SequenceMeta` directly. ComputeCardOS needs a smaller four-track metadata model with project-level defaults, active pattern state, track enable/mute state, and per-track edit defaults.
+- Do not copy MatrixOS UI components wholesale. `PatternPad`, `NotePad`, and `ControlBar` are behavioral references only; CardenzaSynth needs UI behavior in `Applications/Synth/UI` and runtime behavior in `Applications/Synth/Runtime`.
+- Do not reuse MatrixOS `SequenceMeta` directly. CardenzaSynth needs a smaller four-track metadata model with project-level defaults, active pattern state, track enable/mute state, and per-track edit defaults.
 - Replace MatrixOS-specific dependencies during any port: `MatrixOS::SYS::Micros/Millis`, `MatrixOS::MIDI::Send`, MatrixOS `File`/CBOR wrappers, `Color`, FreeRTOS mutex handles, and MatrixOS application/UI classes.
 
 ### Home Layout
@@ -191,7 +191,7 @@ Ordinary key or sequencer note-off leaves the one-shot tail sounding, so a drum 
 ### Project Saving
 
 - Sequencer state is project-level state. Do not store it in individual synth presets or sampler sample files.
-- Store projects under `Device::Storage::ProjectDirectoryPath()` using paths relative to the ComputeCardOS storage root.
+- Store projects under `Device::Storage::ProjectDirectoryPath()` using paths relative to the CardenzaSynth storage root.
 - Use a versioned project format so future synth, sampler, and sequencer state can evolve without breaking old projects.
 - Project v1 keeps DX7=1, Juno=2 and Sampler=3 and adds Drums=4 without changing the existing field layout. The current reader accepts old projects and rejects unknown kinds; older software cannot load projects containing Drums. Drum preset identity and all nine parameters are embedded, with no sample-file dependency.
 - Save at least:
@@ -203,7 +203,7 @@ Ordinary key or sequencer note-off leaves the one-shot tail sounding, so a drum 
 	- synth track references: engine kind, selected preset identity, edited parameter overrides, and any sampler sample path references needed to reproduce the project
 - Store sample references as relative paths into the sample storage area. Do not duplicate sample audio into every project by default.
 - Prefer explicit user save for project files. If autosave is added later, write through a temporary file and rename/replace atomically to avoid corrupting projects on power loss.
-- Do not depend on MatrixOS `File` serialization directly. ComputeCardOS storage is path-based; implement a ComputeCard-specific serializer or a small portable serializer layer.
+- Do not depend on MatrixOS `File` serialization directly. CardenzaSynth storage is path-based; implement a Cardenza-specific serializer or a small portable serializer layer.
 
 ### Sequencer Tick And Timing
 
@@ -228,5 +228,5 @@ Ordinary key or sequencer note-off leaves the one-shot tail sounding, so a drum 
 
 - Put app-owned sequencer runtime code under `Applications/Synth/Runtime/Sequencer` or an equivalent Synth-owned runtime folder.
 - Put reusable sequence data/model code under `Library/Synth/Core` only if it is genuinely engine-agnostic and free of app/UI/device dependencies.
-- Add new source files to `cmake/ComputeCardOSSourceLists.cmake` until the build system has a more local source registry for the module.
+- Add new source files to `cmake/CardenzaSynthSourceLists.cmake` until the build system has a more local source registry for the module.
 - Keep UI snapshot additions small and explicit. The renderer should receive prepared step-grid state rather than searching the full sequence model during drawing.

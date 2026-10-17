@@ -133,7 +133,7 @@ ProjectResult SaveProjectFile(const std::string& name, const ProjectData& projec
   const std::string backup = path + ".bak";
   std::ofstream file(temporary, std::ios::trunc);
   if (!file) return ProjectResult::StorageError;
-  file << "CCOS_PROJECT 1\nBUILD ComputeCardOS 1\nUI " << project.activeTrack << ' ' << project.octave << ' '
+  file << "CARDENZA_PROJECT 1\nBUILD CardenzaSynth 1\nUI " << project.activeTrack << ' ' << project.octave << ' '
        << project.root << ' ' << project.scale << ' ' << project.layout << ' ' << project.ledBrightness << '\n';
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
     const auto& state = project.engines[track];
@@ -188,8 +188,8 @@ ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination)
   project.sequence.reset(new (std::nothrow) SynthSequencer::ProjectState);
   if (!project.sequence) return ProjectResult::StorageError;
   int version = 0;
-  if (!ReadExpected(file, "CCOS_PROJECT") || !(file >> version) || version != 1 || !ReadExpected(file, "BUILD") ||
-      !ReadExpected(file, "ComputeCardOS") || !(file >> version) || version != 1 || !ReadExpected(file, "UI") ||
+  if (!ReadExpected(file, "CARDENZA_PROJECT") || !(file >> version) || version != 1 || !ReadExpected(file, "BUILD") ||
+      !ReadExpected(file, "CardenzaSynth") || !(file >> version) || version != 1 || !ReadExpected(file, "UI") ||
       !(file >> project.activeTrack >> project.octave >> project.root >> project.scale >> project.layout >> project.ledBrightness)) return ProjectResult::Invalid;
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
     std::size_t index = 0, parameterCount = 0;

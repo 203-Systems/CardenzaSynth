@@ -3523,7 +3523,7 @@ void SynthUiModel::ApplyMenuCell(ISynthEngine* engine, const ContextMenuCell& ce
       SelectStatus("Layout", "SAVED");
       break;
     case ContextActionId::ShowInfo:
-      SelectStatus("ComputeCardOS", Device::BackendName());
+      SelectStatus("CardenzaSynth", Device::BackendName());
       break;
     case ContextActionId::AudioSetup:
       SelectStatus("Audio", "ROUTING");

@@ -7,7 +7,7 @@
 
 # CMake and local build trees
 build/
-build-computecard/
+build-cardenza/
 out/
 cmake-build-*/
 CMakeCache.txt
@@ -18,6 +18,9 @@ cmake_install.cmake
 install_manifest.txt
 CMakeUserPresets.json
 compile_commands.json
+
+# ESP-IDF menuconfig backup
+sdkconfig.old
 
 # Visual Studio / Windows user state
 .vs/
@@ -32,11 +35,11 @@ compile_commands.json
 *.opendb
 
 # Generated simulator debug output
-Devices/ComputeCardSim/debug/**/*.bmp
-Devices/ComputeCardSim/debug/**/*.png
+Devices/CardenzaSim/debug/**/*.bmp
+Devices/CardenzaSim/debug/**/*.png
 
 # Local validation captures and logs
 logs/
 
 # UI review publication copy with its own Git history
-/sites/compute-card-ui-review/
+/sites/cardenza-ui-review/

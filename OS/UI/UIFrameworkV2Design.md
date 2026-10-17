@@ -54,7 +54,7 @@ This means we can keep `Canvas` as our framebuffer primitive and only replace th
 
 TFT_eSPI is strong for driver integration, sprites, and smooth fonts, but it is too tightly coupled to board/display setup and an Arduino-style graphics stack to become the core of this UI framework.
 
-It is useful as reference material, but not as the main dependency for ComputeCardOS UI rendering.
+It is useful as reference material, but not as the main dependency for CardenzaSynth UI rendering.
 
 ### Optional phase 2
 

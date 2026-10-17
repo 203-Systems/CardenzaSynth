@@ -179,7 +179,7 @@ int main() {
   using namespace synth;
   using namespace std::chrono_literals;
   projectDirectory = std::filesystem::temp_directory_path() /
-      ("computecard-project-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+      ("cardenza-project-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   std::filesystem::create_directory(projectDirectory);
   TestSequencerEditing();
   Output output; // Outlives the sequencer's final stop callback.
