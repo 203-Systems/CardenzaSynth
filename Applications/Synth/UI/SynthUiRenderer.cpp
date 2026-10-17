@@ -71,8 +71,10 @@ void DrawHomeContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSna
   }
 
   const ui::Rect body = InsetRect(rect, kHomeContentPadding, 0);
+  // The content spans the side bars' height, so the Loop Bar lines up with the bottom side key's edge.
+  const ui::Rect bottomKey = BarTileRect(rect, 1, kContextMenuRows - 1, 0);
   DrawLoopBar(canvas,
-              MakeRect(body.x, rect.y + rect.height - 8, body.width, kLoopBarHeight),
+              MakeRect(body.x, bottomKey.y + bottomKey.height - kLoopBarHeight - kLoopBarLift, body.width, kLoopBarHeight),
               snapshot.sequencer.patternCount,
               snapshot.sequencer.activePattern,
               snapshot.sequencer.patternProgress,

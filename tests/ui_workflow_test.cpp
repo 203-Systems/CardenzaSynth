@@ -2,12 +2,15 @@
 #include "Applications/Synth/UI/Dx7/Dx7UiModel.h"
 #include "Applications/Synth/UI/Juno/JunoUiModel.h"
 #include "Applications/Synth/UI/Render/SynthUiRenderPrimitives.h"
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <thread>
+#include <utility>
+#include <vector>
 #if defined(_MSC_VER)
 #include <crtdbg.h>
 #endif
@@ -331,6 +334,62 @@ int main()
   assert(pianoHome.keyboardLayoutMode == KeyboardLayoutMode::Piano && pianoHome.keyboardRootNote == 0);
   assert(pianoHome.performanceKeyNotes[3 * kHomePerformanceColumnCount] == kHomePerformanceBaseMidiNote);
   assert(pianoHome.performanceKeyNotes[2 * kHomePerformanceColumnCount] < 0);
+
+  // Mini piano with every key held: twelve separate lit keys, equal whites, black keys centred on their gap.
+  {
+    constexpr int kWidth = 160;
+    constexpr int kHeight = 60;
+    std::vector<Device::Display::Pixel> pixels(kWidth * kHeight, 0);
+    ::ui::Canvas pianoCanvas({pixels.data(), pixels.size(), kWidth, kHeight});
+    std::array<bool, kKeyboardMatrixRows * kKeyboardMatrixColumns> allKeys{};
+    allKeys.fill(true);
+    const ::ui::Rect pianoRect{4, 4, 132, 50};
+    ui_render::DrawMiniPiano(pianoCanvas, pianoRect, pianoHome, allKeys, 1.0f);
+    const auto lit = [&](int x, int y) { return pixels[static_cast<std::size_t>(y * kWidth + x)] == ui_render::kAccent; };
+
+    std::vector<bool> seen(pixels.size(), false);
+    std::vector<std::array<int, 4>> keys;  // minX, maxX, minY, maxY per lit region
+    for (int y = 0; y < kHeight; ++y)
+      for (int x = 0; x < kWidth; ++x)
+      {
+        if (!lit(x, y) || seen[static_cast<std::size_t>(y * kWidth + x)]) continue;
+        std::array<int, 4> bounds{x, x, y, y};
+        std::vector<std::pair<int, int>> stack{{x, y}};
+        seen[static_cast<std::size_t>(y * kWidth + x)] = true;
+        while (!stack.empty())
+        {
+          const auto [px, py] = stack.back();
+          stack.pop_back();
+          bounds = {std::min(bounds[0], px), std::max(bounds[1], px), std::min(bounds[2], py), std::max(bounds[3], py)};
+          for (const auto& [dx, dy] : std::array<std::pair<int, int>, 4>{{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}})
+          {
+            const int nx = px + dx;
+            const int ny = py + dy;
+            if (nx < 0 || ny < 0 || nx >= kWidth || ny >= kHeight || !lit(nx, ny) || seen[static_cast<std::size_t>(ny * kWidth + nx)]) continue;
+            seen[static_cast<std::size_t>(ny * kWidth + nx)] = true;
+            stack.push_back({nx, ny});
+          }
+        }
+        keys.push_back(bounds);
+      }
+    assert(keys.size() == 12);
+
+    const int bottom = std::max_element(keys.begin(), keys.end(), [](const auto& a, const auto& b) { return a[3] < b[3]; })->at(3);
+    int whiteWidth = -1;
+    for (const auto& key : keys)
+    {
+      if (key[3] == bottom)
+      {
+        assert(whiteWidth < 0 || key[1] - key[0] == whiteWidth);
+        whiteWidth = key[1] - key[0];
+        continue;
+      }
+      // A black key spans an odd width whose centre column is the gap between two lit whites.
+      const int centre = (key[0] + key[1]) / 2;
+      assert((key[1] - key[0]) % 2 == 0);
+      assert(!lit(centre, bottom) && lit(centre - 1, bottom) && lit(centre + 1, bottom));
+    }
+  }
   assert(ui.RestoreKeyboardSettings({0, 2, 0, 1}));
   const auto scaleHome = ui.CurrentScreenSnapshot(nullptr);
   assert(scaleHome.keyboardRootNote == 2 && scaleHome.title == "TRACK 1");

@@ -647,26 +647,34 @@ void DrawMiniPiano(ui::Canvas& canvas,
   constexpr std::array<std::size_t, 7> kWhite = {0, 2, 4, 5, 7, 9, 11};
   constexpr std::array<std::size_t, 5> kBlack = {1, 3, 6, 8, 10};
   constexpr std::array<int, 5> kBlackAfterWhite = {0, 1, 3, 4, 5};
+  constexpr int kWhiteCount = 7;
+  constexpr int kKeyGap = 1;
+  constexpr int kBlackMoat = 1;
   canvas.StrokeRect(rect, FadeColor(MixColor(kDim, kText, 0.35f), alpha));
   const int padding = std::max(3, rect.height / 8);
   const ui::Rect bed = InsetRect(rect, padding, padding);
-  for (int i = 0; i < 7; ++i)
+  // Equal white keys on one pitch; leftover pixels become symmetric margins.
+  const int pitch = (bed.width + kKeyGap) / kWhiteCount;
+  const int whiteWidth = pitch - kKeyGap;
+  const int left = bed.x + (bed.width - (kWhiteCount * pitch - kKeyGap)) / 2;
+  for (int i = 0; i < kWhiteCount; ++i)
   {
-    const int left = bed.x + bed.width * i / 7 + (i > 0 ? 1 : 0);
-    const int right = bed.x + bed.width * (i + 1) / 7 - (i < 6 ? 1 : 0);
-    canvas.FillRect(MakeRect(left, bed.y, right - left, bed.height),
+    canvas.FillRect(MakeRect(left + i * pitch, bed.y, whiteWidth, bed.height),
                     FadeColor(held[kWhite[static_cast<std::size_t>(i)]] ? kAccent : kText, alpha));
   }
-  const int blackWidth = std::max(5, bed.width / 7 * 11 / 20);
+  // A black key straddles one gap; matching its width parity to the gap centres it exactly.
+  int blackWidth = std::max(3, whiteWidth * 3 / 5);
+  if ((blackWidth - kKeyGap) % 2 != 0) --blackWidth;
   const int blackHeight = std::max(4, bed.height * 3 / 5);
   for (std::size_t i = 0; i < kBlack.size(); ++i)
   {
-    const int seam = bed.x + bed.width * (kBlackAfterWhite[i] + 1) / 7;
-    const ui::Rect key = MakeRect(seam - blackWidth / 2, bed.y, blackWidth, blackHeight);
-    canvas.FillRect(key, kBackground);
+    const int gapX = left + (kBlackAfterWhite[i] + 1) * pitch - kKeyGap;
+    const ui::Rect key = MakeRect(gapX + (kKeyGap - blackWidth) / 2, bed.y, blackWidth, blackHeight);
+    // The black moat on three sides keeps a lit black key apart from lit white neighbours.
+    canvas.FillRect(MakeRect(key.x - kBlackMoat, key.y, key.width + 2 * kBlackMoat, key.height + kBlackMoat), kBackground);
     if (held[kBlack[i]])
     {
-      canvas.FillRect(InsetRect(key, 1, 0), FadeColor(kAccent, alpha));
+      canvas.FillRect(key, FadeColor(kAccent, alpha));
     }
   }
 }

@@ -39,6 +39,8 @@ inline constexpr int kBarTileGap = 3;
 inline constexpr int kListRowPitch = 11;
 inline constexpr int kLoopBarHeight = 3;
 inline constexpr int kLoopBarGap = 2;
+// The bright bar reads lower than the dim 1 px key outline it lines up with, so it sits this far above it.
+inline constexpr int kLoopBarLift = 1;
 inline constexpr int kMarqueePauseFrames = 24;
 inline constexpr int kMarqueeStepFrames = 2;
 inline constexpr int kMarqueeGapPixels = 12;
