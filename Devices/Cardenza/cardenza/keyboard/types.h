@@ -1,9 +1,12 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include <vector>
 
 namespace CardenzaHAL::Keyboard {
+
+using LedFrame = std::array<uint8_t, 4 * 14>;
 
 struct Chart_t
 {

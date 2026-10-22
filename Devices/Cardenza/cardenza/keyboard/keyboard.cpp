@@ -70,6 +70,11 @@ bool enableLED(bool enabled)
     return keyboard.enableLED(enabled);
 }
 
+void setLEDFrame(const LedFrame& levels, uint8_t globalBrightness, bool enabled)
+{
+    keyboard.setLEDFrame(levels, globalBrightness, enabled);
+}
+
 void setLED(Point2D_t pos, uint8_t brightness)
 {
     keyboard.setLED(pos, brightness);

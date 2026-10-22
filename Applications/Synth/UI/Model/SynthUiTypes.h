@@ -190,6 +190,7 @@ enum class UiBarIcon {
   Minus,
   Circle,
   Play,
+  Stop,
 };
 
 struct UiBarItemSnapshot {
@@ -257,6 +258,8 @@ struct UiScreenSnapshot {
   bool showHelpPopup = false;
   bool showSecondaryText = false;
   bool showSequencerGrid = false;
+  float sequencerReveal = 1.0f;
+  float sequencerFocusReveal = 1.0f;
   std::string helpPopupTitle;
   std::string helpPopupText;
   int dx7Algorithm = 0;

@@ -30,6 +30,7 @@ std::array<synth::audio::SharedSampleBuffer, synth::kSynthTrackCount> audioSampl
 std::array<std::atomic<unsigned>, synth::kSynthTrackCount> audioNoteOnCounts{};
 std::array<std::atomic<unsigned>, synth::kSynthTrackCount> audioAllNotesOffCounts{};
 std::array<std::atomic<int>, synth::kSynthTrackCount> audioLastNotes{};
+std::array<std::atomic<int>, synth::kSynthTrackCount> audioLastVelocities{};
 }
 
 // Use the production app, engines, MIDI routing, serializers and UI model. Only
@@ -82,8 +83,9 @@ void EnsureEngine(std::size_t, SynthEngineKind) {}
 void SetEnginePreset(std::size_t, std::string_view) {}
 void SetEngineParameter(std::size_t, std::string_view, int) {}
 void SetSamplerFrames(std::size_t index, SharedSampleBuffer sample, std::uint32_t) { audioSamples.at(index) = std::move(sample); }
-void NoteOn(std::size_t index, std::uint8_t note, std::uint8_t) {
+void NoteOn(std::size_t index, std::uint8_t note, std::uint8_t velocity) {
   audioLastNotes.at(index) = note;
+  audioLastVelocities.at(index) = velocity;
   ++audioNoteOnCounts.at(index);
 }
 void NoteOff(std::size_t, std::uint8_t) {}
@@ -862,6 +864,85 @@ void TestSequencerHomeViews() {
   toggleMenuView();
   assert(!Screen(app).showSequencerGrid && app.Ui().KeyboardSettings() == keyboard);
 }
+void TestSequencerTapEditing() {
+  apps::SynthApp app;
+  app.Setup({});
+  app.HandleHomeButtonEvent(true);
+  assert(Screen(app).showSequencerGrid);
+  const auto step = [&](std::size_t index) { Tap(app, SequencerStepRow(index), SequencerStepColumn(index)); };
+  step(0);
+  auto state = Screen(app).sequencer;
+  assert(state.selectionLatched && state.hasHeldSteps && state.primaryHeldStep == 0 && !state.steps[0].hasEvents);
+  Tap(app, 2, kHomeLeftBarColumn);
+  Tap(app, 3, 5);
+  assert(Screen(app).sequencer.valueLabel == "NEW VEL 88" && Screen(app).sequencer.editValueIndex == 4);
+  Tap(app, 3, kHomeLeftBarColumn);
+  assert(Screen(app).sequencer.valueLabel == "ADD NOTES FIRST" && Screen(app).sequencer.editValueCount == 0);
+  Tap(app, 0, kHomeLeftBarColumn);
+  const auto auditionCount = audioNoteOnCounts[0].load();
+  Tap(app, 3, 1);
+  app.Tick();
+  assert(audioNoteOnCounts[0] > auditionCount);
+  assert(audioLastVelocities[0] == 88);
+  assert(Screen(app).sequencer.steps[0].noteCount == 1);
+  Tap(app, 3, 1);
+  app.Tick();
+  assert(audioNoteOnCounts[0] == auditionCount + 1); // Removing a pitch is silent.
+  assert(!Screen(app).sequencer.steps[0].hasEvents); // Tapping a pitch again removes it.
+  for (const auto column : {1u, 3u, 5u}) Tap(app, 3, column);
+  assert(Screen(app).sequencer.steps[0].noteCount == 3);
+  Tap(app, 2, kHomeLeftBarColumn);
+  Tap(app, 3, 5);
+  state = Screen(app).sequencer;
+  assert(state.selectionLatched && state.editLane == SequencerEditLane::Velocity && state.valueLabel == "VEL 88");
+  Tap(app, 1, kHomeLeftBarColumn);
+  Tap(app, 3, 4);
+  assert(Screen(app).sequencer.valueLabel == "LEN 4");
+  Tap(app, 0, kHomeLeftBarColumn); // Return to notes without unexpectedly selecting one chord tone.
+  assert(Screen(app).sequencer.scopeLabel == "ALL" && Screen(app).sequencer.editLane == SequencerEditLane::Note);
+  Tap(app, 0, kHomeLeftBarColumn);
+  assert(Screen(app).sequencer.scopeLabel == "1/3");
+  step(1);
+  state = Screen(app).sequencer;
+  assert(state.selectionLatched && state.primaryHeldStep == 1 && !state.steps[0].held && state.scopeLabel == "ALL");
+  Tap(app, 3, 2);
+  assert(Screen(app).sequencer.steps[0].noteCount == 3 && Screen(app).sequencer.steps[1].noteCount == 1);
+  Tap(app, 3, kHomeRightBarColumn);
+  assert(Screen(app).sequencer.playing && Screen(app).sequencer.selectionLatched);
+  Tap(app, 2, kHomeRightBarColumn);
+  assert(!Screen(app).sequencer.playing && Screen(app).sequencer.selectionLatched);
+  step(1); // Same step exits; the next pitch is live performance, with no data mutation.
+  assert(!Screen(app).sequencer.hasHeldSteps && !Screen(app).sequencer.selectionLatched);
+  app.HandleMatrixKeyEvent(SequencerStepRow(2), SequencerStepColumn(2), true);
+  std::this_thread::sleep_for(std::chrono::milliseconds(260));
+  app.HandleMatrixKeyEvent(SequencerStepRow(2), SequencerStepColumn(2), false);
+  assert(!Screen(app).sequencer.selectionLatched && !Screen(app).sequencer.hasHeldSteps);
+  Tap(app, 3, 3);
+  assert(Screen(app).sequencer.steps[1].noteCount == 1);
+  step(0);
+  app.HandleHomeButtonEvent(true); // HOME first exits the edit, then switches views.
+  assert(Screen(app).showSequencerGrid && !Screen(app).sequencer.hasHeldSteps);
+  app.HandleHomeButtonEvent(true);
+  assert(!Screen(app).showSequencerGrid);
+  step(0);
+  assert(!Screen(app).sequencer.hasHeldSteps); // Performance view retains momentary editing.
+  app.HandleHomeButtonEvent(true);
+  app.HandleMatrixKeyEvent(SequencerStepRow(0), SequencerStepColumn(0), true);
+  app.HandleMatrixKeyEvent(SequencerStepRow(1), SequencerStepColumn(1), true);
+  Tap(app, 2, kHomeLeftBarColumn);
+  Tap(app, 3, 7);
+  app.HandleMatrixKeyEvent(SequencerStepRow(0), SequencerStepColumn(0), false);
+  app.HandleMatrixKeyEvent(SequencerStepRow(1), SequencerStepColumn(1), false);
+  assert(!Screen(app).sequencer.hasHeldSteps && !Screen(app).sequencer.selectionLatched);
+  step(0);
+  app.HandleMatrixKeyEvent(0, kHomeRightBarColumn, true);
+  Tap(app, 0, 2); // New pattern cannot inherit a hidden latched edit.
+  app.HandleMatrixKeyEvent(0, kHomeRightBarColumn, false);
+  assert(Screen(app).sequencer.activePattern == 1 && !Screen(app).sequencer.hasHeldSteps);
+  Tap(app, 1, kHomeLeftBarColumn);
+  assert(app.Ui().ActiveTrack() == 1 && !Screen(app).sequencer.selectionLatched);
+}
+
 void TestDrumsWorkflow() {
   static_assert(static_cast<int>(SynthEngineKind::Dx7) == 1);
   static_assert(static_cast<int>(SynthEngineKind::Juno) == 2);
@@ -1030,6 +1111,7 @@ int main()
   TestSequencerWorkflow();
   TestSequencerDestructiveActions();
   TestSequencerHomeViews();
+  TestSequencerTapEditing();
   TestDrumsWorkflow();
   {
     apps::SynthApp app;

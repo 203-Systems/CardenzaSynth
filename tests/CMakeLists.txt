@@ -42,7 +42,15 @@ add_executable(CardenzaProjectTests
 target_include_directories(CardenzaProjectTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaProjectTests COMMAND CardenzaProjectTests)
 
-foreach(target CardenzaCoreTests CardenzaSamplerTests CardenzaUiTests CardenzaProjectTests)
+add_executable(CardenzaSequencerRenderTests sequencer_render_test.cpp)
+target_link_libraries(CardenzaSequencerRenderTests PRIVATE CardenzaSystem CardenzaSimDevice)
+add_test(NAME CardenzaSequencerRenderTests COMMAND CardenzaSequencerRenderTests)
+
+add_executable(CardenzaLedTests led_feedback_test.cpp)
+target_include_directories(CardenzaLedTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaLedTests COMMAND CardenzaLedTests)
+
+foreach(target CardenzaCoreTests CardenzaSamplerTests CardenzaUiTests CardenzaProjectTests CardenzaSequencerRenderTests CardenzaLedTests)
   if(MSVC)
     target_compile_options(${target} PRIVATE /UNDEBUG)
     target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)

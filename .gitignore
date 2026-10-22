@@ -40,6 +40,7 @@ Devices/CardenzaSim/debug/**/*.png
 
 # Local validation captures and logs
 logs/
+/outputs/
 
 # UI review publication copy with its own Git history
 /sites/cardenza-ui-review/

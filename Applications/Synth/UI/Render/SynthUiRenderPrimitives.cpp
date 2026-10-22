@@ -126,7 +126,7 @@ std::string NoteName(int midiNote)
 
 int InkHeight(int scale)
 {
-  return 7 * PixelScale(scale);
+  return scale <= 1 ? 9 : 7 * PixelScale(scale);
 }
 
 int InkWidth(const ui::Canvas& canvas, std::string_view text, int scale)
@@ -220,6 +220,12 @@ void DrawFilledCircle(ui::Canvas& canvas, int centerX, int centerY, int radius, 
   }
 }
 
+void DrawFrame(ui::Canvas& canvas, const ui::Rect& rect, ui::Color color, int thickness)
+{
+  for (int inset = 0; inset < thickness && rect.width > inset * 2 && rect.height > inset * 2; ++inset)
+    canvas.StrokeRect(InsetRect(rect, inset, inset), color);
+}
+
 void DrawBarIcon(ui::Canvas& canvas, const ui::Rect& rect, UiBarIcon icon, ui::Color color)
 {
   if (icon == UiBarIcon::None || rect.width <= 0 || rect.height <= 0)
@@ -227,7 +233,7 @@ void DrawBarIcon(ui::Canvas& canvas, const ui::Rect& rect, UiBarIcon icon, ui::C
     return;
   }
 
-  constexpr int kSize = 9;
+  constexpr int kSize = 11;
   const int left = rect.x + (rect.width - kSize) / 2;
   const int top = rect.y + (rect.height - kSize) / 2;
   const int center = kSize / 2;
@@ -235,18 +241,21 @@ void DrawBarIcon(ui::Canvas& canvas, const ui::Rect& rect, UiBarIcon icon, ui::C
   switch (icon)
   {
     case UiBarIcon::Plus:
-      canvas.FillRect(MakeRect(left, top + center, kSize, 1), color);
-      canvas.FillRect(MakeRect(left + center, top, 1, kSize), color);
+      canvas.FillRect(MakeRect(left, top + center - 1, kSize, 2), color);
+      canvas.FillRect(MakeRect(left + center - 1, top, 2, kSize), color);
       break;
     case UiBarIcon::Minus:
-      canvas.FillRect(MakeRect(left, top + center, kSize, 1), color);
+      canvas.FillRect(MakeRect(left, top + center - 1, kSize, 2), color);
       break;
     case UiBarIcon::Circle:
       DrawFilledCircle(canvas, left + center, top + center, center, color);
       break;
+    case UiBarIcon::Stop:
+      canvas.FillRect(MakeRect(left + 1, top + 1, 9, 9), color);
+      break;
     case UiBarIcon::Play:
     {
-      constexpr std::array<int, 8> kExtents = {4, 4, 3, 3, 2, 2, 1, 0};
+      constexpr std::array<int, 10> kExtents = {5, 5, 4, 4, 3, 3, 2, 2, 1, 0};
       for (std::size_t column = 0; column < kExtents.size(); ++column)
       {
         const int extent = kExtents[column];
@@ -284,9 +293,9 @@ void DrawBarItem(ui::Canvas& canvas, const ui::Rect& rect, const UiBarItemSnapsh
     return;
   }
 
-  // Held keys flash solid; latched choices sit on a quiet teal plate; play turns green.
+  // Held keys use white ink on teal; latched choices use a pale teal plate.
   canvas.FillRect(rect, FadeColor(kSurface, alpha));
-  canvas.StrokeRect(rect, FadeColor(kRule, alpha));
+  DrawFrame(canvas, rect, FadeColor(kRule, alpha));
   ui::Color ink = item.danger ? kDanger : kText;
   if (item.disabled)
   {
@@ -295,11 +304,12 @@ void DrawBarItem(ui::Canvas& canvas, const ui::Rect& rect, const UiBarItemSnapsh
   else if (item.pressed)
   {
     canvas.FillRect(rect, FadeColor(item.danger ? kDanger : kAccent, alpha));
-    ink = kBackground;
+    ink = kInverseText;
   }
   else if (item.active)
   {
     canvas.FillRect(rect, FadeColor(kSelection, alpha));
+    DrawFrame(canvas, rect, FadeColor(item.danger ? kDanger : kAccent, alpha));
     ink = item.danger ? kDanger : kAccent;
   }
   else if (item.playing)
@@ -314,8 +324,8 @@ void DrawBarItem(ui::Canvas& canvas, const ui::Rect& rect, const UiBarItemSnapsh
     return;
   }
 
-  // Six 5x7 characters (35 px) fit a 36 px tile, which covers every soft-key label.
-  const std::string label = TruncateText(canvas, item.label, rect.width, 1);
+  // Wider tiles reserve two pixels around six readable 6x9 characters.
+  const std::string label = TruncateText(canvas, item.label, rect.width - 4, 1);
   const int width = InkWidth(canvas, label, 1);
   DrawInk(canvas, rect.x + (rect.width - width + 1) / 2, rect.y + (rect.height - InkHeight(1)) / 2, label, ink, 1);
 }
@@ -353,11 +363,11 @@ void DrawTitleBar(ui::Canvas& canvas,
                   float alpha)
 {
   const int width = canvas.Width();
-  canvas.FillRect(MakeRect(0, 0, width, kTitleBarHeight), FadeColor(kSurface, alpha));
+  canvas.FillRect(MakeRect(0, 0, width, kTitleBarHeight), FadeColor(kHeader, alpha));
+  canvas.FillRect(MakeRect(0, kTitleBarHeight - 2, width, 2), FadeColor(kRule, alpha));
   const int top = (kTitleBarHeight - InkHeight(2)) / 2;
-  // Two small lines span the title height plus a pixel above and below; one line sits on the cap line.
-  const int line1Top = line2.empty() ? top : top - 1;
-  const int line2Top = top + InkHeight(2) - InkHeight(1) + 1;
+  const int line1Top = line2.empty() ? (kTitleBarHeight - InkHeight(1) - 2) / 2 : 2;
+  const int line2Top = 12;
   const std::string statusText = TruncateText(canvas, std::string(status), width / 3, 1);
   const int statusX = width - kTitleBarInset - InkWidth(canvas, statusText, 1);
   DrawInk(canvas, statusX, line1Top, statusText, FadeColor(statusColor, alpha), 1);
@@ -458,8 +468,6 @@ void DrawKeyValues(ui::Canvas& canvas,
       {
         entry.width = content.width;
       }
-      const int inkTop = entry.y + (entry.height - InkHeight(1)) / 2;
-      const int valueX = entry.x + labelWidth + 6;
       const bool focused = item.pressed || item.active;
       const ui::Color valueColor = item.playing ? kPlayback : (focused ? kAccent : kText);
       // Engines often describe "ALG 5"; the key label already says ALG.
@@ -468,12 +476,20 @@ void DrawKeyValues(ui::Canvas& canvas,
       {
         value.erase(0, item.label.size() + 1);
       }
-      DrawInk(canvas, entry.x, inkTop, item.label, FadeColor(focused ? kAccent : kDim, alpha), 1);
-      DrawInk(canvas, valueX, inkTop, TruncateText(canvas, value, entry.x + entry.width - valueX, 1),
-              FadeColor(valueColor, alpha), 1);
+      canvas.FillRect(InsetRect(entry, 0, 1), FadeColor(focused ? kSelection : kSurface, alpha));
+      const bool stacked = entry.width < 100;
+      const int valueX = stacked ? entry.x + 3 : entry.x + labelWidth + 9;
+      const int valueScale = stacked ? 1 : FitScale(canvas, value, entry.x + entry.width - valueX - 3, 2);
+      const int labelTop = stacked ? entry.y + 1 : entry.y + (entry.height - InkHeight(1)) / 2;
+      const int valueTop = stacked ? entry.y + 12 : entry.y + (entry.height - InkHeight(valueScale)) / 2;
+      DrawInk(canvas, entry.x + 3, labelTop, TruncateText(canvas, item.label, entry.width - 6, 1),
+              FadeColor(focused ? kAccent : kDim, alpha), 1);
+      DrawInkClipped(canvas, entry, valueX, valueTop,
+                     TruncateText(canvas, value, entry.x + entry.width - valueX - 3, valueScale),
+                     FadeColor(valueColor, alpha), valueScale);
       if (item.level >= 0.0f)
       {
-        DrawMeter(canvas, MakeRect(entry.x, inkTop + InkHeight(1) + 3, KeyValueEntryRect(content, canvas.Height(), columns, row, column).width, 2), item.level,
+        DrawMeter(canvas, MakeRect(entry.x, entry.y + entry.height - 1, entry.width, 2), item.level,
                   focused ? kAccent : kDim, alpha);
       }
     }
@@ -491,11 +507,11 @@ void DrawListRows(ui::Canvas& canvas, const ui::Rect& rect, const std::string& e
     const char marker = line.empty() ? '\0' : line.front();
     const bool encoded = marker == '>' || marker == ' ' || marker == '*';
     const std::string text = TruncateText(canvas, encoded ? line.substr(1) : line, rect.width, 1);
-    const int inkTop = y + 2;
+    const int inkTop = y + (kListRowPitch - InkHeight(1)) / 2;
     if (marker == '>')
     {
       canvas.FillRect(MakeRect(rect.x - 3, y, rect.width + 6, kListRowPitch), FadeColor(kAccent, alpha));
-      DrawInk(canvas, rect.x, inkTop, text, FadeColor(kBackground, alpha), 1);
+      DrawInk(canvas, rect.x, inkTop, text, FadeColor(kInverseText, alpha), 1);
     }
     else
     {
@@ -650,9 +666,11 @@ void DrawMiniPiano(ui::Canvas& canvas,
   constexpr int kWhiteCount = 7;
   constexpr int kKeyGap = 1;
   constexpr int kBlackMoat = 1;
-  canvas.StrokeRect(rect, FadeColor(MixColor(kDim, kText, 0.35f), alpha));
+  canvas.FillRect(rect, FadeColor(kSurface, alpha));
+  canvas.StrokeRect(rect, FadeColor(kRule, alpha));
   const int padding = std::max(3, rect.height / 8);
   const ui::Rect bed = InsetRect(rect, padding, padding);
+  canvas.FillRect(bed, FadeColor(kRule, alpha));
   // Equal white keys on one pitch; leftover pixels become symmetric margins.
   const int pitch = (bed.width + kKeyGap) / kWhiteCount;
   const int whiteWidth = pitch - kKeyGap;
@@ -660,7 +678,7 @@ void DrawMiniPiano(ui::Canvas& canvas,
   for (int i = 0; i < kWhiteCount; ++i)
   {
     canvas.FillRect(MakeRect(left + i * pitch, bed.y, whiteWidth, bed.height),
-                    FadeColor(held[kWhite[static_cast<std::size_t>(i)]] ? kAccent : kText, alpha));
+                    FadeColor(held[kWhite[static_cast<std::size_t>(i)]] ? kAccent : kPianoWhite, alpha));
   }
   // A black key straddles one gap; matching its width parity to the gap centres it exactly.
   int blackWidth = std::max(3, whiteWidth * 3 / 5);
@@ -670,12 +688,9 @@ void DrawMiniPiano(ui::Canvas& canvas,
   {
     const int gapX = left + (kBlackAfterWhite[i] + 1) * pitch - kKeyGap;
     const ui::Rect key = MakeRect(gapX + (kKeyGap - blackWidth) / 2, bed.y, blackWidth, blackHeight);
-    // The black moat on three sides keeps a lit black key apart from lit white neighbours.
-    canvas.FillRect(MakeRect(key.x - kBlackMoat, key.y, key.width + 2 * kBlackMoat, key.height + kBlackMoat), kBackground);
-    if (held[kBlack[i]])
-    {
-      canvas.FillRect(key, FadeColor(kAccent, alpha));
-    }
+    // A neutral moat separates lit adjacent keys without reversing the piano.
+    canvas.FillRect(MakeRect(key.x - kBlackMoat, key.y, key.width + 2 * kBlackMoat, key.height + kBlackMoat), FadeColor(kRule, alpha));
+    canvas.FillRect(key, FadeColor(held[kBlack[i]] ? kAccent : kPianoBlack, alpha));
   }
 }
 
@@ -689,9 +704,10 @@ void DrawPerformanceKeyMap(ui::Canvas& canvas,
   constexpr int kKeyHeight = 10;
   constexpr int kRowGap = 3;
   const bool piano = snapshot.keyboardLayoutMode == KeyboardLayoutMode::Piano;
-  const ui::Color plain = FadeColor(MixColor(kRule, kDim, 0.18f), alpha);
-  const ui::Color root = FadeColor(MixColor(kRule, kDim, 0.6f), alpha);
-  const ui::Color dark = FadeColor(kRule, alpha);
+  const ui::Color plain = FadeColor(kSurface, alpha);
+  const ui::Color root = FadeColor(kSelection, alpha);
+  const ui::Color dark = FadeColor(kPianoBlack, alpha);
+  const ui::Color edge = FadeColor(kRule, alpha);
 
   for (std::size_t row = 0; row < kKeyboardMatrixRows; ++row)
   {
@@ -718,14 +734,16 @@ void DrawPerformanceKeyMap(ui::Canvas& canvas,
         // Even rows from the bottom carry white keys, odd rows the sharps.
         const bool whiteRow = ((kKeyboardMatrixRows - 1 - row) % 2) == 0;
         canvas.FillRect(key, isRoot ? root : (whiteRow ? plain : dark));
+        canvas.StrokeRect(key, isRoot ? FadeColor(kAccent, alpha) : edge);
       }
       else if (snapshot.performanceKeyInScale[index])
       {
         canvas.FillRect(key, isRoot ? root : plain);
+        canvas.StrokeRect(key, isRoot ? FadeColor(kAccent, alpha) : edge);
       }
       else
       {
-        canvas.StrokeRect(key, dark);
+        canvas.StrokeRect(key, edge);
       }
     }
   }

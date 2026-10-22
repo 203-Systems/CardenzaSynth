@@ -72,7 +72,7 @@ COLORREF DesktopSimulator::KeyFillColor(std::size_t index, bool active) const
 
   if (IsMenuKey(position.row, position.column))
   {
-    return synthApp_->Ui().IsMenuCellActive(position.row, ContextMenuColumnIndex(position.column)) ? RGB(0, 76, 86) : RGB(14, 20, 24);
+    return synthApp_->Ui().IsMenuCellActive(position.row, ContextMenuColumnIndex(position.column)) ? kModifierActiveColor : kModifierColor;
   }
 
   return kKeyColor;
@@ -83,7 +83,7 @@ COLORREF DesktopSimulator::KeyEdgeColor(std::size_t index, bool active) const
   const auto position = PositionForIndex(index);
   if (active)
   {
-    return RGB(245, 245, 245);
+    return kScreenGlowColor;
   }
 
   if (position.column == 0 && synthApp_->Ui().IsModifierHighlighted(position.row))
@@ -210,7 +210,7 @@ void DesktopSimulator::DrawKeyboard(HDC dc)
       secondaryRect.top += 4;
       secondaryRect.bottom = secondaryRect.top + 12;
       DrawTextBlock(dc, secondaryRect, keyboard_[index].secondaryLabel, DT_RIGHT | DT_SINGLELINE | DT_VCENTER,
-                    active ? RGB(30, 41, 59) : kScreenGlowColor, 11, FW_SEMIBOLD);
+                    kScreenGlowColor, 11, FW_SEMIBOLD);
     }
 
     RECT labelRect = keyButtons_[index];
@@ -218,12 +218,12 @@ void DesktopSimulator::DrawKeyboard(HDC dc)
     labelRect.bottom -= 16;
     const int labelHeight = keyboard_[index].primaryLabel.size() > 3 ? 12 : 15;
     DrawTextBlock(dc, labelRect, keyboard_[index].primaryLabel, DT_CENTER | DT_VCENTER | DT_WORDBREAK,
-                  active ? RGB(15, 23, 42) : kTextColor, labelHeight, FW_SEMIBOLD);
+                  kTextColor, labelHeight, FW_SEMIBOLD);
 
     RECT captionRect = keyButtons_[index];
     captionRect.top = keyButtons_[index].bottom - 18;
     DrawTextBlock(dc, captionRect, keyboard_[index].note, DT_CENTER | DT_SINGLELINE | DT_VCENTER,
-                  active ? RGB(30, 41, 59) : kScreenDimColor, 11);
+                  kScreenDimColor, 11);
   }
 }
 

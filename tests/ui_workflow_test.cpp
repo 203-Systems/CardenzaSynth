@@ -317,11 +317,11 @@ int main()
       for (const char* label : {"TRANSPOSE", "SAVEAS", "TRACK\nCHANNEL", "..."})
         assert(textCanvas.MeasureTextWidth(ui_render::TruncateText(textCanvas, label, width, scale), scale) <= width);
 
-  // The 5x7 cell has no descenders, so lowercase must draw with the capital glyphs.
-  std::array<Device::Display::Pixel, 48 * 10> lowerPixels{};
-  std::array<Device::Display::Pixel, 48 * 10> upperPixels{};
-  ::ui::Canvas lowerCanvas({lowerPixels.data(), lowerPixels.size(), 48, 10});
-  ::ui::Canvas upperCanvas({upperPixels.data(), upperPixels.size(), 48, 10});
+  // Capital-only small cells keep filenames on the same baseline without descenders.
+  std::array<Device::Display::Pixel, 70 * 12> lowerPixels{};
+  std::array<Device::Display::Pixel, 70 * 12> upperPixels{};
+  ::ui::Canvas lowerCanvas({lowerPixels.data(), lowerPixels.size(), 70, 12});
+  ::ui::Canvas upperCanvas({upperPixels.data(), upperPixels.size(), 70, 12});
   lowerCanvas.DrawText(0, 0, "qafile.wav", 0xFFFF);
   upperCanvas.DrawText(0, 0, "QAFILE.WAV", 0xFFFF);
   assert(lowerPixels == upperPixels);
@@ -397,7 +397,7 @@ int main()
 
   // A held key is "pressed"; a latched choice is "active"; play turns on only while running.
   const auto homeBar = ui.CurrentScreenSnapshot(nullptr).rightBarItems;
-  assert(homeBar[2].icon == UiBarIcon::Circle && !homeBar[3].playing && !homeBar[0].pressed);
+  assert(homeBar[2].icon == UiBarIcon::Stop && !homeBar[3].playing && !homeBar[0].pressed);
   ui.PressMatrixKey(engine, 0, kHomeRightBarColumn);
   assert(ui.CurrentScreenSnapshot(nullptr).rightBarItems[0].pressed && !ui.CurrentScreenSnapshot(nullptr).rightBarItems[0].active);
   ui.ReleaseMatrixKey(engine, 0, kHomeRightBarColumn);

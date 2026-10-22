@@ -27,7 +27,7 @@ inline const char* SequencerEditLaneLabel(SequencerEditLane lane)
     case SequencerEditLane::Velocity:
       return "VEL";
     case SequencerEditLane::Micro:
-      return "STEP";
+      return "TIME";
     default:
       return "SEQ";
   }
@@ -40,6 +40,8 @@ struct SequencerStepUiState {
   bool held = false;
   bool playing = false;
   bool scoped = false;
+  std::uint32_t contentFingerprint = 0;
+  float editFlash = 0.0f;
 };
 
 struct SequencerTrackUiState {
@@ -54,6 +56,8 @@ struct SequencerUiState {
   bool visible = false;
   bool playing = false;
   bool hasHeldSteps = false;
+  bool selectionLatched = false;
+  std::size_t activeTrack = 0;
   std::size_t heldStepCount = 0;
   std::size_t primaryHeldStep = 0;
   std::size_t noteCount = 0;

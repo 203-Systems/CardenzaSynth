@@ -205,6 +205,9 @@ private:
   std::string projectConfirmName_;
   std::string projectStatus_;
   SequencerUiState sequencer_{};
+  std::array<std::chrono::steady_clock::time_point, kSequencerStepCount> sequencerChangedAt_{};
+  std::chrono::steady_clock::time_point sequencerViewChangedAt_{};
+  std::chrono::steady_clock::time_point sequencerFocusChangedAt_{};
   bool sequencerDeleteConfirm_ = false;
   bool sequencerDeleteReturnHome_ = false;
   std::size_t sequencerDeleteTrack_ = 0;

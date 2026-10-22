@@ -67,10 +67,14 @@ inline constexpr int kLedCount = kRows * kColumns;
 inline constexpr std::uint8_t kBrightnessOff = 0;
 inline constexpr std::uint8_t kBrightnessMax = 15;
 
+// Stage a complete update without blanking the currently displayed LED frame.
+void BeginFrame();
+void Present();
 std::uint8_t Brightness(std::size_t row, std::size_t column);
 void SetKey(std::size_t row, std::size_t column, std::uint8_t brightness);
 void Clear();
 void Fill(std::uint8_t brightness);
+// Master intensity scales each key's level; it does not clip bright states together.
 void SetGlobalBrightness(std::uint8_t brightness);
 std::uint8_t GlobalBrightness();
 void SetEnabled(bool enabled);

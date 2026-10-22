@@ -12,22 +12,27 @@
 
 namespace synth::ui_render {
 
-// Semantic colors shared with NullPerator UI2; dim text is brighter for the 135 px display.
-// Cyan marks the edit cursor or a latched choice, green is playback, red is destructive or recording.
-inline constexpr ui::Color kBackground = ui::Rgb565(3, 7, 7);
-inline constexpr ui::Color kSurface = ui::Rgb565(8, 18, 16);
-inline constexpr ui::Color kSelection = ui::Rgb565(26, 51, 53);
-inline constexpr ui::Color kRule = ui::Rgb565(40, 52, 50);
-inline constexpr ui::Color kDim = ui::Rgb565(128, 145, 140);
-inline constexpr ui::Color kDivider = kDim;
-inline constexpr ui::Color kAccent = ui::Rgb565(69, 220, 232);
-inline constexpr ui::Color kPlayback = ui::Rgb565(104, 230, 154);
-inline constexpr ui::Color kDanger = ui::Rgb565(240, 46, 117);
-inline constexpr ui::Color kText = ui::Rgb565(232, 238, 235);
+// Paper-like light surfaces reduce large bright areas on the physical LCD.
+// RGB565 values are chosen for warm neutral greys after channel expansion.
+inline constexpr ui::Color kBackground = ui::Rgb565(232, 232, 224);
+inline constexpr ui::Color kSurface = ui::Rgb565(216, 220, 216);
+inline constexpr ui::Color kHeader = ui::Rgb565(200, 208, 200);
+inline constexpr ui::Color kSelection = ui::Rgb565(184, 216, 208);
+inline constexpr ui::Color kRule = ui::Rgb565(128, 144, 144);
+inline constexpr ui::Color kDim = ui::Rgb565(64, 80, 80);
+inline constexpr ui::Color kDivider = kRule;
+inline constexpr ui::Color kAccent = ui::Rgb565(0, 104, 124);
+inline constexpr ui::Color kPlayback = ui::Rgb565(24, 119, 66);
+inline constexpr ui::Color kDanger = ui::Rgb565(181, 38, 63);
+inline constexpr ui::Color kText = ui::Rgb565(24, 32, 32);
+inline constexpr ui::Color kInverseText = ui::Rgb565(240, 244, 232);
+// Physical key colors are independent of the page's text/background roles.
+inline constexpr ui::Color kPianoWhite = ui::Rgb565(240, 240, 232);
+inline constexpr ui::Color kPianoBlack = ui::Rgb565(32, 42, 52);
 
 // Soft-key strips mirror the physical key columns; widths are visual only.
-inline constexpr int kBarWidthSingle = 40;
-inline constexpr int kBarWidthDouble = 81;
+inline constexpr int kBarWidthSingle = 50;
+inline constexpr int kBarWidthDouble = 103;
 inline constexpr int kHomeContentPadding = 6;
 inline constexpr int kContextContentPadding = 8;
 // Every screen reserves a full-width title bar; content and soft keys share the area below.
@@ -36,18 +41,16 @@ inline constexpr int kTitleBarInset = 6;
 // Soft keys are separate outlined tiles so each column reads as four keys.
 inline constexpr int kBarTilePadding = 2;
 inline constexpr int kBarTileGap = 3;
-inline constexpr int kListRowPitch = 11;
+inline constexpr int kListRowPitch = 14;
 inline constexpr int kLoopBarHeight = 3;
 inline constexpr int kLoopBarGap = 2;
-// The bright bar reads lower than the dim 1 px key outline it lines up with, so it sits this far above it.
-inline constexpr int kLoopBarLift = 1;
 inline constexpr int kMarqueePauseFrames = 24;
 inline constexpr int kMarqueeStepFrames = 2;
 inline constexpr int kMarqueeGapPixels = 12;
 
 // Shared horizontal grid for everything that mirrors performance columns 1-8.
-inline constexpr int kKeyColumnWidth = 15;
-inline constexpr int kKeyColumnGap = 4;
+inline constexpr int kKeyColumnWidth = 13;
+inline constexpr int kKeyColumnGap = 3;
 inline constexpr int kKeyGridWidth = kKeyColumnWidth * 8 + kKeyColumnGap * 7;
 
 enum class BarAnchor {
@@ -73,7 +76,7 @@ int BarWidthForColumns(std::size_t columns, float widthScale);
 std::string TruncateText(const ui::Canvas& canvas, std::string value, int maxWidth, int scale);
 std::string NoteName(int midiNote);
 
-// Ink helpers place the visible 5x7 glyph box, not the padded font line box.
+// Ink helpers place visible 6x9 body / scaled 5x7 heading glyphs, not line boxes.
 int InkHeight(int scale);
 int InkWidth(const ui::Canvas& canvas, std::string_view text, int scale);
 void DrawInk(ui::Canvas& canvas, int x, int top, std::string_view text, ui::Color color, int scale = 1);
@@ -88,6 +91,7 @@ void DrawMarqueeTextInRect(ui::Canvas& canvas,
                            ui::TextAlign fitAlign = ui::TextAlign::Left);
 
 void DrawFilledCircle(ui::Canvas& canvas, int centerX, int centerY, int radius, ui::Color color);
+void DrawFrame(ui::Canvas& canvas, const ui::Rect& rect, ui::Color color, int thickness = 2);
 void DrawBarIcon(ui::Canvas& canvas, const ui::Rect& rect, UiBarIcon icon, ui::Color color);
 ui::Rect BarTileRect(const ui::Rect& bar, std::size_t columns, std::size_t row, std::size_t column);
 void DrawBarItem(ui::Canvas& canvas, const ui::Rect& rect, const UiBarItemSnapshot& item, float alpha);
@@ -98,7 +102,7 @@ void DrawSegmentedBar(ui::Canvas& canvas,
                       BarAnchor anchor,
                       float alpha);
 
-// Title bar, as in NullPerator: white 2x page name; to its right a cyan 1x first line and an optional
+// Title bar: dark 2x page name; to its right a teal 1x first line and an optional
 // grey 1x second line; optional extra info at the top right.
 void DrawTitleBar(ui::Canvas& canvas,
                   std::string_view title,

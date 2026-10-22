@@ -36,7 +36,7 @@ constexpr std::array<const char*, 4> kModifierBarLabels = {"TRK", "SND", "KEY", 
 constexpr std::array<UiBarIcon, 4> kHomeActionBarIcons = {
   UiBarIcon::Plus,
   UiBarIcon::Minus,
-  UiBarIcon::Circle,
+  UiBarIcon::Stop,
   UiBarIcon::Play,
 };
 constexpr std::size_t kPresetSearchMaxLength = 18;
@@ -635,6 +635,21 @@ void SynthUiModel::SyncSamplerTrackState(std::size_t trackIndex, const SamplerTr
 
 void SynthUiModel::SetSequencerUiState(const SequencerUiState& state)
 {
+  const auto now = std::chrono::steady_clock::now();
+  if (state.activeTrack != sequencer_.activeTrack || state.activePattern != sequencer_.activePattern)
+  {
+    sequencerChangedAt_.fill({});
+    sequencerViewChangedAt_ = now;
+  }
+  else
+  {
+    for (std::size_t i = 0; i < state.steps.size(); ++i)
+      if (state.steps[i].contentFingerprint != sequencer_.steps[i].contentFingerprint)
+        sequencerChangedAt_[i] = now;
+  }
+  if (state.hasHeldSteps != sequencer_.hasHeldSteps || state.primaryHeldStep != sequencer_.primaryHeldStep ||
+      state.editLane != sequencer_.editLane)
+    sequencerFocusChangedAt_ = now;
   sequencer_ = state;
 }
 
@@ -1104,6 +1119,7 @@ void SynthUiModel::HandleHomeButton(const ISynthEngine* engine)
 void SynthUiModel::ToggleHomeView()
 {
   showSequencerGrid_ = !showSequencerGrid_;
+  sequencerViewChangedAt_ = std::chrono::steady_clock::now();
   CancelTransition();
 }
 
@@ -1504,14 +1520,14 @@ UiBarSnapshot SynthUiModel::BuildModifierBarSnapshot(UiModifier highlightedModif
 UiBarSnapshot SynthUiModel::BuildSequencerEditBarSnapshot() const
 {
   UiBarSnapshot items{};
-  items[0].label = sequencer_.scopeLabel.empty() ? "ALL" : sequencer_.scopeLabel;
+  items[0].label = sequencer_.scopeLabel == "ALL" || sequencer_.scopeLabel.empty() ? "NOTE" : sequencer_.scopeLabel;
   items[1].label = "LEN";
   items[2].label = "VEL";
-  items[3].label = "STEP";
+  items[3].label = "TIME";
   items[0].fullName = "Note Scope";
   items[1].fullName = "Length";
   items[2].fullName = "Velocity";
-  items[3].fullName = "STEP Offset";
+  items[3].fullName = "Timing Offset";
   items[0].description = "Cycle all notes or individual chord notes";
   items[1].description = "Edit selected step note length";
   items[2].description = "Edit selected step velocity";
@@ -1720,6 +1736,16 @@ UiScreenSnapshot SynthUiModel::BuildScreenSnapshot(const ISynthEngine* engine) c
   snapshot.modifier = activeModifier_;
   snapshot.showSequencerGrid = showSequencerGrid_;
   snapshot.sequencer = sequencer_;
+  const auto now = std::chrono::steady_clock::now();
+  const auto reveal = [&](std::chrono::steady_clock::time_point started, float milliseconds) {
+    if (started == std::chrono::steady_clock::time_point{}) return 1.0f;
+    const float t = std::clamp(std::chrono::duration<float, std::milli>(now - started).count() / milliseconds, 0.0f, 1.0f);
+    return 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
+  };
+  snapshot.sequencerReveal = reveal(sequencerViewChangedAt_, 180.0f);
+  snapshot.sequencerFocusReveal = reveal(sequencerFocusChangedAt_, 120.0f);
+  for (std::size_t i = 0; i < snapshot.sequencer.steps.size(); ++i)
+    snapshot.sequencer.steps[i].editFlash = 1.0f - reveal(sequencerChangedAt_[i], 220.0f);
   snapshot.engineKind = engine != nullptr ? engine->Descriptor().kind : tracks_[activeTrack_].kind;
   snapshot.focusItemId = samplerBrowserMode_ ? "par.sampler.browser"
                                              : (selectedItemId_.empty() ? selectedParameterGroupId_ : selectedItemId_);
@@ -4216,7 +4242,7 @@ ContextMenuGrid SynthUiModel::BuildOtherMenu() const
   {
     return BuildMenuAt({
         {0, MakeActionCell("SAVE", ContextActionId::ProjectSave)},
-        {1, MakeActionCell("AS...", ContextActionId::ProjectSaveAs)},
+        {1, MakeActionCell("SAVEAS", ContextActionId::ProjectSaveAs)},
         {2, MakeActionCell("LOAD", ContextActionId::ProjectLoad)},
         {3, MakeActionCell("NEW", ContextActionId::ProjectNew)},
         {7, MakeActionCell("BACK", ContextActionId::Back)}});

@@ -50,6 +50,7 @@ public:
   void ClearHeldStepEvents();
   bool CopyStep(std::size_t sourceStep, std::size_t destinationStep);
   bool StepHasEvents(std::size_t stepIndex) const;
+  std::uint8_t SelectedNoteVelocity(std::uint8_t pitch) const;
   void QuantizeStep(std::size_t stepIndex);
   void QuantizeHeldSteps();
   void QuantizeActivePattern();

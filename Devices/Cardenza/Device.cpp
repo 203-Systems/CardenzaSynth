@@ -1,4 +1,5 @@
 #include "Devices/Device.h"
+#include "Devices/LedFrameBuffer.h"
 
 #include <algorithm>
 #include <array>
@@ -25,9 +26,7 @@ namespace {
 
 std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
 Device::Keyboard::MatrixKeyState keyboardState{};
-std::array<std::uint8_t, Device::LED::kLedCount> keyboardLedState{};
-std::uint8_t keyboardLedGlobalBrightness = Device::LED::kBrightnessMax;
-bool keyboardLedsEnabled = false;
+Device::LED::detail::LedFrameBuffer keyboardLedFrames;
 SemaphoreHandle_t framePresentDone = nullptr;
 bool displayCallbacksInstalled = false;
 
@@ -45,8 +44,10 @@ constexpr std::size_t MatrixIndex(std::size_t row, std::size_t column) {
   return row * static_cast<std::size_t>(Device::LED::kColumns) + column;
 }
 
-std::uint8_t ClampLedBrightness(std::uint8_t brightness) {
-  return std::min(brightness, Device::LED::kBrightnessMax);
+void PublishLedFrame(bool changed) {
+  if (!changed) return;
+  const auto& frame = keyboardLedFrames.Current();
+  CardenzaHAL::Keyboard::setLEDFrame(frame.levels, frame.master, frame.enabled);
 }
 
 bool IRAM_ATTR OnFramePresentDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* userContext) {
@@ -188,12 +189,15 @@ bool HomePressed() {
 
 namespace LED {
 
+void BeginFrame() { keyboardLedFrames.BeginFrame(); }
+void Present() { PublishLedFrame(keyboardLedFrames.Present()); }
+
 std::uint8_t Brightness(std::size_t row, std::size_t column) {
   if (!IsValidMatrixPosition(row, column)) {
     return kBrightnessOff;
   }
 
-  return keyboardLedState[MatrixIndex(row, column)];
+  return keyboardLedFrames.Current().levels[MatrixIndex(row, column)];
 }
 
 void SetKey(std::size_t row, std::size_t column, std::uint8_t brightness) {
@@ -201,40 +205,31 @@ void SetKey(std::size_t row, std::size_t column, std::uint8_t brightness) {
     return;
   }
 
-  const std::uint8_t clampedBrightness = ClampLedBrightness(brightness);
-  keyboardLedState[MatrixIndex(row, column)] = clampedBrightness;
-  CardenzaHAL::Keyboard::setLED(CardenzaHAL::Keyboard::Point2D_t{
-      static_cast<int>(column), static_cast<int>(row)},
-      clampedBrightness);
+  PublishLedFrame(keyboardLedFrames.SetKey(row, column, brightness));
 }
 
 void Clear() {
-  keyboardLedState.fill(kBrightnessOff);
-  CardenzaHAL::Keyboard::clearAllLEDs();
+  PublishLedFrame(keyboardLedFrames.Fill(kBrightnessOff));
 }
 
 void Fill(std::uint8_t brightness) {
-  const std::uint8_t clampedBrightness = ClampLedBrightness(brightness);
-  keyboardLedState.fill(clampedBrightness);
-  CardenzaHAL::Keyboard::setAllLEDs(clampedBrightness);
+  PublishLedFrame(keyboardLedFrames.Fill(brightness));
 }
 
 void SetGlobalBrightness(std::uint8_t brightness) {
-  keyboardLedGlobalBrightness = ClampLedBrightness(brightness);
-  CardenzaHAL::Keyboard::setLEDGlobalBrightness(keyboardLedGlobalBrightness);
+  PublishLedFrame(keyboardLedFrames.SetMaster(brightness));
 }
 
 std::uint8_t GlobalBrightness() {
-  return keyboardLedGlobalBrightness;
+  return keyboardLedFrames.Current().master;
 }
 
 void SetEnabled(bool enabled) {
-  keyboardLedsEnabled = enabled;
-  (void)CardenzaHAL::Keyboard::enableLED(enabled);
+  PublishLedFrame(keyboardLedFrames.SetEnabled(enabled));
 }
 
 bool Enabled() {
-  return keyboardLedsEnabled;
+  return keyboardLedFrames.Current().enabled;
 }
 
 }  // namespace LED

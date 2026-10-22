@@ -1,4 +1,5 @@
 #include "Devices/Device.h"
+#include "Devices/LedFrameBuffer.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
 
 #include <algorithm>
@@ -18,9 +19,7 @@ namespace fs = std::filesystem;
 std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
 Device::Keyboard::MatrixKeyState keyboardState{};
 bool homeButtonPressed = false;
-std::array<std::uint8_t, Device::LED::kLedCount> keyboardLedState{};
-std::uint8_t keyboardLedGlobalBrightness = Device::LED::kBrightnessMax;
-bool keyboardLedsEnabled = false;
+Device::LED::detail::LedFrameBuffer keyboardLedFrames;
 bool audioInputEnabled = false;
 
 constexpr bool IsValidMatrixPosition(std::size_t row, std::size_t column) {
@@ -30,10 +29,6 @@ constexpr bool IsValidMatrixPosition(std::size_t row, std::size_t column) {
 
 constexpr std::size_t MatrixIndex(std::size_t row, std::size_t column) {
   return row * static_cast<std::size_t>(Device::LED::kColumns) + column;
-}
-
-std::uint8_t ClampLedBrightness(std::uint8_t brightness) {
-  return std::min(brightness, Device::LED::kBrightnessMax);
 }
 
 fs::path SimulatorExecutableDirectory() {
@@ -119,12 +114,15 @@ bool HomePressed() {
 
 namespace LED {
 
+void BeginFrame() { keyboardLedFrames.BeginFrame(); }
+void Present() { (void)keyboardLedFrames.Present(); }
+
 std::uint8_t Brightness(std::size_t row, std::size_t column) {
   if (!IsValidMatrixPosition(row, column)) {
     return kBrightnessOff;
   }
 
-  return keyboardLedState[MatrixIndex(row, column)];
+  return keyboardLedFrames.Current().levels[MatrixIndex(row, column)];
 }
 
 void SetKey(std::size_t row, std::size_t column, std::uint8_t brightness) {
@@ -132,31 +130,31 @@ void SetKey(std::size_t row, std::size_t column, std::uint8_t brightness) {
     return;
   }
 
-  keyboardLedState[MatrixIndex(row, column)] = ClampLedBrightness(brightness);
+  (void)keyboardLedFrames.SetKey(row, column, brightness);
 }
 
 void Clear() {
-  keyboardLedState.fill(kBrightnessOff);
+  (void)keyboardLedFrames.Fill(kBrightnessOff);
 }
 
 void Fill(std::uint8_t brightness) {
-  keyboardLedState.fill(ClampLedBrightness(brightness));
+  (void)keyboardLedFrames.Fill(brightness);
 }
 
 void SetGlobalBrightness(std::uint8_t brightness) {
-  keyboardLedGlobalBrightness = ClampLedBrightness(brightness);
+  (void)keyboardLedFrames.SetMaster(brightness);
 }
 
 std::uint8_t GlobalBrightness() {
-  return keyboardLedGlobalBrightness;
+  return keyboardLedFrames.Current().master;
 }
 
 void SetEnabled(bool enabled) {
-  keyboardLedsEnabled = enabled;
+  (void)keyboardLedFrames.SetEnabled(enabled);
 }
 
 bool Enabled() {
-  return keyboardLedsEnabled;
+  return keyboardLedFrames.Current().enabled;
 }
 
 }  // namespace LED

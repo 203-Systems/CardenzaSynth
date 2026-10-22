@@ -1,5 +1,6 @@
 #include "OS/UI/FontAtlas.h"
 #include "OS/UI/TrackerFont5x7.h"
+#include "OS/UI/ReadableFont6x9.h"
 
 #include <array>
 #include <cstddef>
@@ -9,7 +10,7 @@ namespace {
 
 // Compile-time expansion keeps the shared 5x7 glyphs sharp at integer scales.
 // No runtime font rasterization or allocation is needed.
-// The 7-row cell has no descender space, so lowercase draws with the capital glyphs
+// The capital-only cells have no descender space, so lowercase draws with the capital glyphs
 // and every label, value and file name shares one baseline.
 constexpr std::size_t GlyphSourceIndex(std::size_t index)
 {
@@ -36,10 +37,35 @@ struct PixelFont {
   }
 };
 
-constexpr PixelFont<1, 10> kSmall;
+struct ReadableFont {
+  std::array<std::uint8_t, 95 * 54> bitmap{};
+  std::array<RasterGlyph, 95> glyphs{};
+
+  constexpr ReadableFont()
+  {
+    constexpr std::array<int, 9> sourceRows{0, 1, 1, 2, 3, 4, 5, 5, 6};
+    for (std::size_t i = 0; i < glyphs.size(); ++i)
+    {
+      const int code = static_cast<int>(GlyphSourceIndex(i)) + 32;
+      const int readable = code >= '0' && code <= '9' ? code - '0' :
+                           code >= 'A' && code <= 'Z' ? code - 'A' + 10 : -1;
+      const auto offset = static_cast<std::uint32_t>(i * 54);
+      glyphs[i] = {offset, 6, 9, 0, 1, 7};
+      for (int y = 0; y < 9; ++y)
+      {
+        const auto row = readable >= 0 ? kReadableGlyphRows[readable][y] :
+                         static_cast<std::uint8_t>(kTrackerGlyphRows[GlyphSourceIndex(i)][sourceRows[y]] << 1);
+        for (int x = 0; x < 6; ++x)
+          bitmap[offset + y * 6 + x] = (row & (1 << (5 - x))) ? 255 : 0;
+      }
+    }
+  }
+};
+
+constexpr ReadableFont kSmall;
 constexpr PixelFont<2, 16> kBody;
 constexpr PixelFont<3, 28> kValue;
-const RasterFont kSmallFont{32, 126, 10, kSmall.bitmap.data(), kSmall.glyphs.data()};
+const RasterFont kSmallFont{32, 126, 12, kSmall.bitmap.data(), kSmall.glyphs.data()};
 const RasterFont kBodyFont{32, 126, 16, kBody.bitmap.data(), kBody.glyphs.data()};
 const RasterFont kValueFont{32, 126, 28, kValue.bitmap.data(), kValue.glyphs.data()};
 

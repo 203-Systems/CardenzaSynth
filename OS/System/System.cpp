@@ -30,9 +30,10 @@ bool& StartedStorage() {
 }
 
 void UpdateApplicationLeds(app::Application& application) {
-  Device::LED::SetEnabled(false);
+  Device::LED::BeginFrame();
   Device::LED::Clear();
   application.UpdateLeds();
+  Device::LED::Present();
 }
 
 void DispatchMatrixKeyEvents(app::Application& application) {

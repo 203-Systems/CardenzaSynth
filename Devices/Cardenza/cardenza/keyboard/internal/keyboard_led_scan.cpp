@@ -20,14 +20,21 @@ void KeyboardDriver::_commit_led_frame()
     portENTER_CRITICAL(&detail::kKeyboardStateMux);
     memcpy(_scan_led_level, _led_level, sizeof(_led_level));
     _scan_global_brightness = _global_brightness;
-    _scan_led_enabled = _led_enabled;
+    const bool enabled = _led_enabled;
+    portEXIT_CRITICAL(&detail::kKeyboardStateMux);
+
+    // Build masks outside the ISR lock, then publish the entire frame at once.
+    uint8_t next_masks[detail::kLedPwmPhaseCount][8] = {};
     for (uint8_t phase = 0; phase < detail::kLedPwmPhaseCount; ++phase)
     {
         for (uint8_t scan_index = 0; scan_index < 8; ++scan_index)
         {
-            _scan_led_col_mask[phase][scan_index] = _scan_led_enabled ? _compute_led_col_mask(scan_index, phase) : 0;
+            next_masks[phase][scan_index] = enabled ? _compute_led_col_mask(scan_index, phase) : 0;
         }
     }
+    portENTER_CRITICAL(&detail::kKeyboardStateMux);
+    memcpy(_scan_led_col_mask, next_masks, sizeof(next_masks));
+    _scan_led_enabled = enabled;
     portEXIT_CRITICAL(&detail::kKeyboardStateMux);
 }
 
@@ -81,8 +88,7 @@ uint8_t KeyboardDriver::_compute_led_col_mask(uint8_t scan_index, uint8_t phase)
     {
         const int x = x_base + col * 2;
         const uint8_t level = _scan_led_level[y][x];
-        const uint8_t effective = (level < global_br) ? level : global_br;
-        if (static_cast<uint16_t>(effective) * detail::kLedPwmPhaseCount > static_cast<uint16_t>(phase) * (LED_BRIGHTNESS_MAX + 1))
+        if (detail::LedPhaseOn(level, global_br, phase))
         {
             const int physical_bit = col + detail::kLedColumnBitOffset;
             if (physical_bit >= 0 && physical_bit < 8)
@@ -105,6 +111,13 @@ bool KeyboardDriver::enableLED(bool enabled)
         _scan_led_shifted_columns = 0xFF;
     }
     return _led_enabled;
+}
+
+void KeyboardDriver::setLEDFrame(const LedFrame& levels, uint8_t globalBrightness, bool enabled)
+{
+    memcpy(_led_level, levels.data(), sizeof(_led_level));
+    _global_brightness = globalBrightness > LED_BRIGHTNESS_MAX ? LED_BRIGHTNESS_MAX : globalBrightness;
+    (void)enableLED(enabled);
 }
 
 void KeyboardDriver::setLED(Point2D_t pos, uint8_t brightness)

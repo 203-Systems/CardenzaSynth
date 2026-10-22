@@ -10,6 +10,7 @@
 #include "Applications/Application.h"
 #include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Applications/Synth/UI/SynthUiRenderer.h"
+#include "Applications/Synth/UI/SynthLedFeedback.h"
 #include "Devices/Device.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "OS/MIDI/MIDI.h"
@@ -23,32 +24,21 @@ constexpr std::size_t KeyIndex(std::size_t row, std::size_t col) {
   return row * synth::kKeyboardMatrixColumns + col;
 }
 
-constexpr std::uint8_t kActiveLedBrightness = Device::LED::kBrightnessMax;
-constexpr std::uint8_t kPerformanceHintLedBrightness = Device::LED::kBrightnessMax / 2;
-constexpr std::uint8_t kHintLedBrightness = 5;
-constexpr std::uint8_t kDisabledLedBrightness = 2;
+constexpr std::uint8_t kActiveLedBrightness = synth::led::kPressed;
+constexpr std::uint8_t kHintLedBrightness = synth::led::kAvailable;
 constexpr auto kSequencerShiftTapMax = std::chrono::milliseconds(150);
 
-bool HasVisibleBarItem(const synth::UiBarItemSnapshot& item) {
-  return !item.label.empty() || item.icon != synth::UiBarIcon::None;
-}
-
-std::uint8_t LedBrightnessForBarItem(const synth::UiBarItemSnapshot& item) {
-  if (!HasVisibleBarItem(item)) {
-    return Device::LED::kBrightnessOff;
-  }
-
-  if (item.disabled) {
-    return kDisabledLedBrightness;
-  }
-
-  return item.active || item.pressed || item.playing ? kActiveLedBrightness : kHintLedBrightness;
-}
-
-void WriteActiveBarLeds(const synth::UiScreenSnapshot& snapshot) {
+void WriteActiveBarLeds(const synth::UiScreenSnapshot& snapshot, const synth::SynthUiModel& model) {
   for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
   {
-    const std::uint8_t brightness = LedBrightnessForBarItem(snapshot.leftBarItems[row]);
+    auto item = snapshot.leftBarItems[row];
+    const bool context = snapshot.mode == synth::UiMode::ContextMenu;
+    if (context)
+      item.active = model.IsModifierHighlighted(row);
+    else if (!snapshot.sequencer.hasHeldSteps && !snapshot.sequencer.shiftActive && !snapshot.sequencer.patternSelectorVisible)
+      item.active = row == snapshot.sequencer.activeTrack;
+    const std::uint8_t brightness = context && !item.active && !item.pressed
+        ? synth::led::kAvailable : synth::led::BarLevel(item, snapshot);
     if (brightness != Device::LED::kBrightnessOff)
     {
       Device::LED::SetKey(row, synth::kHomeLeftBarColumn, brightness);
@@ -64,7 +54,7 @@ void WriteActiveBarLeds(const synth::UiScreenSnapshot& snapshot) {
   {
     for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
     {
-      const std::uint8_t brightness = LedBrightnessForBarItem(snapshot.rightBarItems[row]);
+      const std::uint8_t brightness = synth::led::BarLevel(snapshot.rightBarItems[row], snapshot);
       if (brightness != Device::LED::kBrightnessOff)
       {
         Device::LED::SetKey(row, synth::kHomeRightBarColumn, brightness);
@@ -80,7 +70,7 @@ void WriteActiveBarLeds(const synth::UiScreenSnapshot& snapshot) {
     for (std::size_t column = 0; column < columns; ++column)
     {
       const std::size_t index = columns == 1 ? row : row * synth::kContextMenuColumns + column;
-      const std::uint8_t brightness = LedBrightnessForBarItem(snapshot.rightBarItems[index]);
+      const std::uint8_t brightness = synth::led::BarLevel(snapshot.rightBarItems[index], snapshot);
       if (brightness != Device::LED::kBrightnessOff)
       {
         Device::LED::SetKey(row, firstColumn + column, brightness);
@@ -154,6 +144,8 @@ void SynthApp::UpdateLeds() {
 
   const std::size_t activeTrack = ui_.ActiveTrack();
   const synth::UiScreenSnapshot snapshot = ui_.CurrentScreenSnapshot(ActiveEngine());
+  const auto keyboardSettings = ui_.KeyboardSettings();
+  const int rootNote = keyboardSettings[3] == static_cast<int>(synth::KeyboardLayoutMode::Piano) ? 0 : keyboardSettings[1];
   if (activeTrack < activeKeys_.size())
   {
     const std::size_t hintLastColumn = snapshot.mode == synth::UiMode::Home
@@ -167,9 +159,13 @@ void SynthApp::UpdateLeds() {
         {
           Device::LED::SetKey(row, column, kActiveLedBrightness);
         }
-        else if (ui_.IsKeyboardHintKeyLit(row, column))
+        else
         {
-          Device::LED::SetKey(row, column, kPerformanceHintLedBrightness);
+          const bool mapped = ui_.IsHomePerformanceKey(row, column);
+          const bool root = snapshot.engineKind == synth::SynthEngineKind::Drums
+              ? column == synth::kHomePerformanceFirstColumn || column == synth::kHomePerformanceFirstColumn + 4
+              : mapped && ui_.HomePerformanceMidiNote(row, column) % 12 == rootNote;
+          Device::LED::SetKey(row, column, synth::led::KeyboardLevel(snapshot, row, ui_.IsKeyboardHintKeyLit(row, column), root));
         }
       }
     }
@@ -182,12 +178,9 @@ void SynthApp::UpdateLeds() {
       for (std::size_t column = synth::kHomePerformanceFirstColumn; column <= synth::kHomePerformanceLastColumn; ++column)
       {
         const std::size_t valueIndex = column - synth::kHomePerformanceFirstColumn;
-        const std::uint8_t brightness = !snapshot.sequencer.editValueMixed && valueIndex == snapshot.sequencer.editValueIndex
-            ? kActiveLedBrightness
-            : (valueIndex < snapshot.sequencer.editValueCount ? kPerformanceHintLedBrightness : kDisabledLedBrightness);
         for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
         {
-          Device::LED::SetKey(row, column, brightness);
+          Device::LED::SetKey(row, column, synth::led::EditValueLevel(snapshot.sequencer, row, valueIndex));
         }
       }
     }
@@ -208,19 +201,19 @@ void SynthApp::UpdateLeds() {
           }
           else if (snapshot.sequencer.hasCopySource && snapshot.sequencer.copySourceIsPattern && snapshot.sequencer.copySourceIndex == patternIndex)
           {
-            brightness = kActiveLedBrightness;
+            brightness = synth::led::kSelected;
           }
           else if (existing && patternIndex == snapshot.sequencer.activePattern)
           {
-            brightness = kActiveLedBrightness;
+            brightness = synth::led::kSelected;
           }
           else if (existing)
           {
-            brightness = kPerformanceHintLedBrightness;
+            brightness = snapshot.sequencer.patternHasEvents[patternIndex] ? synth::led::kContent : kHintLedBrightness;
           }
           else if (addSlot)
           {
-            brightness = kHintLedBrightness;
+            brightness = synth::led::kFunction;
           }
           Device::LED::SetKey(row, column, brightness);
         }
@@ -230,32 +223,14 @@ void SynthApp::UpdateLeds() {
     for (std::size_t stepIndex = 0; stepIndex < snapshot.sequencer.steps.size(); ++stepIndex)
     {
       const auto& step = snapshot.sequencer.steps[stepIndex];
-      std::uint8_t brightness = Device::LED::kBrightnessOff;
-      if (step.held)
-      {
-        brightness = kActiveLedBrightness;
-      }
-      else if (step.playing)
-      {
-        brightness = Device::LED::kBrightnessMax;
-      }
-      else if (step.hasEvents)
-      {
-        brightness = kPerformanceHintLedBrightness;
-      }
-      else
-      {
-        brightness = kDisabledLedBrightness;
-      }
-      if (snapshot.sequencer.hasCopySource && !snapshot.sequencer.copySourceIsPattern && snapshot.sequencer.copySourceIndex == stepIndex)
-      {
-        brightness = kActiveLedBrightness;
-      }
+      const bool copySource = snapshot.sequencer.hasCopySource && !snapshot.sequencer.copySourceIsPattern &&
+                              snapshot.sequencer.copySourceIndex == stepIndex;
+      const std::uint8_t brightness = synth::led::StepLevel(step, snapshot.sequencer.selectionLatched, copySource);
       Device::LED::SetKey(synth::SequencerStepRow(stepIndex), synth::SequencerStepColumn(stepIndex), brightness);
     }
   }
 
-  WriteActiveBarLeds(snapshot);
+  WriteActiveBarLeds(snapshot, ui_);
   Device::LED::SetEnabled(true);
 }
 
@@ -706,6 +681,15 @@ void SynthApp::SyncSequencerUi()
 {
   sequencer_.SetActiveTrack(ui_.ActiveTrack());
   synth::SequencerUiState state = sequencer_.BuildUiState(ui_.ActiveTrack());
+  if (sequencerSelectedStep_ < synth::kSequencerStepCount &&
+      (state.activeTrack != sequencerSelectionTrack_ || state.activePattern != sequencerSelectionPattern_))
+  {
+    sequencer_.ClearHeldSteps();
+    CancelStepTap();
+    state = sequencer_.BuildUiState(ui_.ActiveTrack());
+  }
+  if (!state.hasHeldSteps) sequencerSelectedStep_ = synth::kSequencerStepCount;
+  state.selectionLatched = sequencerSelectedStep_ < synth::kSequencerStepCount;
   state.shiftActive = IsSequencerShiftModifierActive();
   state.patternSelectorVisible = IsSequencerShiftActive();
   state.shiftActionPressed = sequencerShiftActionHeld_;
@@ -799,6 +783,9 @@ void SynthApp::ClearSequencerCopySource()
 void SynthApp::ClearSequencerHomeGesture()
 {
   sequencer_.ClearHeldSteps();
+  sequencerSelectedStep_ = synth::kSequencerStepCount;
+  sequencerStepKeys_.fill(false);
+  CancelStepTap();
   sequencerShiftKeys_.fill(false);
   sequencerShiftPressedAt_.fill(std::chrono::steady_clock::time_point{});
   sequencerShiftActionHeld_.fill(false);
@@ -808,6 +795,11 @@ void SynthApp::ClearSequencerHomeGesture()
   ClearSequencerCopySource();
   for (std::size_t row = 0; row < synth::kKeyboardMatrixRows; ++row)
     ui_.SetHomeActionHeld(row, false);
+}
+
+void SynthApp::CancelStepTap()
+{
+  sequencerTapStep_ = synth::kSequencerStepCount;
 }
 
 bool SynthApp::HandleSequencerShiftPress(std::size_t row, std::size_t col)
@@ -822,6 +814,7 @@ bool SynthApp::HandleSequencerShiftPress(std::size_t row, std::size_t col)
   if (sequencerShiftKeys_[shiftIndex]) return true;
 
   sequencerShiftKeys_[shiftIndex] = true;
+  CancelStepTap();
   sequencerShiftPressedAt_[shiftIndex] = std::chrono::steady_clock::now();
   ui_.SetHomeActionHeld(row, true);
   if (sequencerShiftKeys_[otherShiftIndex] && !sequencerViewChordActive_)
@@ -832,6 +825,7 @@ bool SynthApp::HandleSequencerShiftPress(std::size_t row, std::size_t col)
     sequencerViewChordActive_ = true;
     MarkSequencerShiftEvent();
     sequencer_.ClearHeldSteps();
+    sequencerSelectedStep_ = synth::kSequencerStepCount;
     sequencerShiftActionHeld_.fill(false);
     sequencerPatternPressed_.fill(false);
     ClearSequencerCopySource();
@@ -992,7 +986,11 @@ bool SynthApp::HandleSequencerPatternSelectorPress(std::size_t row, std::size_t 
     return true;
   }
 
-  (void)sequencer_.SelectOrCreatePattern(patternIndex);
+  if (sequencer_.SelectOrCreatePattern(patternIndex))
+  {
+    sequencer_.ClearHeldSteps();
+    sequencerSelectedStep_ = synth::kSequencerStepCount;
+  }
   ClearSequencerCopySource();
   return true;
 }
@@ -1068,23 +1066,53 @@ bool SynthApp::HandleSequencerPress(std::size_t row, std::size_t col)
 
   if (col == synth::kHomeLeftBarColumn && sequencer_.HasHeldSteps())
   {
+    CancelStepTap();
     return sequencer_.PressEditLane(row);
   }
 
   if (synth::IsSequencerStepKey(row, col))
   {
+    const std::size_t step = synth::SequencerStepIndex(row, col);
+    if (sequencerStepKeys_[step]) return true;
     std::array<std::uint8_t, synth::kKeyboardMatrixRows * synth::kHomePerformanceColumnCount> heldNotes{};
     const std::size_t noteCount = CollectHeldPerformanceNotes(ui_.ActiveTrack(), heldNotes);
-    sequencer_.PressStep(synth::SequencerStepIndex(row, col), heldNotes.data(), noteCount);
+    const bool otherStepDown = std::any_of(sequencerStepKeys_.begin(), sequencerStepKeys_.end(), [](bool down) { return down; });
+    sequencerStepKeys_[step] = true;
+    CancelStepTap();
+    if (ui_.HomeShowsSequencerGrid() && !otherStepDown)
+    {
+      const bool deselect = sequencerSelectedStep_ == step && noteCount == 0;
+      if (sequencerSelectedStep_ < synth::kSequencerStepCount)
+      {
+        sequencer_.ClearHeldSteps();
+        sequencerSelectedStep_ = synth::kSequencerStepCount;
+      }
+      if (deselect) return true;
+      if (noteCount == 0)
+      {
+        sequencerTapStep_ = step;
+        sequencerStepPressedAt_ = std::chrono::steady_clock::now();
+      }
+    }
+    sequencer_.PressStep(step, heldNotes.data(), noteCount);
     return true;
   }
 
   if (sequencer_.HasHeldSteps() && row < synth::kKeyboardMatrixRows && col >= 1 && col <= synth::kHomePerformanceColumnCount)
   {
+    CancelStepTap();
     // Value lanes select a physical column, including gaps in the Piano layout.
     if (!ui_.IsHomePerformanceKey(row, col) &&
         sequencer_.BuildUiState(ui_.ActiveTrack()).editLane == synth::SequencerEditLane::Note) return true;
-    return sequencer_.HandlePerformanceKeyPress(row, col, ui_.HomePerformanceMidiNote(row, col));
+    const bool preview = sequencerSelectedStep_ < synth::kSequencerStepCount && !sequencer_.Playing() &&
+                         sequencer_.BuildUiState(ui_.ActiveTrack()).editLane == synth::SequencerEditLane::Note;
+    const bool handled = sequencer_.HandlePerformanceKeyPress(row, col, ui_.HomePerformanceMidiNote(row, col));
+    if (handled && preview)
+    {
+      const auto velocity = sequencer_.SelectedNoteVelocity(ui_.HomePerformanceMidiNote(row, col));
+      if (velocity != 0) PressPerformanceKey(row, col, velocity);
+    }
+    return handled;
   }
 
   return false;
@@ -1110,6 +1138,18 @@ bool SynthApp::HandleSequencerRelease(std::size_t row, std::size_t col)
   if (synth::IsSequencerStepKey(row, col))
   {
     const std::size_t stepIndex = synth::SequencerStepIndex(row, col);
+    const bool wasDown = sequencerStepKeys_[stepIndex];
+    sequencerStepKeys_[stepIndex] = false;
+    if (wasDown && stepIndex == sequencerTapStep_ && ui_.Mode() == synth::UiMode::Home && ui_.HomeShowsSequencerGrid() &&
+        !IsSequencerShiftActive() && std::chrono::steady_clock::now() - sequencerStepPressedAt_ < std::chrono::milliseconds(250))
+    {
+      sequencerSelectedStep_ = stepIndex;
+      const auto state = sequencer_.BuildUiState(ui_.ActiveTrack());
+      sequencerSelectionTrack_ = state.activeTrack;
+      sequencerSelectionPattern_ = state.activePattern;
+      CancelStepTap();
+      return true;
+    }
     if (ui_.Mode() == synth::UiMode::Home || sequencer_.IsStepHeld(stepIndex))
     {
       sequencer_.ReleaseStep(stepIndex);
@@ -1171,7 +1211,7 @@ const std::array<bool, synth::kKeyboardMatrixRows * synth::kKeyboardMatrixColumn
   return activeKeys_[trackIndex];
 }
 
-void SynthApp::PressPerformanceKey(std::size_t row, std::size_t col) {
+void SynthApp::PressPerformanceKey(std::size_t row, std::size_t col, std::uint8_t velocity) {
   const std::size_t keyIndex = KeyIndex(row, col);
   const std::size_t trackIndex = ui_.ActiveTrack();
   if (trackIndex >= activeKeys_.size() || keyIndex >= activeKeys_[trackIndex].size())
@@ -1197,7 +1237,7 @@ void SynthApp::PressPerformanceKey(std::size_t row, std::size_t col) {
 
   activeKeys_[trackIndex][keyIndex] = true;
   activeNotes_[trackIndex][keyIndex] = note;
-  os::midi::Send(midi::MidiPacket::NoteOn(0, note, 110), rack_.PortForTrack(trackIndex));
+  os::midi::Send(midi::MidiPacket::NoteOn(0, note, velocity), rack_.PortForTrack(trackIndex));
 }
 
 void SynthApp::ReleasePerformanceKey(std::size_t row, std::size_t col) {

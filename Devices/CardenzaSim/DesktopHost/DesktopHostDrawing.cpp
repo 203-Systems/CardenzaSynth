@@ -8,17 +8,19 @@ namespace CardenzaSim::DesktopHost {
 
 COLORREF BlendLedColor(std::uint8_t brightness, std::uint8_t globalBrightness)
 {
-  const std::uint8_t effectiveBrightness = std::min(brightness, globalBrightness);
+  const unsigned int effectiveBrightness = std::min(brightness, Device::LED::kBrightnessMax) *
+                                           std::min(globalBrightness, Device::LED::kBrightnessMax);
   if (effectiveBrightness == Device::LED::kBrightnessOff)
   {
     return kLedOffColor;
   }
 
   const auto blendChannel = [effectiveBrightness](BYTE offChannel, BYTE onChannel) -> BYTE {
-    const unsigned int offWeight = static_cast<unsigned int>(Device::LED::kBrightnessMax - effectiveBrightness);
-    const unsigned int onWeight = static_cast<unsigned int>(effectiveBrightness);
+    constexpr unsigned int maxWeight = Device::LED::kBrightnessMax * Device::LED::kBrightnessMax;
+    const unsigned int offWeight = maxWeight - effectiveBrightness;
+    const unsigned int onWeight = effectiveBrightness;
     return static_cast<BYTE>((static_cast<unsigned int>(offChannel) * offWeight + static_cast<unsigned int>(onChannel) * onWeight) /
-                             static_cast<unsigned int>(Device::LED::kBrightnessMax));
+                             maxWeight);
   };
 
   return RGB(blendChannel(GetRValue(kLedOffColor), GetRValue(kLedOnColor)),

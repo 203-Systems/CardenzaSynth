@@ -565,14 +565,14 @@ void DrawDx7AlgorithmGraph(ui::Canvas& canvas, const ui::Rect& rect, const UiScr
     DrawDx7Edge(canvas, rect, operatorRects, edge, fromRect, toRect, edgeColor);
   }
 
-  // Carriers sit on a lit plate; modulators are outlined, so the audible path reads at a glance.
+  // Carriers sit on a pale teal plate; modulators use a neutral surface.
   for (std::size_t op = 0; op < operatorRects.size(); ++op)
   {
     const bool isCarrier = (algorithm.carriersMask & (1u << op)) != 0;
     const bool isSelected = selectedOperator == static_cast<int>(op);
     const ui::Rect operatorRect = operatorRects[op];
-    canvas.FillRect(operatorRect, FadeColor(isCarrier ? MixColor(kRule, kDim, 0.35f) : kBackground, alpha));
-    canvas.StrokeRect(operatorRect, isSelected ? accent : (isCarrier ? FadeColor(MixColor(kRule, kDim, 0.35f), alpha) : divider));
+    canvas.FillRect(operatorRect, FadeColor(isCarrier ? kSelection : kSurface, alpha));
+    DrawFrame(canvas, operatorRect, isSelected ? accent : divider);
     const std::string label = std::to_string(op + 1);
     DrawInk(canvas, operatorRect.x + (operatorRect.width - InkWidth(canvas, label, 1) + 1) / 2,
             operatorRect.y + (operatorRect.height - InkHeight(1)) / 2, label, isSelected ? accent : text, 1);

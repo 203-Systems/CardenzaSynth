@@ -64,3 +64,16 @@ quit
 - Relative screenshot paths are resolved under `--debug-output` when provided, otherwise next to the script file.
 - If a script line is invalid, the simulator stops and reports the script path plus line number.
 - `down` states are automatically released when the script finishes, so a failed script does not leave keys stuck.
+
+## Native sequencer render regression (macOS, Linux, Windows)
+
+`CardenzaSequencerRenderTests` drives the public simulated keyboard and HOME button through `os::system::RunFrame()`. It uses the production application, sequencer, MIDI route and 240×135 RGB565 renderer. This target needs no desktop window. It checks point selection, note editing, timed animation, value lanes, playback feedback and LED zoning. `CardenzaLedTests` separately checks PWM levels and complete-frame publication without blank intermediate frames.
+
+```sh
+cmake -S . -B build/CardenzaSim -DDEVICE=CardenzaSim -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/CardenzaSim --parallel 4
+ctest --test-dir build/CardenzaSim --output-on-failure
+build/CardenzaSim/tests/CardenzaSequencerRenderTests build/sequencer-review
+```
+
+The optional directory argument saves 15 static PPM screenshots, 130 playback frames and 26 entry/edit animation frames, each with a matching LED-state JSON file. With Visual Studio, use the equivalent `tests/Debug/CardenzaSequencerRenderTests.exe` path and pass `-C Debug` to CTest. These captures establish native rendering and input behavior; they do not establish display contrast, physical LED brightness or audio quality on the device.

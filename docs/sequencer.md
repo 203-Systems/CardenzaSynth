@@ -2,6 +2,20 @@
 
 The Synth app contains a four-track step sequencer aligned with its four synth tracks. The current implementation uses 16 steps per pattern, 1–16 patterns per track, up to eight notes per step, 96 PPQN, and six microsteps per step. Sequence state is saved with the project.
 
+### Quick Start (October 21 UX Update)
+
+1. Press physical **HOME** on neutral Home to open the **SEQ** grid.
+2. Tap a step in physical columns 9–12, then release it. A cyan outline means the step stays selected. Tap pitches in columns 1–8 to add or remove notes; stopped transport auditions added notes at their stored velocity through the normal live-note route. Removing a note is silent.
+3. Tap another step to move the selection. Use **NOTE / LEN / VEL / TIME** on the left to choose a lane, then a performance column to choose its value. Returning from a value lane to NOTE preserves the current note scope; another NOTE press cycles the chord scope.
+4. Press **Play** to loop the active pattern. The green cursor moves independently of the cyan edit selection. The square **Stop** button stops transport.
+5. Tap the selected step again, or press HOME once, to exit editing. The left bar returns to track selection. A further HOME press switches to the performance keyboard.
+
+A single unmodified step press shorter than 250 ms latches in grid view. Holding a step while adding notes or choosing a lane remains momentary; selecting several physical steps remains momentary too. Holding pitches and tapping a step still writes that chord directly. Performance view retains its original momentary gestures. View changes, HOME cancellation, and track/pattern changes end the latched edit. Selection and animation are session state, not Project v1 data.
+
+LEN columns choose 1, 2, 3, 4, 6, 8, 12 or 16 steps. VEL columns are numbered 1–8 on screen and write 24, 40, 56, 72, 88, 104, 120 or 127; the header shows the actual velocity. TIME uses columns 1–6; position 1 is on the grid, and later positions delay the note. On an empty step, LEN and VEL show `NEW` defaults for the next inserted note. TIME shows `ADD NOTES FIRST` because there is no note to move.
+
+The grid always shows pattern, BPM and transport state. Brief hints identify the next action and HOME exit. Entry uses a 180 ms eased reveal, focus uses 120 ms, and changed notes/values flash for 220 ms. These effects use elapsed time in the UI model; the sequencer clock and audio scheduling stay independent. Hardware contrast, physical-key feel and audio timing still require device validation.
+
 The September 22 update adds distinct Home editing, Transport, Tempo, Track and Pattern presentations. The September 23 update adds a persistent on-screen 4x4 Sequencer Home view alongside the default performance keyboard. These are focused usability updates; a complete new visual design language, Song/Chain arrangement, recording/overdub, swing and variable pattern lengths remain outside the implemented scope. Build and hardware evidence is recorded separately in [the implementation record](implementation-2026-09-22.md).
 
 ### Reuse Strategy
@@ -22,17 +36,18 @@ The September 22 update adds distinct Home editing, Transport, Tempo, Track and 
 	- columns 9-12: sequencer 4x4 step grid
 	- column 13: right bar / context buttons
 - Both the physical keyboard/LED grid and the on-screen Sequencer grid represent 16 steps for the active track's current pattern, in row-major order: top row steps 1-4, then 5-8, 9-12, and bottom row 13-16. Switching the screen view does not remap any physical keys.
-- Track selection remains owned by the left bar when no step is held. The LED grid always reflects the active track.
-- Empty steps should be dim, steps with events should be brighter, held/selected steps should be brightest, and the playback cursor should be visually distinct without hiding event state.
+- Track selection remains owned by the left bar when no step edit is active. The LED grid always reflects the active track.
+- LED zones: the left/right function rails use level 6 for available actions, with the current track, menu or edit lane at level 10. Inactive left BACK keys on context pages recede to level 1. Keyboard scale hints use level 1 and roots use level 6; neutral Sequencer view retains only faint root locators until note editing begins. Drum pads use kick/clap columns as anchors. Value lanes show their choices on the bottom row and mark the selected column vertically. The right 4×4 step grid always keeps level-1 empty locators, level-6 note content, level-10 edit/copy selections and level-15 presses/playhead. Disabled keys and unused Pattern rows remain off. All states are steady, without beat flashing or slow blinking.
+- The hardware LED driver uses four fast PWM phases at a calculated 822 Hz; key debounce notifications retain the original four-scan-cycle cadence. The OS builds a complete LED frame without disabling the previous output, then publishes it once. Unchanged frames are not resubmitted. PWM masks are built outside the scan interrupt lock.
 - The performance view shows the keyboard visualization, or named drum pads for Drums. The Sequencer view shows a persistent 4x4 grid with empty, filled, held/selected and playing states. Releasing a step leaves this view open.
-- Holding steps in the performance view replaces its overview with the selected step count, note names and scope, or the active value lane. In the Sequencer view, the grid stays visible during NOTE/LEN/VEL/STEP editing, with compact details for the current selection and values. The footer keeps pattern, transport and BPM context visible.
+- Holding steps in the performance view replaces its overview with the selected step count, note names and scope, or the active value lane. In the Sequencer view, the grid stays visible during NOTE/LEN/VEL/TIME editing, with compact details for the current selection and values. Pattern, transport and BPM remain above the grid; the footer shows context hints or lane buckets.
 - Home view choice is UI session state. It does not change Project v1, sequence data, track selection, or the physical performance/step boundaries.
-- Keep the grid screen focused on musical state: the shared title bar (TRACK1, engine in cyan, patch in grey), numbered steps with the lowest note (`C3+2` for chords), cyan selection, a green playhead, and the shared Loop Bar below. Do not show persistent instruction text or pattern/transport/BPM status. While steps are held the title bar becomes SEQUENCE with the held steps in cyan and, on the grid, the note or lane value in grey; the scope already shown in the left bar is not repeated. Grid geometry does not change while editing.
+- The grid title shows SEQ, track/engine, patch and HOME exit. Numbered steps show the lowest note, with a small cyan mark for a chord; the editing header lists the selected notes. A cyan outline identifies a latched selection; cyan fill identifies a physically held step. The green playhead does not hide event state. Pattern, BPM and transport sit above the fixed grid, and context hints or value buckets sit below it. During editing, the title shows the step, notes or lane value, scope and exit. Grid geometry stays fixed.
 
 ### Step Editing Gestures
 
 - Pressing performance notes without a held step remains normal live playing.
-- Pressing a step selects or holds that step for editing.
+- Pressing a step holds it for editing. A short standalone tap in grid view also latches it after release, as described in Quick Start.
 - Holding a note and pressing a step, or holding a step and pressing a note, toggles that note event in that step. If the note already exists in the step, remove it; otherwise add it using the current default length and velocity.
 - Chords are supported by holding multiple notes and pressing a step. Repeating the same gesture removes the matching notes.
 - The sequencer should store note events per track/pattern/step, not as UI-only state.
@@ -41,13 +56,13 @@ The September 22 update adds distinct Home editing, Transport, Tempo, Track and 
 
 ### Step-Held Left Bar
 
-- While one or more steps are held, the left bar changes from track selection to step-edit controls:
+- While steps are physically held or a grid step stays selected, the left bar changes from track selection to step-edit controls:
 	- `NOTE`
 	- `LEN`
 	- `VEL`
-	- `STEP`
-- Releasing all held steps restores the normal left-bar track selection behavior.
-- Releasing a `LEN`, `VEL` or `STEP` button keeps that lane selected while any step remains held. This selection is only an editing gesture state, not a saved project setting; releasing all steps returns to `NOTE` / `ALL`.
+	- `TIME`
+- Ending a momentary hold, tapping the latched step again, or pressing HOME restores normal left-bar track selection.
+- Releasing a `LEN`, `VEL` or `TIME` button keeps that lane selected while the edit selection remains active. Ending the edit returns to `NOTE` / `ALL`.
 - These controls edit the held step selection and should not navigate away from Home unless a later design explicitly introduces a full-screen editor.
 
 ### Shift Layer And Pattern Selector
@@ -70,7 +85,7 @@ The September 22 update adds distinct Home editing, Transport, Tempo, Track and 
 - `NOTE` does not mean "add a note". Note add/remove is done by the note-plus-step gesture.
 - `NOTE` cycles the edit scope for chord steps.
 - The default scope is `ALL`, meaning length, velocity, and step-offset edits apply to all notes in the held step selection.
-- If a held step contains a chord, pressing the top-left `ALL` scope button cycles `ALL -> 1/N -> 2/N -> ... -> ALL`.
+- If a held step contains a chord, pressing the top-left NOTE/scope button cycles `ALL -> 1/N -> 2/N -> ... -> ALL`.
 - Individual scopes use pitch-low-to-high order. Home shows the actual selected pitch alongside its scope index; `ALL` shows the primary held step's note names.
 - If the selected scope note is removed, fall back to `ALL` or the nearest valid note scope.
 - Cycling to an individual note scope should audition that note until the scope button is released.
@@ -94,16 +109,16 @@ The September 22 update adds distinct Home editing, Transport, Tempo, Track and 
 - Velocity edits should optionally audition the held step only if doing so does not cause stuck notes or disrupt live playing.
 - Keep a per-track default velocity for newly inserted notes.
 
-### STEP Control
+### TIME Control
 
-- `STEP` edits microtiming inside the held step. It is the fourth step-edit lane in the first sequencer UI.
+- `TIME` edits microtiming inside the selected step. It is the fourth step-edit lane, formerly labeled STEP.
 - Each normal step is divided into 6 microstep slots. Display them as 1-6 for users, but store them as zero-based slots 0-5 or equivalent pulse offsets internally.
 - At 96 PPQN with 24 pulses per 16th step, 6 microsteps means 4 pulses per microstep. This fits the MatrixOS-derived timing model without fractional pulses.
 - New note events default to microstep slot 0, meaning exactly on the step grid.
-- `STEP` follows the same edit scope rule: `ALL` applies the microstep slot to the whole held step/chord, while `#/N` moves one note within the chord.
+- `TIME` follows the same edit scope rule: `ALL` applies the microstep slot to the whole held step/chord, while `#/N` moves one note within the chord.
 - Microstep edits should move event start time only. They must preserve pitch, velocity, and length unless a later design explicitly adds linked behavior.
-- The visible control should be labeled `STEP` even though the implementation stores microstep/microtiming internally.
-- The first six performance columns act as direct microstep buckets while `STEP` is selected. The remaining columns should be dim or inactive.
+- The visible control is labeled `TIME` to distinguish note timing from the 16 physical step keys. The internal enum remains `SequencerEditLane::Micro`.
+- The first six performance columns act as direct microstep buckets while `TIME` is selected. The remaining columns should be dim or inactive.
 
 ### Page-Level UX
 
@@ -123,16 +138,16 @@ The September 22 update adds distinct Home editing, Transport, Tempo, Track and 
 
 - Replaces the performance visualization with a 4x4 view of the active track's current 16-step Pattern. Empty, filled, selected and playing states remain distinguishable; playback does not hide the event state.
 - Keeps columns 1-8 as the live performance/note-value area and columns 9-12 as physical step keys. A visible cell is feedback for that same physical step, not a remapped input surface.
-- Keeps the grid visible during NOTE, LEN, VEL and STEP edits. Compact details show the held step or selection, note names/scope and values or `MIXED`; releasing all steps returns to the grid overview.
+- Keeps the grid visible during NOTE, LEN, VEL and TIME edits. Compact details show the held step or selection, note names/scope and values or `MIXED`; ending the edit returns to the grid overview.
 - Pressing `+` and `-` together switches back to the performance view, ending a held-step edit if necessary while preserving sequence playback and keyboard settings. Physical HOME during an edit only cancels it and keeps the grid selected; HOME on neutral grid Home switches views. Context/Pattern exits preserve the current view; `SYS > SEQ > KEYS` explicitly switches back.
 - This is a persistent Home presentation within the current UI session. It adds neither Song/Chain arrangement nor a Project v1 field.
 
 #### Home Step Edit Layer
 
-- Step editing is a temporary layer while one or more steps are held, available in either Home view. The underlying Sequencer grid view itself remains selected after release.
-- Left bar becomes the current note scope (`ALL` or `#/N`), `LEN`, `VEL`, `STEP`.
+- Step editing is available while physical steps are held in either Home view, or while a single tapped grid step stays selected. The underlying Sequencer grid view itself remains selected after release.
+- Left bar becomes `NOTE` (or `#/N` for an individual chord tone), `LEN`, `VEL`, `TIME`.
 - The left bar, LEDs and screen make the active lane and held steps clear. In grid view, the 4x4 grid stays visible with compact edit details.
-- It should be safe to release the step at any time; releasing all steps returns to the selected Home view.
+- Releasing a momentary edit returns to the selected Home view. A standalone grid tap remains selected until the user taps it again, selects a different step, cancels with HOME, or changes track/pattern.
 
 #### `SYS > SEQ` Root
 

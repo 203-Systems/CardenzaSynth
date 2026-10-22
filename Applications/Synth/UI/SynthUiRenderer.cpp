@@ -71,10 +71,9 @@ void DrawHomeContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSna
   }
 
   const ui::Rect body = InsetRect(rect, kHomeContentPadding, 0);
-  // The content spans the side bars' height, so the Loop Bar lines up with the bottom side key's edge.
-  const ui::Rect bottomKey = BarTileRect(rect, 1, kContextMenuRows - 1, 0);
+  // Keep the progress strip below the taller body labels.
   DrawLoopBar(canvas,
-              MakeRect(body.x, bottomKey.y + bottomKey.height - kLoopBarHeight - kLoopBarLift, body.width, kLoopBarHeight),
+              MakeRect(body.x, canvas.Height() - kLoopBarHeight, body.width, kLoopBarHeight),
               snapshot.sequencer.patternCount,
               snapshot.sequencer.activePattern,
               snapshot.sequencer.patternProgress,
@@ -100,6 +99,8 @@ void DrawHomeContent(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSna
   const int heldScale = FitScale(canvas, held, body.width, 2);
   DrawMarqueeTextInRect(canvas, MakeRect(body.x, rect.y + 74, body.width, InkHeight(heldScale)), held, FadeColor(kAccent, alpha),
                         heldScale, ui::TextAlign::Center);
+  if (held.empty())
+    DrawInk(canvas, body.x, rect.y + 94, "HOME: SEQUENCER", FadeColor(kDim, alpha));
 }
 
 // ---------------------------------------------------------------- Sampler
@@ -215,7 +216,7 @@ void DrawSamplerRecordPage(ui::Canvas& canvas, const ui::Rect& rect, const UiScr
   const int top = DrawPageHeader(canvas, rect, recording ? "RECORDING" : "RECORD", recording ? limit : std::string{},
                                  recording ? kDanger : kAccent, kDim, alpha);
   DrawInk(canvas, rect.x, top + 2, recording ? FormatSamplerSeconds(elapsed, true) : std::string{"0.0S"},
-          FadeColor(recording ? kDanger : kRule, alpha), 4);
+          FadeColor(recording ? kDanger : kDim, alpha), 4);
   if (recording)
   {
     DrawSamplerWaveform(canvas, MakeRect(rect.x, top + 32, rect.width, 36), snapshot, false, alpha);
@@ -223,7 +224,8 @@ void DrawSamplerRecordPage(ui::Canvas& canvas, const ui::Rect& rect, const UiScr
     return;
   }
   DrawInk(canvas, rect.x, top + 44, "INPUT", FadeColor(kDim, alpha), 1);
-  DrawMeter(canvas, MakeRect(rect.x + 36, top + 45, rect.width - 36, 5), snapshot.samplerInputLevel, kPlayback, alpha);
+  const int inputWidth = InkWidth(canvas, "INPUT", 1) + 6;
+  DrawMeter(canvas, MakeRect(rect.x + inputWidth, top + 46, rect.width - inputWidth, 5), snapshot.samplerInputLevel, kPlayback, alpha);
 }
 
 void DrawSamplerPage(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSnapshot& snapshot, float alpha)
@@ -249,14 +251,16 @@ void DrawSamplerPage(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSna
                                        snapshot.samplerSampleRate);
     const int top = DrawPageHeader(canvas, rect, "TRIM", FormatSamplerSeconds(kept, true), kAccent, kDim, alpha);
     DrawSamplerWaveform(canvas, MakeRect(rect.x, top + 4, rect.width, 64), snapshot, true, alpha);
-    const int labelTop = top + 76;
-    DrawInk(canvas, rect.x, labelTop, "START", FadeColor(kDim, alpha));
-    DrawInk(canvas, rect.x + 34, labelTop, FormatSamplerSeconds(FramesToSeconds(snapshot.samplerTrimStartFrame, snapshot.samplerSampleRate), true),
-            FadeColor(kText, alpha));
+    const int labelTop = top + 72;
+    const int columnWidth = (rect.width - 6) / 2;
+    const std::string start = FormatSamplerSeconds(FramesToSeconds(snapshot.samplerTrimStartFrame, snapshot.samplerSampleRate), true);
     const std::string end = FormatSamplerSeconds(FramesToSeconds(snapshot.samplerTrimEndFrame, snapshot.samplerSampleRate), true);
-    const int endX = rect.x + rect.width - InkWidth(canvas, end, 1);
-    DrawInk(canvas, endX - 28, labelTop, "END", FadeColor(kDim, alpha));
-    DrawInk(canvas, endX, labelTop, end, FadeColor(kText, alpha));
+    const int endX = rect.x + columnWidth + 6;
+    DrawInk(canvas, rect.x, labelTop, "START", FadeColor(kDim, alpha));
+    DrawInk(canvas, endX, labelTop, "END", FadeColor(kDim, alpha));
+    const int scale = std::min(FitScale(canvas, start, columnWidth, 2), FitScale(canvas, end, columnWidth, 2));
+    DrawInk(canvas, rect.x, labelTop + 12, TruncateText(canvas, start, columnWidth, scale), FadeColor(kText, alpha), scale);
+    DrawInk(canvas, endX, labelTop + 12, TruncateText(canvas, end, columnWidth, scale), FadeColor(kText, alpha), scale);
     return;
   }
 
@@ -277,8 +281,9 @@ void DrawSamplerPage(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSna
   const int factsTop = top + 76;
   const std::string root = NoteName(snapshot.samplerRoot);
   DrawInk(canvas, rect.x, factsTop, "ROOT", FadeColor(kDim, alpha));
-  DrawInk(canvas, rect.x + 30, factsTop, root, FadeColor(kText, alpha));
-  DrawInk(canvas, rect.x + 30 + InkWidth(canvas, root, 1) + 12, factsTop, snapshot.samplerLoop != 0 ? "LOOP" : "ONE SHOT",
+  const int rootX = rect.x + InkWidth(canvas, "ROOT", 1) + 6;
+  DrawInk(canvas, rootX, factsTop, root, FadeColor(kText, alpha));
+  DrawInk(canvas, rootX + InkWidth(canvas, root, 1) + 8, factsTop, snapshot.samplerLoop != 0 ? "LOOP" : "ONE SHOT",
           FadeColor(kText, alpha));
 }
 
@@ -304,7 +309,7 @@ void DrawDrumPadsPage(ui::Canvas& canvas, const ui::Rect& rect, const UiScreenSn
 {
   const int top = DrawPageHeader(canvas, rect, snapshot.title, snapshot.meta, kAccent, kDim, alpha);
   DrawDrumsPads(canvas, rect.x, top + 8, 34, ActiveKeys{}, alpha);
-  DrawInk(canvas, rect.x, top + 54, "COLUMNS 1-8 ON EVERY ROW", FadeColor(kDim, alpha));
+  DrawInk(canvas, rect.x, top + 54, "PADS 1-8", FadeColor(kDim, alpha));
 }
 
 // ---------------------------------------------------------------- Shared templates

@@ -321,7 +321,7 @@ bool KeyboardDriver::handleTimerTickFromIsr()
     if (next_row == 0)
     {
         _pwm_phase = static_cast<uint8_t>((_pwm_phase + 1) % detail::kLedPwmPhaseCount);
-        if (_pwm_phase == 0)
+        if (detail::NotifyKeysAtPhase(_pwm_phase))
         {
             vTaskNotifyGiveFromISR(_scan_task_handle, &high_task_woken);
         }

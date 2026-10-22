@@ -9,6 +9,7 @@
 #include <freertos/task.h>
 
 #include "../layout.h"
+#include "led_pwm.h"
 
 namespace CardenzaHAL::Keyboard {
 
@@ -38,7 +39,7 @@ class KeyboardDriver
     bool _scan_led_enabled;
     uint8_t _led_level[4][14];
     uint8_t _scan_led_level[4][14];
-    uint8_t _scan_led_col_mask[4][8];
+    uint8_t _scan_led_col_mask[detail::kLedPwmPhaseCount][8];
     uint8_t _scan_led_shifted_columns;
     uint8_t _global_brightness;
     uint8_t _scan_global_brightness;
@@ -109,6 +110,7 @@ class KeyboardDriver
     uint8_t isPressed() const { return static_cast<uint8_t>(_key_list_buffer.size()); }
 
     bool enableLED(bool enabled);
+    void setLEDFrame(const LedFrame& levels, uint8_t globalBrightness, bool enabled);
     void setLED(Point2D_t pos, uint8_t brightness);
     void clearAllLEDs();
     void setAllLEDs(uint8_t brightness);

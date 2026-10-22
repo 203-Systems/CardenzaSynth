@@ -19,7 +19,8 @@ namespace {
 
 esp_lcd_panel_handle_t panel = nullptr;
 esp_lcd_panel_io_handle_t panelIo = nullptr;
-uint8_t brightness = 255;
+// The light UI needs less backlight than the original dark theme.
+uint8_t brightness = 180;
 
 constexpr spi_host_device_t kDisplaySpiHost = SPI3_HOST;
 constexpr ledc_mode_t kBacklightSpeedMode = LEDC_LOW_SPEED_MODE;

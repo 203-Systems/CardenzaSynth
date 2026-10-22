@@ -642,6 +642,16 @@ bool SynthSequencer::StepHasEvents(std::size_t stepIndex) const
   return ActiveNoteCount(ActivePatternLocked(tracks_[activeTrack_]).steps[stepIndex]) > 0;
 }
 
+std::uint8_t SynthSequencer::SelectedNoteVelocity(std::uint8_t pitch) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  const StepData* step = PrimaryHeldStepLocked();
+  if (step != nullptr)
+    for (const NoteEvent& note : step->notes)
+      if (note.active && note.note == pitch) return note.velocity;
+  return 0;
+}
+
 void SynthSequencer::QuantizeStep(std::size_t stepIndex)
 {
   if (stepIndex >= kSequencerStepCount)
@@ -745,10 +755,13 @@ bool SynthSequencer::PressEditLane(std::size_t row)
     switch (row)
     {
       case 0:
+      {
+        const bool alreadyNoteLane = editLane_ == SequencerEditLane::Note;
         editLane_ = SequencerEditLane::Note;
-        CycleNoteScopeLocked();
+        if (alreadyNoteLane) CycleNoteScopeLocked();
         AuditionScopedNoteLocked(events, eventCount);
         break;
+      }
       case 1:
         editLane_ = SequencerEditLane::Length;
         NormalizeScopeLocked();
@@ -846,6 +859,7 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
   std::lock_guard<std::mutex> lock(mutex_);
   SequencerUiState state;
   state.visible = true;
+  state.activeTrack = activeTrack;
   state.playing = playing_;
   state.bpm = bpm_;
   state.currentStep = playbackStep_;
@@ -889,6 +903,11 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
         if (note.active)
         {
           ++cell.noteCount;
+          // Includes every editable value so UI feedback also catches chord,
+          // length and timing changes without retaining a second pattern copy.
+          cell.contentFingerprint = cell.contentFingerprint * 16777619u ^
+              (static_cast<std::uint32_t>(note.note) | (static_cast<std::uint32_t>(note.velocity) << 7) |
+               (static_cast<std::uint32_t>(note.lengthPulses) << 14) | (static_cast<std::uint32_t>(note.microstep) << 25));
           if (cell.lowestNote < 0 || note.note < cell.lowestNote) cell.lowestNote = note.note;
         }
     cell.hasEvents = cell.noteCount > 0;
@@ -1585,6 +1604,13 @@ void SynthSequencer::PopulateEditValueStateLocked(SequencerUiState& state, const
       }
     }
   }
+  NoteEvent defaults;
+  if (note == nullptr && step != nullptr && activeTrack_ < tracks_.size() && editLane_ != SequencerEditLane::Micro)
+  {
+    defaults.lengthPulses = tracks_[activeTrack_].defaultLengthPulses;
+    defaults.velocity = tracks_[activeTrack_].defaultVelocity;
+    note = &defaults;
+  }
 
   switch (editLane_)
   {
@@ -1622,7 +1648,7 @@ void SynthSequencer::PopulateEditValueStateLocked(SequencerUiState& state, const
       }
       break;
     case SequencerEditLane::Micro:
-      state.editValueCount = kSequencerMicrostepCount;
+      state.editValueCount = note != nullptr ? kSequencerMicrostepCount : 0;
       state.editValueIndex = note != nullptr ? std::min<std::size_t>(note->microstep, kSequencerMicrostepCount - 1) : 0;
       break;
     case SequencerEditLane::Note:
@@ -1661,6 +1687,14 @@ std::string SynthSequencer::ValueLabelLocked(const StepData* step) const
 {
   if (step == nullptr || ActiveNoteCount(*step) == 0)
   {
+    if (step != nullptr && activeTrack_ < tracks_.size())
+    {
+      if (editLane_ == SequencerEditLane::Length)
+        return "NEW LEN " + std::to_string(tracks_[activeTrack_].defaultLengthPulses / kSequencerPulsesPerStep);
+      if (editLane_ == SequencerEditLane::Velocity)
+        return "NEW VEL " + std::to_string(tracks_[activeTrack_].defaultVelocity);
+      if (editLane_ == SequencerEditLane::Micro) return "ADD NOTES FIRST";
+    }
     return SequencerEditLaneLabel(editLane_);
   }
 
@@ -1698,7 +1732,7 @@ std::string SynthSequencer::ValueLabelLocked(const StepData* step) const
     case SequencerEditLane::Velocity:
       return "VEL " + std::to_string(note->velocity);
     case SequencerEditLane::Micro:
-      return "STEP " + std::to_string(note->microstep + 1);
+      return "TIME " + std::to_string(note->microstep + 1);
     default:
       return "SEQ";
   }

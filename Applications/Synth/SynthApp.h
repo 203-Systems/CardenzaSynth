@@ -57,6 +57,7 @@ private:
   void MarkSequencerShiftEvent();
   void ClearSequencerCopySource();
   void ClearSequencerHomeGesture();
+  void CancelStepTap();
   bool HandleSequencerShiftPress(std::size_t row, std::size_t col);
   bool HandleSequencerShiftRelease(std::size_t row, std::size_t col);
   bool HandleSequencerShiftActionPress(std::size_t row);
@@ -65,7 +66,7 @@ private:
   bool HandleSequencerPatternSelectorRelease(std::size_t row, std::size_t col);
   bool HandleSequencerPress(std::size_t row, std::size_t col);
   bool HandleSequencerRelease(std::size_t row, std::size_t col);
-  void PressPerformanceKey(std::size_t row, std::size_t col);
+  void PressPerformanceKey(std::size_t row, std::size_t col, std::uint8_t velocity = 110);
   void ReleasePerformanceKey(std::size_t row, std::size_t col);
   static void SendSequencerMidi(void* context, std::size_t trackIndex, const midi::MidiPacket& packet);
 
@@ -89,6 +90,14 @@ private:
   std::array<bool, synth::kSequencerMaxPatternCount> sequencerPatternPressed_{};
   bool sequencerShiftEventOccurred_ = false;
   bool sequencerViewChordActive_ = false;
+  // The grid supports one-handed editing. The runtime holds the selection;
+  // these fields distinguish a latched selection from physically held keys.
+  std::size_t sequencerSelectedStep_ = synth::kSequencerStepCount;
+  std::size_t sequencerSelectionTrack_ = 0;
+  std::size_t sequencerSelectionPattern_ = 0;
+  std::array<bool, synth::kSequencerStepCount> sequencerStepKeys_{};
+  std::size_t sequencerTapStep_ = synth::kSequencerStepCount;
+  std::chrono::steady_clock::time_point sequencerStepPressedAt_{};
   SequencerCopySource sequencerCopySource_{};
   std::array<std::array<bool, synth::kKeyboardMatrixRows * synth::kKeyboardMatrixColumns>, synth::kSynthTrackCount> activeKeys_{};
   std::array<std::array<std::uint8_t, synth::kKeyboardMatrixRows * synth::kKeyboardMatrixColumns>, synth::kSynthTrackCount> activeNotes_{};

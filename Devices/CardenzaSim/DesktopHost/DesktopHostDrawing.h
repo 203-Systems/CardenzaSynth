@@ -8,18 +8,18 @@
 
 namespace CardenzaSim::DesktopHost {
 
-inline const COLORREF kBackgroundColor = RGB(8, 10, 12);
-inline const COLORREF kScreenColor = RGB(4, 6, 8);
-inline const COLORREF kPanelEdgeColor = RGB(60, 65, 70);
-inline const COLORREF kScreenGlowColor = RGB(0, 220, 240);
-inline const COLORREF kScreenDimColor = RGB(145, 150, 155);
-inline const COLORREF kTextColor = RGB(235, 235, 235);
-inline const COLORREF kKeyColor = RGB(20, 24, 28);
-inline const COLORREF kKeyActiveColor = RGB(236, 244, 250);
-inline const COLORREF kLedOffColor = RGB(30, 32, 36);
-inline const COLORREF kLedOnColor = RGB(0, 220, 240);
-inline const COLORREF kModifierColor = RGB(18, 28, 34);
-inline const COLORREF kModifierActiveColor = RGB(0, 88, 102);
+inline const COLORREF kBackgroundColor = RGB(238, 234, 230);
+inline const COLORREF kScreenColor = RGB(238, 234, 230);
+inline const COLORREF kPanelEdgeColor = RGB(131, 145, 148);
+inline const COLORREF kScreenGlowColor = RGB(0, 104, 124);
+inline const COLORREF kScreenDimColor = RGB(65, 80, 82);
+inline const COLORREF kTextColor = RGB(24, 32, 32);
+inline const COLORREF kKeyColor = RGB(222, 222, 222);
+inline const COLORREF kKeyActiveColor = RGB(189, 218, 213);
+inline const COLORREF kLedOffColor = RGB(131, 145, 148);
+inline const COLORREF kLedOnColor = RGB(0, 104, 124);
+inline const COLORREF kModifierColor = RGB(205, 210, 205);
+inline const COLORREF kModifierActiveColor = RGB(189, 218, 213);
 
 COLORREF BlendLedColor(std::uint8_t brightness, std::uint8_t globalBrightness);
 void FillRectColor(HDC dc, const RECT& rect, COLORREF color);
