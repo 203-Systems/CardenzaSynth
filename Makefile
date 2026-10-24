@@ -2,6 +2,7 @@ DEVICE ?= Cardenza
 IDF_TARGET ?= esp32s3
 PORT ?=
 AMY_MULTICORE ?= 0
+REMOTE ?= macbook
 
 ifeq ($(DEVICE),Cardenza)
 BUILD := build/Cardenza
@@ -36,7 +37,7 @@ else
 CARDENZA_IDF_ARGS += -DCARDENZA_AMY_EXPERIMENTAL_MULTICORE=OFF
 endif
 
-.PHONY: all build run set-target flash bootloader-flash app-flash erase monitor flash-monitor clean fullclean validate-architecture firmware firmware-target host cardenza cardenza-firmware cardenza-flash cardenza-monitor cardenza-flash-monitor cardenza-host cardenza-clean cardenza-fullclean
+.PHONY: all build run set-target flash remote-flash bootloader-flash app-flash erase monitor flash-monitor clean fullclean validate-architecture firmware firmware-target host cardenza cardenza-firmware cardenza-flash cardenza-monitor cardenza-flash-monitor cardenza-host cardenza-clean cardenza-fullclean
 
 all: build
 
@@ -77,6 +78,14 @@ ifeq ($(DEVICE),Cardenza)
 	$(call RUN_IDF,$(CARDENZA_IDF_ARGS) $(IDF_PORT_ARG) flash monitor)
 else
 	@echo flash-monitor is only supported for DEVICE=Cardenza
+	@exit 1
+endif
+
+remote-flash: build
+ifeq ($(DEVICE),Cardenza)
+	REMOTE='$(REMOTE)' tools/remote-flash/push.sh
+else
+	@echo remote-flash is only supported for DEVICE=Cardenza
 	@exit 1
 endif
 
