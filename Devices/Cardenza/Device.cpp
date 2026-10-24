@@ -157,6 +157,15 @@ void Present() {
   (void)xSemaphoreTake(framePresentDone, pdMS_TO_TICKS(1000));
 }
 
+void SetBacklight(std::uint8_t level) {
+  // The HAL caches the level and applies it when the backlight PWM starts.
+  (void)CardenzaHAL::Display::SetBrightness(level);
+}
+
+std::uint8_t Backlight() {
+  return CardenzaHAL::Display::GetBrightness();
+}
+
 }  // namespace Display
 
 namespace Keyboard {

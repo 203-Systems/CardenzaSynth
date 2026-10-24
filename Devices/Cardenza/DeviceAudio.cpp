@@ -270,6 +270,17 @@ void AudioInputTask(void*)
 
 namespace Device::Audio {
 
+void SetOutputVolume(std::uint8_t percent)
+{
+  // Cached by the HAL (codec register) and also applied to every rendered block by AudioRenderTask.
+  (void)CardenzaHAL::Audio::SetVolume((std::min)(percent, std::uint8_t{100}));
+}
+
+std::uint8_t OutputVolume()
+{
+  return CardenzaHAL::Audio::GetVolume();
+}
+
 InputStreamInfo InputInfo()
 {
   return InputStreamInfo{kDefaultInputSampleRate, kInputChannels, kInputBitsPerSample};

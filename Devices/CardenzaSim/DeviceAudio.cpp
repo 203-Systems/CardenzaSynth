@@ -2,6 +2,7 @@
 #include "Devices/DeviceAudio.h"
 
 #include <algorithm>
+#include <atomic>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -22,6 +23,7 @@ device::SynthAudioRenderProvider g_audioProvider{};
 std::mutex g_audioProviderMutex;
 bool g_audioInputEnabled = false;
 Device::Audio::InputStreamInfo g_inputStreamInfo{};
+std::atomic<std::uint8_t> g_outputVolume{Device::Audio::kDefaultOutputVolume};
 
 device::SynthAudioRenderProvider CurrentAudioProvider()
 {
@@ -47,6 +49,22 @@ constexpr std::size_t kWaveBufferFrameCount = 512;
 constexpr std::size_t kWaveInputMaxChannels = 2;
 constexpr std::size_t kWaveBufferCount = 4;
 std::mutex g_waveInCaptureMutex;
+
+// Same integer scaling as the firmware output task; 100% leaves the samples untouched.
+void ApplyOutputVolume(std::int16_t* samples, std::size_t sampleCount)
+{
+  const std::int32_t volume = g_outputVolume.load(std::memory_order_relaxed);
+  if (volume >= 100)
+  {
+    return;
+  }
+
+  const std::int32_t gain = (volume * 32768 + 50) / 100;
+  for (std::size_t index = 0; index < sampleCount; ++index)
+  {
+    samples[index] = static_cast<std::int16_t>((static_cast<std::int32_t>(samples[index]) * gain) / 32768);
+  }
+}
 
 class WaveOutPump {
 public:
@@ -111,6 +129,7 @@ private:
   void RefillBuffer(std::size_t index)
   {
     RenderSynthFrames(buffers_[index].data(), buffers_[index].size());
+    ApplyOutputVolume(buffers_[index].data(), buffers_[index].size());
     headers_[index].dwFlags &= ~WHDR_DONE;
     headers_[index].dwBufferLength = static_cast<DWORD>(buffers_[index].size() * sizeof(std::int16_t));
   }
@@ -487,6 +506,17 @@ Device::Audio::InputStatus ReadWaveInFrames(std::int16_t*,
 }  // namespace
 
 namespace Device::Audio {
+
+void SetOutputVolume(std::uint8_t percent)
+{
+  // Linux builds have no audio output; the value is still kept for the UI and project settings.
+  g_outputVolume.store((std::min)(percent, std::uint8_t{100}), std::memory_order_relaxed);
+}
+
+std::uint8_t OutputVolume()
+{
+  return g_outputVolume.load(std::memory_order_relaxed);
+}
 
 InputStreamInfo InputInfo()
 {

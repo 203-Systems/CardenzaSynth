@@ -50,6 +50,8 @@ protected:
   };
 
   void RegisterParameter(const SynthParameterInfo& parameter);
+  // The track effect parameters every engine carries (see Library/Synth/Audio/SynthFx.h).
+  void RegisterTrackFxParameters();
   void RegisterPreset(const std::string& presetId,
                       const std::string& presetName,
                       const std::map<std::string, int>& values,

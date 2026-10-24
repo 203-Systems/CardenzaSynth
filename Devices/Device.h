@@ -39,6 +39,14 @@ MutableFrameBufferView MutableFrameBuffer();
 void Clear(Pixel color = 0);
 void Present();
 
+// Power-on level of the firmware HAL's backlight PWM (the light UI needs less than full).
+inline constexpr std::uint8_t kDefaultBacklight = 180;
+
+// Backlight PWM level, 0 (off) .. 255 (full). Takes effect immediately, or when the display
+// starts if it has not been initialized yet.
+void SetBacklight(std::uint8_t level);
+std::uint8_t Backlight();
+
 }  // namespace Display
 
 namespace Keyboard {
@@ -107,6 +115,13 @@ enum class InputStatus {
   InvalidArgument,
   Overflow,
 };
+
+inline constexpr std::uint8_t kDefaultOutputVolume = 100;
+
+// Master output volume in percent; values above 100 are clamped. The device output stage applies
+// it after the synth mix, so it never changes what the synth renders.
+void SetOutputVolume(std::uint8_t percent);
+std::uint8_t OutputVolume();
 
 InputStreamInfo InputInfo();
 InputStatus StartInput();

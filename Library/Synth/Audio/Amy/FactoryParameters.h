@@ -14,6 +14,8 @@ inline int Dx7Offset(std::string_view id)
   if (id == "global.lfo_speed") return 137;
   if (id == "global.lfo_pitch") return 139;
   if (id == "global.lfo_amp") return 140;
+  if (id == "global.lfo_wave") return 142;
+  if (id == "global.lfo_pms") return 143;
   if (id == "global.transpose") return 144;
   if (id.size() < 5 || id[0] != 'o' || id[1] != 'p' || id[2] < '1' || id[2] > '6' || id[3] != '.') return -1;
   const int base = (6 - (id[2] - '0')) * 21;
@@ -22,10 +24,16 @@ inline int Dx7Offset(std::string_view id)
   if (field == "coarse") return base + 18;
   if (field == "fine") return base + 19;
   if (field == "detune") return base + 20;
+  if (field == "mode") return base + 17;
+  // Envelope: rates R1..R4 and levels L1..L4. R1, R2, L3 and R4 keep their original ids.
   if (field == "attack") return base;
   if (field == "decay") return base + 1;
-  if (field == "sustain") return base + 6;
+  if (field == "rate3") return base + 2;
   if (field == "release") return base + 3;
+  if (field == "level1") return base + 4;
+  if (field == "level2") return base + 5;
+  if (field == "sustain") return base + 6;
+  if (field == "level4") return base + 7;
   if (field == "amp_mod") return base + 14;
   return -1;
 }
@@ -57,6 +65,12 @@ inline int JunoValue(const std::uint8_t* data, std::string_view id)
   const int offset = JunoOffset(id);
   if (offset >= 0) return data[offset];
   if (id == "dco.saw") return (data[16] & 16) != 0;
+  if (id == "dco.pulse") return (data[16] & 8) != 0;
+  if (id == "dco.pwm_mode") return data[17] & 1;
+  if (id == "vcf.polarity") return (data[17] & 2) != 0;
+  if (id == "vca.mode") return (data[17] & 4) != 0;
+  // Juno-106 chorus bits (byte 16 >> 5) as fx.chorus modes, following amy/juno.py: 0 = II, 2 = I, else off.
+  if (id == "fx.chorus") { constexpr int kModes[] = {2, 0, 1, 0}; return kModes[(data[16] >> 5) & 3]; }
   if (id == "dco.range") return (data[16] & 1) ? 0 : ((data[16] & 4) ? 2 : 1);
   return 0;
 }

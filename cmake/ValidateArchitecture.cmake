@@ -64,8 +64,9 @@ cardenza_require_file("Devices/Cardenza/cardenza/keyboard/internal/keyboard_led_
 cardenza_require_file("Devices/CardenzaSim/DesktopHost/DesktopSimulatorInput.cpp")
 cardenza_require_file("Devices/CardenzaSim/DesktopHost/DesktopSimulatorRender.cpp")
 cardenza_require_file("Applications/Synth/Runtime/SynthRack.cpp")
-cardenza_require_file("Applications/Synth/UI/SynthUiModel.cpp")
-cardenza_require_file("Applications/Synth/UI/Render/SynthUiRenderPrimitives.cpp")
+cardenza_require_file("Applications/Synth/GrooveApp.cpp")
+cardenza_require_file("Applications/Synth/UI/Groove/GrooveController.cpp")
+cardenza_require_file("Applications/Synth/UI/Groove/Render/Gfx.cpp")
 cardenza_require_file("Library/third_party/amy/src/amy.c")
 
 cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "keyboard/internal/keyboard_key_scan.cpp")
@@ -73,7 +74,8 @@ cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "keyboard/internal/
 cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "DesktopHost/DesktopSimulatorInput.cpp")
 cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "DesktopHost/DesktopSimulatorRender.cpp")
 cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "Applications/Synth/Runtime/SynthRack.cpp")
-cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "Applications/Synth/UI/SynthUiModel.cpp")
+cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "Applications/Synth/UI/Groove/GrooveController.cpp")
+cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "Applications/Synth/GrooveApp.cpp")
 cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "Library/third_party/amy/src")
 cardenza_require_text(".gitmodules" "path = Library/third_party/amy")
 cardenza_require_text("Library/Synth/CMakeLists.txt" "Library/third_party/amy/src")
@@ -83,9 +85,30 @@ cardenza_forbid_text("Devices/CardenzaSim/DesktopHost.cpp" "PressMatrixKey")
 cardenza_forbid_text("Devices/CardenzaSim/DesktopHost.cpp" "ReleaseMatrixKey")
 cardenza_forbid_text("Devices/CardenzaSim/DesktopHost/DesktopSimulatorInput.cpp" "SynthApp")
 
+# The headless screenshot runner is portable and drives the system only through the device facade.
+cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "Headless/HeadlessShot.cpp")
+foreach(relative_path
+        "Devices/CardenzaSim/Headless/HeadlessScript.cpp"
+        "Devices/CardenzaSim/Headless/HeadlessShot.cpp"
+        "Devices/CardenzaSim/Headless/PngWriter.cpp")
+    cardenza_forbid_text("${relative_path}" "windows.h")
+    cardenza_forbid_text("${relative_path}" "Windows.h")
+    cardenza_forbid_text("${relative_path}" "Applications/Synth")
+endforeach()
+
 file(READ "${CARDENZA_ROOT}/Devices/Cardenza/CMakeLists.txt" cardenza_cmake)
 if(cardenza_cmake MATCHES "add_subdirectory\\(cardenza\\)")
     message(FATAL_ERROR "Cardenza root CMake path must not expose the ESP-IDF HAL as a host subdirectory")
 endif()
 
 message(STATUS "CardenzaSynth architecture guardrails passed")
+
+# The groovebox UI is portable: it reaches the runtime only through groove::Host and draws only
+# into the framebuffer, so it builds unchanged for the simulator, tests and firmware.
+file(GLOB_RECURSE cardenza_groove_ui_sources RELATIVE "${CARDENZA_ROOT}"
+     "${CARDENZA_ROOT}/Applications/Synth/UI/Groove/*.cpp" "${CARDENZA_ROOT}/Applications/Synth/UI/Groove/*.h")
+foreach(relative_path ${cardenza_groove_ui_sources})
+    cardenza_forbid_text("${relative_path}" "freertos/")
+    cardenza_forbid_text("${relative_path}" "esp_")
+    cardenza_forbid_text("${relative_path}" "Devices/Cardenza/")
+endforeach()

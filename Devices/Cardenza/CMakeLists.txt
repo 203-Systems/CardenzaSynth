@@ -5,6 +5,9 @@ set(CARDENZA_FIRMWARE_BUILD_DIR "${CARDENZA_ROOT}/build/Cardenza")
 set(CARDENZA_IDF_PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(CARDENZA_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe")
 option(CARDENZA_AMY_EXPERIMENTAL_MULTICORE "Enable experimental AMY ESP32 multicore rendering" OFF)
+# The effects' per-sample kernels (Library/Synth/Audio/Fx) in IRAM instead of flash: no flash-cache
+# misses while AMY competes for the 16 KB instruction cache, at the cost of internal RAM.
+option(CARDENZA_FX_IRAM "Place the audio effects' per-sample kernels in IRAM" OFF)
 
 if(DEFINED COMPONENT_DIR)
     set(AMY_SRC_DIR ${CARDENZA_ROOT}/Library/third_party/amy/src)
@@ -48,6 +51,13 @@ if(DEFINED COMPONENT_DIR)
     if(CARDENZA_AMY_EXPERIMENTAL_MULTICORE)
         target_compile_definitions(${COMPONENT_LIB} PRIVATE CARDENZA_AMY_EXPERIMENTAL_MULTICORE=1)
     endif()
+    if(CARDENZA_FX_IRAM)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE CARDENZA_FX_IRAM=1)
+    endif()
+    cardenza_groove_ui_enabled(CARDENZA_GROOVE_UI_ENABLED)
+    if(CARDENZA_GROOVE_UI_ENABLED)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE CARDENZA_GROOVE_UI=1)
+    endif()
 
     target_compile_options(${COMPONENT_LIB} PRIVATE
         $<$<COMPILE_LANGUAGE:C>:-Wno-unused-parameter>
@@ -58,6 +68,9 @@ if(DEFINED COMPONENT_DIR)
         $<$<COMPILE_LANGUAGE:C>:-Wno-pointer-to-int-cast>
     )
 
+    # The effects DSP (cardenza_collect_synth_fx_cpp_sources) stays at the project's -O2: -O3 does
+    # not shorten its per-sample loops on the ESP32-S3, it only grows the code competing for the
+    # instruction cache.
     set(CARDENZA_AUDIO_HOT_SOURCES
         ${CARDENZA_ROOT}/Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp
         ${AMY_C_SOURCES}

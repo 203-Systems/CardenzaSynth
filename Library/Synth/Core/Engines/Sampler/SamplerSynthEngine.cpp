@@ -67,6 +67,7 @@ SamplerSynthEngine::SamplerSynthEngine()
   RegisterParameter({"filter.cutoff", "Cutoff", "Filter", SynthParameterKind::Continuous, 0, 127, 1, 96, 96});
   RegisterParameter({"filter.resonance", "Resonance", "Filter", SynthParameterKind::Continuous, 0, 127, 1, 18, 18});
   RegisterParameter({"amp.level", "Level", "Amp", SynthParameterKind::Continuous, 0, 127, 1, 96, 96});
+  RegisterTrackFxParameters();
 
   RegisterPreset("sampler.empty", "Empty Slot", SamplerPreset(0, 127, 0, 0, 60, 96, 96, 18, 18));
   RegisterPreset("sampler.oneshot", "One Shot", SamplerPreset(0, 112, 0, 0, 60, 104, 104, 12, 14));

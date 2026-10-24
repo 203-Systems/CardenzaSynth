@@ -6,7 +6,11 @@
 #include <windowsx.h>
 
 #include "Applications/Application.h"
+#if defined(CARDENZA_GROOVE_UI)
+#include "Applications/Synth/GrooveApp.h"
+#else
 #include "Applications/Synth/SynthApp.h"
+#endif
 #include "Devices/CardenzaSim/DesktopHost/DesktopSimulatorDebug.h"
 #include "OS/MIDI/MIDI.h"
 #include "OS/System/System.h"
@@ -28,7 +32,7 @@ bool DesktopSimulator::Initialize()
   }
 
   app::Application* application = os::system::ActiveApplication();
-  synthApp_ = dynamic_cast<apps::SynthApp*>(application);
+  synthApp_ = dynamic_cast<apps::SimulatedApp*>(application);
   if (synthApp_ == nullptr)
   {
     MessageBoxA(nullptr, "Synth application registry returned an unexpected type.", "CardenzaSimDesktop", MB_ICONERROR | MB_OK);

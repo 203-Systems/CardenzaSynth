@@ -1,6 +1,7 @@
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
 #include "Library/Synth/Core/Engines/Juno/JunoFactoryPresets.h"
 #include "Library/Synth/Audio/Amy/FactoryParameters.h"
+#include "Library/Synth/Audio/SynthFx.h"
 
 #include <algorithm>
 #include <string>
@@ -26,6 +27,13 @@ JunoSynthEngine::JunoSynthEngine()
   RegisterParameter({"env.release", "Release", "ENV", SynthParameterKind::Continuous, 0, 127, 1, 36, 36});
   RegisterParameter({"lfo.rate", "LFO Rate", "LFO", SynthParameterKind::Continuous, 0, 127, 1, 40, 40});
   RegisterParameter({"lfo.delay", "LFO Delay", "LFO", SynthParameterKind::Continuous, 0, 127, 1, 22, 22});
+  RegisterParameter({"dco.pulse", "Pulse", "DCO", SynthParameterKind::Toggle, 0, 1, 1, 1, 1});
+  RegisterParameter({"dco.pwm_mode", "PWM Mode", "DCO", SynthParameterKind::Choice, 0, 1, 1, 0, 0});
+  RegisterParameter({"dco.lfo", "DCO LFO", "DCO", SynthParameterKind::Continuous, 0, 127, 1, 0, 0});
+  RegisterParameter({"vcf.polarity", "Env Polarity", "VCF", SynthParameterKind::Choice, 0, 1, 1, 0, 0});
+  RegisterParameter({"vcf.keyboard", "Key Follow", "VCF", SynthParameterKind::Continuous, 0, 127, 1, 0, 0});
+  RegisterParameter({"vca.mode", "VCA Mode", "VCA", SynthParameterKind::Choice, 0, 1, 1, 0, 0});
+  RegisterTrackFxParameters();
 
   IndexFactoryPresets();
 
@@ -34,11 +42,9 @@ JunoSynthEngine::JunoSynthEngine()
 
 std::string JunoSynthEngine::FormatParameterValue(const SynthParameterInfo& parameter) const
 {
-  if (parameter.id == "chorus.mode")
-  {
-    static const char* kModes[] = {"OFF", "I", "II"};
-    return kModes[std::clamp(parameter.value, 0, 2)];
-  }
+  if (parameter.id == "dco.pwm_mode") return parameter.value == 0 ? "LFO" : "MAN";
+  if (parameter.id == "vcf.polarity") return parameter.value == 0 ? "POS" : "NEG";
+  if (parameter.id == "vca.mode") return parameter.value == 0 ? "ENV" : "GATE";
   if (parameter.id == "dco.range")
   {
     static const char* kRanges[] = {"16'", "8'", "4'"};
@@ -54,6 +60,8 @@ std::string JunoSynthEngine::FormatParameterValue(const SynthParameterInfo& para
 
 int JunoSynthEngine::FactoryParameterValue(const std::string& presetId, const SynthParameterInfo& parameter) const
 {
+  // The Juno patch carries its chorus; the other effects start at their defaults.
+  if (fx::IsTrackParameter(parameter.id) && parameter.id != "fx.chorus") return parameter.defaultValue;
   const auto* preset = FindJunoFactoryPreset(presetId);
   return preset ? factory::JunoValue(factory::kJuno[preset->patchNumber], parameter.id) : parameter.defaultValue;
 }

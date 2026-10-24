@@ -14,14 +14,15 @@
 - Do not start builds from the agent unless the user explicitly asks for one.
 - Prefer static validation such as `get_errors`, targeted searches, and diff inspection when editing the Cardenza HAL layer.
 
-## Sampler UI Rules
+## Groovebox UI Rules
 
-- Use `FILE` for sample file management. Put load/save/rename/delete entry points under `FILE`, not under a page titled `Sample`.
-- Expose `FILE` and `REC` directly on the sampler root, including loaded state. Do not hide recording behind an intermediate file-management page.
-- `FILE` should open the sample browser directly. Keep empty and loaded browser views on the same `1x4` load/search flow; do not add a loaded-only `EDIT` branch.
-- In the sample browser, typing should filter immediately, and the visible `BACK` action should switch to `DEL` while a search string is non-empty.
-- Do not add a dedicated `PLAY` action to the sampler file-management page. Preview belongs in context-specific flows like trim, not as a top-level file action.
-- Do not expose a dedicated sampler `TUNE` control in the UI. Performance pitch comes from the music keyboard; keep `ROOT` only as the sample's base note.
-- For `1x4` right-side layouts, put `DONE` / `YES` / `NEXT` / `START` / `SAVE` on the bottom slot and `BACK` / `RESET` on the slot above it when both are present.
-- For `2x4` right-side layouts, put `BACK` on the bottom-right by default. If there is also a `NEXT` / `YES` / `DONE` / `SAVE` style forward action, place that on the bottom-right and move `BACK` to the bottom-left.
-- Prefer `1x4` layouts when the action count is small and the page does not need a dense grid. Empty sampler entry and record-confirm pages should stay `1x4`.
+The spec is `docs/groovebox-design.md`; keep it in sync with behaviour changes.
+
+- Fixed key roles: left column ESC / TAB / FN / CTRL (no on-screen labels, only four colored dither strips), right column ADD / SUB / ENTER / PLAY, columns 1–8 always play the current track, columns 9–12 mirror the on-screen 4x4 cell grid.
+- Holding a left key turns the GRID into a map of what that key switches (ESC scenes by column, TAB tracks laid out like MIX, CTRL every page of the scene, FN functions); choices go on the GRID, not on the pads or number keys. Keep each scene at 16 pages or fewer so the CTRL map fits.
+- Colors carry meaning: ESC red-orange = scenes / back, TAB cyan = tracks, FN yellow = second functions, CTRL violet = pages, green = playing, red = recording / danger. Selection is terminal inverse (ink background, black text). Area fills use the 4x4 Bayer dither, not flat blocks.
+- Every new Fn shortcut must appear in `Controller::FnEntries()` (pads, right column) or `Controller::FnGridEntries()` (GRID) so the Fn map documents it.
+- Track effects are `fx.*` engine parameters registered by `PagedSynthEngine::RegisterTrackFxParameters()`; the master bus is `Host::MasterFx` (project data). Both are defined in `Library/Synth/Audio/SynthFx.h`.
+- Danger (overwrite, delete, discard) always confirms with ENTER = yes, ESC = no.
+- The UI must not include ESP-IDF headers or device HAL code (enforced by ValidateArchitecture); use `groove::Host`.
+- Check visual changes with `CardenzaSimShot` screenshots before flashing.

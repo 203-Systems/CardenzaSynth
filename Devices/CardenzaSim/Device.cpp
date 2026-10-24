@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <filesystem>
 #include <system_error>
 
@@ -21,6 +22,8 @@ Device::Keyboard::MatrixKeyState keyboardState{};
 bool homeButtonPressed = false;
 Device::LED::detail::LedFrameBuffer keyboardLedFrames;
 bool audioInputEnabled = false;
+// The simulator has no backlight; keep the level so settings round-trip like on hardware.
+std::atomic<std::uint8_t> backlightLevel{Device::Display::kDefaultBacklight};
 
 constexpr bool IsValidMatrixPosition(std::size_t row, std::size_t column) {
   return row < static_cast<std::size_t>(Device::LED::kRows) &&
@@ -93,6 +96,14 @@ void Clear(Pixel color) {
 }
 
 void Present() {}
+
+void SetBacklight(std::uint8_t level) {
+  backlightLevel.store(level, std::memory_order_relaxed);
+}
+
+std::uint8_t Backlight() {
+  return backlightLevel.load(std::memory_order_relaxed);
+}
 
 }  // namespace Display
 

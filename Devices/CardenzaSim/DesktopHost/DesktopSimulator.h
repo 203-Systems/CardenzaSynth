@@ -14,7 +14,13 @@
 #include "DesktopHostLayout.h"
 
 namespace apps {
+#if defined(CARDENZA_GROOVE_UI)
+class GrooveApp;
+using SimulatedApp = GrooveApp;
+#else
 class SynthApp;
+using SimulatedApp = SynthApp;
+#endif
 }
 
 namespace CardenzaSim::DesktopHost {
@@ -93,7 +99,7 @@ private:
   int capturedKey_ = -1;
   int dragMenuIndex_ = -1;
   ULONGLONG lastFrameTick_ = 0;
-  apps::SynthApp* synthApp_ = nullptr;
+  apps::SimulatedApp* synthApp_ = nullptr;
   DebugScriptOptions debugOptions_{};
   std::unique_ptr<DesktopDebugSession> debugSession_;
   std::array<KeyVisual, kKeyboardRows * kKeyboardColumns> keyboard_{};

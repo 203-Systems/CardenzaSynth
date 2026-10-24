@@ -1,7 +1,9 @@
 #include "Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.h"
 #include "Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.h"
 #include "Library/Synth/Audio/Amy/FactoryParameters.h"
+#include "Library/Synth/Audio/SynthFx.h"
 
+#include <algorithm>
 #include <cctype>
 #include <string>
 #include <string_view>
@@ -51,6 +53,8 @@ Dx7SynthEngine::Dx7SynthEngine()
   RegisterParameter({"global.lfo_pitch", "Pitch Mod", "Global", SynthParameterKind::Continuous, 0, 99, 1, 0, 0});
   RegisterParameter({"global.lfo_amp", "Amp Mod", "Global", SynthParameterKind::Continuous, 0, 99, 1, 20, 20});
   RegisterParameter({"global.transpose", "Transpose", "Global", SynthParameterKind::Continuous, -24, 24, 1, 0, 0});
+  RegisterParameter({"global.lfo_wave", "LFO Wave", "Global", SynthParameterKind::Choice, 0, 5, 1, 0, 0});
+  RegisterParameter({"global.lfo_pms", "Pitch Sens", "Global", SynthParameterKind::Continuous, 0, 7, 1, 3, 3});
 
   for (int op = 1; op <= 6; ++op)
   {
@@ -65,7 +69,13 @@ Dx7SynthEngine::Dx7SynthEngine()
     RegisterParameter({prefix + "sustain", "Level 3", group, SynthParameterKind::Continuous, 0, 99, 1, 65, 65});
     RegisterParameter({prefix + "release", "Rate 4", group, SynthParameterKind::Continuous, 0, 99, 1, 40, 40});
     RegisterParameter({prefix + "amp_mod", "Amp Mod", group, SynthParameterKind::Toggle, 0, 1, 1, 0, 0});
+    RegisterParameter({prefix + "mode", "Mode", group, SynthParameterKind::Choice, 0, 1, 1, 0, 0});
+    RegisterParameter({prefix + "rate3", "Rate 3", group, SynthParameterKind::Continuous, 0, 99, 1, 50, 50});
+    RegisterParameter({prefix + "level1", "Level 1", group, SynthParameterKind::Continuous, 0, 99, 1, 99, 99});
+    RegisterParameter({prefix + "level2", "Level 2", group, SynthParameterKind::Continuous, 0, 99, 1, 90, 90});
+    RegisterParameter({prefix + "level4", "Level 4", group, SynthParameterKind::Continuous, 0, 99, 1, 0, 0});
   }
+  RegisterTrackFxParameters();
 
   IndexFactoryPresets();
 
@@ -82,6 +92,26 @@ std::string Dx7SynthEngine::FormatParameterValue(const SynthParameterInfo& param
   {
     return parameter.value >= 0 ? "+" + std::to_string(parameter.value) : std::to_string(parameter.value);
   }
+  if (parameter.id == "global.lfo_wave")
+  {
+    static constexpr const char* kWaves[] = {"TRI", "SAW-", "SAW+", "SQR", "SIN", "S/H"};
+    return kWaves[std::clamp(parameter.value, 0, 5)];
+  }
+  if (parameter.id.size() > 4 && parameter.id.compare(parameter.id.size() - 5, 5, ".mode") == 0)
+  {
+    return parameter.value == 0 ? "RATIO" : "FIXED";
+  }
+  if (parameter.id.size() > 6 && parameter.id.compare(parameter.id.size() - 7, 7, ".coarse") == 0)
+  {
+    // Ratio mode multiplies the note frequency; fixed mode picks 1 / 10 / 100 / 1000 Hz.
+    const SynthParameterInfo* mode = FindParameter(parameter.id.substr(0, parameter.id.size() - 6) + "mode");
+    if (mode != nullptr && mode->value != 0)
+    {
+      static constexpr const char* kFixed[] = {"1HZ", "10HZ", "100HZ", "1KHZ"};
+      return kFixed[parameter.value & 3];
+    }
+    return parameter.value == 0 ? "x0.5" : "x" + std::to_string(parameter.value);
+  }
   if (parameter.id == "global.transpose")
   {
     return parameter.value >= 0 ? "+" + std::to_string(parameter.value) : std::to_string(parameter.value);
@@ -91,6 +121,7 @@ std::string Dx7SynthEngine::FormatParameterValue(const SynthParameterInfo& param
 
 int Dx7SynthEngine::FactoryParameterValue(const std::string& presetId, const SynthParameterInfo& parameter) const
 {
+  if (fx::IsTrackParameter(parameter.id)) return parameter.defaultValue;
   const auto* preset = FindDx7FactoryPreset(presetId);
   return preset ? factory::Dx7Value(factory::kDx7[preset->patchNumber - 128], parameter.id) : parameter.defaultValue;
 }

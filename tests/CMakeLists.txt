@@ -14,6 +14,8 @@ add_executable(CardenzaSamplerTests
 target_include_directories(CardenzaSamplerTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaSamplerTests COMMAND CardenzaSamplerTests)
 
+set(cardenza_ui_tests)
+if(NOT CARDENZA_GROOVE_UI)
 add_executable(CardenzaUiTests
   ui_workflow_test.cpp
   ${PROJECT_SOURCE_DIR}/OS/UI/Canvas.cpp
@@ -45,12 +47,36 @@ add_test(NAME CardenzaProjectTests COMMAND CardenzaProjectTests)
 add_executable(CardenzaSequencerRenderTests sequencer_render_test.cpp)
 target_link_libraries(CardenzaSequencerRenderTests PRIVATE CardenzaSystem CardenzaSimDevice)
 add_test(NAME CardenzaSequencerRenderTests COMMAND CardenzaSequencerRenderTests)
+set(cardenza_ui_tests CardenzaUiTests CardenzaProjectTests CardenzaSequencerRenderTests)
+endif()
+
+if(CARDENZA_GROOVE_UI)
+  add_executable(CardenzaGrooveUiTests groove_ui_test.cpp)
+  target_link_libraries(CardenzaGrooveUiTests PRIVATE CardenzaSystem CardenzaSimDevice)
+  add_test(NAME CardenzaGrooveUiTests COMMAND CardenzaGrooveUiTests)
+  list(APPEND cardenza_ui_tests CardenzaGrooveUiTests)
+endif()
 
 add_executable(CardenzaLedTests led_feedback_test.cpp)
 target_include_directories(CardenzaLedTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaLedTests COMMAND CardenzaLedTests)
 
-foreach(target CardenzaCoreTests CardenzaSamplerTests CardenzaUiTests CardenzaProjectTests CardenzaSequencerRenderTests CardenzaLedTests)
+# Headless screenshot runner: replay a real script against a scratch sdcard, and reject an
+# unknown key target with its line number.
+add_test(NAME CardenzaSimShotSmoke
+  COMMAND CardenzaSimShot --script ${CMAKE_CURRENT_SOURCE_DIR}/groove/tour.script
+          --out ${CMAKE_CURRENT_BINARY_DIR}/shot-smoke --root ${CMAKE_CURRENT_BINARY_DIR}/shot-smoke-root --scale 2
+)
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/shot-unknown-key.script "wait 1\ntap nosuchkey\n")
+add_test(NAME CardenzaSimShotRejectsUnknownKey
+  COMMAND CardenzaSimShot --script ${CMAKE_CURRENT_BINARY_DIR}/shot-unknown-key.script
+          --out ${CMAKE_CURRENT_BINARY_DIR}/shot-unknown-key
+)
+set_tests_properties(CardenzaSimShotRejectsUnknownKey PROPERTIES
+  PASS_REGULAR_EXPRESSION "shot-unknown-key\\.script:2: unknown key target 'nosuchkey'"
+)
+
+foreach(target CardenzaCoreTests CardenzaSamplerTests ${cardenza_ui_tests} CardenzaLedTests)
   if(MSVC)
     target_compile_options(${target} PRIVATE /UNDEBUG)
     target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)

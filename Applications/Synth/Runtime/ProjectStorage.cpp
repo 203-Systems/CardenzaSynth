@@ -20,6 +20,12 @@ namespace synth {
 namespace {
 
 constexpr std::size_t kMaxProjectBytes = 1024 * 1024;
+// Version 2 adds the mixer, the display backlight, swing and per-track step counts.
+// Version 3 adds the song arrangement (SONG and R lines after the sequencer tracks).
+// Version 4 adds the master effects (FX line after SYSTEM: a count, then one value per parameter).
+constexpr int kProjectVersion = 4;
+constexpr int kMinProjectVersion = 1;
+constexpr unsigned kMaxMixerLevel = 100;
 
 std::string ProjectPath(const std::string& name) {
   return Device::Storage::ProjectDirectoryPath() + "/" + name + ".ccproj";
@@ -49,8 +55,12 @@ bool IsProjectEngineKind(int kind) {
 bool ValidMetadata(const ProjectData& project) {
   if (!project.sequence || !SynthSequencer::ValidateState(*project.sequence) || project.activeTrack >= kSynthTrackCount ||
       project.octave < -3 || project.octave > 3 || project.root < 0 || project.root > 11 || project.scale >= 8 ||
-      project.layout < 0 || project.layout > 2 || project.ledBrightness < 0 || project.ledBrightness > 15) return false;
+      project.layout < 0 || project.layout > 2 || project.ledBrightness < 0 || project.ledBrightness > 15 ||
+      project.mixer.master > kMaxMixerLevel) return false;
+  for (std::size_t index = 0; index < fx::kMasterParamCount; ++index)
+    if (project.masterFx[index] < fx::kMasterParams[index].minValue || project.masterFx[index] > fx::kMasterParams[index].maxValue) return false;
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+    if (project.mixer.level[track] > kMaxMixerLevel) return false;
     const auto& state = project.engines[track];
     if (!IsProjectEngineKind(static_cast<int>(project.kinds[track])) ||
         state.basePresetId.empty() || !ValidText(state.basePresetId, 128) || !ValidText(state.presetId, 128) ||
@@ -133,8 +143,16 @@ ProjectResult SaveProjectFile(const std::string& name, const ProjectData& projec
   const std::string backup = path + ".bak";
   std::ofstream file(temporary, std::ios::trunc);
   if (!file) return ProjectResult::StorageError;
-  file << "CARDENZA_PROJECT 1\nBUILD CardenzaSynth 1\nUI " << project.activeTrack << ' ' << project.octave << ' '
+  file << "CARDENZA_PROJECT " << kProjectVersion << "\nBUILD CardenzaSynth 1\nUI " << project.activeTrack << ' ' << project.octave << ' '
        << project.root << ' ' << project.scale << ' ' << project.layout << ' ' << project.ledBrightness << '\n';
+  file << "MASTER " << static_cast<int>(project.mixer.master) << '\n';
+  for (std::size_t track = 0; track < kSynthTrackCount; ++track)
+    file << "MIX " << track << ' ' << static_cast<int>(project.mixer.level[track]) << ' ' << project.mixer.muted[track] << ' '
+         << project.mixer.soloed[track] << '\n';
+  file << "SYSTEM " << static_cast<int>(project.backlight) << '\n';
+  file << "FX " << project.masterFx.size();
+  for (const auto value : project.masterFx) file << ' ' << static_cast<int>(value);
+  file << '\n';
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
     const auto& state = project.engines[track];
     file << "TRACK " << track << ' ' << static_cast<int>(project.kinds[track]) << ' ' << std::quoted(state.basePresetId) << ' '
@@ -142,10 +160,10 @@ ProjectResult SaveProjectFile(const std::string& name, const ProjectData& projec
     file << "PARAM " << state.values.size() << '\n';
     for (const auto& parameter : state.values) file << std::quoted(parameter.first) << ' ' << parameter.second << '\n';
   }
-  file << "SEQ " << project.sequence->bpm << '\n';
+  file << "SEQ " << project.sequence->bpm << ' ' << static_cast<int>(project.sequence->swing) << '\n';
   for (const auto& track : project.sequence->tracks) {
     file << "T " << track.patternCount << ' ' << track.activePattern << ' ' << static_cast<int>(track.defaultVelocity) << ' '
-         << track.defaultLengthPulses << ' ' << track.enabled << ' ' << track.muted << '\n';
+         << track.defaultLengthPulses << ' ' << track.enabled << ' ' << track.muted << ' ' << track.stepCount << '\n';
     std::size_t count = 0;
     for (std::size_t p = 0; p < track.patternCount; ++p)
       for (const auto& step : track.patterns[p].steps) for (const auto& note : step.notes) count += note.active;
@@ -155,6 +173,14 @@ ProjectResult SaveProjectFile(const std::string& name, const ProjectData& projec
         for (const auto& note : track.patterns[p].steps[s].notes)
           if (note.active) file << p << ' ' << s << ' ' << static_cast<int>(note.note) << ' ' << static_cast<int>(note.velocity)
                                << ' ' << note.lengthPulses << ' ' << static_cast<int>(note.microstep) << '\n';
+  }
+  // The song mode switch is a performance control and is not stored.
+  file << "SONG " << project.sequence->songLength << ' ' << project.sequence->songLoop << '\n';
+  for (std::size_t row = 0; row < project.sequence->songLength; ++row) {
+    const auto& songRow = project.sequence->song[row];
+    file << 'R';
+    for (const auto pattern : songRow.patterns) file << ' ' << static_cast<int>(pattern);
+    file << ' ' << static_cast<int>(songRow.repeats) << '\n';
   }
   file << "END\n";
   file.flush();
@@ -188,9 +214,38 @@ ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination)
   project.sequence.reset(new (std::nothrow) SynthSequencer::ProjectState);
   if (!project.sequence) return ProjectResult::StorageError;
   int version = 0;
-  if (!ReadExpected(file, "CARDENZA_PROJECT") || !(file >> version) || version != 1 || !ReadExpected(file, "BUILD") ||
-      !ReadExpected(file, "CardenzaSynth") || !(file >> version) || version != 1 || !ReadExpected(file, "UI") ||
+  int build = 0;
+  if (!ReadExpected(file, "CARDENZA_PROJECT") || !(file >> version) || version < kMinProjectVersion || version > kProjectVersion ||
+      !ReadExpected(file, "BUILD") || !ReadExpected(file, "CardenzaSynth") || !(file >> build) || build != 1 || !ReadExpected(file, "UI") ||
       !(file >> project.activeTrack >> project.octave >> project.root >> project.scale >> project.layout >> project.ledBrightness)) return ProjectResult::Invalid;
+  if (version >= 2) {
+    unsigned master = 0, backlight = 0;
+    if (!ReadExpected(file, "MASTER") || !(file >> master) || master > kMaxMixerLevel) return ProjectResult::Invalid;
+    project.mixer.master = static_cast<std::uint8_t>(master);
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+      std::size_t index = 0;
+      unsigned level = 0, muted = 0, soloed = 0;
+      if (!ReadExpected(file, "MIX") || !(file >> index >> level >> muted >> soloed) || index != track || level > kMaxMixerLevel ||
+          muted > 1 || soloed > 1) return ProjectResult::Invalid;
+      project.mixer.level[track] = static_cast<std::uint8_t>(level);
+      project.mixer.muted[track] = muted != 0;
+      project.mixer.soloed[track] = soloed != 0;
+    }
+    if (!ReadExpected(file, "SYSTEM") || !(file >> backlight) || backlight > 255) return ProjectResult::Invalid;
+    project.backlight = static_cast<std::uint8_t>(backlight);
+  }
+  if (version >= 4) {
+    // Later versions may append parameters; known ones are read, unknown ones skipped.
+    std::size_t count = 0;
+    if (!ReadExpected(file, "FX") || !(file >> count) || count > 64) return ProjectResult::Invalid;
+    for (std::size_t index = 0; index < count; ++index) {
+      int value = 0;
+      if (!(file >> value)) return ProjectResult::Invalid;
+      if (index >= fx::kMasterParamCount) continue;
+      if (value < fx::kMasterParams[index].minValue || value > fx::kMasterParams[index].maxValue) return ProjectResult::Invalid;
+      project.masterFx[index] = static_cast<std::uint8_t>(value);
+    }
+  }
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
     std::size_t index = 0, parameterCount = 0;
     int kind = 0;
@@ -206,13 +261,16 @@ ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination)
       if (!ReadQuoted(file, id, 64) || !(file >> value) || !state.values.emplace(id, value).second) return ProjectResult::Invalid;
     }
   }
-  unsigned bpm = 0;
-  if (!ReadExpected(file, "SEQ") || !(file >> bpm) || bpm < 30 || bpm > 300) return ProjectResult::Invalid;
+  unsigned bpm = 0, swing = 50;
+  if (!ReadExpected(file, "SEQ") || !(file >> bpm) || bpm < 30 || bpm > 300 ||
+      (version >= 2 && (!(file >> swing) || swing < 50 || swing > 75))) return ProjectResult::Invalid;
   project.sequence->bpm = static_cast<std::uint16_t>(bpm);
+  project.sequence->swing = static_cast<std::uint8_t>(swing);
   for (auto& track : project.sequence->tracks) {
     unsigned velocity = 0, length = 0, enabled = 0, muted = 0;
     std::size_t noteCount = 0;
     if (!ReadExpected(file, "T") || !(file >> track.patternCount >> track.activePattern >> velocity >> length >> enabled >> muted) ||
+        (version >= 2 && (!(file >> track.stepCount) || track.stepCount < 1 || track.stepCount > kSequencerStepCount)) ||
         track.patternCount < 1 || track.patternCount > kSequencerMaxPatternCount || track.activePattern >= track.patternCount ||
         velocity < 1 || velocity > 127 || length < 1 || length > kSequencerStepCount * kSequencerPulsesPerStep || enabled > 1 || muted > 1 ||
         !ReadExpected(file, "NOTES") || !(file >> noteCount) || noteCount > track.patternCount * kSequencerStepCount * 8) return ProjectResult::Invalid;
@@ -230,6 +288,26 @@ ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination)
       auto slot = std::find_if(notes.begin(), notes.end(), [](const auto& note) { return !note.active; });
       if (slot == notes.end()) return ProjectResult::Invalid;
       *slot = {static_cast<std::uint8_t>(pitch), static_cast<std::uint8_t>(velocity), static_cast<std::uint16_t>(length), static_cast<std::uint8_t>(microstep), true};
+    }
+  }
+  // Versions 1 and 2 load with an empty, looping song (the ProjectState defaults).
+  if (version >= 3) {
+    std::size_t length = 0;
+    unsigned loop = 0;
+    if (!ReadExpected(file, "SONG") || !(file >> length >> loop) || length > kSongMaxRows || loop > 1) return ProjectResult::Invalid;
+    project.sequence->songLength = length;
+    project.sequence->songLoop = loop != 0;
+    for (std::size_t row = 0; row < length; ++row) {
+      auto& songRow = project.sequence->song[row];
+      if (!ReadExpected(file, "R")) return ProjectResult::Invalid;
+      for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+        int pattern = 0;
+        if (!(file >> pattern) || pattern < -1 || pattern >= static_cast<int>(project.sequence->tracks[track].patternCount)) return ProjectResult::Invalid;
+        songRow.patterns[track] = static_cast<std::int8_t>(pattern);
+      }
+      unsigned repeats = 0;
+      if (!(file >> repeats) || repeats < 1 || repeats > kSongMaxRepeats) return ProjectResult::Invalid;
+      songRow.repeats = static_cast<std::uint8_t>(repeats);
     }
   }
   if (!ReadExpected(file, "END") || !ValidMetadata(project)) return ProjectResult::Invalid;

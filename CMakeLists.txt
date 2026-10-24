@@ -11,6 +11,11 @@ endif()
 
 project(CardenzaSynth LANGUAGES C CXX)
 
+option(CARDENZA_GROOVE_UI "Build the groovebox UI (Applications/Synth/UI/Groove); OFF builds the previous UI" ON)
+if(CARDENZA_GROOVE_UI)
+  add_compile_definitions(CARDENZA_GROOVE_UI=1)
+endif()
+
 include(${CMAKE_SOURCE_DIR}/cmake/CardenzaSynthSourceLists.cmake)
 
 add_custom_target(ValidateArchitecture

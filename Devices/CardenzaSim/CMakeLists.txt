@@ -40,6 +40,23 @@ target_link_libraries(CardenzaSimHost PRIVATE
     CardenzaSystem
 )
 
+# Headless screenshot runner: replays a key script and writes PNG frames on every host OS.
+add_executable(CardenzaSimShot)
+
+cardenza_collect_sim_headless_cpp_sources(${PROJECT_SOURCE_DIR} cardenza_sim_headless_sources)
+target_sources(CardenzaSimShot PRIVATE
+    ${cardenza_sim_headless_sources}
+)
+
+target_include_directories(CardenzaSimShot PRIVATE
+    ${PROJECT_SOURCE_DIR}
+)
+
+target_link_libraries(CardenzaSimShot PRIVATE
+    CardenzaSimDevice
+    CardenzaSystem
+)
+
 if(WIN32)
     add_executable(CardenzaSimDesktop WIN32)
 

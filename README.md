@@ -1,37 +1,59 @@
 # CardenzaSynth
 
-Cardenza 的四轨合成器固件与 Windows 桌面模拟器。当前包括 DX7、Juno、Sampler、Drums，步进序列器，以及工程和用户音色保存／恢复。显示画布为 240×135。
+Cardenza 是一台四轨 groovebox：DX7、Juno、Sampler、Drums 四种音源，16 步音序器，整首歌的 Pattern 编排（走带），四轨混音，每轨效果（失真、降采样、DJ 滤波、合唱）与总线延迟 / 混响，工程与音色存储。屏幕 240×135，键盘 4×14 并带单色按键灯。
 
-界面默认使用柔和的暖灰白主题：6×9 加粗正文字体、更宽的侧边按键、清晰的分区与选中边框；默认背光为 180/255。深青色标识编辑选择，绿色标识播放，红色标识录音或危险操作。主页、音源参数、音序器、采样、文件浏览及工程页面共用同一套配色。
+界面是黑底的终端风格，搭配新极简排版和 dither 填充。屏幕左右两边各有 4 个键帽，和键盘最左、最右两列逐行对应：左侧不写字，用颜色区分（ESC 红橙、TAB 青、FN 黄、CTRL 紫），键帽里的小点表示这个键管的对象（场景、轨道、录音、页），当前项是白点；右侧是 + − ↵ ▶。按键灯有一套语言：亮度表示数值大小，呼吸表示按下会执行动作，细闪表示焦点，闪烁表示等待中；当前画面在用的那一块键最亮。界面和按键灯都带动效，逐帧录像（含键盘灯光）见 [docs/groovebox/motion](docs/groovebox/motion)。完整规格见 [Groovebox 设计](docs/groovebox-design.md)。
+
+## 按键
+
+按住左侧任一键时，屏幕会变成一张和右侧 4×4（GRID）一一对应的地图，直接按 GRID 选择。
+
+| 键 | 单击 | 按住 |
+|---|---|---|
+| ESC | 返回上一层 / 回到上一个场景 | 场景地图：GRID 三列 = 乐器 / 音序器 / 走带 |
+| TAB | 下一轨 | 轨道地图：GRID 每列一轨，行 0 选轨、行 1 静音、行 2 独奏、行 3 音序开关；TAB + ADD / SUB 前后切换 |
+| FN | — | GRID 上是功能地图（速度、八度、音色、Pattern、方向键等），PADS 上是字母快捷键 |
+| CTRL | 下一页 | 页面地图：当前场景的所有页面排在 GRID 上，按哪格跳哪页；CTRL + ADD / SUB 翻页；Fn + CTRL 上一页 |
+| ADD / SUB（右侧上两键） | 加 / 减，列表移动 | 连发并加速；Fn + ADD / SUB 粗调 |
+| ENTER | 确认、进入、开关 | Fn + ENTER：恢复默认 / 和弦编辑对象 / SONG·LOOP / 文件选项 |
+| PLAY | 播放 / 停止 | Fn + PLAY：实时录音开关 |
+| HOME 侧键 | 全部停止 | — |
+
+中间 4×8 是演奏键（PADS），任何场景都演奏当前轨；右侧 4×4（GRID）和屏幕中央的 4×4 格子一一对应。文本输入时，最上面那个右侧键（键帽印 del）是删除。
+
+Fn + GRID：`9 0` 速度 −/+，`- =` 八度，`O P` 上 / 下一个音色，`[ ]` 上 / 下一个 Pattern，`K` 键盘布局，`L` SONG / LOOP，`M` 静音当前轨，`; , . /` 方向键。Fn + PADS：`1–4` 静音轨道，`C V` 复制粘贴，`X` 清除，`Q` 量化，`D` 复制 Pattern（走带页为复制整行），`T` Tap tempo，`S` 保存。
 
 ## 先做一个循环
 
-1. 在 Home 按实体 **HOME**，进入 **SEQ** 网格。
-2. **点一下**右侧 4×4 步进区的第 1 步，松手后仍选中；再点左侧演奏区的琴键添加音符。重复点同一个音符会删除它，多个音符组成和弦。停止播放时点琴键可试听。
-3. 点另一个 step，继续写音符。左栏 **NOTE / LEN / VEL / TIME** 切换编辑内容；LEN、VEL、TIME 用演奏区的第 1–8 列选档，屏幕底部显示档位，顶部显示实际数值。
-4. 右下角 **▶** 开始循环，**■** 停止。绿色游标显示播放位置；青色框显示编辑选择，两者独立。
-5. 点已选中的 step 或按 **HOME** 结束编辑；再按 HOME 返回键盘。退出选择后，左侧四键恢复切换音轨。
+1. 开机在 **2 SEQ**。T1 是 808 鼓组，每一列演奏键是一种鼓。
+2. 按住一个演奏键，再点 GRID 上的几个 step：鼓点直接写入。
+3. 点一下 step 会选中它（可多选），演奏区会亮出这一步里的音。选中后按演奏键加 / 删音符；ENTER 在 NOTE / LEN / VEL / TIME 之间切换，ADD / SUB 调整；ESC 取消选择。
+4. PLAY 播放，演奏区会跟着音序器正在弹的音闪烁。按 TAB 换到 T2 Juno，在 STEPS 页写一段旋律。
+5. CTRL 到 PATTERN 页：点空槽新建 Pattern；播放中点别的 Pattern 会在本轮循环结束时切换。Fn + D 把当前 Pattern 复制一份。
+6. Fn + PLAY 打开录音，播放中直接弹演奏键即叠录进当前 Pattern。
+7. 按住 ESC 再按 GRID 第三列进入走带：点 GRID 第一列的 + 追加编排行，选中一格用 ADD / SUB 选 Pattern（`--` 为静音），Fn + ADD / SUB 改小节数，ENTER 从这一行开始播放整首歌。
+8. CTRL 翻到 MIX 调音量、静音、独奏；SENDS 页给每轨开延迟 / 混响发送，FX 页调总线；按住 CTRL 在地图里点 PROJECT，SAVE AS 输入名字保存。
 
-只有网格视图会保留点选；按住 step 再弹音符、按住多步一起改值的操作仍可使用。实时录音 / overdub 和 Song / Chain 编排尚未实现。完整操作见 [Sequencer 说明](docs/sequencer.md)。
+## 场景
 
-## 常用操作
+- **1 INSTR 乐器**：VOICE 页大字显示音色，ADD / SUB 直接切换音色；ENGINE、PRESET（可输入搜索）、SAVE、SAVE AS。之后是引擎参数页：GRID 选参数，ADD / SUB 调值，空格位置显示包络、滤波、算法、波形等图形。DX7 共 12 页（算法、算子电平、六个算子的音高与 R1–R4 / L1–L4 包络、LFO），Juno 7 页（DCO、VCF、ENV、LFO）。每个音源都有 FX 页（DRIVE、CRUSH、FILTER、RESO、CHORUS、DELAY、REVERB，附信号链图）。KEYS 页设置布局、音阶、根音、八度。Sampler 的 SAMPLE 页可浏览 WAV、录音、裁剪和保存。
+- **2 SEQ 音序器**：STEPS、PATTERN、TRACK（序列开关、每轨步数、Swing、BPM）。
+- **3 TAPE 走带**：TAPE（整首歌的 Pattern 编排，SONG / LOOP 模式）、MIX（四轨推子、MUTE / SOLO / SEQ、主音量）、SENDS（四轨的滤波、合唱、延迟与混响发送一屏总览）、FX（总线：按速度同步的磁带延迟、混响、EQ、压缩、TAPE 饱和）、PROJECT（保存 / 另存 / 载入 / 新建、BPM、Swing、Tap）、FILES（工程列表）、SYSTEM（按键灯、屏幕亮度、主音量、存储与内存）。
 
-- Home 左侧四键短按切换音轨，按住进入 TRK / SND / KEY / SYS 菜单；在按住期间选择项目可固定菜单。Home 右侧为八度、Stop、Play。
-- Home 默认显示演奏键盘；**同时按住 + / −** 切换演奏与常驻 **Sequencer 4×4 网格**。在 Home 的步进编辑期间使用此组合也会结束编辑并切换视图，不停止序列播放、不改八度或键盘配置。网格显示 16 步的事件、选中与播放位置。实体 HOME 在普通 Home 也可切换；按住 step、Pattern / shift 层或 Context 菜单中按 HOME，只取消/返回并保留所选视图。
-- TRK → ENGINE 选择音源，PRESET 浏览音色；SAVE / SAVEAS 保存用户音色。录音或未保存草稿会阻止切换音源。
-- Drums 提供 8 音 808 鼓组。演奏区每行的八列依次为底鼓、军鼓、闭镲、开镲、拍手、通鼓、牛铃、沙锤；四行重复相同鼓种，不受八度、根音或键盘模式影响。SND 可调各鼓音量和总音量，支持保存音色。
-- Sampler 的 SND → FILE 直接浏览 WAV，输入即搜索。选择文件后按 LOAD；按 **OPT**（矩阵零基 `(3,1)`）进入该文件的 REN / DEL。BACK 返回原搜索位置，删除需要 YES 确认。文件操作不会先加载目标采样。
-- SND → REC → START 录音；停止后裁剪并保存。已有未保存录音时，重新录音会先显示替换警告，确认后才替换。
-- SYS → PROJ 提供 SAVE / SAVEAS / LOAD / NEW。Load 和 New 需要确认；准备失败保留当前会话，未保存录音会阻止切换。
-- SYS → SEQ 提供播放、停止、继续，以及独立的 BPM、TRK、PATT 页面；左下角 **GRID / KEYS** 切换网格/演奏视图并直接返回 Home。TRK 显示四轨概览，T− / T+ 切轨后可静音或禁用序列；PATT 的 CNT− 删除含音符的末尾 Pattern 前会要求确认。
-- Home 按住步进键显示音名和编辑范围；网格视图还支持点选后松手继续编辑。LEN / VEL / TIME 在松开对应左键后继续保持，直到结束选择；多步数值不一致时显示 MIXED。从数值编辑返回 NOTE 不会自动切换到单音范围，再按 NOTE 才循环和弦范围。两种视图均使用物理第 1–8 列演奏、第 9–12 列编辑步进；Piano 布局的空键位置也可选择数值档位。
-- 单独短按 + 或 − 调整旋律键盘八度，单独按住其中一键显示 Pattern 选择。Pattern 只在 OCT 或 CLR / COPY / QNT 仍按住时显示；按住操作键后可先松开 OCT，松开全部相关键即返回所选 Home 视图。QNT 先选好 step 时立即量化选步；否则按住 QNT 后点 step / 已有 Pattern 才量化指定目标，单按 QNT 不改数据。CLR 删除有内容的 Pattern 会显示目标编号并要求 YES，BACK 取消；仅剩一个 Pattern 时确认后清空音符并保留该槽。
+采样为单声道 PCM16 WAV，支持 8–96 kHz。工程文件为 v4（含编排与总线效果），可以读取 v1–v3 工程。延迟和混响的缓冲在第一次打开发送时才分配（板子没有 PSRAM）。
 
-采样为单声道 PCM16 WAV，支持 8–96 kHz，上限 220,500 帧；实际可用容量受设备内存限制。工程保存采样文件名引用，不包含音频数据。移动工程时一起复制 Sample 目录。改名／删除文件可能使以前保存的工程引用失效，界面会提示；其他轨道正在引用的文件不能删除或覆盖，改名会同步本次会话的各轨引用。
+## Linux 截图与测试
 
-Drums 复用 AMY 内置样本，每轨 6 复音。各鼓音量作用于后续触发，总音量实时作用于整轨；松键保留鼓声尾音，Stop、换预设或引擎会停音，闭镲会截断开镲。Project v1 保留原有引擎编号并新增 Drums=4：新版可以载入旧工程，旧软件不支持含 Drums 的工程。
+Linux 上没有窗口版模拟器，但可以无窗口运行并把画面导出为 PNG：
 
-Home 网格属于当前 UI 会话的视图选择，不改变 Project v1 文件格式。当前仍为每轨 Pattern 编辑和播放，未加入 Song / Chain 编排。
+```bash
+cmake -S . -B build/linux -G Ninja -DDEVICE=CardenzaSim
+cmake --build build/linux
+ctest --test-dir build/linux --output-on-failure
+build/linux/Devices/CardenzaSim/CardenzaSimShot --script tests/groove/tour.script --out build/linux/shots --scale 2
+```
+
+`tests/groove/tour.script` 走查全部场景、浮层和主要编辑状态。
 
 ## Windows 模拟器与测试
 
@@ -57,10 +79,9 @@ ctest --test-dir build/synth-regression -C Debug --output-on-failure
 
 ## 固件与当前边界
 
-固件通过 ESP-IDF 构建，入口和烧录步骤见 [Cardenza 说明](Devices/Cardenza/README.md)。本轮验证环境为 ESP-IDF 5.3.5，已完成固件写入校验与启动验证；实机录音、四轨负载、内存峰值或掉电恢复仍需独立验收。
+固件通过 ESP-IDF 5.3.5 构建，入口和烧录步骤见 [Cardenza 说明](Devices/Cardenza/README.md)。开发板连在远端 Mac 上时，`make DEVICE=Cardenza remote-flash` 会编译、推送、烧录并回传启动日志（见 `tools/remote-flash/`）。
 
-- [可筛选 UI 清单](docs/ui-inventory.html)：页面／状态清单、实际模拟器截图，以及 NullPerator 设计参考。新增页面的运行截图以该清单实际收录内容为准。
-- [实现与验收记录](docs/implementation-2026-09-22.md)：已完成工作、测试命令和剩余边界。
-- [原始审查](docs/review-2026-09-22.md)：修改前问题快照，以实现记录为当前状态。
+- [Groovebox 设计](docs/groovebox-design.md)：当前交互、视觉与实现说明。
+- 旧版界面的清单与改版记录（`docs/ui-inventory.*`、`docs/ui-redesign*`、`docs/sequencer.md`）只作历史参考。旧界面代码仍在仓库中，`-DCARDENZA_GROOVE_UI=OFF` 可以构建。
 
-本轮更新覆盖统一暖灰白主题、字号与布局、音序器点选编辑和动画，以及 LED 分区与稳定刷新。外部 MIDI / USB 同步、全局效果的按轨实现尚未完成；实机录音、heap 峰值和音频处理截止时间仍需独立验收，不以模拟器测试代替。两分钟 Electro House 示例的生成工具见 [Demo 说明](tools/demo/README.md)。
+实机按键手感、屏幕实际观感、扬声器音量曲线、麦克风录音电平仍需在板子前确认。外部 MIDI / USB 同步尚未实现。两分钟 Electro House 示例的生成工具见 [Demo 说明](tools/demo/README.md)。

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <iomanip>
@@ -11,6 +12,7 @@
 #include "Devices/Device.h"
 #include "Devices/DeviceAudio.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Audio/SynthFx.h"
 #include "OS/Framework/Midi/MidiPort.h"
 
 namespace synth {
@@ -311,7 +313,8 @@ bool PagedSynthEngine::LoadPreset(const std::string& presetId)
   for (SynthParameterInfo& parameter : parameters_)
   {
     const auto valueIterator = stored ? stored->values.find(parameter.id) : std::map<std::string, int>::const_iterator{};
-    parameter.value = stored && valueIterator != stored->values.end() ? ClampToParameterRange(parameter, valueIterator->second) : FactoryParameterValue(presetId, parameter);
+    parameter.value = stored && valueIterator != stored->values.end() ? ClampToParameterRange(parameter, valueIterator->second)
+                                                                     : FactoryParameterValue(stored ? stored->basePresetId : presetId, parameter);
   }
 
   currentPresetId_ = presetId;
@@ -400,7 +403,7 @@ SynthEngineState PagedSynthEngine::CaptureState() const
 bool PagedSynthEngine::ValidState(const SynthEngineState& state) const
 {
   if (state.presetName.empty() || state.presetName.size() > 48 || state.presetId.size() > 64 ||
-      state.values.size() != parameters_.size() ||
+      state.values.size() > parameters_.size() ||
       std::any_of(state.presetName.begin(), state.presetName.end(), [](unsigned char c) { return c < 32 || c == 127; })) return false;
   const bool registeredBase = std::any_of(presets_.begin(), presets_.end(), [&](const PresetState& preset) {
     return !preset.info.writable && preset.info.id == state.basePresetId;
@@ -418,7 +421,12 @@ bool PagedSynthEngine::ValidState(const SynthEngineState& state) const
 bool PagedSynthEngine::RestoreState(const SynthEngineState& state)
 {
   if (!ValidState(state)) return false;
-  for (auto& parameter : parameters_) parameter.value = state.values.at(parameter.id);
+  // States saved before a parameter existed take the base preset's value for it.
+  for (auto& parameter : parameters_)
+  {
+    const auto value = state.values.find(parameter.id);
+    parameter.value = value != state.values.end() ? value->second : FactoryParameterValue(state.basePresetId, parameter);
+  }
   basePresetId_ = state.basePresetId;
   currentPresetId_ = state.presetId;
   currentPresetName_ = state.presetName;
@@ -482,7 +490,7 @@ bool PagedSynthEngine::ReadUserPresets()
     std::size_t count = 0;
     if (loaded.size() >= kMaxUserPresets || !ReadQuoted(file, state.presetId, 16) || !ReadQuoted(file, state.presetName, 48) ||
         !ReadQuoted(file, state.basePresetId, 64) || !(file >> count) ||
-        count != parameters_.size() || !IsUserPresetId(state.presetId)) return false;
+        count > parameters_.size() || !IsUserPresetId(state.presetId)) return false;
     for (std::size_t i = 0; i < count; ++i)
     {
       std::string id;
@@ -628,8 +636,41 @@ const SynthParameterInfo* PagedSynthEngine::FindParameter(const std::string& par
   return iterator == parameters_.end() ? nullptr : &(*iterator);
 }
 
+void PagedSynthEngine::RegisterTrackFxParameters()
+{
+  RegisterParameter({"fx.drive", "Drive", "FX", SynthParameterKind::Continuous, 0, 127, 1, 0, 0});
+  RegisterParameter({"fx.crush", "Crush", "FX", SynthParameterKind::Continuous, 0, 127, 1, 0, 0});
+  RegisterParameter({"fx.filter", "Filter", "FX", SynthParameterKind::Continuous, 0, 127, 1, fx::kFilterCenter, fx::kFilterCenter});
+  RegisterParameter({"fx.resonance", "Resonance", "FX", SynthParameterKind::Continuous, 0, 127, 1, fx::TrackParameterDefault("fx.resonance"),
+                     fx::TrackParameterDefault("fx.resonance")});
+  RegisterParameter({"fx.chorus", "Chorus", "FX", SynthParameterKind::Choice, 0, 3, 1, 0, 0});
+  RegisterParameter({"fx.delay", "Delay Send", "FX", SynthParameterKind::Continuous, 0, 127, 1, 0, 0});
+  RegisterParameter({"fx.reverb", "Reverb Send", "FX", SynthParameterKind::Continuous, 0, 127, 1, 0, 0});
+}
+
 std::string PagedSynthEngine::FormatParameterValue(const SynthParameterInfo& parameter) const
 {
+  if (fx::IsTrackParameter(parameter.id))
+  {
+    if (parameter.id == "fx.chorus") return fx::kChorusModes[static_cast<std::size_t>(std::clamp(parameter.value, 0, 3))];
+    if (parameter.id == "fx.filter")
+    {
+      // Approximate corner frequency: low-pass 80 Hz..20 kHz below the centre, high-pass 20 Hz..8 kHz above.
+      const int distance = parameter.value - fx::kFilterCenter;
+      if (distance == 0) return "OFF";
+      const float hz = distance < 0 ? 80.0f * std::pow(250.0f, static_cast<float>(parameter.value) / 63.0f)
+                                    : 20.0f * std::pow(400.0f, static_cast<float>(distance - 1) / 62.0f);
+      char text[16];
+      // Whole numbers only: the cell font has no decimal point.
+      const char* type = distance < 0 ? "LP" : "HP";
+      if (hz >= 10000.0f) std::snprintf(text, sizeof(text), "%s%dK", type, static_cast<int>(hz / 1000.0f));
+      else if (hz >= 1000.0f) std::snprintf(text, sizeof(text), "%s%d", type, static_cast<int>(hz / 10.0f) * 10);
+      else std::snprintf(text, sizeof(text), "%s%d", type, static_cast<int>(hz));
+      return text;
+    }
+    if (parameter.id != "fx.resonance" && parameter.value == 0) return "OFF";
+    return std::to_string(parameter.value);
+  }
   if (parameter.kind == SynthParameterKind::Toggle)
   {
     return parameter.value == 0 ? "OFF" : "ON";

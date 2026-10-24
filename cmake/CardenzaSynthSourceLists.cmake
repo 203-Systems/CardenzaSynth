@@ -5,13 +5,46 @@ function(cardenza_collect_builtin_application_cpp_sources root_dir out_var)
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
+# The groovebox UI is the default. -DCARDENZA_GROOVE_UI=OFF still builds the previous UI, which stays
+# in the tree until it is removed.
+function(cardenza_groove_ui_enabled out_var)
+    if(NOT DEFINED CARDENZA_GROOVE_UI OR CARDENZA_GROOVE_UI)
+        set(${out_var} ON PARENT_SCOPE)
+    else()
+        set(${out_var} OFF PARENT_SCOPE)
+    endif()
+endfunction()
+
 function(cardenza_collect_synth_app_cpp_sources root_dir out_var)
-    set(sources
-        ${root_dir}/Applications/Synth/SynthApp.cpp
+    set(runtime_sources
         ${root_dir}/Applications/Synth/Runtime/Sampler/SamplerManager.cpp
         ${root_dir}/Applications/Synth/Runtime/ProjectStorage.cpp
         ${root_dir}/Applications/Synth/Runtime/Sequencer/SynthSequencer.cpp
         ${root_dir}/Applications/Synth/Runtime/SynthRack.cpp
+    )
+    cardenza_groove_ui_enabled(groove_ui)
+    if(groove_ui)
+        set(${out_var}
+            ${runtime_sources}
+            ${root_dir}/Applications/Synth/GrooveApp.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/GrooveController.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/GrooveModals.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/GrooveScenes.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/GrooveTypes.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/InstrumentPages.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/Render/Animator.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/Render/Effects.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/Render/Gfx.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/Render/GrooveRenderer.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/Render/ModalRender.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/Render/SceneRender.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/Render/Widgets.cpp
+            PARENT_SCOPE)
+        return()
+    endif()
+    set(sources
+        ${runtime_sources}
+        ${root_dir}/Applications/Synth/SynthApp.cpp
         ${root_dir}/Applications/Synth/UI/Drums/DrumsUiRenderer.cpp
         ${root_dir}/Applications/Synth/UI/Dx7/Dx7UiModel.cpp
         ${root_dir}/Applications/Synth/UI/Dx7/Dx7UiRenderer.cpp
@@ -27,9 +60,20 @@ function(cardenza_collect_synth_app_cpp_sources root_dir out_var)
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
+# Effects DSP (no AMY dependency). Listed on its own for builds that compile
+# SynthAudioRuntimeAmy.cpp directly, such as the synth regression test.
+function(cardenza_collect_synth_fx_cpp_sources root_dir out_var)
+    set(sources
+        ${root_dir}/Library/Synth/Audio/Fx/SynthFxDsp.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
 function(cardenza_collect_synth_runtime_cpp_sources root_dir out_var)
+    cardenza_collect_synth_fx_cpp_sources(${root_dir} fx_sources)
     set(sources
         ${root_dir}/Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp
+        ${fx_sources}
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
@@ -133,6 +177,15 @@ endfunction()
 function(cardenza_collect_sim_host_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Devices/CardenzaSim/main.cpp
+    )
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(cardenza_collect_sim_headless_cpp_sources root_dir out_var)
+    set(sources
+        ${root_dir}/Devices/CardenzaSim/Headless/HeadlessScript.cpp
+        ${root_dir}/Devices/CardenzaSim/Headless/HeadlessShot.cpp
+        ${root_dir}/Devices/CardenzaSim/Headless/PngWriter.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()

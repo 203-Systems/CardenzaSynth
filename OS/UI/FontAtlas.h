@@ -22,5 +22,7 @@ struct RasterFont {
 };
 
 const RasterFont& UiFontForScale(int scale);
+// The 5x7 tracker glyphs at 1x: six-pixel advance for dense terminal text.
+const RasterFont& UiMicroFont();
 
 }  // namespace ui

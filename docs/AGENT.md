@@ -7,7 +7,7 @@ CardenzaSynth is organized around a small set of ownership boundaries. The firmw
 Allowed high-level direction:
 
 1. `Applications` depend on `OS`, `Library`, and the public `Devices/Device.h` facade.
-2. `Applications/Synth` owns the Cardenza synth product runtime, including `SynthApp`, track rack wiring, and synth-specific UI/model/renderer modules.
+2. `Applications/Synth` owns the Cardenza groovebox product runtime, including `GrooveApp`, track rack wiring, mixer state and the groovebox UI.
 3. `OS` depends on `Devices/Device.h` and application interfaces.
 4. `Library` owns reusable domain code and vendor dependencies used by shared runtimes. Synth engine/core code must not include concrete device HAL headers.
 5. `Devices/Cardenza` owns ESP-IDF firmware and hardware HAL code.
@@ -26,7 +26,7 @@ Concrete rules:
 ## Build Entrypoints
 
 - Cardenza firmware: open an exported ESP-IDF shell, then run `make DEVICE=Cardenza build`. The Makefile changes into `Devices/Cardenza` and invokes `idf.py` directly.
-- Desktop simulator: `make DEVICE=CardenzaSim build`.
+- Desktop simulator: `make DEVICE=CardenzaSim build`. On Linux, `CardenzaSimShot` replays key scripts headlessly and writes PNG screenshots (`tests/groove/tour.script`).
 - Architecture guardrail check: `make validate-architecture`.
 
 The root CMake project is for desktop-style targets such as `CardenzaSim`. The Cardenza hardware target is firmware-only and should be configured through ESP-IDF.
@@ -34,7 +34,7 @@ The root CMake project is for desktop-style targets such as `CardenzaSim`. The C
 ## Current Module Shape
 
 - `Applications/Synth/Runtime`: app-owned synth rack and track wiring.
-- `Applications/Synth/UI`: app-owned renderer/model helpers split by shared primitives, menu behavior, and engine-specific DX7/Juno modules.
+- `Applications/Synth/UI/Groove`: the groovebox UI. `GrooveController` (input, navigation, scenes, modals, LEDs) talks to the runtime only through `groove::Host`; `Render/` draws straight into the framebuffer. The previous UI (`Applications/Synth/UI/*` outside `Groove`, `SynthApp`) remains buildable with `-DCARDENZA_GROOVE_UI=OFF` until it is removed.
 - `Library/Synth/Core`: engine interfaces, engine implementations, and factory.
 - `Library/Synth/Audio`: runtime audio bridge, with AMY-specific code under `Audio/Amy`.
 - `Library/third_party/amy`: vendored AMY sources consumed by the shared synth audio runtime.

@@ -3,13 +3,81 @@
 #include <sstream>
 #include <vector>
 
+#if defined(CARDENZA_GROOVE_UI)
+#include "Applications/Synth/GrooveApp.h"
+#else
 #include "Applications/Synth/SynthApp.h"
+#endif
 #include "Devices/Device.h"
 #include "DesktopHostDrawing.h"
 #include "Library/Synth/Core/SynthTypes.h"
 
 namespace CardenzaSim::DesktopHost {
 
+#if defined(CARDENZA_GROOVE_UI)
+std::string DesktopSimulator::FooterText() const
+{
+  return "Scale: 1 / 2 / 4 plus HOME. Left = ESC TAB FN CTRL, columns 1-8 pads, 9-12 grid, right = SUB ADD ENTER PLAY.";
+}
+
+std::string DesktopSimulator::KeyboardHeaderText() const
+{
+  const auto& state = synthApp_->Ui().State();
+  return std::string("Scene ") + groove::kSceneNames[static_cast<std::size_t>(state.scene)] +
+         ": hold ESC + 1-4 for scenes, TAB for tracks, FN for second functions, CTRL for pages.";
+}
+
+std::size_t DesktopSimulator::ContextMenuFirstColumn() const
+{
+  return synth::kHomeRightBarColumn;
+}
+
+std::size_t DesktopSimulator::ContextMenuColumnIndex(std::size_t column) const
+{
+  return column - ContextMenuFirstColumn();
+}
+
+bool DesktopSimulator::IsMenuKey(std::size_t row, std::size_t column) const
+{
+  (void)row;
+  (void)column;
+  return false;
+}
+
+bool DesktopSimulator::IsHomeRightBarKey(std::size_t column) const
+{
+  return column == synth::kHomeRightBarColumn;
+}
+
+COLORREF DesktopSimulator::KeyFillColor(std::size_t index, bool active) const
+{
+  const auto position = PositionForIndex(index);
+  if (active)
+  {
+    return kKeyActiveColor;
+  }
+  if (position.column == 0)
+  {
+    return synthApp_->Ui().State().left[position.row].down ? kModifierActiveColor : kModifierColor;
+  }
+  if (IsHomeRightBarKey(position.column))
+  {
+    return kModifierColor;
+  }
+  return kKeyColor;
+}
+
+COLORREF DesktopSimulator::KeyEdgeColor(std::size_t index, bool active) const
+{
+  const auto position = PositionForIndex(index);
+  if (active || (position.column == 0 && synthApp_->Ui().State().left[position.row].down))
+  {
+    return kScreenGlowColor;
+  }
+  return kPanelEdgeColor;
+}
+
+#else
 std::string DesktopSimulator::FooterText() const
 {
   return "Scale: 1 / 2 / 4 plus HOME. Left edge = track/modifier bar, columns 1-8 perform, right edge = action bar.";
@@ -104,6 +172,8 @@ COLORREF DesktopSimulator::KeyEdgeColor(std::size_t index, bool active) const
   return kPanelEdgeColor;
 }
 
+#endif
+
 COLORREF DesktopSimulator::KeyLedColor(std::size_t index,
                                        bool deviceLedsEnabled,
                                        std::uint8_t deviceLedGlobalBrightness) const
@@ -182,12 +252,21 @@ void DesktopSimulator::DrawScaleButtons(HDC dc)
 void DesktopSimulator::DrawKeyboard(HDC dc)
 {
   DrawTextBlock(dc, keyboardHeaderRect_, KeyboardHeaderText(), DT_LEFT | DT_WORDBREAK | DT_VCENTER, kTextColor, 17, FW_SEMIBOLD);
+#if !defined(CARDENZA_GROOVE_UI)
   const std::size_t activeTrack = synthApp_->Ui().ActiveTrack();
+#endif
   const bool deviceLedsEnabled = Device::LED::Enabled();
   const std::uint8_t deviceLedGlobalBrightness = Device::LED::GlobalBrightness();
   for (std::size_t index = 0; index < keyButtons_.size(); ++index)
   {
+#if defined(CARDENZA_GROOVE_UI)
+    const auto position = PositionForIndex(index);
+    const bool gridKey = synth::IsSequencerStepKey(position.row, position.column);
+    const bool active = synthApp_->Ui().IsPadDown(position.row, position.column) ||
+                        (gridKey && synthApp_->Ui().State().gridDown[synth::SequencerStepIndex(position.row, position.column)]);
+#else
     const bool active = synthApp_->IsKeyActive(activeTrack, index);
+#endif
     DrawRoundPanel(dc, keyButtons_[index], KeyFillColor(index, active), KeyEdgeColor(index, active));
 
     RECT ledRect = MakeRect(keyButtons_[index].left + 8, keyButtons_[index].top + 7, 12, 12);

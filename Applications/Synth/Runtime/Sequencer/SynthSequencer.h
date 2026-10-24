@@ -50,6 +50,9 @@ public:
   void ClearHeldStepEvents();
   bool CopyStep(std::size_t sourceStep, std::size_t destinationStep);
   bool StepHasEvents(std::size_t stepIndex) const;
+  // Pitches of the active notes of `step` in the active track's active pattern, ascending.
+  // Returns how many were written; 0 for an empty or out-of-range step.
+  std::size_t StepNotes(std::size_t step, std::array<std::uint8_t, 8>& notes) const;
   std::uint8_t SelectedNoteVelocity(std::uint8_t pitch) const;
   void QuantizeStep(std::size_t stepIndex);
   void QuantizeHeldSteps();
@@ -63,6 +66,75 @@ public:
   bool HandlePerformanceKeyPress(std::size_t row, std::size_t column, std::uint8_t note);
 
   SequencerUiState BuildUiState(std::size_t activeTrack) const;
+
+  // Live overdub. Notes are written only while playing and armed, into the track's active
+  // pattern at its playback position, quantized to the nearest microstep. The sequencer never
+  // sounds the live note itself: the caller already played it.
+  void SetRecordArmed(bool armed);
+  bool RecordArmed() const;
+  void RecordNoteOn(std::size_t track, std::uint8_t note, std::uint8_t velocity);
+  void RecordNoteOff(std::size_t track, std::uint8_t note);
+
+  // Switches immediately while stopped; while playing, at the track's next loop boundary.
+  // patternIndex == PatternCount(track) creates a new pattern slot. Queueing the active
+  // pattern cancels a pending switch.
+  bool QueuePattern(std::size_t track, std::size_t patternIndex);
+
+  // 50 is straight, 75 the hardest swing: odd sixteenths are delayed.
+  void SetSwing(std::uint8_t percent);
+  std::uint8_t Swing() const;
+
+  // Each track loops at its own length (1..16 steps); later steps keep their data.
+  void SetTrackStepCount(std::size_t track, std::size_t steps);
+  std::size_t TrackStepCount(std::size_t track) const;
+
+  // Selection editing without audition. The selection is the held-step set of the active track.
+  void SetStepSelected(std::size_t step, bool selected);
+  void ClearSelectedSteps();
+  bool ToggleNoteOnSelectedSteps(std::uint8_t note);
+  void SetEditLane(SequencerEditLane lane);
+  void CycleEditLane();
+  void CycleNoteScope();
+  // Relative edit of the current lane for the scoped note (or every note) of each selected
+  // step. Returns true when any value changed.
+  bool AdjustSelectedSteps(int delta, bool coarse);
+
+  // Song (arrangement) mode. With the switch on and at least one row, Play() starts at the cued
+  // row. Each row applies at a bar line: every track switches to the row's pattern (-1 leaves the
+  // track silent for the row without touching mute/enable), restarts at step 0, and drops a
+  // queued pattern switch. A row lasts repeats bars of the global clock, whatever the tracks'
+  // step counts. After the last row the song loops to row 0, or playback stops when looping is
+  // off. Flipping the switch while playing takes effect at the next bar line; switching off keeps
+  // the patterns of the row that was playing and lets every track loop on from where it is.
+  // Edits to the playing row are heard the next time a row starts; its length is read at each
+  // bar line. The switch is a performance control: projects do not store it.
+  void SetSongMode(bool enabled);
+  bool SongMode() const;
+  void SetSongLoop(bool loop);
+  bool SongLoop() const;
+  std::size_t SongLength() const;
+  // A default row (every track on pattern 0, one bar) when out of range.
+  SongRow SongRowAt(std::size_t row) const;
+  // pattern is -1..PatternCount(track) - 1; row < SongLength().
+  bool SetSongPattern(std::size_t row, std::size_t track, int pattern);
+  // 1..kSongMaxRepeats bars.
+  bool SetSongRepeats(std::size_t row, std::uint8_t repeats);
+  // at <= SongLength() < kSongMaxRows; every pattern index and the repeats must be valid.
+  bool InsertSongRow(std::size_t at, const SongRow& row);
+  // Deleting the playing row ends it at the next bar line; the row that takes its place follows.
+  bool DeleteSongRow(std::size_t row);
+  // Playing with song mode on: jump to the row at the next bar line (also where a song switched
+  // on mid-play takes over). Otherwise: the start row for Play() and for switching song mode on
+  // while playing; it stays until cued again and is clamped to the song. row < SongLength().
+  void CueSongRow(std::size_t row);
+
+  void SetTempo(std::uint16_t bpm);
+  std::uint16_t Tempo() const;
+  void SetTrackEnabled(std::size_t track, bool enabled);
+  bool TrackEnabled(std::size_t track) const;
+  bool ClearPatternEvents(std::size_t track, std::size_t patternIndex);
+  std::size_t PatternCount(std::size_t track) const;
+  std::size_t ActivePattern(std::size_t track) const;
 
   // Project snapshots are heap-owned: the full four-track data exceeds the firmware task stack.
   struct NoteEvent {
@@ -117,11 +189,17 @@ public:
     std::uint16_t defaultLengthPulses = kSequencerPulsesPerStep;
     bool enabled = true;
     bool muted = false;
+    std::size_t stepCount = kSequencerStepCount;
   };
 
   struct ProjectState {
     std::uint16_t bpm = 120;
     std::array<TrackData, kSynthTrackCount> tracks{};
+    std::uint8_t swing = 50;
+    // Rows past songLength are ignored and come back as default rows.
+    std::array<SongRow, kSongMaxRows> song{};
+    std::size_t songLength = 0;
+    bool songLoop = true;
   };
   std::unique_ptr<ProjectState> CaptureState() const;
   static bool ValidateState(const ProjectState& state);
@@ -141,8 +219,30 @@ private:
     midi::MidiPacket packet;
   };
 
+  // A live note whose length is still open until its note-off or the track's loop wrap.
+  struct HeldRecording {
+    std::uint64_t onPulse = 0;
+    std::uint64_t startPulse = 0;
+    std::size_t pattern = 0;
+    std::uint8_t trackIndex = 0;
+    std::uint8_t step = 0;
+    std::uint8_t note = 0;
+    bool active = false;
+  };
+
+  // A recorded note quantized ahead of the playhead must not sound again in the same pass.
+  struct SuppressedNote {
+    std::uint64_t pulse = 0;
+    std::uint8_t trackIndex = 0;
+    std::uint8_t note = 0;
+    bool active = false;
+  };
+
   static constexpr std::size_t kMaxPlaybackNotes = 96;
   static constexpr std::size_t kMaxPendingMidiEvents = 128;
+  static constexpr std::size_t kMaxHeldRecordings = 16;
+  static constexpr std::size_t kMaxSuppressedNotes = 16;
+  static constexpr std::size_t kNoPattern = kSequencerMaxPatternCount;
 
   void EnsureClockWorkerStarted();
   void StopClockWorker();
@@ -186,6 +286,36 @@ private:
   std::string ScopeLabelLocked(const StepData* step) const;
   std::string ValueLabelLocked(const StepData* step) const;
 
+  static std::size_t TrackStepCountOf(const TrackData& track);
+  std::uint16_t SwingDelayPulsesLocked() const;
+  std::uint16_t NoteOffsetPulsesLocked(std::size_t stepIndex, std::uint8_t microstep) const;
+  void FireStepNotesLocked(std::size_t trackIndex,
+                           const StepData& step,
+                           std::size_t stepIndex,
+                           std::uint32_t targetOffset,
+                           std::uint64_t pulse,
+                           std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
+                           std::size_t& count);
+  bool ConsumeSuppressedNoteLocked(std::size_t trackIndex, std::uint8_t note, std::uint64_t pulse);
+  void HandleLoopBoundaryLocked(std::size_t trackIndex, std::uint64_t pulse);
+  void StopLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
+  // Runs on every bar line of the global clock; false when the song ended and playback stopped.
+  bool HandleSongBarLocked(std::uint64_t pulse, std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
+  void StartSongRowLocked(std::size_t row, std::uint64_t pulse);
+  void LeaveSongLocked();
+  // Song references to a removed pattern become -1; later indices shift down when `shift`.
+  void RemoveSongPatternLocked(std::size_t trackIndex, std::size_t patternIndex, bool shift);
+  void ResetSongLocked();
+  void ResetPlaybackPositionsLocked();
+  void ApplyQueuedPatternsLocked();
+  void FinalizeHeldRecordingLocked(HeldRecording& recording, std::uint64_t pulse);
+  void FinalizeAllHeldRecordingsLocked();
+  std::uint64_t RecordPulseLocked(std::size_t trackIndex) const;
+  void ReleaseTrackNotesLocked(std::size_t trackIndex,
+                               std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
+                               std::size_t& count);
+  void ClearSelectionLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
+
   mutable std::mutex mutex_;
   // Lock before mutex_: MIDI batches and transport changes must keep generation order.
   mutable std::mutex outputMutex_;
@@ -200,6 +330,33 @@ private:
   std::size_t playbackStep_ = 0;
   std::uint64_t absolutePulse_ = 0;
   std::uint16_t bpm_ = 120;
+  std::uint8_t swing_ = 50;
+  bool recordArmed_ = false;
+  // Per-track loop position in pulses: the next pulse to process, and the last processed one.
+  std::array<std::uint16_t, kSynthTrackCount> trackNextPulse_{};
+  std::array<std::uint16_t, kSynthTrackCount> trackCurrentPulse_{};
+  std::array<bool, kSynthTrackCount> trackStarted_{};
+  std::array<std::size_t, kSynthTrackCount> queuedPattern_{};
+  // Pattern of the previous pass: swung notes of its last step spill past the loop wrap.
+  std::array<std::size_t, kSynthTrackCount> previousPassPattern_{};
+  // Pulses the previous pass ran: the loop length, or less when a song row cut it short.
+  std::array<std::uint16_t, kSynthTrackCount> previousPassPulses_{};
+  // Song arrangement and its playback position.
+  std::array<SongRow, kSongMaxRows> song_{};
+  std::size_t songLength_ = 0;
+  bool songLoop_ = true;
+  bool songMode_ = false;
+  // True while playback follows the song; changes only on bar lines.
+  bool songEngaged_ = false;
+  std::size_t songRow_ = 0;
+  std::size_t songBar_ = 0;
+  std::size_t songStartRow_ = 0;
+  bool songJumpPending_ = false;
+  // May equal songLength_: the jump then lands past the end (loop to row 0, or stop).
+  std::size_t songJumpRow_ = 0;
+  std::array<bool, kSynthTrackCount> songSilent_{};
+  std::array<HeldRecording, kMaxHeldRecordings> heldRecordings_{};
+  std::array<SuppressedNote, kMaxSuppressedNotes> suppressedNotes_{};
   bool auditionActive_ = false;
   std::size_t auditionTrack_ = 0;
   std::uint8_t auditionNote_ = 0;

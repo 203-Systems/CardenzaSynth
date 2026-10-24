@@ -32,6 +32,16 @@ constexpr std::array<std::uint8_t, kHomePerformanceColumnCount> kVelocityBuckets
     24, 40, 56, 72, 88, 104, 120, 127,
 };
 
+// Relative length edits step through musically useful lengths, from a quarter step to a full pattern.
+constexpr std::array<std::uint16_t, 12> kAdjustLengthTable = {
+    6, 12, 18, 24, 36, 48, 72, 96, 144, 192, 288, 384,
+};
+
+constexpr std::uint8_t kMinSwing = 50;
+constexpr std::uint8_t kMaxSwing = 75;
+constexpr std::uint16_t kMinTempo = 30;
+constexpr std::uint16_t kMaxTempo = 300;
+
 constexpr std::size_t kClockIdleSleepMs = 2;
 constexpr std::size_t kClockTaskStackWords = 4096;
 constexpr int kClockTaskPriority = 4;
@@ -42,6 +52,22 @@ namespace {
 
 const SynthSequencer::PatternData kEmptyPattern{};
 SynthSequencer::PatternData scratchPattern{};
+
+std::size_t ClampedPatternCount(const SynthSequencer::TrackData& track)
+{
+  return std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount);
+}
+
+bool ValidSongRow(const SongRow& row, const std::array<SynthSequencer::TrackData, kSynthTrackCount>& tracks)
+{
+  if (row.repeats < 1 || row.repeats > kSongMaxRepeats) return false;
+  for (std::size_t track = 0; track < tracks.size(); ++track)
+  {
+    const int pattern = row.patterns[track];
+    if (pattern < -1 || pattern >= static_cast<int>(ClampedPatternCount(tracks[track]))) return false;
+  }
+  return true;
+}
 
 }  // namespace
 
@@ -110,7 +136,11 @@ void SynthSequencer::PatternBank::Clear()
   for (auto& pattern : patterns_) pattern.reset();
 }
 
-SynthSequencer::SynthSequencer() = default;
+SynthSequencer::SynthSequencer()
+{
+  queuedPattern_.fill(kNoPattern);
+  previousPassPattern_.fill(kNoPattern);
+}
 
 SynthSequencer::~SynthSequencer()
 {
@@ -160,6 +190,9 @@ void SynthSequencer::Play()
   }
   absolutePulse_ = 0;
   playbackStep_ = 0;
+  ResetPlaybackPositionsLocked();
+  // Pulse 0 is a bar line: the song, when switched on, takes over there from its start row.
+  LeaveSongLocked();
   playing_ = true;
 }
 
@@ -170,10 +203,21 @@ void SynthSequencer::Stop()
   std::size_t eventCount = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    playing_ = false;
-    CollectAllNoteOffsLocked(events, eventCount);
+    StopLocked(events, eventCount);
   }
   EmitPendingMidi(events, eventCount);
+}
+
+void SynthSequencer::StopLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count)
+{
+  // Held takes end at the stop; queued patterns take over now that no loop is running.
+  FinalizeAllHeldRecordingsLocked();
+  ApplyQueuedPatternsLocked();
+  suppressedNotes_.fill(SuppressedNote{});
+  // The song position survives for Resume(); a pending jump does not.
+  songJumpPending_ = false;
+  playing_ = false;
+  CollectAllNoteOffsLocked(events, count);
 }
 
 void SynthSequencer::TogglePlayback()
@@ -198,6 +242,12 @@ void SynthSequencer::Resume()
   std::lock_guard<std::mutex> outputLock(outputMutex_);
   std::lock_guard<std::mutex> lock(mutex_);
   playing_ = clockWorkerRunning_.load();
+}
+
+std::uint16_t SynthSequencer::Tempo() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return bpm_;
 }
 
 void SynthSequencer::AdjustTempo(int delta)
@@ -263,10 +313,18 @@ void SynthSequencer::Reset()
     track.defaultLengthPulses = kSequencerPulsesPerStep;
     track.enabled = true;
     track.muted = false;
+    track.stepCount = kSequencerStepCount;
   }
   bpm_ = 120;
+  swing_ = kMinSwing;
+  recordArmed_ = false;
+  queuedPattern_.fill(kNoPattern);
+  heldRecordings_.fill(HeldRecording{});
+  ResetSongLocked();
+  songMode_ = false;
   absolutePulse_ = 0;
   playbackStep_ = 0;
+  ResetPlaybackPositionsLocked();
 }
 
 std::unique_ptr<SynthSequencer::ProjectState> SynthSequencer::CaptureState() const
@@ -278,15 +336,22 @@ std::unique_ptr<SynthSequencer::ProjectState> SynthSequencer::CaptureState() con
   for (std::size_t index = 0; index < tracks_.size(); ++index)
     if (!state->tracks[index].patterns.Reserve(tracks_[index].patterns)) return nullptr;
   state->bpm = bpm_;
+  state->swing = swing_;
   state->tracks = tracks_;
+  state->song = song_;
+  state->songLength = songLength_;
+  state->songLoop = songLoop_;
   return state;
 }
 
 bool SynthSequencer::ValidateState(const ProjectState& state)
 {
-  if (state.bpm < 30 || state.bpm > 300) return false;
+  if (state.bpm < kMinTempo || state.bpm > kMaxTempo || state.swing < kMinSwing || state.swing > kMaxSwing) return false;
+  if (state.songLength > kSongMaxRows) return false;
+  for (std::size_t row = 0; row < state.songLength; ++row)
+    if (!ValidSongRow(state.song[row], state.tracks)) return false;
   for (const TrackData& track : state.tracks) {
-    if (track.patternCount < 1 || track.patternCount > kSequencerMaxPatternCount ||
+    if (track.stepCount < 1 || track.stepCount > kSequencerStepCount || track.patternCount < 1 || track.patternCount > kSequencerMaxPatternCount ||
         track.activePattern >= track.patternCount || track.defaultVelocity == 0 || track.defaultVelocity > 127 ||
         track.defaultLengthPulses == 0 || track.defaultLengthPulses > kSequencerStepCount * kSequencerPulsesPerStep) return false;
     for (std::size_t patternIndex = 0; patternIndex < track.patterns.size(); ++patternIndex) {
@@ -317,8 +382,17 @@ bool SynthSequencer::RestoreState(const ProjectState& state)
     if (!tracks_[index].patterns.Reserve(state.tracks[index].patterns)) return false;
   tracks_ = state.tracks;
   bpm_ = state.bpm;
+  swing_ = state.swing;
+  // The song mode switch is a performance control and stays as it is.
+  ResetSongLocked();
+  std::copy_n(state.song.begin(), state.songLength, song_.begin());
+  songLength_ = state.songLength;
+  songLoop_ = state.songLoop;
+  queuedPattern_.fill(kNoPattern);
+  heldRecordings_.fill(HeldRecording{});
   absolutePulse_ = 0;
   playbackStep_ = 0;
+  ResetPlaybackPositionsLocked();
   return true;
 }
 
@@ -335,6 +409,7 @@ void SynthSequencer::StepPattern(int delta)
   const int count = static_cast<int>(track.patternCount);
   const int next = (static_cast<int>(track.activePattern) + delta % count + count) % count;
   track.activePattern = static_cast<std::size_t>(next);
+  queuedPattern_[activeTrack_] = kNoPattern;
   NormalizeScopeLocked();
 }
 
@@ -352,12 +427,16 @@ void SynthSequencer::AdjustPatternCount(int delta)
   for (int index = next; index < current; ++index)
   {
     track.patterns.Release(static_cast<std::size_t>(index));
+    RemoveSongPatternLocked(activeTrack_, static_cast<std::size_t>(index), false);
   }
   track.patternCount = static_cast<std::size_t>(next);
   if (track.activePattern >= track.patternCount)
   {
     track.activePattern = track.patternCount - 1;
   }
+  if (queuedPattern_[activeTrack_] >= track.patternCount) queuedPattern_[activeTrack_] = kNoPattern;
+  for (HeldRecording& recording : heldRecordings_)
+    if (recording.active && recording.trackIndex == activeTrack_ && recording.pattern >= track.patternCount) recording = HeldRecording{};
   NormalizeScopeLocked();
 }
 
@@ -386,6 +465,7 @@ bool SynthSequencer::SelectOrCreatePattern(std::size_t patternIndex)
   }
 
   track.activePattern = patternIndex;
+  queuedPattern_[activeTrack_] = kNoPattern;
   NormalizeScopeLocked();
   return true;
 }
@@ -405,14 +485,26 @@ bool SynthSequencer::DeletePattern(std::size_t patternIndex)
     return false;
   }
 
+  std::size_t& queued = queuedPattern_[activeTrack_];
+  if (queued == patternIndex || track.patternCount == 1) queued = kNoPattern;
+  else if (queued != kNoPattern && queued > patternIndex) --queued;
+  for (HeldRecording& recording : heldRecordings_)
+  {
+    if (!recording.active || recording.trackIndex != activeTrack_) continue;
+    if (recording.pattern == patternIndex) recording = HeldRecording{};
+    else if (recording.pattern > patternIndex && track.patternCount > 1) --recording.pattern;
+  }
+
   if (track.patternCount == 1)
   {
+    // The only pattern is cleared rather than removed, so song rows keep referring to it.
     track.patterns.Release(0);
     track.activePattern = 0;
     NormalizeScopeLocked();
     return true;
   }
 
+  RemoveSongPatternLocked(activeTrack_, patternIndex, true);
   for (std::size_t index = patternIndex; index + 1 < track.patternCount; ++index)
   {
     track.patterns.Swap(index, index + 1);
@@ -451,6 +543,7 @@ bool SynthSequencer::CopyPattern(std::size_t sourcePattern, std::size_t destinat
 
   track.patterns[destinationPattern] = std::as_const(track.patterns)[sourcePattern];
   track.activePattern = destinationPattern;
+  queuedPattern_[activeTrack_] = kNoPattern;
   NormalizeScopeLocked();
   return true;
 }
@@ -640,6 +733,30 @@ bool SynthSequencer::StepHasEvents(std::size_t stepIndex) const
   }
 
   return ActiveNoteCount(ActivePatternLocked(tracks_[activeTrack_]).steps[stepIndex]) > 0;
+}
+
+std::size_t SynthSequencer::StepNotes(std::size_t stepIndex, std::array<std::uint8_t, 8>& notes) const
+{
+  static_assert(std::tuple_size<decltype(StepData::notes)>::value == 8, "StepNotes returns one pitch per note slot.");
+  if (stepIndex >= kSequencerStepCount)
+  {
+    return 0;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size())
+  {
+    return 0;
+  }
+
+  // A 128-entry presence table orders the pitches without sorting a fixed buffer.
+  std::array<bool, 128> present{};
+  for (const NoteEvent& note : ActivePatternLocked(tracks_[activeTrack_]).steps[stepIndex].notes)
+    if (note.active && note.note < present.size()) present[note.note] = true;
+  std::size_t count = 0;
+  for (std::size_t pitch = 0; pitch < present.size() && count < notes.size(); ++pitch)
+    if (present[pitch]) notes[count++] = static_cast<std::uint8_t>(pitch);
+  return count;
 }
 
 std::uint8_t SynthSequencer::SelectedNoteVelocity(std::uint8_t pitch) const
@@ -861,7 +978,9 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
   state.visible = true;
   state.activeTrack = activeTrack;
   state.playing = playing_;
+  state.recordArmed = recordArmed_;
   state.bpm = bpm_;
+  state.swing = swing_;
   state.currentStep = playbackStep_;
   state.patternProgress = playing_ ? static_cast<float>(absolutePulse_ % (kSequencerStepCount * kSequencerPulsesPerStep)) /
                                          static_cast<float>(kSequencerStepCount * kSequencerPulsesPerStep)
@@ -878,20 +997,54 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     summary.muted = source.muted;
     summary.activePattern = source.activePattern;
     summary.patternCount = source.patternCount;
+    summary.stepCount = TrackStepCountOf(source);
+    summary.currentStep = std::min<std::size_t>(trackCurrentPulse_[index] / kSequencerPulsesPerStep, summary.stepCount - 1);
+    summary.queuedPattern = queuedPattern_[index] < source.patternCount ? queuedPattern_[index] : kNoPattern;
+    summary.songSilent = playing_ && songSilent_[index];
     for (const StepData& step : ActivePatternLocked(source).steps)
       if (ActiveNoteCount(step) != 0) ++summary.populatedStepCount;
   }
+  state.songMode = songMode_;
+  state.songLoop = songLoop_;
+  state.songLength = songLength_;
+  state.songPlaying = playing_ && songEngaged_;
+  if (state.songPlaying)
+  {
+    state.songRow = songRow_;
+    state.songBar = songBar_;
+    // Pulses of the row processed so far: whole bars, plus the bar holding the last processed pulse.
+    const std::uint64_t repeats = songRow_ < songLength_ ? song_[songRow_].repeats : 1;
+    const std::uint64_t inBar = absolutePulse_ > 0 ? (absolutePulse_ - 1) % kSongBarPulses + 1 : 0;
+    const std::uint64_t done = static_cast<std::uint64_t>(songBar_) * kSongBarPulses + inBar;
+    state.songRowProgress = std::min(1.0f, static_cast<float>(done) / static_cast<float>(repeats * kSongBarPulses));
+  }
+  else
+  {
+    state.songRow = songLength_ > 0 ? std::min(songStartRow_, songLength_ - 1) : 0;
+  }
+  state.songCueRow = playing_ && songJumpPending_ && songJumpRow_ < songLength_ ? songJumpRow_ : kSongMaxRows;
   const TrackData* track = activeTrack < tracks_.size() ? &tracks_[activeTrack] : nullptr;
   if (track != nullptr)
   {
+    // The playhead and progress follow the shown track's own loop length.
+    const std::size_t loopPulses = state.tracks[activeTrack].stepCount * kSequencerPulsesPerStep;
+    state.currentStep = state.tracks[activeTrack].currentStep;
+    state.patternProgress = playing_ ? static_cast<float>(trackNextPulse_[activeTrack] % loopPulses) / static_cast<float>(loopPulses)
+                                     : 0.0f;
     state.trackEnabled = track->enabled;
     state.trackMuted = track->muted;
     state.patternCount = std::clamp<std::size_t>(track->patternCount, 1, kSequencerMaxPatternCount);
     state.activePattern = std::min(track->activePattern, state.patternCount - 1);
     state.populatedStepCount = state.tracks[activeTrack].populatedStepCount;
     for (std::size_t index = 0; index < state.patternCount; ++index)
+    {
+      if (!track->patterns.Allocated(index)) continue;
+      std::uint8_t populated = 0;
       for (const StepData& step : track->patterns[index].steps)
-        if (ActiveNoteCount(step) != 0) { state.patternHasEvents[index] = true; break; }
+        if (ActiveNoteCount(step) != 0) ++populated;
+      state.patternStepCounts[index] = populated;
+      state.patternHasEvents[index] = populated != 0;
+    }
   }
   const StepData* primaryHeldStep = nullptr;
   for (std::size_t stepIndex = 0; stepIndex < state.steps.size(); ++stepIndex)
@@ -909,10 +1062,11 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
               (static_cast<std::uint32_t>(note.note) | (static_cast<std::uint32_t>(note.velocity) << 7) |
                (static_cast<std::uint32_t>(note.lengthPulses) << 14) | (static_cast<std::uint32_t>(note.microstep) << 25));
           if (cell.lowestNote < 0 || note.note < cell.lowestNote) cell.lowestNote = note.note;
+          cell.velocity = std::max(cell.velocity, note.velocity);
         }
     cell.hasEvents = cell.noteCount > 0;
     state.steps[stepIndex].held = heldSteps_[stepIndex];
-    state.steps[stepIndex].playing = playing_ && playbackStep_ == stepIndex;
+    state.steps[stepIndex].playing = playing_ && state.currentStep == stepIndex;
     if (heldSteps_[stepIndex] && primaryHeldStep == nullptr)
     {
       primaryHeldStep = step;
@@ -971,6 +1125,665 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     if (state.editValueMixed) state.valueLabel = std::string(SequencerEditLaneLabel(editLane_)) + " MIXED";
   }
   return state;
+}
+
+void SynthSequencer::SetRecordArmed(bool armed)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  recordArmed_ = armed;
+  if (!armed) FinalizeAllHeldRecordingsLocked();
+}
+
+bool SynthSequencer::RecordArmed() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return recordArmed_;
+}
+
+void SynthSequencer::RecordNoteOn(std::size_t trackIndex, std::uint8_t note, std::uint8_t velocity)
+{
+  if (velocity == 0)
+  {
+    RecordNoteOff(trackIndex, note);
+    return;
+  }
+  if (trackIndex >= kSynthTrackCount || note > 127)
+  {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!playing_ || !recordArmed_)
+  {
+    return;
+  }
+  if (songSilent_[trackIndex])
+  {
+    return;  // The playing song row leaves this track out: there is no pattern to record into.
+  }
+
+  const std::uint64_t now = RecordPulseLocked(trackIndex);
+  // A repeated note-on for a held pitch closes the earlier take first.
+  for (HeldRecording& recording : heldRecordings_)
+    if (recording.active && recording.trackIndex == trackIndex && recording.note == note) FinalizeHeldRecordingLocked(recording, now);
+
+  TrackData& track = tracks_[trackIndex];
+  const std::size_t stepCount = TrackStepCountOf(track);
+  const std::uint32_t loopPulses = static_cast<std::uint32_t>(stepCount * kSequencerPulsesPerStep);
+  // Before the first pulse of a run the playhead sits on the pulse about to be processed.
+  const std::uint32_t position = (trackStarted_[trackIndex] ? trackCurrentPulse_[trackIndex] : trackNextPulse_[trackIndex]) % loopPulses;
+
+  // Pick the microstep slot whose (swung) playback time is nearest. Ties go to the later slot,
+  // so rounding past microstep 5 lands on the next step and the last step wraps to step 0.
+  std::size_t bestStep = 0;
+  std::uint8_t bestMicrostep = 0;
+  std::uint32_t bestDistance = loopPulses;
+  bool bestAhead = false;
+  std::int32_t bestOffset = 0;
+  for (std::size_t stepIndex = 0; stepIndex < stepCount; ++stepIndex)
+  {
+    for (std::uint8_t microstep = 0; microstep < kSequencerMicrostepCount; ++microstep)
+    {
+      const std::uint32_t slot = NoteOffsetPulsesLocked(stepIndex, microstep) % loopPulses;
+      const std::uint32_t forward = (slot + loopPulses - position) % loopPulses;
+      const std::uint32_t backward = (position + loopPulses - slot) % loopPulses;
+      const bool ahead = forward <= backward;
+      const std::uint32_t distance = ahead ? forward : backward;
+      // Coincident slots (swing overlaps) keep the note in the step whose own grid holds it.
+      const bool better = distance < bestDistance ||
+          (distance == bestDistance && ahead && !bestAhead) ||
+          (distance == bestDistance && ahead == bestAhead && microstep < bestMicrostep);
+      if (!better) continue;
+      bestDistance = distance;
+      bestAhead = ahead;
+      bestStep = stepIndex;
+      bestMicrostep = microstep;
+      bestOffset = ahead ? static_cast<std::int32_t>(forward) : -static_cast<std::int32_t>(backward);
+    }
+  }
+
+  StepData& step = ActivePatternLocked(track).steps[bestStep];
+  NoteEvent* target = nullptr;
+  for (NoteEvent& event : step.notes)
+    if (event.active && event.note == note) { target = &event; break; }
+  if (target == nullptr)
+    for (NoteEvent& event : step.notes)
+      if (!event.active) { target = &event; break; }
+  if (target == nullptr)
+  {
+    return;  // Eight notes per step: a full step drops the take.
+  }
+
+  target->active = true;
+  target->note = note;
+  target->velocity = std::min<std::uint8_t>(velocity, 127);
+  target->microstep = bestMicrostep;
+  target->lengthPulses = ClampLengthForStepMicrostep(bestStep, bestMicrostep, kSequencerPulsesPerMicrostep);
+
+  HeldRecording* held = nullptr;
+  for (HeldRecording& recording : heldRecordings_)
+    if (!recording.active) { held = &recording; break; }
+  if (held == nullptr)
+  {
+    held = &heldRecordings_[0];
+    for (HeldRecording& recording : heldRecordings_)
+      if (recording.onPulse < held->onPulse) held = &recording;
+    FinalizeHeldRecordingLocked(*held, now);
+  }
+  held->active = true;
+  held->trackIndex = static_cast<std::uint8_t>(trackIndex);
+  held->note = note;
+  held->pattern = std::min(track.activePattern, track.patternCount - 1);
+  held->step = static_cast<std::uint8_t>(bestStep);
+  held->onPulse = now;
+  held->startPulse = bestOffset >= 0 ? now + static_cast<std::uint64_t>(bestOffset) : now - std::min<std::uint64_t>(now, static_cast<std::uint64_t>(-bestOffset));
+
+  // The performer already sounded this note: a slot just ahead of the playhead must not
+  // trigger it again when playback reaches it in this pass.
+  if (bestOffset >= 0 && held->startPulse >= absolutePulse_)
+  {
+    SuppressedNote* entry = nullptr;
+    for (SuppressedNote& suppressed : suppressedNotes_)
+      if (!suppressed.active || (suppressed.trackIndex == trackIndex && suppressed.note == note)) { entry = &suppressed; break; }
+    if (entry == nullptr)
+    {
+      entry = &suppressedNotes_[0];
+      for (SuppressedNote& suppressed : suppressedNotes_)
+        if (suppressed.pulse < entry->pulse) entry = &suppressed;
+    }
+    *entry = SuppressedNote{held->startPulse, static_cast<std::uint8_t>(trackIndex), note, true};
+  }
+}
+
+void SynthSequencer::RecordNoteOff(std::size_t trackIndex, std::uint8_t note)
+{
+  if (trackIndex >= kSynthTrackCount)
+  {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  const std::uint64_t now = RecordPulseLocked(trackIndex);
+  for (HeldRecording& recording : heldRecordings_)
+    if (recording.active && recording.trackIndex == trackIndex && recording.note == note) FinalizeHeldRecordingLocked(recording, now);
+}
+
+bool SynthSequencer::QueuePattern(std::size_t trackIndex, std::size_t patternIndex)
+{
+  if (trackIndex >= kSynthTrackCount || patternIndex >= kSequencerMaxPatternCount)
+  {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  TrackData& track = tracks_[trackIndex];
+  track.patternCount = std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount);
+  track.activePattern = std::min(track.activePattern, track.patternCount - 1);
+  if (patternIndex > track.patternCount)
+  {
+    return false;
+  }
+
+  if (patternIndex == track.patternCount)
+  {
+    if (track.patternCount >= kSequencerMaxPatternCount)
+    {
+      return false;
+    }
+    ++track.patternCount;
+  }
+
+  if (!playing_)
+  {
+    track.activePattern = patternIndex;
+    queuedPattern_[trackIndex] = kNoPattern;
+  }
+  else
+  {
+    queuedPattern_[trackIndex] = patternIndex == track.activePattern ? kNoPattern : patternIndex;
+  }
+  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  return true;
+}
+
+void SynthSequencer::SetSwing(std::uint8_t percent)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  swing_ = std::clamp(percent, kMinSwing, kMaxSwing);
+}
+
+std::uint8_t SynthSequencer::Swing() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return swing_;
+}
+
+void SynthSequencer::SetTrackStepCount(std::size_t trackIndex, std::size_t steps)
+{
+  if (trackIndex >= kSynthTrackCount)
+  {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  TrackData& track = tracks_[trackIndex];
+  track.stepCount = std::clamp<std::size_t>(steps, 1, kSequencerStepCount);
+  // A shorter loop keeps its phase; reaching pulse 0 runs the usual loop boundary.
+  const std::uint16_t loopPulses = static_cast<std::uint16_t>(track.stepCount * kSequencerPulsesPerStep);
+  trackNextPulse_[trackIndex] = static_cast<std::uint16_t>(trackNextPulse_[trackIndex] % loopPulses);
+  trackCurrentPulse_[trackIndex] = static_cast<std::uint16_t>(trackCurrentPulse_[trackIndex] % loopPulses);
+}
+
+std::size_t SynthSequencer::TrackStepCount(std::size_t trackIndex) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return trackIndex < tracks_.size() ? TrackStepCountOf(tracks_[trackIndex]) : kSequencerStepCount;
+}
+
+void SynthSequencer::SetStepSelected(std::size_t stepIndex, bool selected)
+{
+  if (stepIndex >= kSequencerStepCount)
+  {
+    return;
+  }
+
+  std::lock_guard<std::mutex> outputLock(outputMutex_);
+  std::array<PendingMidiEvent, kMaxPendingMidiEvents> events{};
+  std::size_t eventCount = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    heldSteps_[stepIndex] = selected;
+    if (std::none_of(heldSteps_.begin(), heldSteps_.end(), [](bool held) { return held; }))
+      ClearSelectionLocked(events, eventCount);
+    else
+      NormalizeScopeLocked();
+  }
+  EmitPendingMidi(events, eventCount);
+}
+
+void SynthSequencer::ClearSelectedSteps()
+{
+  ClearHeldSteps();
+}
+
+bool SynthSequencer::ToggleNoteOnSelectedSteps(std::uint8_t note)
+{
+  if (note > 127)
+  {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size() || std::none_of(heldSteps_.begin(), heldSteps_.end(), [](bool held) { return held; }))
+  {
+    return false;
+  }
+
+  TrackData& track = tracks_[activeTrack_];
+  PatternData& pattern = ActivePatternLocked(track);
+  for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
+    if (heldSteps_[stepIndex]) ToggleNoteInStepLocked(pattern.steps[stepIndex], note, track, stepIndex);
+  NormalizeScopeLocked();
+  return true;
+}
+
+void SynthSequencer::SetEditLane(SequencerEditLane lane)
+{
+  if (lane > SequencerEditLane::Micro)
+  {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  editLane_ = lane;
+  NormalizeScopeLocked();
+}
+
+void SynthSequencer::CycleEditLane()
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  switch (editLane_)
+  {
+    case SequencerEditLane::Note: editLane_ = SequencerEditLane::Length; break;
+    case SequencerEditLane::Length: editLane_ = SequencerEditLane::Velocity; break;
+    case SequencerEditLane::Velocity: editLane_ = SequencerEditLane::Micro; break;
+    case SequencerEditLane::Micro:
+    default: editLane_ = SequencerEditLane::Note; break;
+  }
+  NormalizeScopeLocked();
+}
+
+void SynthSequencer::CycleNoteScope()
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  CycleNoteScopeLocked();
+}
+
+bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
+{
+  if (delta == 0)
+  {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size() || std::none_of(heldSteps_.begin(), heldSteps_.end(), [](bool held) { return held; }))
+  {
+    return false;
+  }
+
+  TrackData& track = tracks_[activeTrack_];
+  // Steps through the length table relative to the current value; values between entries
+  // move to the neighbouring entry first.
+  auto stepLength = [delta, coarse](std::uint16_t current) {
+    const int entries = delta * (coarse ? 3 : 1);
+    const int last = static_cast<int>(kAdjustLengthTable.size()) - 1;
+    int index = -1;
+    if (entries > 0)
+    {
+      for (int candidate = 0; candidate <= last; ++candidate)
+        if (kAdjustLengthTable[static_cast<std::size_t>(candidate)] > current) { index = candidate; break; }
+      if (index < 0) return current;
+      index = std::min(last, index + entries - 1);
+    }
+    else
+    {
+      for (int candidate = last; candidate >= 0; --candidate)
+        if (kAdjustLengthTable[static_cast<std::size_t>(candidate)] < current) { index = candidate; break; }
+      if (index < 0) return current;
+      index = std::max(0, index + entries + 1);
+    }
+    return kAdjustLengthTable[static_cast<std::size_t>(index)];
+  };
+
+  bool selectionHasNotes = false;
+  const PatternData& readPattern = ActivePatternLocked(std::as_const(track));
+  for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
+    if (heldSteps_[stepIndex] && ActiveNoteCount(readPattern.steps[stepIndex]) != 0) selectionHasNotes = true;
+
+  if (!selectionHasNotes)
+  {
+    // Empty steps edit the values new notes start with ("NEW LEN" / "NEW VEL").
+    if (editLane_ == SequencerEditLane::Length)
+    {
+      const std::uint16_t next = std::clamp<std::uint16_t>(stepLength(track.defaultLengthPulses), 1,
+                                                           kSequencerStepCount * kSequencerPulsesPerStep);
+      const bool changed = next != track.defaultLengthPulses;
+      track.defaultLengthPulses = next;
+      return changed;
+    }
+    if (editLane_ == SequencerEditLane::Velocity)
+    {
+      const auto next = static_cast<std::uint8_t>(std::clamp(static_cast<int>(track.defaultVelocity) + delta * (coarse ? 10 : 1), 1, 127));
+      const bool changed = next != track.defaultVelocity;
+      track.defaultVelocity = next;
+      return changed;
+    }
+    return false;
+  }
+
+  PatternData& pattern = ActivePatternLocked(track);
+  bool changed = false;
+  bool primarySeen = false;
+  int primaryScopedPitch = -1;
+  for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
+  {
+    if (!heldSteps_[stepIndex]) continue;
+    StepData& step = pattern.steps[stepIndex];
+    const bool primary = !primarySeen;
+    primarySeen = true;
+
+    // Affected slots, in pitch order so a transposed chord never collides with itself.
+    std::array<std::size_t, 8> slots{};
+    std::size_t slotCount = 0;
+    if (noteScopeIndex_ >= 0)
+    {
+      const std::size_t slot = ScopedNoteSlot(step);
+      if (slot < step.notes.size() && step.notes[slot].active) slots[slotCount++] = slot;
+    }
+    else
+    {
+      for (std::size_t slot = 0; slot < step.notes.size(); ++slot)
+        if (step.notes[slot].active) slots[slotCount++] = slot;
+    }
+    for (std::size_t index = 1; index < slotCount; ++index)
+    {
+      const std::size_t slot = slots[index];
+      std::size_t insertionIndex = index;
+      while (insertionIndex > 0 && step.notes[slot].note < step.notes[slots[insertionIndex - 1]].note)
+      {
+        slots[insertionIndex] = slots[insertionIndex - 1];
+        --insertionIndex;
+      }
+      slots[insertionIndex] = slot;
+    }
+
+    switch (editLane_)
+    {
+      case SequencerEditLane::Note:
+      {
+        const int amount = delta * (coarse ? 12 : 1);
+        for (std::size_t order = 0; order < slotCount; ++order)
+        {
+          // Raise from the top and lower from the bottom.
+          NoteEvent& event = step.notes[slots[amount > 0 ? slotCount - 1 - order : order]];
+          const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.note) + amount, 0, 127));
+          if (target == event.note) continue;
+          const bool collides = std::any_of(step.notes.begin(), step.notes.end(),
+                                            [&](const NoteEvent& other) { return other.active && other.note == target; });
+          if (collides) continue;
+          event.note = target;
+          changed = true;
+        }
+        if (primary && noteScopeIndex_ >= 0 && slotCount == 1) primaryScopedPitch = step.notes[slots[0]].note;
+        break;
+      }
+      case SequencerEditLane::Length:
+        for (std::size_t order = 0; order < slotCount; ++order)
+        {
+          NoteEvent& event = step.notes[slots[order]];
+          const std::uint16_t target = ClampLengthForStepMicrostep(stepIndex, event.microstep, stepLength(event.lengthPulses));
+          if ((delta > 0 && target <= event.lengthPulses) || (delta < 0 && target >= event.lengthPulses)) continue;
+          event.lengthPulses = target;
+          changed = true;
+        }
+        break;
+      case SequencerEditLane::Velocity:
+        for (std::size_t order = 0; order < slotCount; ++order)
+        {
+          NoteEvent& event = step.notes[slots[order]];
+          const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.velocity) + delta * (coarse ? 10 : 1), 1, 127));
+          if (target == event.velocity) continue;
+          event.velocity = target;
+          changed = true;
+        }
+        break;
+      case SequencerEditLane::Micro:
+        for (std::size_t order = 0; order < slotCount; ++order)
+        {
+          NoteEvent& event = step.notes[slots[order]];
+          // Coarse moves to the nearest edge of the six microsteps.
+          const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.microstep) + delta * (coarse ? kSequencerMicrostepCount : 1),
+                                                                   0, kSequencerMicrostepCount - 1));
+          if (target == event.microstep) continue;
+          event.microstep = target;
+          event.lengthPulses = ClampLengthForStepMicrostep(stepIndex, event.microstep, event.lengthPulses);
+          changed = true;
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  // A transposed scoped note keeps the scope, even when its pitch rank in the chord changed.
+  if (primaryScopedPitch >= 0)
+  {
+    const StepData* primaryStep = PrimaryHeldStepLocked();
+    int rank = 0;
+    if (primaryStep != nullptr)
+      for (const NoteEvent& event : primaryStep->notes)
+        if (event.active && event.note < primaryScopedPitch) ++rank;
+    noteScopeIndex_ = rank;
+  }
+  NormalizeScopeLocked();
+  return changed;
+}
+
+void SynthSequencer::SetSongMode(bool enabled)
+{
+  // Playback picks the change up at the next bar line (HandleSongBarLocked).
+  std::lock_guard<std::mutex> lock(mutex_);
+  songMode_ = enabled;
+}
+
+bool SynthSequencer::SongMode() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return songMode_;
+}
+
+void SynthSequencer::SetSongLoop(bool loop)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  songLoop_ = loop;
+}
+
+bool SynthSequencer::SongLoop() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return songLoop_;
+}
+
+std::size_t SynthSequencer::SongLength() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return songLength_;
+}
+
+SongRow SynthSequencer::SongRowAt(std::size_t row) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return row < songLength_ ? song_[row] : SongRow{};
+}
+
+bool SynthSequencer::SetSongPattern(std::size_t row, std::size_t trackIndex, int pattern)
+{
+  if (trackIndex >= kSynthTrackCount || pattern < -1)
+  {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (row >= songLength_ || pattern >= static_cast<int>(ClampedPatternCount(tracks_[trackIndex])))
+  {
+    return false;
+  }
+  song_[row].patterns[trackIndex] = static_cast<std::int8_t>(pattern);
+  return true;
+}
+
+bool SynthSequencer::SetSongRepeats(std::size_t row, std::uint8_t repeats)
+{
+  if (repeats < 1 || repeats > kSongMaxRepeats)
+  {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (row >= songLength_)
+  {
+    return false;
+  }
+  song_[row].repeats = repeats;
+  return true;
+}
+
+bool SynthSequencer::InsertSongRow(std::size_t at, const SongRow& row)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (at > songLength_ || songLength_ >= kSongMaxRows || !ValidSongRow(row, tracks_))
+  {
+    return false;
+  }
+
+  for (std::size_t index = songLength_; index > at; --index) song_[index] = song_[index - 1];
+  song_[at] = row;
+  ++songLength_;
+  // The playing row and a pending jump keep pointing at the same rows.
+  if (songEngaged_ && at <= songRow_) ++songRow_;
+  if (songJumpPending_ && at <= songJumpRow_) ++songJumpRow_;
+  return true;
+}
+
+bool SynthSequencer::DeleteSongRow(std::size_t row)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (row >= songLength_)
+  {
+    return false;
+  }
+
+  for (std::size_t index = row; index + 1 < songLength_; ++index) song_[index] = song_[index + 1];
+  song_[songLength_ - 1] = SongRow{};
+  --songLength_;
+  // A jump to the deleted row lands on the row that took its place.
+  if (songJumpPending_ && row < songJumpRow_) --songJumpRow_;
+  if (songEngaged_)
+  {
+    if (row < songRow_)
+    {
+      --songRow_;
+    }
+    else if (row == songRow_ && !songJumpPending_)
+    {
+      // The playing row ends at the next bar line; past the end, the song loops or stops there.
+      songJumpPending_ = true;
+      songJumpRow_ = row;
+    }
+  }
+  return true;
+}
+
+void SynthSequencer::CueSongRow(std::size_t row)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (row >= songLength_)
+  {
+    return;
+  }
+  if (playing_ && songMode_)
+  {
+    // Lands on the next bar line, also when that bar line is where the song takes over.
+    songJumpPending_ = true;
+    songJumpRow_ = row;
+    return;
+  }
+  songStartRow_ = row;
+}
+
+void SynthSequencer::SetTempo(std::uint16_t bpm)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  bpm_ = std::clamp(bpm, kMinTempo, kMaxTempo);
+}
+
+void SynthSequencer::SetTrackEnabled(std::size_t trackIndex, bool enabled)
+{
+  if (trackIndex >= kSynthTrackCount)
+  {
+    return;
+  }
+
+  std::lock_guard<std::mutex> outputLock(outputMutex_);
+  std::array<PendingMidiEvent, kMaxPendingMidiEvents> events{};
+  std::size_t eventCount = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    tracks_[trackIndex].enabled = enabled;
+    if (!enabled) ReleaseTrackNotesLocked(trackIndex, events, eventCount);
+  }
+  EmitPendingMidi(events, eventCount);
+}
+
+bool SynthSequencer::TrackEnabled(std::size_t trackIndex) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return trackIndex < tracks_.size() && tracks_[trackIndex].enabled;
+}
+
+bool SynthSequencer::ClearPatternEvents(std::size_t trackIndex, std::size_t patternIndex)
+{
+  if (trackIndex >= kSynthTrackCount || patternIndex >= kSequencerMaxPatternCount)
+  {
+    return false;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  TrackData& track = tracks_[trackIndex];
+  if (patternIndex >= std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount))
+  {
+    return false;
+  }
+
+  // Releasing reads back as an empty pattern and keeps the slot and pattern count.
+  track.patterns.Release(patternIndex);
+  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  return true;
+}
+
+std::size_t SynthSequencer::PatternCount(std::size_t trackIndex) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return trackIndex < tracks_.size() ? std::clamp<std::size_t>(tracks_[trackIndex].patternCount, 1, kSequencerMaxPatternCount) : 0;
+}
+
+std::size_t SynthSequencer::ActivePattern(std::size_t trackIndex) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (trackIndex >= tracks_.size()) return 0;
+  const TrackData& track = tracks_[trackIndex];
+  return std::min(track.activePattern, std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount) - 1);
 }
 
 void SynthSequencer::EnsureClockWorkerStarted()
@@ -1092,34 +1905,54 @@ void SynthSequencer::ProcessPulse()
     }
 
     const std::uint64_t pulse = absolutePulse_;
-    const std::size_t stepIndex = static_cast<std::size_t>((pulse / kSequencerPulsesPerStep) % kSequencerStepCount);
-    const std::uint16_t pulseInStep = static_cast<std::uint16_t>(pulse % kSequencerPulsesPerStep);
-    playbackStep_ = stepIndex;
+    playbackStep_ = static_cast<std::size_t>((pulse / kSequencerPulsesPerStep) % kSequencerStepCount);
 
     CollectDueNoteOffsLocked(pulse, events, eventCount);
+    for (SuppressedNote& suppressed : suppressedNotes_)
+      if (suppressed.active && suppressed.pulse < pulse) suppressed = SuppressedNote{};
 
-    for (std::size_t trackIndex = 0; trackIndex < tracks_.size(); ++trackIndex)
+    // Song rows change on bar lines of the global clock; the end of a song can stop playback here.
+    const bool running = pulse % kSongBarPulses != 0 || HandleSongBarLocked(pulse, events, eventCount);
+    for (std::size_t trackIndex = 0; running && trackIndex < tracks_.size(); ++trackIndex)
     {
       const TrackData& track = tracks_[trackIndex];
+      const std::size_t stepCount = TrackStepCountOf(track);
+      const std::uint16_t loopPulses = static_cast<std::uint16_t>(stepCount * kSequencerPulsesPerStep);
+      std::uint16_t position = trackNextPulse_[trackIndex];
+      if (position >= loopPulses) position = 0;
+      // Muted and disabled tracks keep their position so they re-enter in time.
+      if (position == 0 && trackStarted_[trackIndex]) HandleLoopBoundaryLocked(trackIndex, pulse);
+      trackStarted_[trackIndex] = true;
+      trackCurrentPulse_[trackIndex] = position;
+      trackNextPulse_[trackIndex] = static_cast<std::uint16_t>((position + 1u) % loopPulses);
+
       if (!track.enabled || track.muted)
       {
         continue;
       }
 
-      const StepData& step = ActivePatternLocked(track).steps[stepIndex];
-      for (const NoteEvent& note : step.notes)
+      const PatternData& pattern = ActivePatternLocked(track);
+      const std::size_t stepIndex = position / kSequencerPulsesPerStep;
+      // A track the playing song row leaves out keeps its position but plays nothing of its own.
+      if (!songSilent_[trackIndex])
       {
-        if (!note.active || static_cast<std::uint16_t>(note.microstep) * kSequencerPulsesPerMicrostep != pulseInStep)
-        {
-          continue;
-        }
-
-        if (ScheduleNoteOffLocked(trackIndex, note.note, pulse + std::max<std::uint16_t>(1, note.lengthPulses)))
-          AddPendingMidi(events, eventCount, trackIndex, midi::MidiPacket::NoteOn(0, note.note, note.velocity));
+        FireStepNotesLocked(trackIndex, pattern.steps[stepIndex], stepIndex, position, pulse, events, eventCount);
+        // Microstep and swing offsets can carry a step's notes into the following step...
+        if (stepIndex > 0)
+          FireStepNotesLocked(trackIndex, pattern.steps[stepIndex - 1], stepIndex - 1, position, pulse, events, eventCount);
+      }
+      // ...and the last step of the previous pass past the loop wrap (or past a song row line).
+      const std::size_t previousPattern = previousPassPattern_[trackIndex];
+      const std::uint16_t previousPulses = previousPassPulses_[trackIndex];
+      if (previousPattern < kSequencerMaxPatternCount && previousPulses >= kSequencerPulsesPerStep && position < 2u * kSequencerPulsesPerStep)
+      {
+        const std::size_t lastStep = std::min<std::size_t>(previousPulses / kSequencerPulsesPerStep, kSequencerStepCount) - 1;
+        FireStepNotesLocked(trackIndex, track.patterns[previousPattern].steps[lastStep], lastStep,
+                            static_cast<std::uint32_t>(position) + previousPulses, pulse, events, eventCount);
       }
     }
 
-    ++absolutePulse_;
+    if (running) ++absolutePulse_;
   }
   EmitPendingMidi(events, eventCount);
 }
@@ -1736,6 +2569,283 @@ std::string SynthSequencer::ValueLabelLocked(const StepData* step) const
     default:
       return "SEQ";
   }
+}
+
+std::size_t SynthSequencer::TrackStepCountOf(const TrackData& track)
+{
+  return std::clamp<std::size_t>(track.stepCount, 1, kSequencerStepCount);
+}
+
+std::uint16_t SynthSequencer::SwingDelayPulsesLocked() const
+{
+  // An odd sixteenth starts at swing% of an eighth note (48 pulses); 50% is straight.
+  const int swung = (48 * static_cast<int>(std::clamp(swing_, kMinSwing, kMaxSwing)) + 50) / 100;
+  return static_cast<std::uint16_t>(std::max(0, swung - static_cast<int>(kSequencerPulsesPerStep)));
+}
+
+std::uint16_t SynthSequencer::NoteOffsetPulsesLocked(std::size_t stepIndex, std::uint8_t microstep) const
+{
+  return static_cast<std::uint16_t>(stepIndex * kSequencerPulsesPerStep + microstep * kSequencerPulsesPerMicrostep +
+                                    (stepIndex % 2 == 1 ? SwingDelayPulsesLocked() : 0));
+}
+
+void SynthSequencer::FireStepNotesLocked(std::size_t trackIndex,
+                                         const StepData& step,
+                                         std::size_t stepIndex,
+                                         std::uint32_t targetOffset,
+                                         std::uint64_t pulse,
+                                         std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
+                                         std::size_t& count)
+{
+  for (const NoteEvent& note : step.notes)
+  {
+    if (!note.active || note.microstep >= kSequencerMicrostepCount || NoteOffsetPulsesLocked(stepIndex, note.microstep) != targetOffset)
+    {
+      continue;
+    }
+    if (ConsumeSuppressedNoteLocked(trackIndex, note.note, pulse))
+    {
+      continue;
+    }
+
+    if (ScheduleNoteOffLocked(trackIndex, note.note, pulse + std::max<std::uint16_t>(1, note.lengthPulses)))
+      AddPendingMidi(events, count, trackIndex, midi::MidiPacket::NoteOn(0, note.note, note.velocity));
+  }
+}
+
+bool SynthSequencer::ConsumeSuppressedNoteLocked(std::size_t trackIndex, std::uint8_t note, std::uint64_t pulse)
+{
+  for (SuppressedNote& suppressed : suppressedNotes_)
+  {
+    if (suppressed.active && suppressed.pulse == pulse && suppressed.trackIndex == trackIndex && suppressed.note == note)
+    {
+      suppressed = SuppressedNote{};
+      return true;
+    }
+  }
+  return false;
+}
+
+void SynthSequencer::HandleLoopBoundaryLocked(std::size_t trackIndex, std::uint64_t pulse)
+{
+  TrackData& track = tracks_[trackIndex];
+  // A live note held over the wrap ends with the pass it was recorded in.
+  for (HeldRecording& recording : heldRecordings_)
+    if (recording.active && recording.trackIndex == trackIndex && recording.startPulse < pulse) FinalizeHeldRecordingLocked(recording, pulse);
+
+  const std::size_t patternCount = std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount);
+  // A pass the song left silent has nothing to spill.
+  previousPassPattern_[trackIndex] = songSilent_[trackIndex] ? kNoPattern : std::min(track.activePattern, patternCount - 1);
+  previousPassPulses_[trackIndex] = static_cast<std::uint16_t>(TrackStepCountOf(track) * kSequencerPulsesPerStep);
+  const std::size_t queued = queuedPattern_[trackIndex];
+  queuedPattern_[trackIndex] = kNoPattern;
+  if (queued < patternCount && queued != track.activePattern)
+  {
+    track.activePattern = queued;
+    if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  }
+}
+
+bool SynthSequencer::HandleSongBarLocked(std::uint64_t pulse,
+                                         std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
+                                         std::size_t& count)
+{
+  const bool wanted = songMode_ && songLength_ > 0;
+  if (!songEngaged_)
+  {
+    if (!wanted) return true;
+    // The song takes over: at the cued jump if one is pending, else at the start row.
+    songEngaged_ = true;
+    const std::size_t row = songJumpPending_ ? songJumpRow_ : songStartRow_;
+    songJumpPending_ = false;
+    StartSongRowLocked(std::min(row, songLength_ - 1), pulse);
+    return true;
+  }
+  if (!wanted)
+  {
+    // Back to pattern looping: tracks keep the row's patterns and their loop positions.
+    LeaveSongLocked();
+    return true;
+  }
+
+  ++songBar_;
+  // The row length is read live, so lengthening or shortening the playing row is heard at once.
+  const std::size_t repeats = songRow_ < songLength_ ? song_[songRow_].repeats : 1;
+  if (!songJumpPending_ && songBar_ < repeats) return true;
+  std::size_t next = songJumpPending_ ? songJumpRow_ : songRow_ + 1;
+  songJumpPending_ = false;
+  if (next >= songLength_)
+  {
+    if (!songLoop_)
+    {
+      // The song is over: stop on this bar line. The next Play() starts from the start row again.
+      LeaveSongLocked();
+      StopLocked(events, count);
+      return false;
+    }
+    next = 0;
+  }
+  StartSongRowLocked(next, pulse);
+  return true;
+}
+
+void SynthSequencer::StartSongRowLocked(std::size_t row, std::uint64_t pulse)
+{
+  songRow_ = row;
+  songBar_ = 0;
+  const SongRow& data = song_[row];
+  for (std::size_t trackIndex = 0; trackIndex < tracks_.size(); ++trackIndex)
+  {
+    TrackData& track = tracks_[trackIndex];
+    const std::size_t patternCount = ClampedPatternCount(track);
+    const std::uint16_t loopPulses = static_cast<std::uint16_t>(TrackStepCountOf(track) * kSequencerPulsesPerStep);
+
+    // What a loop wrap would do: takes held over the line end with the row they were recorded in,
+    // and the last step of the cut pass may still spill swung or late notes past the line.
+    for (HeldRecording& recording : heldRecordings_)
+      if (recording.active && recording.trackIndex == trackIndex && recording.startPulse < pulse) FinalizeHeldRecordingLocked(recording, pulse);
+    std::uint16_t ran = 0;
+    if (trackStarted_[trackIndex])
+    {
+      const std::uint16_t next = static_cast<std::uint16_t>(trackNextPulse_[trackIndex] % loopPulses);
+      ran = next == 0 ? loopPulses : next;
+    }
+    const bool spills = ran != 0 && ran % kSequencerPulsesPerStep == 0 && !songSilent_[trackIndex];
+    previousPassPattern_[trackIndex] = spills ? std::min(track.activePattern, patternCount - 1) : kNoPattern;
+    previousPassPulses_[trackIndex] = ran;
+
+    queuedPattern_[trackIndex] = kNoPattern;
+    const int pattern = data.patterns[trackIndex];
+    songSilent_[trackIndex] = pattern < 0;
+    if (pattern >= 0) track.activePattern = std::min(static_cast<std::size_t>(pattern), patternCount - 1);
+    // Every track restarts its loop with the row; no wrap is processed for this restart.
+    trackNextPulse_[trackIndex] = 0;
+    trackCurrentPulse_[trackIndex] = 0;
+    trackStarted_[trackIndex] = false;
+    if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  }
+}
+
+void SynthSequencer::LeaveSongLocked()
+{
+  songEngaged_ = false;
+  songJumpPending_ = false;
+  songBar_ = 0;
+  songSilent_.fill(false);
+}
+
+void SynthSequencer::RemoveSongPatternLocked(std::size_t trackIndex, std::size_t patternIndex, bool shift)
+{
+  if (trackIndex >= kSynthTrackCount)
+  {
+    return;
+  }
+  for (std::size_t row = 0; row < songLength_; ++row)
+  {
+    std::int8_t& pattern = song_[row].patterns[trackIndex];
+    if (pattern < 0) continue;
+    if (static_cast<std::size_t>(pattern) == patternIndex) pattern = -1;
+    else if (shift && static_cast<std::size_t>(pattern) > patternIndex) --pattern;
+  }
+}
+
+void SynthSequencer::ResetSongLocked()
+{
+  song_.fill(SongRow{});
+  songLength_ = 0;
+  songLoop_ = true;
+  songStartRow_ = 0;
+  songRow_ = 0;
+  LeaveSongLocked();
+}
+
+void SynthSequencer::ResetPlaybackPositionsLocked()
+{
+  trackNextPulse_.fill(0);
+  trackCurrentPulse_.fill(0);
+  trackStarted_.fill(false);
+  previousPassPattern_.fill(kNoPattern);
+  previousPassPulses_.fill(0);
+  suppressedNotes_.fill(SuppressedNote{});
+}
+
+void SynthSequencer::ApplyQueuedPatternsLocked()
+{
+  for (std::size_t trackIndex = 0; trackIndex < tracks_.size(); ++trackIndex)
+  {
+    const std::size_t queued = queuedPattern_[trackIndex];
+    queuedPattern_[trackIndex] = kNoPattern;
+    TrackData& track = tracks_[trackIndex];
+    if (queued >= std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount)) continue;
+    track.activePattern = queued;
+    if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  }
+}
+
+void SynthSequencer::FinalizeHeldRecordingLocked(HeldRecording& recording, std::uint64_t pulse)
+{
+  const HeldRecording finished = recording;
+  recording = HeldRecording{};
+  if (!finished.active || finished.trackIndex >= tracks_.size())
+  {
+    return;
+  }
+
+  TrackData& track = tracks_[finished.trackIndex];
+  if (finished.pattern >= track.patternCount || finished.step >= kSequencerStepCount || !track.patterns.Allocated(finished.pattern))
+  {
+    return;
+  }
+
+  StepData& step = track.patterns[finished.pattern].steps[finished.step];
+  for (NoteEvent& note : step.notes)
+  {
+    if (!note.active || note.note != finished.note) continue;
+    const std::uint64_t elapsed = pulse > finished.onPulse ? pulse - finished.onPulse : 0;
+    // At most to the end of the track's loop, and never shorter than one microstep.
+    const std::uint32_t loopPulses = static_cast<std::uint32_t>(TrackStepCountOf(track) * kSequencerPulsesPerStep);
+    const std::uint32_t slotPulse = static_cast<std::uint32_t>(finished.step * kSequencerPulsesPerStep + note.microstep * kSequencerPulsesPerMicrostep);
+    const std::uint32_t maximum = std::max<std::uint32_t>(kSequencerPulsesPerMicrostep, slotPulse < loopPulses ? loopPulses - slotPulse : 0);
+    const auto length = static_cast<std::uint16_t>(std::clamp<std::uint64_t>(elapsed, kSequencerPulsesPerMicrostep, maximum));
+    note.lengthPulses = ClampLengthForStepMicrostep(finished.step, note.microstep, length);
+    return;
+  }
+}
+
+void SynthSequencer::FinalizeAllHeldRecordingsLocked()
+{
+  for (HeldRecording& recording : heldRecordings_)
+    if (recording.active) FinalizeHeldRecordingLocked(recording, RecordPulseLocked(recording.trackIndex));
+}
+
+std::uint64_t SynthSequencer::RecordPulseLocked(std::size_t trackIndex) const
+{
+  // The most recently processed pulse; before a run's first pulse, the one about to play.
+  const bool started = trackIndex < trackStarted_.size() && trackStarted_[trackIndex];
+  return started && absolutePulse_ > 0 ? absolutePulse_ - 1 : absolutePulse_;
+}
+
+void SynthSequencer::ReleaseTrackNotesLocked(std::size_t trackIndex,
+                                             std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
+                                             std::size_t& count)
+{
+  for (PlaybackNote& note : playbackNotes_)
+  {
+    if (note.active && note.trackIndex == trackIndex)
+    {
+      AddPendingMidi(events, count, note.trackIndex, midi::MidiPacket::NoteOff(0, note.note, 0));
+      note = PlaybackNote{};
+    }
+  }
+}
+
+void SynthSequencer::ClearSelectionLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count)
+{
+  StopAuditionLocked(events, count);
+  heldSteps_.fill(false);
+  heldEditLanes_.fill(false);
+  editLane_ = SequencerEditLane::Note;
+  noteScopeIndex_ = -1;
 }
 
 }  // namespace synth

@@ -63,13 +63,20 @@ struct ReadableFont {
 };
 
 constexpr ReadableFont kSmall;
+constexpr PixelFont<1, 9> kMicro;
 constexpr PixelFont<2, 16> kBody;
 constexpr PixelFont<3, 28> kValue;
 const RasterFont kSmallFont{32, 126, 12, kSmall.bitmap.data(), kSmall.glyphs.data()};
+const RasterFont kMicroFont{32, 126, 9, kMicro.bitmap.data(), kMicro.glyphs.data()};
 const RasterFont kBodyFont{32, 126, 16, kBody.bitmap.data(), kBody.glyphs.data()};
 const RasterFont kValueFont{32, 126, 28, kValue.bitmap.data(), kValue.glyphs.data()};
 
 } // namespace
+
+const RasterFont& UiMicroFont()
+{
+  return kMicroFont;
+}
 
 const RasterFont& UiFontForScale(int scale)
 {

@@ -65,6 +65,24 @@ quit
 - If a script line is invalid, the simulator stops and reports the script path plus line number.
 - `down` states are automatically released when the script finishes, so a failed script does not leave keys stuck.
 
+## Headless screenshots (macOS, Linux, Windows)
+
+`CardenzaSimShot` replays the same script format without a window and writes PNG files. It boots the production runtime like the device (`os::system::Begin()`, then `os::system::RunFrame()` every 16 ms) and drives input only through `CardenzaSim::Input`, so it works with whatever UI the application renders.
+
+```sh
+cmake -S . -B build/CardenzaSim -DDEVICE=CardenzaSim -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/CardenzaSim --target CardenzaSimShot
+build/CardenzaSim/Devices/CardenzaSim/CardenzaSimShot \
+  --script tests/ui-review.script --out build/shots --scale 2 --root build/shots-root
+```
+
+- `--script <file>` and `--out <dir>` are required. `--scale N` (1-4) upscales with nearest-neighbour sampling.
+- Storage is `<cwd>/sdcard/CardenzaSynth`. `--root <dir>` changes to `<dir>` (created if missing) before boot, so a run can use a scratch sdcard. Fixtures such as `qafile.wav` go in `<dir>/sdcard/CardenzaSynth/Sample/`. Relative `--script`/`--out` paths are resolved against the caller's directory.
+- `screenshot <name>` writes `<out>/<name>.png`; `.png` is appended, and a `.bmp` extension from desktop scripts is replaced. A `<name>.leds.txt` file is written beside it: four lines of fourteen LED levels (0-15), then `brightness <0-15> enabled <0|1>`.
+- Key targets are `row,col` or the physical legends, case-insensitive: `` ` ``/`esc 1 2 3 4 5 6 7 8 9 0 - = del`, `tab q w e r t y u i o p [ ] \`, `fn shift a s d f g h j k l ; ' enter`, `ctrl opt alt z x c v b n m , . / space`. The desktop spellings `Aa` and `ok` and the shifted legends (`!`, `{`, `?`, ...) also work. `home` is the separate HOME button (`tap home`, `down home`, `up home`). An unknown target stops before boot with `<script>:<line>:` and exit code 1.
+- Timing matches the desktop debug session: each 16 ms tick runs one frame, then one command. `down`/`up` run a frame straight away, and `tap` is down, frame, up, frame. `wait N` idles for N more ticks. A `#` token after a command's argument starts a comment. Held keys are released at the end.
+- Hold gestures and animations use wall-clock time, so the run takes real time (about 13 s for `ui-review.script`). The summary line reports late ticks if the host could not keep up.
+
 ## Native sequencer render regression (macOS, Linux, Windows)
 
 `CardenzaSequencerRenderTests` drives the public simulated keyboard and HOME button through `os::system::RunFrame()`. It uses the production application, sequencer, MIDI route and 240×135 RGB565 renderer. This target needs no desktop window. It checks point selection, note editing, timed animation, value lanes, playback feedback and LED zoning. `CardenzaLedTests` separately checks PWM levels and complete-frame publication without blank intermediate frames.

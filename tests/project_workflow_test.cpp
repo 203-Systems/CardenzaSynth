@@ -31,6 +31,10 @@ std::array<std::atomic<unsigned>, synth::kSynthTrackCount> audioNoteOnCounts{};
 std::array<std::atomic<unsigned>, synth::kSynthTrackCount> audioAllNotesOffCounts{};
 std::array<std::atomic<int>, synth::kSynthTrackCount> audioLastNotes{};
 std::array<std::atomic<int>, synth::kSynthTrackCount> audioLastVelocities{};
+std::array<float, synth::kSynthTrackCount> audioTrackGains{{1.0f, 1.0f, 1.0f, 1.0f}};
+std::array<bool, synth::kSynthTrackCount> audioTrackMuted{};
+std::uint8_t displayBacklight = Device::Display::kDefaultBacklight;
+std::uint8_t outputVolume = Device::Audio::kDefaultOutputVolume;
 }
 
 // Use the production app, engines, MIDI routing, serializers and UI model. Only
@@ -61,8 +65,12 @@ void SetGlobalBrightness(std::uint8_t value) { brightness = value; }
 }
 namespace Display {
 MutableFrameBufferView MutableFrameBuffer() { return {}; }
+void SetBacklight(std::uint8_t level) { displayBacklight = level; }
+std::uint8_t Backlight() { return displayBacklight; }
 }
 namespace Audio {
+void SetOutputVolume(std::uint8_t percent) { outputVolume = std::min<std::uint8_t>(percent, 100); }
+std::uint8_t OutputVolume() { return outputVolume; }
 InputStreamInfo InputInfo() { return {}; }
 InputStatus StartInput() { microphoneRunning = true; microphoneCursor = 0; return InputStatus::Ready; }
 void StopInput() { microphoneRunning = false; }
@@ -92,6 +100,12 @@ void NoteOff(std::size_t, std::uint8_t) {}
 void AllNotesOff(std::size_t index) { ++audioAllNotesOffCounts.at(index); }
 void WarmUp() {}
 std::size_t RenderFrames(std::int16_t* frames, std::size_t count) { std::fill_n(frames, count, std::int16_t{0}); return count; }
+void SetTrackGain(std::size_t index, float gain) { if (index < audioTrackGains.size()) audioTrackGains[index] = gain > 0.0f ? std::min(gain, 1.0f) : 0.0f; }
+float TrackGain(std::size_t index) { return index < audioTrackGains.size() ? audioTrackGains[index] : 1.0f; }
+void SetTrackMuted(std::size_t index, bool muted) { if (index < audioTrackMuted.size()) audioTrackMuted[index] = muted; }
+bool TrackMuted(std::size_t index) { return index < audioTrackMuted.size() && audioTrackMuted[index]; }
+float TrackActivity(std::size_t) { return 0.0f; }
+float OutputPeak() { return 0.0f; }
 }
 namespace ui {
 Canvas::Canvas(Device::Display::MutableFrameBufferView buffer) : frameBuffer_(buffer) {}
@@ -961,15 +975,21 @@ void TestDrumsWorkflow() {
   assert(app.Rack().Slot(0).kind == SynthEngineKind::Drums);
   assert(ActiveEngine(app)->CurrentPresetId() == "drums.808");
   const auto parameters = ActiveEngine(app)->ListParameters({0, 16});
-  assert(parameters.totalCount == 9 && parameters.items.size() == 9);
-  for (const auto& parameter : parameters.items)
+  // Eight kit levels and the master, then the seven track effects every engine carries.
+  assert(parameters.totalCount == 16 && parameters.items.size() == 16);
+  for (std::size_t index = 0; index < 9; ++index)
+  {
+    const auto& parameter = parameters.items[index];
     assert(parameter.minValue == 0 && parameter.maxValue == 127 && parameter.defaultValue == 100 && parameter.value == 100);
+  }
+  assert(parameters.items[9].id == "fx.drive" && parameters.items[15].id == "fx.reverb");
 
   // All nine levels must be reachable through the actual SND menu. Both pages
   // keep BACK lower-left and the page selector lower-right.
   Enter(app, 1, ContextActionId::None, "kick.level");
   Select(app, ContextActionId::Back);
-  for (const auto& parameter : parameters.items) {
+  for (std::size_t index = 0; index < 9; ++index) {
+    const auto& parameter = parameters.items[index];
     auto menu = app.Ui().CurrentMenuCells(ActiveEngine(app));
     if (std::none_of(menu.begin(), menu.end(), [&](const auto& cell) { return cell.itemId == parameter.id; })) {
       assert(menu[7].type == MenuCellType::NextPage);
@@ -986,9 +1006,12 @@ void TestDrumsWorkflow() {
     assert(ActiveEngine(app)->GetParameterInfo(parameter.id, adjusted) && adjusted.value == 101);
     Select(app, ContextActionId::Back);
   }
-  assert(app.Ui().CurrentMenuCells(ActiveEngine(app))[7].label == "2/2");
+  // The seven track effects follow on a third page.
+  assert(app.Ui().CurrentMenuCells(ActiveEngine(app))[7].label == "2/3");
   Tap(app, 3, kHomeRightBarColumn);
-  assert(app.Ui().CurrentMenuCells(ActiveEngine(app))[7].label == "1/2");
+  assert(app.Ui().CurrentMenuCells(ActiveEngine(app))[7].label == "3/3");
+  Tap(app, 3, kHomeRightBarColumn);
+  assert(app.Ui().CurrentMenuCells(ActiveEngine(app))[7].label == "1/3");
   assert(app.Ui().CurrentMenuCells(ActiveEngine(app))[6].actionId == ContextActionId::Back);
   Select(app, ContextActionId::Back);
   assert(app.Ui().Mode() == UiMode::Home);
@@ -1073,7 +1096,7 @@ void TestDrumsWorkflow() {
   // remain invalid. The legacy 1/2/3 meanings must not shift.
   std::ifstream stored(storageRoot / "Project" / "drums-saved.ccproj");
   std::string serialized((std::istreambuf_iterator<char>(stored)), std::istreambuf_iterator<char>());
-  assert(serialized.find("CARDENZA_PROJECT 1\n") == 0 && serialized.find("TRACK 0 4 ") != std::string::npos);
+  assert(serialized.find("CARDENZA_PROJECT 4\n") == 0 && serialized.find("TRACK 0 4 ") != std::string::npos);
   saved.kinds[0] = static_cast<SynthEngineKind>(5);
   assert(SaveProjectFile("drums-invalid", saved, false) == ProjectResult::Invalid);
   saved.kinds[0] = SynthEngineKind::Drums;
