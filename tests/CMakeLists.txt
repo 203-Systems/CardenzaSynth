@@ -10,6 +10,10 @@ add_executable(CardenzaPcmInputRingTests pcm_input_ring_test.cpp)
 target_include_directories(CardenzaPcmInputRingTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaPcmInputRingTests COMMAND CardenzaPcmInputRingTests)
 
+add_executable(CardenzaKeyCountGuardTests key_count_guard_test.cpp)
+target_include_directories(CardenzaKeyCountGuardTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaKeyCountGuardTests COMMAND CardenzaKeyCountGuardTests)
+
 add_subdirectory(hal_faults)
 
 add_executable(CardenzaCoreTests

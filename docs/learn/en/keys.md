@@ -13,7 +13,9 @@ ADD SUB OK = Plus, minus, confirm
 PLAY = Play
 }}
 
-<!-- keywords: keyboard, layout, keys, key map, 键盘, 按键 -->
+On hardware, detecting more than **10 matrix keys** at once (including modifiers such as FN) triggers an input guard. Confirmed keys stay held and can still release; suspect new presses are blocked until released and pressed again, preventing delayed notes as interference clears. The side HOME button is counted separately.
+
+<!-- keywords: keyboard, layout, keys, key map, 键盘, 按键, rollover, ghosting, interference, 串扰, 幻键 -->
 
 ## Key map {#keys-map}
 

@@ -14,6 +14,7 @@ explicit user request; default builds retain the pristine/upstream checks and no
 The user also authorized release fixes for half-duplex microphone/speaker clock handoff, codec
 retry/readiness, display and keyboard initialization recovery, SD checks after failed saves and
 native NEC infrared encoding/carrier. Keep these local; no upstream push was authorized.
+The keyboard's excessive-key interference guard was also explicitly authorized.
 
 - **Never change it.** Do not edit, add, delete, format or generate anything under `Devices/Cardenza/cardenza`, do not commit inside it, and never push to `github.com/203-Systems/CardenzaHAL` (no fixes, branches, tags, force pushes or pull requests), even when the account has the rights. Do not copy HAL code into this repository either.
 - **Pulling is fine.** `make hal-update` moves the submodule to upstream `main`; then commit only the new submodule pointer here. Never pin it to a commit that is not on upstream `main`.
