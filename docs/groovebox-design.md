@@ -98,7 +98,7 @@ PADS 与四周按键上的第二功能：
 | PROJECT | 工程名、是否未保存、四轨摘要（引擎、音色） | 行 0：SAVE / SAVE AS / LOAD（跳到 FILES）/ NEW；行 1：BPM / SWING / TAP / PLAY（LOOP ↔ SONG 开关，SONG 时灯全亮） | 调整 BPM / SWING；ENTER 保存（焦点在 TAP 时是打拍） |
 | FILES | 工程列表 | — | 选择；ENTER 载入（未保存时确认） |
 | KEYS | 两个八度的键盘预览：音阶音带点、根音带横线，按下的音用当前轨颜色亮起 | LAYOUT、SCALE、ROOT、OCTAVE / VELO、LOCK、SELECT | 选中的设置：ADD / SUB 调整，ENTER 切换选项，Fn + ENTER 恢复默认；再按一次已选中的格子切换选项或开关 |
-| SYSTEM | 设备、音频后端、SD 卡、内存、构建日期（每次进来逐行打出） | VOLUME、KEY LED、SCREEN | 同上 |
+| SYSTEM | 顶部显示固件版本，之后是 SD 卡、内部 RAM、最大连续空闲块和 PSRAM；底部显示 Git 构建 hash（未提交改动标记 dirty）和 UTC 构建日期时间，每次进来逐行打出 | VOLUME、KEY LED、SCREEN | 同上 |
 
 键盘（LAYOUT、SCALE、ROOT、OCTAVE、VELO、LOCK）属于工程：随工程保存和载入，改动后工程变为未保存；NEW 的工程从默认键盘开始（PIANO、C MAJOR）。SELECT 是使用习惯，存在应用设置里（`Apps/Cardenza/Synth/settings.cfg`）。BPM / SWING 属于工程，PLAY 与 REC 是演奏状态；SYSTEM 是设备设置（`System/settings.cfg`，所有应用共用）。当前轨的步数在 SEQ TRACK 页，和弦与 ARP 在每条轨道的 INSTR 页。
 

@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "CardenzaBuildInfo.h"
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Applications/Synth/UI/Groove/Render/Widgets.h"
@@ -969,8 +970,7 @@ void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, co
     y += rowHeight;
     ++line;
   };
-  row("DEVICE", "CARDENZA GROOVEBOX", kInk);
-  row("BACKEND", info.backend, kInk);
+  row("VERSION", cardenza::build::kVersion, kInk);
   row("SD CARD", info.storageReady ? "READY" : "NOT FOUND", info.storageReady ? kPlay : kRec);
   row("RAM", info.totalHeap == 0 ? std::string("N/A") :
       std::to_string(info.freeHeap / 1024) + "K FREE  MIN " + std::to_string(info.minimumFreeHeap / 1024) + "K", kInk);
@@ -978,7 +978,8 @@ void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, co
       std::to_string(info.largestFreeHeap / 1024) + "K CONTIGUOUS", kInk);
   row("PSRAM", info.totalPsram == 0 ? std::string("N/A") :
       std::to_string(info.freePsram / 1024) + "K FREE / " + std::to_string(info.totalPsram / 1024) + "K", kInk);
-  row("BUILD", std::string(__DATE__), kDim);
+  row("HASH", std::string(cardenza::build::kHash) + (cardenza::build::kDirty ? " dirty" : ""), kDim);
+  row("TIME UTC", cardenza::build::kTimeUtc, kDim);
 }
 
 void ProjectScene(Gfx& g, const Controller& controller, Animator& animator, std::uint8_t page)

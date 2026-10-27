@@ -9,7 +9,9 @@ if(NOT EXISTS "${FAMILY_PATH}")
   message(FATAL_ERROR "Unknown device family: ${DEVICE}")
 endif()
 
-project(CardenzaSynth LANGUAGES C CXX)
+include(${CMAKE_SOURCE_DIR}/cmake/FirmwareVersion.cmake)
+cardenza_read_firmware_version("${CMAKE_SOURCE_DIR}" CARDENZA_VERSION)
+project(CardenzaSynth VERSION ${CARDENZA_VERSION} LANGUAGES C CXX)
 
 option(CARDENZA_GROOVE_UI "Build the groovebox UI (Applications/Synth/UI/Groove); OFF builds the previous UI" ON)
 if(CARDENZA_GROOVE_UI)

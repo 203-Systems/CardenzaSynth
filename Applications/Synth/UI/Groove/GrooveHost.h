@@ -29,7 +29,6 @@ enum class SaveResult : std::uint8_t {
 };
 
 struct SystemInfo {
-  std::string backend;
   std::size_t totalHeap = 0;
   std::size_t freeHeap = 0;
   std::size_t minimumFreeHeap = 0;

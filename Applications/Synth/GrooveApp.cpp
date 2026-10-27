@@ -771,7 +771,6 @@ std::uint8_t GrooveApp::Backlight() const
 groove::SystemInfo GrooveApp::QuerySystem() const
 {
   groove::SystemInfo info;
-  info.backend = Device::BackendName();
   info.storageReady = os::storage::CardMounted();
 #if defined(ESP_PLATFORM)
   constexpr std::uint32_t kInternalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
