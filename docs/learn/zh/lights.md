@@ -115,6 +115,8 @@ key ESC FN CTRL = 灭
 
 SETUP 的 SYSTEM 页上的 **KEY LED**（0–15）是所有键灯的总亮度。
 
+同页的 **SCREEN** 调整屏幕感知亮度；实机背光已做非线性补偿，让低亮度调节更均匀。
+
 {{shot:setup-keyled|选中 KEY LED：演奏区从左到右是从暗到亮的亮度梯。
 mark cell:1,2 = KEY LED 总亮度
 mark cell:1,1 = 主音量

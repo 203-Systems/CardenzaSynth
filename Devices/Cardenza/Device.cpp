@@ -38,7 +38,7 @@ constexpr std::size_t MatrixIndex(std::size_t row, std::size_t column) {
   return row * static_cast<std::size_t>(Device::LED::kColumns) + column;
 }
 
-// What the HAL holds now: only keys that changed are sent (each setLED rebuilds its scan masks). Key
+// What the HAL holds now: changed levels are sent as one frame and one scan-table publication. Key
 // levels are perceived brightness, gamma-mapped to the HAL's linear duty (Devices/LedLight.h); the
 // master level goes as it is, the HAL corrects it.
 Device::LED::detail::LedFrame halLeds{};
@@ -47,11 +47,12 @@ bool halLedsKnown = false;
 void PublishLedFrame(bool changed) {
   if (!changed) return;
   const auto& frame = keyboardLedFrames.Current();
-  for (std::size_t index = 0; index < frame.levels.size(); ++index) {
-    if (halLedsKnown && frame.levels[index] == halLeds.levels[index]) continue;
-    const CardenzaHAL::Keyboard::Point2D_t key{static_cast<int>(index % Device::LED::kColumns),
-                                               static_cast<int>(index / Device::LED::kColumns)};
-    CardenzaHAL::Keyboard::setLED(key, Device::LED::KeyLevel(frame.levels[index]));
+  if (!halLedsKnown || frame.levels != halLeds.levels) {
+    CardenzaHAL::Keyboard::LedFrame levels{};
+    static_assert(levels.size() == Device::LED::kLedCount);
+    for (std::size_t index = 0; index < levels.size(); ++index)
+      levels[index] = Device::LED::KeyLevel(frame.levels[index]);
+    CardenzaHAL::Keyboard::setLEDFrame(levels);
   }
   if (!halLedsKnown || frame.master != halLeds.master) CardenzaHAL::Keyboard::setLEDGlobalBrightness(frame.master);
   if (!halLedsKnown || frame.enabled != halLeds.enabled) (void)CardenzaHAL::Keyboard::enableLED(frame.enabled);

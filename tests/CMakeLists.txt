@@ -114,6 +114,11 @@ add_executable(CardenzaLedTests led_feedback_test.cpp)
 target_include_directories(CardenzaLedTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaLedTests COMMAND CardenzaLedTests)
 
+# Exercise the same pure calculations used by the native HAL; no emulated driver.
+add_executable(CardenzaHalLogicTests cardenza_hal_logic_test.cpp)
+target_include_directories(CardenzaHalLogicTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaHalLogicTests COMMAND CardenzaHalLogicTests)
+
 # Headless screenshot runner: replay a real script against a scratch sdcard, and reject an
 # unknown key target with its line number.
 add_test(NAME CardenzaSimShotSmoke

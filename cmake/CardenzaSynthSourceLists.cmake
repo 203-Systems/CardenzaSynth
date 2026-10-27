@@ -137,9 +137,14 @@ function(cardenza_collect_ui_cpp_sources root_dir out_var)
 endfunction()
 
 # CardenzaHAL (Devices/Cardenza/cardenza) is the read-only upstream submodule (AGENT.md): the build
-# refuses a HAL with local changes, whatever started it (make, idf.py, an IDE). Its sources are listed
+# refuses local changes unless user-approved HAL development is explicitly enabled. Its sources are listed
 # here like Cardenza-MPE does; keep the list in step with the HAL's own CMakeLists.txt.
 function(cardenza_check_hal_pristine root_dir)
+    # IDF's dependency scan is a separate script without project cache options.
+    # Validate in the real configure pass, where the explicit opt-in is visible.
+    if(CMAKE_BUILD_EARLY_EXPANSION)
+        return()
+    endif()
     set(hal_dir ${root_dir}/Devices/Cardenza/cardenza)
     if(NOT EXISTS ${hal_dir}/cardenzaHAL.h)
         message(FATAL_ERROR "CardenzaHAL submodule missing: git submodule update --init Devices/Cardenza/cardenza")
@@ -151,10 +156,13 @@ function(cardenza_check_hal_pristine root_dir)
         execute_process(COMMAND ${GIT_EXECUTABLE} -C ${hal_dir} status --porcelain
                         OUTPUT_VARIABLE hal_changes OUTPUT_STRIP_TRAILING_WHITESPACE)
         if(NOT hal_changes STREQUAL "")
-            message(FATAL_ERROR "CardenzaHAL (Devices/Cardenza/cardenza) has local changes, but it is a read-only "
-                                "dependency (AGENT.md). Work above it in Devices/Cardenza and restore it:\n"
-                                "  git -C Devices/Cardenza/cardenza checkout -- . && git -C Devices/Cardenza/cardenza clean -fd\n"
-                                "${hal_changes}")
+            if(CARDENZA_ALLOW_LOCAL_HAL_CHANGES)
+                message(WARNING "Building user-approved local CardenzaHAL changes; upstream push remains disabled:\n${hal_changes}")
+            else()
+                message(FATAL_ERROR "CardenzaHAL has local changes. Keep them intact. For explicitly user-approved "
+                                    "HAL work only, use HAL_LOCAL=1 with make or "
+                                    "-DCARDENZA_ALLOW_LOCAL_HAL_CHANGES=ON with idf.py.\n${hal_changes}")
+            endif()
         endif()
     endif()
 endfunction()

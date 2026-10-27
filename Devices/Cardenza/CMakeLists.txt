@@ -5,6 +5,7 @@ set(CARDENZA_FIRMWARE_BUILD_DIR "${CARDENZA_ROOT}/build/Cardenza")
 set(CARDENZA_IDF_PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(CARDENZA_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe")
 option(CARDENZA_AMY_EXPERIMENTAL_MULTICORE "Enable experimental AMY ESP32 multicore rendering" OFF)
+option(CARDENZA_ALLOW_LOCAL_HAL_CHANGES "Build explicitly user-approved local HAL edits" OFF)
 # The effects' per-sample kernels (Library/Synth/Audio/Fx) in IRAM instead of flash: no flash-cache
 # misses while AMY competes for the 16 KB instruction cache, at the cost of internal RAM.
 option(CARDENZA_FX_IRAM "Place the audio effects' per-sample kernels in IRAM" OFF)
