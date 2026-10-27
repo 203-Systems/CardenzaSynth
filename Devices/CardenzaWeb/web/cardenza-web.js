@@ -929,18 +929,18 @@
     persist: persistNow,
   };
 
-  // Keys pressed from outside the frame: the Learn page's "go to this screen" steps and a real
-  // Cardenza on USB. They hold keys like any other source, so they never fight the mouse.
+  // The Learn page's "go to this screen" steps hold keys like any other source,
+  // so they never fight the mouse.
   window.cardenzaEmbed = {
     booted: () => booted,
     press(row, column, down, source) {
       if (row < 0 || row >= ROWS || column < 0 || column >= COLUMNS) return;
       setHeld(row * COLUMNS + column, source || 'remote', !!down);
-      if (down) reportKey(source === 'usb' ? 'USB' : 'GUIDE', '', row, column, true);
+      if (down) reportKey('GUIDE', '', row, column, true);
     },
     home(down, source) {
       setHome(source || 'remote', !!down);
-      if (down) reportKey(source === 'usb' ? 'USB' : 'GUIDE', '', -1, -1, true);
+      if (down) reportKey('GUIDE', '', -1, -1, true);
     },
     releaseAll: () => releaseAll(),
     gesture: () => audio.userGesture(),

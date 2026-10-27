@@ -71,6 +71,6 @@ The first manual, for these firmware features:
 - TAPE: SESSION (Ableton-style launching), SONG arrangement, MIX, SENDS, master effects, projects and files.
 - Key lights: off / half / full / blinking, half being a dim pulse; the screen's edge strips follow the key lights; the KEY LED brightness ramp.
 - Storage protocol: SD card folders, settings files, kept sessions; the web simulator (the same firmware code).
-- The manual: every screenshot can become a running device to follow along on (one at a time, the section opened last); a Cardenza on USB plays it with its own keys.
+- The manual: every screenshot can become a running device to follow along on (one at a time, the section opened last).
 
 <!-- keywords: 1.0, first version, feature list, release, 第一版 -->

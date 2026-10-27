@@ -358,11 +358,6 @@ figcaption { color: var(--dim); font-size: 13.5px; margin-top: 12px; max-width: 
   background: #000; color: var(--ink); border: 1px solid var(--fn); padding: 9px 14px; border-radius: 4px; font: 13px var(--mono); max-width: calc(100vw - 32px);
 }
 .toast[hidden] { display: none; }
-.btn.usb .usb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
-.btn.usb.on { border-color: var(--play); }
-.btn.usb.on .usb-dot { background: var(--play); box-shadow: 0 0 6px var(--play); }
-.btn.usb.blink .usb-dot { background: var(--fn); box-shadow: 0 0 8px var(--fn); }
-@media (max-width: 640px) { .btn.usb span[data-l] { display: none; } }
 @media (max-width: 520px) {
   .btn .btn-text, .brand-text { display: none; }
   .btn, .lang button { padding: 0 9px; }

@@ -1,7 +1,6 @@
 #include "OS/System/System.h"
 
 #include <chrono>
-#include <cstdio>
 #include <memory>
 #include <utility>
 
@@ -46,27 +45,6 @@ SystemState& State() {
   return state;
 }
 
-// Every physical key change also goes to the USB console as one line, "@K<row>,<column>,<0|1>"
-// ("@H<0|1>" for HOME): the Learn manual reads them over Web Serial and plays them on its live
-// device (tools/learn/learn.js). Raw changes, so the mirror sees every press and its release.
-void ReportKey(std::size_t row, std::size_t column, bool pressed) {
-#if defined(ESP_PLATFORM)
-  std::printf("@K%u,%u,%u\n", static_cast<unsigned>(row), static_cast<unsigned>(column), pressed ? 1u : 0u);
-#else
-  (void)row;
-  (void)column;
-  (void)pressed;
-#endif
-}
-
-void ReportHome(bool pressed) {
-#if defined(ESP_PLATFORM)
-  std::printf("@H%u\n", pressed ? 1u : 0u);
-#else
-  (void)pressed;
-#endif
-}
-
 std::uint32_t Now() {
   const auto& state = State();
   if (state.clock != nullptr) return state.clock();
@@ -97,8 +75,6 @@ void DispatchMatrixKeyEvents(app::Application& application) {
     {
       continue;
     }
-    ReportKey(index / static_cast<std::size_t>(Device::Keyboard::kColumns), index % static_cast<std::size_t>(Device::Keyboard::kColumns),
-              currentState[index]);
     if (state.ignoredKeys[index])
     {
       state.ignoredKeys.reset(index);
@@ -120,7 +96,6 @@ void DispatchHomeButtonEvents(app::Application& application) {
   {
     return;
   }
-  ReportHome(pressed);
   state.previousHome = pressed;
   if (state.ignoreHome)
   {

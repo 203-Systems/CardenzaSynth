@@ -42,7 +42,6 @@ ICONS = {
     "fx": '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/>',
     "sample": '<path d="M2 12h3l2-6 3 12 3-9 2 6 2-3h5"/>',
     "folder": '<path d="M3 6h6l2 2h10v11H3z"/>',
-    "usb": '<path d="M12 2v14"/><path d="M8.5 5.5L12 2l3.5 3.5"/><circle cx="12" cy="19" r="2.5"/><path d="M12 12l-5-3V7M12 14l5-3V9"/>',
     "web": '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
     "light": '<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
     "arp": '<path d="M3 20h5v-5h5v-5h5V5h3"/>',
