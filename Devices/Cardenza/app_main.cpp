@@ -4,6 +4,7 @@
 #include <freertos/task.h>
 
 #include "Devices/Device.h"
+#include "Devices/Cardenza/AudioDiagnostics.h"
 #include "OS/System/System.h"
 
 namespace {
@@ -55,6 +56,7 @@ void CardenzaRuntimeTask(void*)
     for (;;)
     {
         os::system::RunFrame();
+        device::PollAudioDiagnostics();
         vTaskDelayUntil(&lastWakeTime, kFrameTick);
     }
 }

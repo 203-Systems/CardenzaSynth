@@ -6,5 +6,7 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+# Audio queue-wait telemetry and error recovery use millisecond scheduling.
+CONFIG_FREERTOS_HZ=1000
 # Long file names: the storage protocol uses names such as settings.cfg.bak and <project>.ccproj.
 CONFIG_FATFS_LFN_HEAP=y

@@ -1,3 +1,7 @@
+add_executable(CardenzaAudioOutputTransferTests audio_output_transfer_test.cpp)
+target_include_directories(CardenzaAudioOutputTransferTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaAudioOutputTransferTests COMMAND CardenzaAudioOutputTransferTests)
+
 add_executable(CardenzaCoreTests
   core_test.cpp
   ${PROJECT_SOURCE_DIR}/Applications/Synth/Runtime/ProjectStorage.cpp
