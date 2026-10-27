@@ -72,6 +72,13 @@ apps::GrooveApp& Groove()
   return *groove;
 }
 
+void SetRollSelection(apps::GrooveApp& groove, bool multi)
+{
+  auto ui = groove.Ui().Settings();
+  ui.keyboard.multiSelect = multi;
+  groove.Ui().Restore(ui, groove.Ui().State().projectName);
+}
+
 // A second app to switch to; a system app, so it is never remembered as the boot app.
 class BlankApp : public app::Application {
 public:
@@ -117,9 +124,7 @@ void TestLateCardBoot(const fs::path& root)
   assert(ReadText(systemPath) == oldSystem && ReadText(synthPath) == oldSynth);
 
   groove.SetMasterVolume(30);
-  synth::ArpSettings arp = groove.Sequencer().GetArpSettings();
-  arp.gate = 71;
-  groove.Sequencer().SetArpSettings(arp);
+  SetRollSelection(groove, true);
   Frames(70);
   assert(os::storage::AnySettingsDirty());
   assert(ReadText(systemPath) == oldSystem && ReadText(synthPath) == oldSynth);
@@ -136,7 +141,7 @@ void TestLateCardBoot(const fs::path& root)
   assert(Contains(text, "sys.volume=30\n") && Contains(text, "sys.led=5\n") && Contains(text, "sys.screen=111\n") &&
          Contains(text, "future.system=keep\n") && Contains(text, "protocol=2\n"));
   text = ReadText(synthPath);
-  assert(Contains(text, "arp.gate=71\n") && Contains(text, "arp.rate=4\n") && Contains(text, "keys.octave=2\n") &&
+  assert(Contains(text, "keys.select=1\n") && Contains(text, "arp.rate=4\n") && Contains(text, "keys.octave=2\n") &&
          Contains(text, "keys.scale=3\n") && Contains(text, "future.synth=keep\n"));
 
   // Removal/reinsertion updates the status while preserving another unsaved edit and a card edit.
@@ -159,9 +164,7 @@ void TestLateCardBoot(const fs::path& root)
   const std::string savedSynth = ReadText(synthPath);
   fs::remove(synthPath);
   fs::create_directory(synthPath);
-  arp = groove.Sequencer().GetArpSettings();
-  arp.gate = 72;
-  groove.Sequencer().SetArpSettings(arp);
+  SetRollSelection(groove, false);
   groove.SetMasterVolume(36);
   Frames(70);
   assert(os::storage::AppSettings("Cardenza/Synth").Dirty() && fs::is_directory(synthPath));
@@ -179,7 +182,7 @@ void TestLateCardBoot(const fs::path& root)
   gNow += 6000;
   Frames(70);
   assert(!os::storage::AnySettingsDirty());
-  assert(Contains(ReadText(synthPath), "arp.gate=72\n") && Contains(ReadText(synthPath), "future.synth=keep\n"));
+  assert(Contains(ReadText(synthPath), "keys.select=0\n") && Contains(ReadText(synthPath), "future.synth=keep\n"));
   assert(Contains(ReadText(systemPath), "sys.volume=37\n") && !fs::exists(root / "internal"));
   os::system::Shutdown();
   assert(os::system::ActiveApplication() == nullptr && !fs::exists(root / "internal"));
@@ -268,16 +271,14 @@ void TestLegacyCardIsNotImported(const fs::path& root)
   const std::uint32_t failedProbeAt = gNow;
   LegacyFiles files = InsertLegacyCard(root, "write-behind");
   groove->SetMasterVolume(28);
-  auto arp = groove->Sequencer().GetArpSettings();
-  arp.gate = 71;
-  groove->Sequencer().SetArpSettings(arp);
+  SetRollSelection(*groove, true);
   Frames(70);
   assert(gNow - failedProbeAt < 5000);
   CheckLegacyFilesUntouched(files);
   gNow += 6000;
   Frames(70);
   CheckCanonicalSettingsIgnoreLegacy(root, files, 28);
-  assert(Contains(ReadText(root / "sdcard" / "CardenzaSynth" / "Settings" / "synth.cfg"), "arp.gate=71\n"));
+  assert(Contains(ReadText(root / "sdcard" / "CardenzaSynth" / "Settings" / "synth.cfg"), "keys.select=1\n"));
   assert(!os::storage::AnySettingsDirty() && groove->QuerySystem().storageReady);
   assert(groove->MasterVolume() == 28 && groove->LedBrightness() == os::storage::kDefaultKeyLedBrightness &&
          groove->Backlight() == os::storage::kDefaultScreenBacklight);
