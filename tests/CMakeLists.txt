@@ -2,6 +2,10 @@ add_executable(CardenzaAudioOutputTransferTests audio_output_transfer_test.cpp)
 target_include_directories(CardenzaAudioOutputTransferTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaAudioOutputTransferTests COMMAND CardenzaAudioOutputTransferTests)
 
+add_executable(CardenzaDisplayDamageTests display_damage_test.cpp)
+target_include_directories(CardenzaDisplayDamageTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaDisplayDamageTests COMMAND CardenzaDisplayDamageTests)
+
 add_executable(CardenzaPcmInputRingTests pcm_input_ring_test.cpp)
 target_include_directories(CardenzaPcmInputRingTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaPcmInputRingTests COMMAND CardenzaPcmInputRingTests)
