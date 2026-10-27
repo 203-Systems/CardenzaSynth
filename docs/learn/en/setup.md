@@ -133,7 +133,7 @@ key G2 G3 = Settings: half lit
 | KEY LED | 0–15 | overall brightness of the key lights; while it is focused the pads show the brightness ramp ([[#lights-ramp]]) |
 | SCREEN | shown in % | screen brightness |
 
-The report below is typed out line by line each time you come in: the device, the audio backend, the SD card (READY or missing, see [[#storage-card]]), free memory and the firmware's build date.
+The report below is typed out line by line each time you come in: the device, the audio backend, the SD card (READY or missing, see [[#storage-card]]), internal RAM, its largest free block, PSRAM and the firmware's build date. RAM shows the current free space and the lowest free space since boot (MIN); PSRAM shows free space separately, so it does not hide a shortage of internal RAM.
 
 <!-- keywords: system, volume, master volume, key led, screen brightness, brightness, sd card, device info, build, 屏幕亮度, 系统 -->
 

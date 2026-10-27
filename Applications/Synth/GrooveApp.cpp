@@ -292,9 +292,13 @@ void GrooveApp::RenderFrame()
   renderMaxUs_ = std::max(renderMaxUs_, elapsed);
   if (++renderFrames_ >= 600)
   {
-    std::printf("Groove: render avg=%luus max=%luus heap=%u min=%u\n", static_cast<unsigned long>(renderTotalUs_ / renderFrames_),
-                static_cast<unsigned long>(renderMaxUs_), static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
-                static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)));
+    constexpr std::uint32_t kInternalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    std::printf("Groove: render avg=%luus max=%luus internal=%u min=%u largest=%u psram=%u\n",
+                static_cast<unsigned long>(renderTotalUs_ / renderFrames_), static_cast<unsigned long>(renderMaxUs_),
+                static_cast<unsigned>(heap_caps_get_free_size(kInternalCaps)),
+                static_cast<unsigned>(heap_caps_get_minimum_free_size(kInternalCaps)),
+                static_cast<unsigned>(heap_caps_get_largest_free_block(kInternalCaps)),
+                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
     // The key LED levels this frame (0..f per key, rows top to bottom), to check the lights from
     // the serial console.
     char leds[4 * 15 + 1] = {};
@@ -770,8 +774,14 @@ groove::SystemInfo GrooveApp::QuerySystem() const
   info.backend = Device::BackendName();
   info.storageReady = os::storage::CardMounted();
 #if defined(ESP_PLATFORM)
-  info.freeHeap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-  info.minimumFreeHeap = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
+  constexpr std::uint32_t kInternalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+  constexpr std::uint32_t kPsramCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+  info.totalHeap = heap_caps_get_total_size(kInternalCaps);
+  info.freeHeap = heap_caps_get_free_size(kInternalCaps);
+  info.minimumFreeHeap = heap_caps_get_minimum_free_size(kInternalCaps);
+  info.largestFreeHeap = heap_caps_get_largest_free_block(kInternalCaps);
+  info.freePsram = heap_caps_get_free_size(kPsramCaps);
+  info.totalPsram = heap_caps_get_total_size(kPsramCaps);
 #endif
   return info;
 }

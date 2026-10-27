@@ -133,7 +133,7 @@ key G2 G3 = 设置：半亮
 | KEY LED | 0–15 | 所有按键灯的总亮度；选中它时演奏区显示亮度梯（[[#lights-ramp]]） |
 | SCREEN | 以 % 显示 | 屏幕亮度 |
 
-下面的状态每次进来逐行打出：设备、音频后端、SD 卡（READY 或没有卡，见 [[#storage-card]]）、剩余内存、固件构建日期。
+下面的状态每次进来逐行打出：设备、音频后端、SD 卡（READY 或没有卡，见 [[#storage-card]]）、内部 RAM、最大连续空闲块、PSRAM 和固件构建日期。RAM 显示当前剩余和开机以来的最低剩余（MIN）；PSRAM 单独显示，不会掩盖内部 RAM 不足。
 
 <!-- keywords: 系统, 主音量, 音量, 按键灯亮度, 屏幕亮度, 亮度, sd 卡, 设备信息, 构建, system, volume, key led, screen brightness, brightness -->
 
