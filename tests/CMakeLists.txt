@@ -10,6 +10,8 @@ add_executable(CardenzaPcmInputRingTests pcm_input_ring_test.cpp)
 target_include_directories(CardenzaPcmInputRingTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaPcmInputRingTests COMMAND CardenzaPcmInputRingTests)
 
+add_subdirectory(hal_faults)
+
 add_executable(CardenzaCoreTests
   core_test.cpp
   ${PROJECT_SOURCE_DIR}/Applications/Synth/Runtime/ProjectStorage.cpp
