@@ -159,7 +159,8 @@ int main()
     out += "]}";
   }
   out += "],\"scenes\":{";
-  const std::array<std::pair<const char*, groove::Scene>, 2> scenes{{{"SEQ", groove::Scene::Sequence}, {"TAPE", groove::Scene::Tape}}};
+  const std::array<std::pair<const char*, groove::Scene>, 3> scenes{{
+      {"SEQ", groove::Scene::Sequence}, {"TAPE", groove::Scene::Tape}, {"SETUP", groove::Scene::Setup}}};
   for (std::size_t index = 0; index < scenes.size(); ++index)
   {
     out += (index == 0 ? "" : ",") + Quote(scenes[index].first) + ":[";
@@ -168,9 +169,10 @@ int main()
              ",\"name\":" + Quote(ui.PageName(scenes[index].second, page)) + "}";
     out += "]";
   }
-  out += "},\"fnPages\":[";
-  for (std::size_t page = 0; page < groove::kSetupPageCount; ++page)
-    out += (page == 0 ? "" : ",") + Page(groove::SetupPage(page), nullptr, &ui);
+  // The SETUP settings pages (KEYS, CHORD, ARP, SYSTEM) with their ranges.
+  out += "},\"settingsPages\":[";
+  for (std::size_t page = 0; page < groove::kSettingsPageCount; ++page)
+    out += (page == 0 ? "" : ",") + Page(groove::SettingsPage(page), nullptr, &ui);
   out += "],\"fnEntries\":[";
   const auto entries = ui.FnEntries();
   for (std::size_t index = 0; index < entries.size(); ++index)

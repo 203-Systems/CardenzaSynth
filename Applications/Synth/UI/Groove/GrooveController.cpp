@@ -1,6 +1,7 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <string_view>
 
@@ -43,6 +44,7 @@ void Controller::Restore(const ProjectUiSettings& settings, const std::string& p
   state_.modals.clear();
   state_.track = std::min(settings.activeTrack, kTrackCount - 1);
   state_.keyboard = settings.keyboard;
+  state_.chords = settings.chords;
   state_.projectName = projectName;
   state_.dirty = dirty;
   state_.sessionAt = state_.now == 0 ? 1 : state_.now;
@@ -65,6 +67,7 @@ ProjectUiSettings Controller::Settings() const
   ProjectUiSettings settings;
   settings.activeTrack = state_.track;
   settings.keyboard = state_.keyboard;
+  settings.chords = state_.chords;
   return settings;
 }
 
@@ -82,7 +85,7 @@ bool Controller::TabOverlay() const
 
 bool Controller::FnOverlay() const
 {
-  // The held FN panel; in input screens FN is the yellow keycap layer instead and shows no panel.
+  // The held menu; in input screens FN is the yellow keycap layer instead and shows no menu.
   const auto& key = state_.left[2];
   return key.down && state_.now - key.pressedAt >= kHoldMs && !FnYellowMode();
 }
@@ -133,15 +136,17 @@ std::size_t Controller::PageCount(Scene scene) const
   {
     case Scene::Instrument: return InstrumentPages().count;
     case Scene::Sequence: return 3;
-    case Scene::Tape:
-    default: return kTapePageCount;
+    case Scene::Tape: return kTapePageCount;
+    case Scene::Setup:
+    default: return kSetupPageCount;
   }
 }
 
 std::string Controller::PageName(Scene scene, std::size_t page) const
 {
-  static constexpr std::array<const char*, kTapePageCount> kTape{{"CLIPS", "ARRANGE", "LEVELS", "PER TRK", "MASTER", "SAVE", "LOAD"}};
-  static constexpr std::array<const char*, 3> kSequence{{"EDIT", "SLOTS", "SETUP"}};
+  static constexpr std::array<const char*, kTapePageCount> kTape{{"CLIPS", "ARRANGE", "LEVELS", "PER TRK", "MASTER"}};
+  static constexpr std::array<const char*, 3> kSequence{{"EDIT", "SLOTS", "LENGTH"}};
+  static constexpr std::array<const char*, kSetupPageCount> kSetup{{"SAVE BPM", "LOAD", "SCALE", "DEVICE"}};
   switch (scene)
   {
     case Scene::Instrument:
@@ -150,15 +155,17 @@ std::string Controller::PageName(Scene scene, std::size_t page) const
       return page < list.count ? list.pages[page].name : "";
     }
     case Scene::Sequence: return page < kSequence.size() ? kSequence[page] : "";
-    case Scene::Tape:
-    default: return page < kTape.size() ? kTape[page] : "";
+    case Scene::Tape: return page < kTape.size() ? kTape[page] : "";
+    case Scene::Setup:
+    default: return page < kSetup.size() ? kSetup[page] : "";
   }
 }
 
 std::string Controller::PageTab(Scene scene, std::size_t page) const
 {
-  static constexpr std::array<const char*, kTapePageCount> kTape{{"SESSION", "SONG", "MIX", "SENDS", "FX", "PROJECT", "FILES"}};
+  static constexpr std::array<const char*, kTapePageCount> kTape{{"SESSION", "SONG", "MIX", "SENDS", "FX"}};
   static constexpr std::array<const char*, 3> kSequence{{"STEPS", "PATTERN", "TRACK"}};
+  static constexpr std::array<const char*, kSetupPageCount> kSetup{{"PROJECT", "FILES", "KEYS", "SYSTEM"}};
   switch (scene)
   {
     case Scene::Instrument:
@@ -169,8 +176,9 @@ std::string Controller::PageTab(Scene scene, std::size_t page) const
     case Scene::Sequence:
       if (page == 0) return state_.record.view == SeqView::Roll ? "ROLL" : "STEP";
       return page < kSequence.size() ? kSequence[page] : "";
-    case Scene::Tape:
-    default: return page < kTape.size() ? kTape[page] : "";
+    case Scene::Tape: return page < kTape.size() ? kTape[page] : "";
+    case Scene::Setup:
+    default: return page < kSetup.size() ? kSetup[page] : "";
   }
 }
 
@@ -384,14 +392,14 @@ void Controller::PressLeft(std::size_t row)
   }
   if (role == KeyRole::Ctrl)
   {
-    // CTRL steps pages on release (a tap); held, it opens the page map. FN + CTRL turns the FN
-    // panel's page instead (also inside SETUP, where a plain tap does the same).
+    // CTRL steps pages on release (a tap); held, it opens the page map. FN + CTRL steps back.
     if (fn.down && !FnYellowMode())
     {
       fn.used = true;
       key.used = true;
       key.suppressed = true;
-      SetFnPage((state_.fnPage + 1u) % kSetupPageCount);
+      if (MenuOpen()) CloseModal();
+      if (TopModal() == nullptr) StepPage(-1);
       return;
     }
     if (TopModal() != nullptr) key.suppressed = true;
@@ -413,13 +421,12 @@ void Controller::ReleaseLeft(std::size_t row)
       if (tap && TopModal() == nullptr) SelectTrack((state_.track + 1) % kTrackCount);
       break;
     case KeyRole::Ctrl:
-      if (tap && SetupOpen()) SetFnPage((state_.fnPage + 1u) % kSetupPageCount);
-      else if (tap && !key.suppressed && TopModal() == nullptr) StepPage(1);
+      if (tap && !key.suppressed && TopModal() == nullptr) StepPage(1);
       break;
     case KeyRole::Fn:
-      // A tap on FN opens or closes SETUP.
-      if (tap && SetupOpen()) CloseModal();
-      else if (tap && TopModal() == nullptr) OpenSetup();
+      // A tap on FN opens or closes the menu.
+      if (tap && MenuOpen()) CloseModal();
+      else if (tap && TopModal() == nullptr) OpenMenu();
       break;
     default:
       break;
@@ -453,17 +460,13 @@ void Controller::PressRight(KeyRole role)
         SelectTrack((state_.track + kTrackCount + static_cast<std::size_t>(direction + static_cast<int>(kTrackCount))) % kTrackCount);
         return;
       }
-      // FN + ADD / SUB change the FN panel's focused setting; it never also edits the page
-      // underneath. In input screens they jump through lists a page at a time.
-      const bool panel = fn && !FnYellowMode();
+      // FN + ADD / SUB take bigger steps; in input screens they jump through lists a page at a time.
       state_.repeat.down = true;
       state_.repeat.direction = direction;
-      state_.repeat.coarse = fn && !panel;
-      state_.repeat.fnPanel = panel;
+      state_.repeat.coarse = fn;
       state_.repeat.count = 0;
       state_.repeat.nextAt = state_.now + kRepeatDelayMs;
-      if (panel) SetupAdjust(direction);
-      else Adjust(direction, state_.repeat.coarse);
+      Adjust(direction, state_.repeat.coarse);
       return;
     }
     case KeyRole::Enter:
@@ -515,7 +518,7 @@ void Controller::PressPad(std::size_t row, std::size_t column)
 
   // The scale lock and the chord decide what this key sounds.
   std::array<std::uint8_t, kMaxPadNotes> chord{};
-  const std::size_t voices = PadNotes(state_.keyboard, ActiveKind(), note, chord);
+  const std::size_t voices = PadNotes(state_.keyboard, state_.chords[state_.track], ActiveKind(), note, chord);
   if (voices == 0) return;
   auto& sequencer = host_.Sequencer();
   // A selection in STEPS turns the pads into a note editor for the selected steps.
@@ -528,7 +531,7 @@ void Controller::PressPad(std::size_t row, std::size_t column)
   state_.padChordCount[index] = static_cast<std::uint8_t>(voices);
   state_.padTrack[index] = static_cast<std::uint8_t>(state_.track);
   // Drums skip the arpeggiator: one hit per press.
-  state_.padArp[index] = audition && sequencer.GetArpSettings().mode != synth::ArpMode::Off && ActiveKind() != synth::SynthEngineKind::Drums;
+  state_.padArp[index] = audition && sequencer.GetArpSettings(state_.track).mode != synth::ArpMode::Off && ActiveKind() != synth::SynthEngineKind::Drums;
   state_.lastTrackNoteAt[state_.track] = state_.now;
   if (!audition)
   {
@@ -567,7 +570,7 @@ void Controller::PressGrid(std::size_t index)
   if (index >= kGridCount) return;
   const std::size_t row = index / kGridColumns;
   const std::size_t column = kGridFirstColumn + index % kGridColumns;
-  // Hold maps. ESC: the GRID columns are the three scenes.
+  // Hold maps. ESC: the GRID columns are the four scenes; column 4 is the only way into SETUP.
   auto& esc = state_.left[LeftIndex(KeyRole::Esc)];
   if (esc.down)
   {
@@ -613,8 +616,11 @@ void Controller::PressGrid(std::size_t index)
       else if (CurrentPage() == kTapeSong) SongGrid(index);
       else if (CurrentPage() == kTapeMix) MixGrid(index);
       else if (CurrentPage() == kTapeSends) SendsGrid(index);
-      else if (CurrentPage() == kTapeFx) FxGrid(index);
-      else ProjectGrid(index);
+      else FxGrid(index);
+      break;
+    case Scene::Setup:
+      if (CurrentPage() < kSetupKeys) ProjectGrid(index);
+      else SettingsGrid(index);
       break;
   }
 }
@@ -679,14 +685,12 @@ bool Controller::HandleTextKey(std::size_t row, std::size_t column)
 
 bool Controller::HandleSearchKey(std::size_t row, std::size_t column)
 {
-  Modal* modal = Top();
-  if (modal == nullptr || (modal->kind != ModalKind::PresetBrowser && modal->kind != ModalKind::SampleBrowser)) return false;
-  const char value = LegendChar(row, column);
-  const bool searchable = (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') || value == '-';
-  if (!searchable) return true;
-  if (modal->search.size() < 16) modal->search.push_back(value);
-  modal->kind == ModalKind::PresetBrowser ? RefreshPresetBrowser() : RefreshSampleBrowser();
-  return true;
+  // In the preset / sample browsers the pads and GRID do not type: searching is FN + F, a field one
+  // step away, so a stray key never starts a filter.
+  (void)row;
+  (void)column;
+  const Modal* modal = TopModal();
+  return modal != nullptr && (modal->kind == ModalKind::PresetBrowser || modal->kind == ModalKind::SampleBrowser);
 }
 
 bool Controller::HandleFnKey(std::size_t row, std::size_t column)
@@ -701,6 +705,14 @@ bool Controller::HandleFnKey(std::size_t row, std::size_t column)
       case '.': ArrowKey(Arrow::Down); break;
       case ',': ArrowKey(Arrow::Left); break;
       case '/': ArrowKey(Arrow::Right); break;
+      case 'F':
+      {
+        // FN + F: the search field of a preset / sample browser.
+        const Modal* browser = TopModal();
+        if (browser != nullptr && (browser->kind == ModalKind::PresetBrowser || browser->kind == ModalKind::SampleBrowser))
+          OpenTextEntry(TextPurpose::Search, "SEARCH", browser->search, 16);
+        break;
+      }
       default: break;
     }
     return true;
@@ -720,30 +732,20 @@ bool Controller::HandleFnKey(std::size_t row, std::size_t column)
     state_.repeat.quickKey = KeyIndex(row, column);
     return true;
   }
-  // FN panel: 1..5 pick the page, the GRID picks the setting (ADD / SUB change it).
-  if (key >= '1' && key < static_cast<char>('1' + kSetupPageCount))
-  {
-    SetFnPage(static_cast<std::size_t>(key - '1'));
-    return true;
-  }
+  // The menu: FN + GRID runs the item on that key, FN + a letter the item that carries it.
   if (RoleFor(row, column) == KeyRole::Grid)
   {
-    SetupGrid(GridIndex(row, column));
+    RunMenu(GridIndex(row, column));
     return true;
   }
-  // Letter shortcuts act on the screen underneath.
-  if (SetupOpen()) return true;
-  switch (key)
-  {
-    case 'C': Copy(); break;
-    case 'V': Paste(); break;
-    case 'X': Clear(); break;
-    case 'Q': Quantize(); break;
-    case 'D': Duplicate(); break;
-    case 'T': TapTempo(); break;
-    case 'S': QuickSave(); break;
-    default: break;
-  }
+  if (key == 0) return true;
+  const MenuItems menu = Menu();
+  for (std::size_t index = 0; index < menu.size(); ++index)
+    if (menu[index].key != nullptr && menu[index].key[0] == key && menu[index].key[1] == 0)
+    {
+      RunMenu(index);
+      break;
+    }
   return true;
 }
 
@@ -763,7 +765,6 @@ void Controller::Tick(std::uint32_t nowMs)
       for (const FnQuickControl& quick : kFnQuickControls)
         if (quick.id == repeat.quickId) ShowSettingHud(quick.id, quick.label);
     }
-    else if (repeat.fnPanel) SetupAdjust(repeat.direction * step);
     else Adjust(repeat.direction * step, repeat.coarse);
   }
   if (!state_.toast.text.empty() && nowMs >= state_.toast.until) state_.toast.text.clear();
@@ -774,7 +775,19 @@ void Controller::Tick(std::uint32_t nowMs)
     const auto sampler = host_.Sampler().BuildUiState(state_.track);
     if (host_.EngineKind(state_.track) != synth::SynthEngineKind::Sampler) CloseModal();
     else if (sampler.needsName && !sampler.overwritePending && sampler.phase == synth::SamplerTrackPhase::Naming)
-      OpenTextEntry(TextPurpose::SampleName, "NAME SAMPLE", sampler.draftName, 18);
+    {
+      // A new recording keeps its suggested name (rename later in the sample list, FN + ENTER);
+      // only when that name cannot be used does a name field open.
+      if (host_.Sampler().CommitDraftName(state_.track, sampler.draftName))
+      {
+        CloseModal();
+        MarkDirty();
+        std::string shown = sampler.draftName;
+        for (char& c : shown) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        ShowToast("SAVED " + shown, ToastKind::Ok);
+      }
+      else OpenTextEntry(TextPurpose::SampleName, "NAME SAMPLE", sampler.draftName, 18);
+    }
   }
   ClampPages();
 }
@@ -790,7 +803,7 @@ void Controller::GoToScene(Scene scene)
   state_.previousScene = state_.scene;
   state_.scene = scene;
   state_.sceneChangedAt = state_.now;
-  if (scene == Scene::Tape && CurrentPage() == kTapeFiles) RefreshProjects();
+  if (scene == Scene::Setup && CurrentPage() == kSetupFiles) RefreshProjects();
   if (scene == Scene::Tape && CurrentPage() == kTapeMix) state_.mixFocus = static_cast<std::uint8_t>(state_.track);
 }
 
@@ -802,7 +815,7 @@ void Controller::SetPage(std::uint8_t page)
   if (page == CurrentPage()) return;
   if (state_.scene == Scene::Sequence) host_.Sequencer().ClearSelectedSteps();
   state_.page[static_cast<std::size_t>(state_.scene)] = page;
-  if (state_.scene == Scene::Tape && page == kTapeFiles) RefreshProjects();
+  if (state_.scene == Scene::Setup && page == kSetupFiles) RefreshProjects();
   if (state_.scene == Scene::Tape && page == kTapeMix) state_.mixFocus = static_cast<std::uint8_t>(state_.track);
 }
 
@@ -827,8 +840,14 @@ void Controller::Back()
     sequencer.ClearSelectedSteps();
     return;
   }
-  // A tap on ESC walks the scenes in a ring: INSTR, SEQ, TAPE, INSTR ...
-  GoToScene(static_cast<Scene>((static_cast<std::size_t>(state_.scene) + 1) % kSceneCount));
+  // SETUP is left the way it was entered: back to the scene it was opened from.
+  if (state_.scene == Scene::Setup)
+  {
+    GoToScene(IsMusicScene(state_.previousScene) ? state_.previousScene : Scene::Instrument);
+    return;
+  }
+  // A tap on ESC walks the music scenes in a ring: INSTR, SEQ, TAPE, INSTR ... (never SETUP).
+  GoToScene(NextMusicScene(state_.scene));
 }
 
 void Controller::SelectTrack(std::size_t track)
@@ -862,8 +881,11 @@ void Controller::Adjust(int delta, bool coarse)
       else if (CurrentPage() == kTapeSong) SongAdjust(delta, coarse);
       else if (CurrentPage() == kTapeMix) MixAdjust(delta, coarse);
       else if (CurrentPage() == kTapeSends) SendsAdjust(delta, coarse);
-      else if (CurrentPage() == kTapeFx) FxAdjust(delta, coarse);
-      else ProjectAdjust(delta, coarse);
+      else FxAdjust(delta, coarse);
+      break;
+    case Scene::Setup:
+      if (CurrentPage() < kSetupKeys) ProjectAdjust(delta, coarse);
+      else SettingsAdjust(delta, coarse);
       break;
   }
 }
@@ -884,8 +906,11 @@ void Controller::Enter()
       else if (CurrentPage() == kTapeSong) SongEnter();
       else if (CurrentPage() == kTapeMix) MixEnter();
       else if (CurrentPage() == kTapeSends) SendsEnter();
-      else if (CurrentPage() == kTapeFx) FxEnter();
-      else ProjectEnter();
+      else FxEnter();
+      break;
+    case Scene::Setup:
+      if (CurrentPage() < kSetupKeys) ProjectEnter();
+      else SettingsEnter();
       break;
   }
 }
@@ -903,6 +928,7 @@ void Controller::FnEnter()
   else if (state_.scene == Scene::Tape && CurrentPage() == kTapeSession) SessionCapture();
   else if (state_.scene == Scene::Tape && CurrentPage() == kTapeSends) SendsReset();
   else if (state_.scene == Scene::Tape && CurrentPage() == kTapeFx) FxReset();
+  else if (state_.scene == Scene::Setup && CurrentPage() >= kSetupKeys) SettingsReset();
 }
 
 void Controller::TogglePlay()
@@ -943,9 +969,12 @@ void Controller::ArrowKey(Arrow arrow)
   }
   switch (state_.scene)
   {
+    case Scene::Setup:
+      if (CurrentPage() == kSetupFiles) ProjectAdjust(vertical == 0 ? horizontal : vertical, false);
+      else if (CurrentPage() >= kSetupKeys) SettingsArrow(vertical != 0 ? vertical * static_cast<int>(kGridColumns) : horizontal);
+      break;
     case Scene::Tape:
-      if (CurrentPage() == kTapeFiles) ProjectAdjust(vertical == 0 ? horizontal : vertical, false);
-      else if (CurrentPage() == kTapeSong) SongArrow(horizontal, vertical);
+      if (CurrentPage() == kTapeSong) SongArrow(horizontal, vertical);
       else if (CurrentPage() == kTapeSession)
       {
         if (vertical != 0) SessionAdjust(vertical);
@@ -1033,7 +1062,7 @@ void Controller::ComputeLeds(LedFrame& frame) const
   const auto seq = sequencer.BuildUiState(state_.track);
   const Modal* modal = TopModal();
   const bool textEntry = modal != nullptr && modal->kind == ModalKind::TextEntry;
-  const bool setup = modal != nullptr && modal->kind == ModalKind::Setup;
+  const bool menuOpen = modal != nullptr && modal->kind == ModalKind::Menu;
   const bool searching = modal != nullptr && (modal->kind == ModalKind::PresetBrowser || modal->kind == ModalKind::SampleBrowser);
   const std::size_t page = CurrentPage();
   auto set = [&](std::size_t index, std::uint8_t level, LedEffect effect = LedEffect::Steady) {
@@ -1062,12 +1091,12 @@ void Controller::ComputeLeds(LedFrame& frame) const
       if (state_.left[row].down) set(KeyIndex(row, 0), kLedFull);
   };
 
-  // Left keys. ESC always goes back; TAB and CTRL work on screens, not in pop-ups (CTRL steps the
-  // SETUP pages); FN is full while SETUP is open.
+  // Left keys. ESC always goes back; TAB and CTRL work on screens, not in pop-ups; FN is full while
+  // the menu is open.
   set(KeyIndex(0, 0), kLedHalf);
   set(KeyIndex(1, 0), modal == nullptr ? kLedHalf : kLedOff);
-  set(KeyIndex(2, 0), setup ? kLedFull : kLedHalf);
-  set(KeyIndex(3, 0), setup || (modal == nullptr && PageCount(state_.scene) > 1) ? kLedHalf : kLedOff);
+  set(KeyIndex(2, 0), menuOpen ? kLedFull : kLedHalf);
+  set(KeyIndex(3, 0), modal == nullptr && PageCount(state_.scene) > 1 ? kLedHalf : kLedOff);
 
   // Right keys: ADD / SUB when there is something to change, ENTER when it does something, PLAY
   // the transport (half stopped, full playing, blinking while recording is armed).
@@ -1087,8 +1116,12 @@ void Controller::ComputeLeds(LedFrame& frame) const
       enterAction = true;  // the note page's OK records (tap: view, hold: RECORD)
       break;
     case Scene::Tape:
-      adjustable = adjustable || page != kTapeFiles || !state_.projects.empty();
-      enterAction = enterAction || page != kTapeFiles || !state_.projects.empty();
+      adjustable = true;
+      enterAction = true;
+      break;
+    case Scene::Setup:
+      adjustable = adjustable || page != kSetupFiles || !state_.projects.empty();
+      enterAction = enterAction || page != kSetupFiles || !state_.projects.empty();
       break;
   }
   set(addKey, adjustable ? kLedHalf : kLedOff);
@@ -1101,16 +1134,22 @@ void Controller::ComputeLeds(LedFrame& frame) const
 
   if (textEntry)
   {
-    // Typing: every character key half; erase (top right "del") and ENTER once there is text.
+    // Typing: the keyboard is the keyboard. Every key that types (A-Z, 0-9, -, space) is half, as
+    // are erase (top right "del"), ENTER and ESC; TAB, FN, CTRL and keys that type nothing are off.
+    // A key flashes full as it types.
     for (std::size_t row = 0; row < kRows; ++row)
-      for (std::size_t column = 1; column + 1 < kColumns; ++column)
-        set(KeyIndex(row, column), LegendChar(row, column) != 0 ? kLedHalf : kLedOff);
-    set(playKey, kLedHalf);  // space
-    set(addKey, modal->text.empty() ? kLedOff : kLedHalf);
-    set(subKey, kLedOff);
-    set(enterKey, modal->text.empty() ? kLedOff : kLedHalf);
-    set(KeyIndex(3, 0), kLedOff);
-    finish();
+      for (std::size_t column = 0; column < kColumns; ++column)
+      {
+        const char value = LegendChar(row, column);
+        const bool types = (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') || value == '-';
+        set(KeyIndex(row, column), types ? kLedHalf : kLedOff);
+      }
+    for (const std::size_t index : {KeyIndex(0, 0), addKey, enterKey, playKey}) set(index, kLedHalf);
+    for (std::size_t index = 0; index < kKeyCount; ++index)
+    {
+      const std::uint32_t pressed = state_.keyPressedAt[index];
+      if (frame[index].level > 0 && pressed != 0 && state_.now - pressed < kLedPressFlashMs) set(index, kLedFull);
+    }
     return;
   }
 
@@ -1135,6 +1174,7 @@ void Controller::ComputeLeds(LedFrame& frame) const
   }
   if (EscOverlay())
   {
+    // One column per scene: the current one full, the others half (column 4 is SETUP).
     for (std::size_t index = 0; index < kGridCount; ++index)
       if (index % kGridColumns < kSceneCount) setGrid(index, choice(index % kGridColumns == static_cast<std::size_t>(state_.scene)));
     finish();
@@ -1177,37 +1217,40 @@ void Controller::ComputeLeds(LedFrame& frame) const
     finish();
     return;
   }
+  // The screen has an FN + ENTER (a second ENTER: default, scope, capture, song / loop).
+  const bool screenFnEnter = state_.scene == Scene::Instrument || (state_.scene == Scene::Sequence && page == 0) ||
+                             (state_.scene == Scene::Tape && page != kTapeMix) || (state_.scene == Scene::Setup && page >= kSetupKeys);
+  // The menu's items on the GRID: half, a switch that is on full, nothing there off.
+  auto menuGrid = [&]() {
+    const MenuItems menu = Menu();
+    for (std::size_t index = 0; index < kGridCount; ++index)
+      if (menu[index].action != MenuAction::None && menu[index].available) setGrid(index, choice(menu[index].on));
+    return menu;
+  };
   if (fnHeld)
   {
-    // FN panel: the number keys are its pages, the GRID its settings (the focused one full), ADD /
-    // SUB change it. Letter shortcuts that work here are half; ESC = stop, TAB = previous track,
-    // CTRL = next panel page, PLAY = record, ENTER where the screen has an Fn + ENTER.
+    // The menu. FN + a letter runs the item that carries it, so those pads are half, as are the quick
+    // controls; other pads are off. ESC = stop, TAB = previous track, CTRL = previous page, ADD / SUB
+    // bigger steps, PLAY = record, ENTER where the screen has an FN + ENTER.
     set(addKey, kLedHalf);
     set(subKey, kLedHalf);
-    const bool fnEnter = modal != nullptr ? setup
-                                          : state_.scene == Scene::Instrument || (state_.scene == Scene::Sequence && page == 0) ||
-                                                (state_.scene == Scene::Tape && (page == kTapeSession || page == kTapeSong || page == kTapeSends || page == kTapeFx));
-    set(enterKey, fnEnter ? kLedHalf : kLedOff);
+    set(enterKey, screenFnEnter ? kLedHalf : kLedOff);
     set(playKey, sequencer.RecordArmed() ? kLedFull : kLedHalf);
     set(KeyIndex(0, 0), kLedHalf);
     set(KeyIndex(1, 0), kLedHalf);
-    set(KeyIndex(3, 0), kLedHalf);
+    set(KeyIndex(3, 0), PageCount(state_.scene) > 1 ? kLedHalf : kLedOff);
+    const MenuItems menu = menuGrid();
     for (std::size_t row = 0; row < kRows; ++row)
       for (std::size_t column = kPadFirstColumn; column < kPadFirstColumn + kPadColumns; ++column)
       {
         const char key = LegendChar(row, column);
         std::uint8_t level = kLedOff;
-        if (key >= '1' && key < static_cast<char>('1' + kSetupPageCount)) level = choice(static_cast<std::size_t>(key - '1') == state_.fnPage);
-        else if (!setup && (key == 'C' || key == 'V' || key == 'X' || key == 'Q'))
-          level = state_.scene == Scene::Sequence || (state_.scene == Scene::Tape && page == kTapeSong) ? kLedHalf : kLedOff;
-        else if (!setup && (key == 'D' || key == 'T' || key == 'S')) level = kLedHalf;
+        for (const MenuItem& item : menu)
+          if (item.available && item.key != nullptr && key != 0 && item.key[0] == key && item.key[1] == 0) level = choice(item.on);
         for (const FnQuickControl& quick : kFnQuickControls)
           if (key == quick.up || key == quick.down) level = choice(state_.repeat.quickKey == KeyIndex(row, column));
         set(KeyIndex(row, column), level);
       }
-    const InstrumentPage& panel = SetupPageShown();
-    for (std::size_t index = 0; index < kGridCount; ++index)
-      if (panel.slots[index].IsParameter()) setGrid(index, choice(index == FnFocus()));
     finish();
     return;
   }
@@ -1215,13 +1258,19 @@ void Controller::ComputeLeds(LedFrame& frame) const
   // Pads: the keyboard of the current track. A key that sounds is half, a held or sounding key
   // full (with the other tones of its chord and the arpeggiator's note); a key that cannot sound
   // (PIANO gaps, keys the scale lock mutes) is off. With a step held in SEQ the pads edit it: its
-  // notes are full.
+  // notes are full; playing with no step held, the notes of the step under the playhead are full.
   const bool chordEditor = state_.scene == Scene::Sequence && page == 0 && modal == nullptr && seq.hasHeldSteps;
   std::array<bool, 128> lit{};
   if (chordEditor)
   {
     std::array<std::uint8_t, 8> notes{};
     const std::size_t count = sequencer.StepNotes(seq.primaryHeldStep, notes);
+    for (std::size_t index = 0; index < count; ++index) lit[notes[index] & 0x7F] = true;
+  }
+  else if (state_.scene == Scene::Sequence && page == 0 && modal == nullptr && seq.playing)
+  {
+    std::array<std::uint8_t, 8> notes{};
+    const std::size_t count = sequencer.StepNotes(seq.currentStep, notes);
     for (std::size_t index = 0; index < count; ++index) lit[notes[index] & 0x7F] = true;
   }
   if (seq.arpActive && seq.arpTrack == state_.track && seq.arpSounding >= 0 && seq.arpSounding < 128)
@@ -1269,21 +1318,11 @@ void Controller::ComputeLeds(LedFrame& frame) const
       for (std::size_t order = 0; order < kCaptureTakes; ++order)
         if (TakeAt(order) != nullptr) setGrid(kRecordFirstTake + order, choice(rec.focus == kRecordFirstTake + order));
     }
-    if (setup)
+    if (menuOpen)
     {
-      const InstrumentPage& setupPage = SetupPageShown();
-      for (std::size_t index = 0; index < kGridCount; ++index)
-        if (setupPage.slots[index].IsParameter()) setGrid(index, choice(index == FnFocus()));
-      // KEY LED focused: the pads show every brightness the keys can give, dark to full left to
-      // right, to judge the setting (and the LEDs) by eye. Perceived levels: after the gamma they are
-      // the HAL duties 0, 1, 2, 3, 4, 7, 10, 15 (Devices/LedLight.h).
-      const char* focusId = setupPage.slots[FnFocus()].id;
-      if (focusId != nullptr && std::string_view(focusId) == "sys.led")
-      {
-        static constexpr std::array<std::uint8_t, kPadColumns> kRamp{{0, 6, 7, 8, 9, 11, 13, 15}};
-        for (std::size_t row = 0; row < kRows; ++row)
-          for (std::size_t column = 0; column < kPadColumns; ++column) set(KeyIndex(row, kPadFirstColumn + column), kRamp[column]);
-      }
+      // The open menu takes only the GRID.
+      (void)menuGrid();
+      for (const std::size_t index : {addKey, subKey, enterKey}) set(index, kLedOff);
     }
     finish();
     return;
@@ -1390,11 +1429,31 @@ void Controller::ComputeLeds(LedFrame& frame) const
         for (std::size_t param = 0; param < synth::fx::kMasterParamCount && param < kGridCount; ++param)
           setGrid(param, choice(param == state_.fxFocus));
       }
-      else if (page == kTapeProject)
+      break;
+    case Scene::Setup:
+      if (page == kSetupProject)
       {
+        // SAVE / SAVE AS / LOAD / NEW and TAP are actions, BPM and SWING values; PLAY is a switch
+        // (full in SONG mode).
         for (const std::size_t action : {std::size_t{0}, std::size_t{1}, std::size_t{2}, std::size_t{3}, std::size_t{6}}) setGrid(action, kLedHalf);
         setGrid(4, choice(state_.projectFocus == 4));
         setGrid(5, choice(state_.projectFocus == 5));
+        setGrid(7, choice(sequencer.SongMode()));
+      }
+      else if (const InstrumentPage* settings = SettingsPageShown())
+      {
+        for (std::size_t index = 0; index < kGridCount; ++index)
+          if (settings->slots[index].IsParameter()) setGrid(index, choice(index == SettingsFocus()));
+        // KEY LED focused: the pads show every brightness the keys can give, dark to full left to
+        // right, to judge the setting (and the LEDs) by eye. Perceived levels: after the gamma they are
+        // the HAL duties 0, 1, 2, 3, 4, 7, 10, 15 (Devices/LedLight.h).
+        const char* focusId = settings->slots[SettingsFocus()].id;
+        if (focusId != nullptr && std::string_view(focusId) == "sys.led")
+        {
+          static constexpr std::array<std::uint8_t, kPadColumns> kRamp{{0, 6, 7, 8, 9, 11, 13, 15}};
+          for (std::size_t row = 0; row < kRows; ++row)
+            for (std::size_t column = 0; column < kPadColumns; ++column) set(KeyIndex(row, kPadFirstColumn + column), kRamp[column]);
+        }
       }
       break;
   }

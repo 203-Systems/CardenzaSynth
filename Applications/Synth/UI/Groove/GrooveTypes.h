@@ -20,27 +20,42 @@ inline constexpr std::size_t kGridFirstColumn = synth::kSequencerStepFirstColumn
 inline constexpr std::size_t kGridColumns = synth::kSequencerStepColumnCount;
 inline constexpr std::size_t kGridCount = kRows * kGridColumns;
 
-// Three main screens: the instrument, the sequencer and the tape (song arrangement, mix and project).
+// Four scenes in two kinds, numbered as on screen. 0 SETUP comes first and holds what is not the
+// music of a track: the project (save, load, tempo) and the global settings (keys, system). Then
+// the music, which a tap on ESC walks in a ring: 1 INSTR (what the current track sounds like,
+// its chord and arpeggiator included), 2 SEQ (what it plays) and 3 TAPE (all four tracks together:
+// clips, song, mix, sends and master effects). ESC never cycles into SETUP; hold ESC and press
+// GRID column 1.
 enum class Scene : std::uint8_t {
-  Instrument = 0,
-  Sequence = 1,
-  Tape = 2,
+  Setup = 0,
+  Instrument = 1,
+  Sequence = 2,
+  Tape = 3,
 };
-inline constexpr std::size_t kSceneCount = 3;
+inline constexpr std::size_t kSceneCount = 4;
 
-inline constexpr std::array<const char*, kSceneCount> kSceneNames{{"INSTR", "SEQ", "TAPE"}};
+inline constexpr std::array<const char*, kSceneCount> kSceneNames{{"SETUP", "INSTR", "SEQ", "TAPE"}};
+
+// The ring a tap on ESC walks: INSTR, SEQ, TAPE, INSTR ...
+constexpr bool IsMusicScene(Scene scene) { return scene != Scene::Setup; }
+constexpr Scene NextMusicScene(Scene scene) { return scene == Scene::Instrument ? Scene::Sequence : scene == Scene::Sequence ? Scene::Tape : Scene::Instrument; }
 
 // TAPE sub-pages: SESSION (launch patterns per track, like a clip grid), SONG (the arrangement),
-// then mix, effects and project. PROJECT and FILES stay consecutive (one renderer draws them).
-// System settings live in FN SETUP.
+// then the mix, the per-track sends and the master effects.
 inline constexpr std::uint8_t kTapeSession = 0;
 inline constexpr std::uint8_t kTapeSong = 1;
 inline constexpr std::uint8_t kTapeMix = 2;
 inline constexpr std::uint8_t kTapeSends = 3;
 inline constexpr std::uint8_t kTapeFx = 4;
-inline constexpr std::uint8_t kTapeProject = 5;
-inline constexpr std::uint8_t kTapeFiles = 6;
-inline constexpr std::size_t kTapePageCount = 7;
+inline constexpr std::size_t kTapePageCount = 5;
+
+// SETUP sub-pages: the project and its files, then the settings for every track (KEYS) and the
+// device (SYSTEM). The settings pages are slot pages (SettingsPage(page - kSetupKeys)).
+inline constexpr std::uint8_t kSetupProject = 0;
+inline constexpr std::uint8_t kSetupFiles = 1;
+inline constexpr std::uint8_t kSetupKeys = 2;
+inline constexpr std::uint8_t kSetupSystem = 3;
+inline constexpr std::size_t kSetupPageCount = 4;
 
 // TAPE SENDS rows: the per-track effect each GRID row edits (columns are the tracks).
 inline constexpr std::array<const char*, 4> kSendIds{{"fx.filter", "fx.chorus", "fx.delay", "fx.reverb"}};
@@ -146,25 +161,35 @@ enum class ScaleLock : std::uint8_t { Off, Mute, Snap };
 inline constexpr std::array<const char*, 3> kScaleLockNames{{"OFF", "MUTE", "SNAP"}};
 inline constexpr std::size_t kMaxPadNotes = 5;
 
-// Global play settings (FN SETUP, stored with the project). The default layout is the piano
-// keyboard: white keys on the lower row of each pair, black keys above.
+// The keyboard for every track (SETUP KEYS, saved with the project). The default layout is the
+// piano keyboard: white keys on the lower row of each pair, black keys above.
 struct KeyboardSettings {
   int octave = 0;           // -3..+3
   int root = 0;             // 0..11
   std::size_t scale = 0;    // index into kScales
   KeyboardLayout layout = KeyboardLayout::Piano;
-  ChordType chord = ChordType::Off;
-  std::uint8_t voicing = 0;  // index into kVoicingNames
   ScaleLock lock = ScaleLock::Off;
   std::uint8_t velocity = 110;  // 1..127
+  // ROLL: a GRID tap moves to that one step (false) or adds it to a selection of several (true).
+  bool multiSelect = false;
 };
 
 // Maps a pad (row, column) to a MIDI note for the given engine. Returns false for gaps (Piano layout).
 bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std::size_t row, std::size_t column, int& note);
+
+// One track's chord effect (INSTR CHORD, saved with the project): what a key press of that track
+// plays, built on the scale of the keyboard settings.
+struct ChordSettings {
+  ChordType chord = ChordType::Off;
+  std::uint8_t voicing = 0;  // index into kVoicingNames
+
+  bool operator==(const ChordSettings& other) const { return chord == other.chord && voicing == other.voicing; }
+};
 bool InScale(const KeyboardSettings& settings, int note);
-// The notes one pad press plays: the scale lock, then the chord and its voicing. Drums always play
-// the single drum. Returns the count (0 = the key is muted by the scale lock).
-std::size_t PadNotes(const KeyboardSettings& settings, synth::SynthEngineKind kind, int note, std::array<std::uint8_t, kMaxPadNotes>& notes);
+// The notes one pad press plays: the scale lock, then the track's chord and its voicing. Drums
+// always play the single drum. Returns the count (0 = the key is muted by the scale lock).
+std::size_t PadNotes(const KeyboardSettings& settings, const ChordSettings& chord, synth::SynthEngineKind kind, int note,
+                     std::array<std::uint8_t, kMaxPadNotes>& notes);
 
 std::string_view EngineShortName(synth::SynthEngineKind kind);
 // Three-letter engine code for narrow columns.

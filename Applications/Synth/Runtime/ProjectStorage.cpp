@@ -24,10 +24,12 @@ constexpr std::size_t kMaxProjectBytes = 1024 * 1024;
 // Version 3 adds the song arrangement (SONG and R lines after the sequencer tracks).
 // Version 4 adds the master effects (FX line after SYSTEM: a count, then one value per parameter).
 // Version 5 was only written by unreleased development builds: a PLAY line after FX with the play
-// settings, which are app settings now (docs/app-storage-protocol.md). It still loads (the PLAY line
-// is skipped), files are written as version 4, and the next format change takes version 6.
-constexpr int kProjectVersion = 4;
-constexpr int kMaxReadProjectVersion = 5;
+// settings of the time. It still loads (the PLAY line is skipped).
+// Version 6 makes the play settings project data: after FX a KEYS line (scale lock, velocity) and
+// one PLAYFX line per track (chord, voicing, arp mode, rate, octaves, gate, latch); the UI line's
+// octave, root, scale and layout are the project's keyboard. The next format change takes 7.
+constexpr int kProjectVersion = 6;
+constexpr int kMaxReadProjectVersion = 6;
 constexpr int kMinProjectVersion = 1;
 constexpr unsigned kMaxMixerLevel = 100;
 
@@ -60,7 +62,12 @@ bool ValidMetadata(const ProjectData& project) {
   if (!project.sequence || !SynthSequencer::ValidateState(*project.sequence) || project.activeTrack >= kSynthTrackCount ||
       project.octave < -3 || project.octave > 3 || project.root < 0 || project.root > 11 || project.scale >= static_cast<std::size_t>(kProjectScaleCount) ||
       project.layout < 0 || project.layout > 2 || project.ledBrightness < 0 || project.ledBrightness > 15 ||
-      project.mixer.master > kMaxMixerLevel) return false;
+      project.mixer.master > kMaxMixerLevel || project.lock < 0 || project.lock >= kProjectLockCount || project.velocity < 1 ||
+      project.velocity > 127) return false;
+  for (const auto& play : project.play)
+    if (play.chord < 0 || play.chord >= kProjectChordCount || play.voicing < 0 || play.voicing >= kProjectVoicingCount ||
+        static_cast<std::size_t>(play.arp.mode) >= kArpModeCount || play.arp.rate >= kArpRateCount || play.arp.octaves < 1 ||
+        play.arp.octaves > kArpMaxOctaves || play.arp.gate < kArpMinGate || play.arp.gate > kArpMaxGate) return false;
   for (std::size_t index = 0; index < fx::kMasterParamCount; ++index)
     if (project.masterFx[index] < fx::kMasterParams[index].minValue || project.masterFx[index] > fx::kMasterParams[index].maxValue) return false;
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
@@ -155,6 +162,13 @@ ProjectResult WriteProject(const std::string& path, const ProjectData& project) 
   file << "FX " << project.masterFx.size();
   for (const auto value : project.masterFx) file << ' ' << static_cast<int>(value);
   file << '\n';
+  file << "KEYS " << project.lock << ' ' << project.velocity << '\n';
+  for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+    const auto& play = project.play[track];
+    file << "PLAYFX " << track << ' ' << play.chord << ' ' << play.voicing << ' ' << static_cast<int>(play.arp.mode) << ' '
+         << static_cast<int>(play.arp.rate) << ' ' << static_cast<int>(play.arp.octaves) << ' ' << static_cast<int>(play.arp.gate) << ' '
+         << (play.arp.latch ? 1 : 0) << '\n';
+  }
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
     const auto& state = project.engines[track];
     file << "TRACK " << track << ' ' << static_cast<int>(project.kinds[track]) << ' ' << std::quoted(state.basePresetId) << ' '
@@ -246,10 +260,34 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
       project.masterFx[index] = static_cast<std::uint8_t>(value);
     }
   }
-  if (version >= 5) {
-    // Development builds stored the play settings here; they are app settings now.
+  if (version == 5) {
+    // Development builds stored the play settings of the time here.
     std::string ignored;
     if (!ReadExpected(file, "PLAY") || !std::getline(file, ignored) || ignored.size() > 128) return ProjectResult::Invalid;
+  }
+  if (version >= 6) {
+    int lock = 0, velocity = 0;
+    if (!ReadExpected(file, "KEYS") || !(file >> lock >> velocity) || lock < 0 || lock >= kProjectLockCount || velocity < 1 ||
+        velocity > 127) return ProjectResult::Invalid;
+    project.lock = lock;
+    project.velocity = velocity;
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+      std::size_t index = 0;
+      int chord = 0, voicing = 0, mode = 0, rate = 0, octaves = 0, gate = 0, latch = 0;
+      if (!ReadExpected(file, "PLAYFX") || !(file >> index >> chord >> voicing >> mode >> rate >> octaves >> gate >> latch) || index != track ||
+          chord < 0 || chord >= kProjectChordCount || voicing < 0 || voicing >= kProjectVoicingCount || mode < 0 ||
+          mode >= static_cast<int>(kArpModeCount) || rate < 0 || rate >= static_cast<int>(kArpRateCount) || octaves < 1 ||
+          octaves > kArpMaxOctaves || gate < kArpMinGate || gate > kArpMaxGate || latch < 0 || latch > 1) return ProjectResult::Invalid;
+      auto& play = project.play[track];
+      play.chord = chord;
+      play.voicing = voicing;
+      play.arp.mode = static_cast<ArpMode>(mode);
+      play.arp.rate = static_cast<std::uint8_t>(rate);
+      play.arp.octaves = static_cast<std::uint8_t>(octaves);
+      play.arp.gate = static_cast<std::uint8_t>(gate);
+      play.arp.latch = latch != 0;
+    }
+    project.hasPlay = true;
   }
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
     std::size_t index = 0, parameterCount = 0;

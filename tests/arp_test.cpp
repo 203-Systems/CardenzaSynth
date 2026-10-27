@@ -178,7 +178,7 @@ std::vector<std::uint64_t> Spaced(std::uint64_t first, std::uint64_t period, std
 void TestOffIsInert()
 {
   Rig rig;
-  CHECK(rig.seq().GetArpSettings() == ArpSettings{});
+  CHECK(rig.seq().GetArpSettings(0) == ArpSettings{});
   rig.seq().ArpNoteOn(0, 60, 100);
   CHECK(!rig.seq().ArpActive());
   rig.Run(200);
@@ -209,7 +209,7 @@ void TestOffIsInert()
 void TestUpOrderAndTiming()
 {
   Rig rig;
-  rig.seq().SetArpSettings(Settings(ArpMode::Up));
+  rig.seq().SetArpSettings(0, Settings(ArpMode::Up));
   // The first press sounds at once; the chord's other notes join before the next one.
   rig.seq().ArpNoteOn(0, 60, 100);
   CHECK(rig.OnNotes() == std::vector<int>{60});
@@ -254,35 +254,35 @@ void TestOrders()
 {
   {
     Rig rig;  // DOWN: after the first press, from the top.
-    rig.seq().SetArpSettings(Settings(ArpMode::Down));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Down));
     for (std::uint8_t note : {60, 64, 67}) rig.seq().ArpNoteOn(0, note, 100);
     rig.Run(24 * 6 - 1);
     CHECK(rig.OnNotes() == (std::vector<int>{60, 67, 64, 60, 67, 64}));
   }
   {
     Rig rig;  // UP-DN over two octaves: no repeated note at either turn.
-    rig.seq().SetArpSettings(Settings(ArpMode::UpDown, 3, 2));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::UpDown, 3, 2));
     for (std::uint8_t note : {60, 64}) rig.seq().ArpNoteOn(0, note, 100);
     rig.Run(24 * 10 - 1);
     CHECK(rig.OnNotes() == (std::vector<int>{60, 64, 72, 76, 72, 64, 60, 64, 72, 76}));
   }
   {
     Rig rig;  // UP-DN with one note repeats it.
-    rig.seq().SetArpSettings(Settings(ArpMode::UpDown));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::UpDown));
     rig.seq().ArpNoteOn(0, 62, 100);
     rig.Run(24 * 3 - 1);
     CHECK(rig.OnNotes() == (std::vector<int>{62, 62, 62}));
   }
   {
     Rig rig;  // UP over three octaves.
-    rig.seq().SetArpSettings(Settings(ArpMode::Up, 3, 3));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Up, 3, 3));
     rig.seq().ArpNoteOn(0, 60, 100);
     rig.Run(24 * 4 - 1);
     CHECK(rig.OnNotes() == (std::vector<int>{60, 72, 84, 60}));
   }
   {
     Rig rig;  // Octaves past 127 are skipped.
-    rig.seq().SetArpSettings(Settings(ArpMode::Up, 3, 4));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Up, 3, 4));
     rig.seq().ArpNoteOn(0, 100, 100);
     rig.seq().ArpNoteOn(0, 110, 100);
     rig.Run(24 * 7 - 1);
@@ -290,7 +290,7 @@ void TestOrders()
   }
   {
     Rig rig;  // ORDER: press order, then the same an octave up.
-    rig.seq().SetArpSettings(Settings(ArpMode::Played, 3, 2));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Played, 3, 2));
     for (std::uint8_t note : {67, 60, 64}) rig.seq().ArpNoteOn(0, note, 100);
     rig.Run(24 * 8 - 1);
     CHECK(rig.OnNotes() == (std::vector<int>{67, 60, 64, 79, 72, 76, 67, 60}));
@@ -302,7 +302,7 @@ void TestOrders()
   }
   {
     Rig rig;  // RANDOM: only held pitches, never the same twice in a row.
-    rig.seq().SetArpSettings(Settings(ArpMode::Random, 3, 2));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Random, 3, 2));
     for (std::uint8_t note : {60, 62, 72}) rig.seq().ArpNoteOn(0, note, 100);  // 72 twice over octaves.
     rig.Run(24 * 80);
     const auto notes = rig.OnNotes();
@@ -318,14 +318,14 @@ void TestOrders()
   }
   {
     Rig rig;  // RANDOM with one pitch repeats it.
-    rig.seq().SetArpSettings(Settings(ArpMode::Random));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Random));
     rig.seq().ArpNoteOn(0, 70, 100);
     rig.Run(24 * 3 - 1);
     CHECK(rig.OnNotes() == (std::vector<int>{70, 70, 70}));
   }
   {
     Rig rig;  // Sixteen notes at most; a held pitch pressed again is not added twice.
-    rig.seq().SetArpSettings(Settings(ArpMode::Up));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Up));
     for (std::uint8_t note = 40; note < 60; ++note) rig.seq().ArpNoteOn(0, note, 100);
     rig.seq().ArpNoteOn(0, 40, 50);
     const auto ui = rig.seq().BuildUiState(0);
@@ -340,7 +340,7 @@ void TestRateAndGate()
     for (std::uint8_t gate : {10, 50, 100})
     {
       Rig rig;
-      rig.seq().SetArpSettings(Settings(ArpMode::Up, static_cast<std::uint8_t>(rate), 1, gate));
+      rig.seq().SetArpSettings(0, Settings(ArpMode::Up, static_cast<std::uint8_t>(rate), 1, gate));
       rig.seq().ArpNoteOn(0, 60, 100);
       const std::uint64_t period = synth::kArpRatePulses[rate];
       rig.Run(period * 4 + 1);
@@ -363,7 +363,7 @@ void TestRateAndGate()
 void TestLatch()
 {
   Rig rig;
-  rig.seq().SetArpSettings(Settings(ArpMode::Up, 3, 1, 50, true));
+  rig.seq().SetArpSettings(0, Settings(ArpMode::Up, 3, 1, 50, true));
   rig.seq().ArpNoteOn(0, 60, 100);
   rig.seq().ArpNoteOn(0, 64, 100);
   rig.Run(20);
@@ -391,9 +391,9 @@ void TestLatch()
   CHECK(ui.arpNoteCount == 2 && ui.arpNotes[0] == 67 && ui.arpNotes[1] == 72);
 
   // Latch off keeps the keys still held.
-  auto settings = rig.seq().GetArpSettings();
+  auto settings = rig.seq().GetArpSettings(0);
   settings.latch = false;
-  rig.seq().SetArpSettings(settings);
+  rig.seq().SetArpSettings(0, settings);
   ui = rig.seq().BuildUiState(0);
   CHECK(ui.arpActive && ui.arpNoteCount == 1 && ui.arpNotes[0] == 72);
   const std::size_t kept = rig.Ons().size();
@@ -405,14 +405,14 @@ void TestLatch()
   CHECK(!rig.seq().ArpActive());
 
   // Latch off with nothing held releases the arp and its sounding note.
-  rig.seq().SetArpSettings(Settings(ArpMode::Up, 3, 1, 100, true));
+  rig.seq().SetArpSettings(0, Settings(ArpMode::Up, 3, 1, 100, true));
   rig.seq().ArpNoteOn(0, 62, 100);
   rig.seq().ArpNoteOff(0, 62);
   rig.Run(30);
   CHECK(rig.seq().ArpActive() && rig.seq().BuildUiState(0).arpSounding == 62);
-  settings = rig.seq().GetArpSettings();
+  settings = rig.seq().GetArpSettings(0);
   settings.latch = false;
-  rig.seq().SetArpSettings(settings);
+  rig.seq().SetArpSettings(0, settings);
   const auto events = rig.Events();
   CHECK(IsOff(events.back()) && events.back().note == 62 && events.back().tick == rig.Now());
   CHECK(!rig.seq().ArpActive() && rig.seq().BuildUiState(0).arpSounding == -1);
@@ -422,51 +422,65 @@ void TestLatch()
   CHECK(Clean(rig.Events()));
 }
 
-void TestTrackChange()
+// Every track has its own arp with its own settings; they run side by side and a track change
+// leaves them alone.
+void TestTracksRunTheirOwnArps()
 {
   Rig rig;
-  rig.seq().SetArpSettings(Settings(ArpMode::Up, 3, 1, 100));
+  rig.seq().SetArpSettings(0, Settings(ArpMode::Up, 3, 1, 100));
+  rig.seq().ArpNoteOn(1, 62, 100);  // Track 1's arp is off: ignored.
+  CHECK(!rig.seq().ArpActive(1) && rig.EventCount() == 0);
   rig.seq().ArpNoteOn(0, 60, 100);
+  rig.seq().ArpNoteOn(0, 64, 100);
   rig.Run(10);
-  // A note for another track releases the arp there and restarts it at once on the new track.
+  rig.seq().SetArpSettings(1, Settings(ArpMode::Down, 1, 1, 50));
+  CHECK(rig.seq().GetArpSettings(0).mode == ArpMode::Up && rig.seq().GetArpSettings(1).mode == ArpMode::Down);
+  CHECK(rig.seq().GetArpSettings(2) == ArpSettings{});
+  // Track 1 starts at once; track 0 runs on untouched.
   rig.seq().ArpNoteOn(1, 62, 100);
+  rig.seq().ArpNoteOn(1, 69, 100);
+  CHECK(rig.seq().ArpActive(0) && rig.seq().ArpActive(1) && !rig.seq().ArpActive(2));
   auto events = rig.Events();
-  CHECK(events.size() == 3);
-  CHECK(IsOff(events[1]) && events[1].track == 0 && events[1].note == 60 && events[1].tick == 10);
-  CHECK(IsOn(events[2]) && events[2].track == 1 && events[2].note == 62 && events[2].tick == 10);
-  auto ui = rig.seq().BuildUiState(0);
-  CHECK(ui.arpTrack == 1 && ui.arpNoteCount == 1 && ui.arpNotes[0] == 62);
-  rig.seq().ArpNoteOff(0, 60);  // The old track's key: ignored.
-  CHECK(rig.seq().ArpActive());
-  rig.Run(30);
-  CHECK(rig.Ons().back().track == 1 && rig.Ons().back().tick == 34);
+  CHECK(IsOn(events.back()) && events.back().track == 1 && events.back().note == 62 && events.back().tick == 10);
+  for (const auto& event : events) CHECK(event.track != 0 || !IsOff(event) || event.tick != 10);
+  const auto ui0 = rig.seq().BuildUiState(0);
+  const auto ui1 = rig.seq().BuildUiState(1);
+  CHECK(ui0.arpActive && ui0.arpTrack == 0 && ui0.arpNoteCount == 2);
+  CHECK(ui1.arpActive && ui1.arpTrack == 1 && ui1.arpNoteCount == 2 && ui1.arpSounding == 62);
+  CHECK(!rig.seq().BuildUiState(2).arpActive);
+  rig.Run(60);
+  // Each on its own grid: track 0 every sixteenth from tick 0, track 1 every eighth from tick 10.
+  bool track0 = false, track1 = false;
+  for (const auto& on : rig.Ons())
+  {
+    if (on.track == 0 && on.tick == 48) track0 = true;
+    if (on.track == 1 && on.tick == 58 && on.note == 69) track1 = true;
+  }
+  CHECK(track0 && track1);
 
-  // Selecting another track releases the arp.
+  // Selecting another track leaves both running; releasing one track stops only its arp.
   rig.seq().SetActiveTrack(2);
-  CHECK(!rig.seq().ArpActive());
-  events = rig.Events();
-  CHECK(IsOff(events.back()) && events.back().track == 1 && events.back().note == 62);
-  // Re-selecting the arp's own track keeps it.
-  rig.seq().ArpNoteOn(2, 65, 100);
-  rig.seq().SetActiveTrack(2);
-  CHECK(rig.seq().ArpActive());
-  rig.seq().SetActiveTrack(3);
+  CHECK(rig.seq().ArpActive(0) && rig.seq().ArpActive(1));
+  rig.seq().ArpRelease(0);
+  CHECK(!rig.seq().ArpActive(0) && rig.seq().ArpActive(1));
+  rig.seq().ArpNoteOff(1, 62);
+  rig.seq().ArpNoteOff(1, 69);
   CHECK(!rig.seq().ArpActive());
   const std::size_t count = rig.EventCount();
   rig.Run(100);
-  CHECK(rig.EventCount() == count && Clean(rig.Events()));
+  CHECK(rig.EventCount() == count && Clean(rig.Events(), 2));  // two arps sound together
 }
 
 void TestOffAndReleaseSilence()
 {
   Rig rig;
-  rig.seq().SetArpSettings(Settings(ArpMode::Up, 3, 1, 100));
+  rig.seq().SetArpSettings(0, Settings(ArpMode::Up, 3, 1, 100));
   rig.seq().ArpNoteOn(0, 60, 100);
   rig.Run(5);
   CHECK(rig.seq().BuildUiState(0).arpSounding == 60);
-  auto settings = rig.seq().GetArpSettings();
+  auto settings = rig.seq().GetArpSettings(0);
   settings.mode = ArpMode::Off;
-  rig.seq().SetArpSettings(settings);
+  rig.seq().SetArpSettings(0, settings);
   auto events = rig.Events();
   CHECK(events.size() == 2 && IsOff(events[1]) && events[1].note == 60 && events[1].tick == 5);
   CHECK(!rig.seq().ArpActive() && rig.seq().BuildUiState(0).arpSounding == -1);
@@ -474,7 +488,7 @@ void TestOffAndReleaseSilence()
   CHECK(rig.EventCount() == 2);
   // The held keys went with it: switching back on plays nothing until the next press.
   settings.mode = ArpMode::Up;
-  rig.seq().SetArpSettings(settings);
+  rig.seq().SetArpSettings(0, settings);
   CHECK(!rig.seq().ArpActive());
   rig.Run(100);
   CHECK(rig.EventCount() == 2);
@@ -494,23 +508,23 @@ void TestSettings()
 {
   Rig rig;
   ArpSettings wild = Settings(static_cast<ArpMode>(200), 99, 0, 0);
-  rig.seq().SetArpSettings(wild);
-  ArpSettings got = rig.seq().GetArpSettings();
+  rig.seq().SetArpSettings(0, wild);
+  ArpSettings got = rig.seq().GetArpSettings(0);
   CHECK(got.mode == ArpMode::Off && got.rate == synth::kArpRateCount - 1 && got.octaves == 1 && got.gate == synth::kArpMinGate);
-  rig.seq().SetArpSettings(Settings(ArpMode::UpDown, 2, 9, 250, true));
-  got = rig.seq().GetArpSettings();
+  rig.seq().SetArpSettings(0, Settings(ArpMode::UpDown, 2, 9, 250, true));
+  got = rig.seq().GetArpSettings(0);
   CHECK(got == Settings(ArpMode::UpDown, 2, synth::kArpMaxOctaves, synth::kArpMaxGate, true));
   CHECK(got != Settings(ArpMode::UpDown, 2, synth::kArpMaxOctaves, synth::kArpMaxGate, false));
 
   // A new rate applies from the next note, counted from the last one.
-  rig.seq().SetArpSettings(Settings(ArpMode::Up, 0));
+  rig.seq().SetArpSettings(0, Settings(ArpMode::Up, 0));
   rig.seq().ArpNoteOn(0, 60, 100);
   rig.Run(10);
-  rig.seq().SetArpSettings(Settings(ArpMode::Up, 3));
+  rig.seq().SetArpSettings(0, Settings(ArpMode::Up, 3));
   rig.RunTo(49);
   CHECK(rig.OnTicks() == (std::vector<std::uint64_t>{0, 24, 48}));
   // Gate changes apply to the next note.
-  rig.seq().SetArpSettings(Settings(ArpMode::Up, 3, 1, 10));
+  rig.seq().SetArpSettings(0, Settings(ArpMode::Up, 3, 1, 10));
   rig.RunTo(80);
   const auto events = rig.Events();
   CHECK(IsOff(events.back()) && events.back().tick == 72 + 2);
@@ -520,7 +534,7 @@ void TestGridWhilePlaying()
 {
   {
     Rig rig;
-    rig.seq().SetArpSettings(Settings(ArpMode::Up));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Up));
     rig.seq().Play();
     rig.Run(5);
     // Pressed between grid lines: sounds at once, then joins the sixteenth grid.
@@ -542,7 +556,7 @@ void TestGridWhilePlaying()
   {
     Rig rig;  // Swing delays odd sixteenths, as it does sequenced steps.
     rig.seq().SetSwing(75);
-    rig.seq().SetArpSettings(Settings(ArpMode::Up));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Up));
     rig.seq().Play();
     rig.seq().ArpNoteOn(0, 60, 100);
     rig.RunTo(150);
@@ -554,7 +568,7 @@ void TestGridWhilePlaying()
   {
     Rig rig;  // Eighths sit on even sixteenths: swing leaves them alone.
     rig.seq().SetSwing(75);
-    rig.seq().SetArpSettings(Settings(ArpMode::Up, 1));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Up, 1));
     rig.seq().Play();
     rig.seq().ArpNoteOn(0, 60, 100);
     rig.RunTo(150);
@@ -568,7 +582,7 @@ void TestGridWhilePlaying()
 void TestTransportStartStop()
 {
   Rig rig;
-  rig.seq().SetArpSettings(Settings(ArpMode::Up));
+  rig.seq().SetArpSettings(0, Settings(ArpMode::Up));
   rig.seq().ArpNoteOn(0, 60, 100);
   rig.seq().ArpNoteOn(0, 64, 100);
   rig.RunTo(50);
@@ -625,7 +639,7 @@ void TestRecording()
 
   {
     Rig rig;  // Playing and armed: every arp note is overdubbed with its own gate length.
-    rig.seq().SetArpSettings(Settings(ArpMode::Up));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Up));
     rig.seq().SetRecordArmed(true);
     rig.seq().Play();
     rig.seq().ArpNoteOn(0, 60, 100);
@@ -650,7 +664,7 @@ void TestRecording()
   }
   {
     Rig rig;  // Armed but stopped: the free-running arp records nothing.
-    rig.seq().SetArpSettings(Settings(ArpMode::Up));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Up));
     rig.seq().SetRecordArmed(true);
     rig.seq().ArpNoteOn(0, 60, 100);
     rig.Run(100);
@@ -659,7 +673,7 @@ void TestRecording()
   }
   {
     Rig rig;  // Playing but not armed: nothing either.
-    rig.seq().SetArpSettings(Settings(ArpMode::Up));
+    rig.seq().SetArpSettings(0, Settings(ArpMode::Up));
     rig.seq().Play();
     rig.seq().ArpNoteOn(0, 60, 100);
     rig.Run(100);
@@ -672,7 +686,7 @@ void TestRecording()
 void TestProjectPathsRelease()
 {
   Rig rig;
-  rig.seq().SetArpSettings(Settings(ArpMode::Up, 3, 1, 100, true));
+  rig.seq().SetArpSettings(0, Settings(ArpMode::Up, 3, 1, 100, true));
   rig.seq().ArpNoteOn(0, 60, 100);
   rig.Run(10);
   const auto state = rig.seq().CaptureState();
@@ -682,7 +696,7 @@ void TestProjectPathsRelease()
   rig.Run(100);
   CHECK(rig.EventCount() == count);
   // The settings are a performance control: a project load keeps them.
-  CHECK(rig.seq().GetArpSettings() == Settings(ArpMode::Up, 3, 1, 100, true));
+  CHECK(rig.seq().GetArpSettings(0) == Settings(ArpMode::Up, 3, 1, 100, true));
 
   rig.seq().ArpNoteOn(0, 62, 100);
   rig.Run(10);
@@ -701,7 +715,7 @@ void TestClockWorker()
   auto sequencer = std::make_unique<SynthSequencer>();
   sequencer->SetMidiSink(Sink, &capture);
   sequencer->SetTempo(300);
-  sequencer->SetArpSettings(Settings(ArpMode::Up, 5));  // 1/32 at 300 BPM: one note per 25 ms.
+  sequencer->SetArpSettings(0, Settings(ArpMode::Up, 5));  // 1/32 at 300 BPM: one note per 25 ms.
   auto ons = [&capture] {
     std::lock_guard<std::mutex> lock(capture.mutex);
     return static_cast<std::size_t>(std::count_if(capture.events.begin(), capture.events.end(), IsOn));
@@ -745,7 +759,7 @@ int main()
   TestOrders();
   TestRateAndGate();
   TestLatch();
-  TestTrackChange();
+  TestTracksRunTheirOwnArps();
   TestOffAndReleaseSilence();
   TestSettings();
   TestGridWhilePlaying();

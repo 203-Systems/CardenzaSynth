@@ -141,20 +141,22 @@ int main()
   arp.mode = synth::ArpMode::Up;
   arp.rate = 2;
   arp.gate = 70;
-  groove->Sequencer().SetArpSettings(arp);
-  Tap(2, 0);   // FN: SETUP
-  assert(groove->Ui().SetupOpen());
+  groove->Sequencer().SetArpSettings(synth::kDefaultActiveTrack, arp);  // T2's arpeggiator
+  Key(0, 0, true);  // ESC + GRID column 1: SETUP
+  Tap(0, 9);
+  Key(0, 0, false);
+  assert(groove->Ui().State().scene == groove::Scene::Setup);
+  while (groove->Ui().CurrentPage() != groove::kSetupKeys) Tap(3, 0);  // CTRL to KEYS
   Tap(0, 12);  // OCTAVE
   Tap(0, 13);  // ADD
-  Tap(2, 0);
-  assert(groove->Ui().State().keyboard.octave == 1 && !groove->Ui().SetupOpen());
-  // Fn + S on an unnamed project, ENTER takes the suggested name.
+  Tap(0, 0);   // ESC: back
+  assert(groove->Ui().State().keyboard.octave == 1 && groove->Ui().State().scene != groove::Scene::Setup);
+  // Fn + S on an unnamed project saves it right away as the first free SONG n (no name field).
   Key(2, 0, true);
   Tap(2, 3);
   Key(2, 0, false);
-  Tap(2, 13);
-  assert(groove->Ui().State().projectName == "SONG");
-  assert(fs::is_regular_file(synthFolder / "Projects" / "SONG.ccproj"));
+  assert(groove->Ui().State().projectName == "SONG 01");
+  assert(fs::is_regular_file(synthFolder / "Projects" / "SONG 01.ccproj"));
   // Changes after the save live only in the session.
   groove->SetTrackLevel(1, 42);
 
@@ -162,12 +164,15 @@ int main()
   Frames(70);
   text = ReadText(systemSettings);
   assert(Contains(text, "sys.volume=60\n") && Contains(text, "sys.led=7\n") && Contains(text, "sys.screen=150\n"));
-  text = ReadText(synthFolder / "settings.cfg");
-  assert(Contains(text, "keys.octave=1\n") && Contains(text, "arp.mode=1\n") && Contains(text, "arp.rate=2\n") &&
-         Contains(text, "arp.gate=70\n"));
-  // The project file carries no play settings and keeps writing format 4.
-  text = ReadText(synthFolder / "Projects" / "SONG.ccproj");
-  assert(text.find("CARDENZA_PROJECT 4\n") == 0 && !Contains(text, "PLAY"));
+  // The play settings are project data (format 6): the keyboard and each track's chord and arp.
+  if (fs::exists(synthFolder / "settings.cfg"))
+  {
+    text = ReadText(synthFolder / "settings.cfg");
+    assert(!Contains(text, "arp.") && !Contains(text, "keys.octave"));
+  }
+  text = ReadText(synthFolder / "Projects" / "SONG 01.ccproj");
+  assert(text.find("CARDENZA_PROJECT 6\n") == 0 && Contains(text, "\nUI 1 1 0 0 0 ") && Contains(text, "\nKEYS 0 110\n"));
+  assert(Contains(text, "\nPLAYFX 1 0 0 1 2 1 70 0\n") && Contains(text, "\nPLAYFX 0 0 0 0 3 1 50 0\n"));
 
   // A short HOME press is still ALL STOP in the groovebox.
   const std::uint32_t panic = groove->Ui().State().panicAt;
@@ -188,7 +193,7 @@ int main()
   // Another app: the groovebox is suspended (session saved) and destroyed.
   SwitchTo(kBlankId);
   text = ReadText(synthFolder / "Session" / "session.cfg");
-  assert(Contains(text, "pending=1\n") && Contains(text, "name=SONG\n"));
+  assert(Contains(text, "pending=1\n") && Contains(text, "name=SONG 01\n"));
   assert(fs::is_regular_file(synthFolder / "Session" / "session.ccproj"));
   // A system app does not change the boot app.
   assert(Contains(ReadText(systemSettings), "boot.app=Cardenza/Synth\n"));
@@ -197,20 +202,24 @@ int main()
   SwitchTo("Cardenza/Synth");
   groove = &Groove();
   assert(groove->Sequencer().Tempo() == 133 && groove->Sequencer().BuildUiState(synth::kDefaultActiveTrack).steps[3].hasEvents);
-  assert(groove->TrackLevel(1) == 42 && groove->Ui().State().projectName == "SONG");
+  assert(groove->TrackLevel(1) == 42 && groove->Ui().State().projectName == "SONG 01");
   assert(groove->MasterVolume() == 60 && groove->LedBrightness() == 7 && groove->Backlight() == 150);
-  assert(groove->Ui().State().keyboard.octave == 1 && groove->Sequencer().GetArpSettings() == arp);
+  assert(groove->Ui().State().keyboard.octave == 1 && groove->Sequencer().GetArpSettings(synth::kDefaultActiveTrack) == arp);
+  assert(groove->Sequencer().GetArpSettings(0) == synth::ArpSettings{});
   assert(Contains(ReadText(synthFolder / "Session" / "session.cfg"), "pending=0\n"));
 
-  // Loading or creating a project leaves device and play settings alone.
+  // Loading a project brings back its play settings; device settings stay. NEW starts from the
+  // default play settings.
   std::string message;
   groove::ProjectUiSettings ui;
-  assert(groove->LoadProject("SONG", ui, message));
+  groove->Sequencer().SetArpSettings(synth::kDefaultActiveTrack, synth::ArpSettings{});
+  assert(groove->LoadProject("SONG 01", ui, message));
   assert(ui.keyboard.octave == 1 && groove->TrackLevel(1) == 100 && groove->Sequencer().Tempo() == 133);
   assert(groove->MasterVolume() == 60 && groove->LedBrightness() == 7 && groove->Backlight() == 150);
-  assert(groove->Sequencer().GetArpSettings() == arp);
+  assert(groove->Sequencer().GetArpSettings(synth::kDefaultActiveTrack) == arp);
   assert(groove->NewProject(ui, message));
-  assert(ui.keyboard.octave == 1 && ui.activeTrack == synth::kDefaultActiveTrack && groove->MasterVolume() == 60 && groove->Sequencer().GetArpSettings() == arp);
+  assert(ui.keyboard.octave == 0 && ui.activeTrack == synth::kDefaultActiveTrack && groove->MasterVolume() == 60);
+  assert(groove->Sequencer().GetArpSettings(synth::kDefaultActiveTrack) == synth::ArpSettings{});
 
   assert(!os::system::SwitchApplication("Nobody/Here"));
 

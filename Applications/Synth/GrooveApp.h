@@ -94,9 +94,12 @@ private:
   bool ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message);
   // The current session as project data. False (with a UI message) while a sampler take is unsaved.
   bool CaptureProject(const groove::ProjectUiSettings& settings, synth::ProjectData& project, std::string& message) const;
-  // FN SETUP play settings <-> the app settings file.
+  // The app settings file: SELECT (a preference), and at boot the keyboard older firmware kept there.
   void RestorePlaySettings();
   void StorePlaySettings();
+  // The project's play settings (keyboard, chords, arpeggiators) into `settings` and the sequencer;
+  // a project without them (format before 6) keeps the current ones.
+  void ApplyPlaySettings(const synth::ProjectData& project, groove::ProjectUiSettings& settings);
   // Session handover across an app switch (Session/session.ccproj + session.cfg).
   bool SaveSessionState();
   bool RestoreSessionState();
@@ -112,9 +115,8 @@ private:
   std::array<std::uint8_t, synth::kSynthTrackCount> levels_{{100, 100, 100, 100}};
   std::array<bool, synth::kSynthTrackCount> muted_{};
   std::array<bool, synth::kSynthTrackCount> soloed_{};
-  // The play settings last written to the app settings, to notice changes cheaply every tick.
-  groove::KeyboardSettings storedKeyboard_{};
-  synth::ArpSettings storedArp_{};
+  // SELECT as last written to the app settings, to notice changes cheaply every tick.
+  bool storedMultiSelect_ = false;
   // Tempo last sent to the synced delay.
   std::uint16_t fxTempo_ = 0;
   // Probed at boot and after saves; the SYSTEM page reads it every frame.

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
@@ -129,7 +130,11 @@ void DrawGlyphColumn(Gfx& g, const Controller& controller, Animator& animator)
   const auto& sequencer = controller.HostView().Sequencer();
   const bool playing = sequencer.Playing();
   const bool recArmed = sequencer.RecordArmed();
-  const std::array<Glyph, 4> glyphs{{Glyph::Plus, Glyph::Minus, Glyph::Enter, Glyph::Play}};
+  // In a vertical list ADD / SUB move up / down: the strips say so.
+  const Modal* modal = controller.TopModal();
+  const bool list = modal != nullptr && (modal->kind == ModalKind::PresetBrowser || modal->kind == ModalKind::SampleBrowser ||
+                                         modal->kind == ModalKind::SampleOptions);
+  const std::array<Glyph, 4> glyphs{{list ? Glyph::Up : Glyph::Plus, list ? Glyph::Down : Glyph::Minus, Glyph::Enter, Glyph::Play}};
   for (std::size_t row = 0; row < 4; ++row)
   {
     const Rect strip = StripRect(row);
@@ -168,14 +173,15 @@ void DrawHeader(Gfx& g, const Controller& controller, Animator& animator)
   const auto& transition = animator.CurrentTransition();
   const float sceneDecode = transition.kind == Animator::TransitionKind::Scene ? fx::Progress(now, transition.start, 320) : 1.0f;
   int x = kContentX;
-  if (controller.SetupOpen())
+  if (controller.MenuOpen())
   {
     x = g.Text(x, kHeaderY, "FN", kFn);
-    x = fx::DecodeText(g, x + 3, kHeaderY, "SETUP", kInk, Font::Micro, fx::Progress(now, animator.ModalOpenedAt(), 320), now / 40);
+    x = fx::DecodeText(g, x + 3, kHeaderY, "MENU", kInk, Font::Micro, fx::Progress(now, animator.ModalOpenedAt(), 320), now / 40);
   }
   else
   {
-    const char sceneNumber[2] = {static_cast<char>('1' + static_cast<int>(state.scene)), 0};
+    // Scenes are numbered from 0 (SETUP).
+    const char sceneNumber[2] = {static_cast<char>('0' + static_cast<int>(state.scene)), 0};
     x = g.Text(x, kHeaderY, sceneNumber, kEsc);
     x = fx::DecodeText(g, x + 3, kHeaderY, kSceneNames[static_cast<std::size_t>(state.scene)], kInk, Font::Micro, sceneDecode, now / 40);
   }
@@ -229,7 +235,7 @@ void DrawHeader(Gfx& g, const Controller& controller, Animator& animator)
                    right - x - 6);
   }
 
-  // Rule: dotted in the track's color; while playing, the loop (or song) progress with a comet head.
+  // Rule: dotted in the track's color; while playing, the loop (or song) progress with a head.
   g.DottedHLine(kContentX, kHeaderRuleY, kContentWidth, TrackColor(state.track), 2);
   if (seq.songPlaying && seq.songLength > 0)
   {
@@ -245,7 +251,6 @@ void DrawHeader(Gfx& g, const Controller& controller, Animator& animator)
   {
     const int progress = static_cast<int>(seq.patternProgress * static_cast<float>(kContentWidth));
     g.HLine(kContentX, kHeaderRuleY, std::max(1, progress), kPlay);
-    for (int tail = 1; tail <= 10; ++tail) g.Dither(Rect{kContentX + progress - tail, kHeaderRuleY - 1, 1, 1}, kPlay, 12 - tail);
     g.Fill(Rect{kContentX + progress - 1, kHeaderRuleY - 1, 3, 3}, kInk);
   }
   else if (animator.StopAt() != 0 && now - animator.StopAt() < kRewindMs)
@@ -349,27 +354,13 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
   const bool exiting = animator.ToastEndedAt() != 0 && toastExit < 1.0f;
   if (const Modal* modal = controller.TopModal())
   {
-    if (modal->kind == ModalKind::Setup)
+    if (modal->kind == ModalKind::Menu)
     {
-      // SETUP: its pages by number key (the current one by name too; CTRL steps them), and how
-      // to leave.
-      int x = kFooterX;
-      for (std::size_t page = 0; page < kSetupPageCount; ++page)
-      {
-        const char number[2] = {static_cast<char>('1' + page), 0};
-        if (page == state.fnPage)
-        {
-          const std::string tab = std::string(number) + " " + SetupPage(page).tab;
-          g.Fill(Rect{x - 2, kFooterY - 1, Gfx::Measure(tab) + 4, 9}, kFn);
-          g.Text(x, kFooterY, tab, kBlack);
-          x += Gfx::Measure(tab) + 8;
-        }
-        else
-        {
-          g.Text(x, kFooterY, number, kDim);
-          x += Gfx::Measure(number) + 8;
-        }
-      }
+      // The open menu: whose menu it is, and how to leave.
+      const std::string page = kSceneNames[static_cast<std::size_t>(state.scene)] + std::string(" ") +
+                               controller.PageTab(state.scene, controller.CurrentPage());
+      g.Fill(Rect{kFooterX - 2, kFooterY - 1, Gfx::Measure(page) + 4, 9}, kFn);
+      g.Text(kFooterX, kFooterY, page, kBlack);
       g.Text(kFooterRight - Gfx::Measure("FN / ESC CLOSE"), kFooterY, "FN / ESC CLOSE", kFaint);
       return;
     }
@@ -533,22 +524,27 @@ void DrawHud(Gfx& g, const Controller& controller, Animator& animator)
   if (out > 0.0f) fx::Fade(g, Rect{box.x - 2, box.y - 2, box.width + 4, box.height + 4}, static_cast<int>(out * 16.0f));
 }
 
-// ESC: three tall tiles, one per GRID column, each listing its scene's pages.
+// ESC: four tall tiles, one per GRID column, each listing its scene's pages. The first, 0 SETUP
+// (project and global settings), is reached only from here; the other three are the ring a tap on
+// ESC walks.
 void DrawSceneOverlay(Gfx& g, const Controller& controller, Animator& animator, float t)
 {
   const std::uint32_t now = animator.Now();
   const UiState& state = controller.State();
   Rect panel = kMapArea;
-  DrawMapTitle(g, "ESC  SCENES", "GRID COLUMN = SCENE", kEsc, t, now);
+  DrawMapTitle(g, "ESC  SCENES", "TAP = 1>2>3", kEsc, t, now);
   BeginOverlay(g, 0, panel, kEsc, t);
   for (std::size_t scene = 0; scene < kSceneCount; ++scene)
   {
     const Rect tile = DropIn(widgets::CellSpan(0, scene, 4, 1), t, scene * 2);
     const bool current = static_cast<std::size_t>(state.scene) == scene;
+    const bool global = static_cast<Scene>(scene) == Scene::Setup;
     MapTile(g, tile, current, true, kEsc, now);
+    // SETUP stands apart from the ring: a dotted rule down its right edge.
+    if (global && !current) g.DottedVLine(tile.x + tile.width - 2, tile.y + 2, tile.height - 4, kEsc, 2);
     const Color ink = current ? kBlack : kInk;
-    const char number[2] = {static_cast<char>('1' + scene), 0};
-    g.Text(tile.x + 4, tile.y + 4, number, current ? kBlack : kEsc, Font::Large);
+    const char number[2] = {static_cast<char>('0' + scene), 0};
+    g.Text(tile.x + 4, tile.y + 4, number, current ? kBlack : global ? kDim : kEsc, Font::Large);
     g.Text(tile.x + 4, tile.y + 21, kSceneNames[scene], ink, Font::Small);
     // The pages of that scene, the one it opens on marked.
     const Scene target = static_cast<Scene>(scene);
@@ -565,15 +561,6 @@ void DrawSceneOverlay(Gfx& g, const Controller& controller, Animator& animator, 
       g.TextFit(tile.x + 4, y, tile.width - 8, controller.PageTab(target, pageIndex), marked ? (current ? kInk : kBlack) : (current ? kBlack : kDim));
     }
     for (std::size_t row = 0; row < kRows; ++row) PressRipple(g, animator, row * kGridColumns + scene, tile, kEsc);
-  }
-  // The fourth column explains the rest of the key.
-  const Rect help = DropIn(widgets::CellSpan(0, 3, 4, 1), t, 6);
-  MapTile(g, help, false, false, kEsc, now);
-  int y = help.y + 6;
-  for (const char* line : {"TAP:", "BACK", "", "HOLD +", "COLUMN:", "SCENE"})
-  {
-    g.Text(help.x + 4, y, line, kFaint);
-    y += 9;
   }
   g.ResetClip();
 }
@@ -656,50 +643,27 @@ void DrawPageOverlay(Gfx& g, const Controller& controller, Animator& animator, f
   g.ResetClip();
 }
 
-// FN held: the FN panel. The header lists its pages (FN + 1..5 or FN + CTRL picks one), the
-// content is the page's settings on the GRID (FN + GRID focuses one, FN + ADD/SUB sets it) and the
-// footer lists the letter shortcuts on the pads. With SETUP open the panel is already on screen.
+// FN held: the menu of the current screen on the GRID (FN + GRID runs an item), whose screen it is in
+// the header, and the other FN combinations in the footer. With the menu kept open (a tap on FN) the
+// menu is the modal on screen instead.
 void DrawFnOverlay(Gfx& g, const Controller& controller, Animator& animator, float t)
 {
-  if (controller.SetupOpen()) return;
+  if (controller.MenuOpen()) return;
   const UiState& state = controller.State();
-  const std::uint8_t current = state.fnPage;
+  const std::uint32_t now = animator.Now();
+  const std::string page = kSceneNames[static_cast<std::size_t>(state.scene)] + std::string(" ") +
+                           controller.PageTab(state.scene, controller.CurrentPage());
+  DrawMapTitle(g, "FN  MENU", page, kFn, t, now);
 
-  g.Fill(Rect{kContentX - 1, 0, kContentWidth + 2, kHeaderRuleY + 1}, kBlack);
-  g.HLine(kContentX, kHeaderRuleY, static_cast<int>(t * static_cast<float>(kContentWidth)), kFn);
-  int x = g.Text(kContentX, kHeaderY, "FN", kFn) + 7;
-  int full = 0;
-  for (std::size_t page = 0; page < kSetupPageCount; ++page) full += Gfx::Measure(SetupPage(page).tab) + 12;
-  // Pages that do not fit by name show their number only; the current one always shows its name.
-  const bool names = x + full <= kContentRight;
-  for (std::size_t page = 0; page < kSetupPageCount; ++page)
-  {
-    const char number[2] = {static_cast<char>('1' + page), 0};
-    const std::string tab = names || page == current ? SetupPage(page).tab : "";
-    const int width = Gfx::Measure(number) + (tab.empty() ? 0 : 3 + Gfx::Measure(tab));
-    if (page == current)
-    {
-      g.Fill(Rect{x - 2, kHeaderY - 1, width + 4, 9}, kFn);
-      g.Text(x, kHeaderY, number, kBlack);
-      g.Text(x + Gfx::Measure(number) + 3, kHeaderY, tab, kBlack);
-    }
-    else
-    {
-      g.Text(x, kHeaderY, number, kFn);
-      if (!tab.empty()) g.Text(x + Gfx::Measure(number) + 3, kHeaderY, tab, kDim);
-    }
-    x += width + 8;
-  }
-
-  // Footer: the letter shortcuts in priority order, key in yellow, what it does in white.
+  // Footer: the FN combinations besides the menu, key in yellow, what it does in white.
   g.Fill(Rect{kContentX - 1, kFooterY - 2, kContentWidth + 2, 11}, kBlack);
-  const auto letters = controller.FnEntries();
-  const std::size_t shown = static_cast<std::size_t>(fx::Clamp01(t * 1.3f) * static_cast<float>(letters.size()) + 0.5f);
+  const auto entries = controller.FnEntries();
+  const std::size_t shown = static_cast<std::size_t>(fx::Clamp01(t * 1.3f) * static_cast<float>(entries.size()) + 0.5f);
   int footerX = kFooterX;
   std::size_t drawn = 0;
-  for (const auto& entry : letters)
+  for (const auto& entry : entries)
   {
-    if (!entry.available) continue;
+    if (!entry.available || std::string_view(entry.key) == "GRID") continue;
     const int width = Gfx::Measure(entry.key) + 4 + Gfx::Measure(entry.label);
     if (footerX + width > kFooterRight) continue;
     if (drawn++ < shown)
@@ -712,7 +676,7 @@ void DrawFnOverlay(Gfx& g, const Controller& controller, Animator& animator, flo
 
   Rect panel = kMapArea;
   BeginOverlay(g, 2, panel, kFn, t);
-  render::SetupContent(g, controller, animator);
+  render::MenuContent(g, controller, animator, t);
   g.ResetClip();
 }
 
@@ -871,8 +835,13 @@ void RenderFrame(Gfx& g, const Controller& controller, Animator& animator)
     return;
   }
 
-  DrawStrips(g, controller, animator);
-  DrawGlyphColumn(g, controller, animator);
+  // Typing: no edge strips, the whole keyboard is the keyboard (ESC cancels).
+  const Modal* top = controller.TopModal();
+  if (top == nullptr || top->kind != ModalKind::TextEntry)
+  {
+    DrawStrips(g, controller, animator);
+    DrawGlyphColumn(g, controller, animator);
+  }
   DrawHeader(g, controller, animator);
   DrawContent(g, controller, animator);
   DrawRecordVignette(g, controller, animator);

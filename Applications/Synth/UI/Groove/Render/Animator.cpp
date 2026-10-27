@@ -181,7 +181,7 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
   }
   padNotes_ = state.padNote;
 
-  // Sequencer: playhead trail, beats, content stamps, pattern switches.
+  // Sequencer: playhead flash, beats, content stamps, pattern switches.
   if (seq.playing != playing_) playToggledAt_ = now;
   if (!seq.playing && playing_)
   {
@@ -238,15 +238,15 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
     }
   }
 
-  // INSTR and SETUP: flash a slot whose value changed (keyed per track and page so switching does
-  // not flash).
-  const bool setup = controller.FnPanelShown();
-  if ((state.scene == Scene::Instrument && modal == nullptr) || setup)
+  // INSTR and the SETUP settings pages: flash a slot whose value changed (keyed per track and page so
+  // switching does not flash).
+  const InstrumentPage* settings = modal == nullptr ? controller.SettingsPageShown() : nullptr;
+  if ((state.scene == Scene::Instrument && modal == nullptr) || settings != nullptr)
   {
-    const InstrumentPage* page = setup ? &controller.SetupPageShown() : controller.CurrentInstrumentPage();
-    const std::uint32_t pageKey = setup ? 0x5E700000u + state.fnPage
-                                        : static_cast<std::uint32_t>(state.track * 64 + controller.CurrentPage() + 1) ^
-                                              static_cast<std::uint32_t>(host.EngineKind(state.track)) << 16;
+    const InstrumentPage* page = settings != nullptr ? settings : controller.CurrentInstrumentPage();
+    const std::uint32_t pageKey = settings != nullptr ? 0x5E700000u + controller.CurrentPage()
+                                                     : static_cast<std::uint32_t>(state.track * 64 + controller.CurrentPage() + 1) ^
+                                                           static_cast<std::uint32_t>(host.EngineKind(state.track)) << 16;
     for (std::size_t slot = 0; slot < kGridCount; ++slot)
     {
       synth::SynthParameterInfo info;
@@ -398,7 +398,7 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
       }
     }
   }
-  if ((state.scene == Scene::Instrument && modal == nullptr) || controller.FnPanelShown())
+  if ((state.scene == Scene::Instrument || controller.SettingsPageShown() != nullptr) && modal == nullptr)
     for (std::size_t slot = 0; slot < kGridCount; ++slot)
       raise(KeyIndex(slot / kGridColumns, kGridFirstColumn + slot % kGridColumns), 15.0f * fx::Decay(now, valueChangedAt_[slot], 300));
   if (state.scene == Scene::Sequence && controller.CurrentPage() == 1 && modal == nullptr)

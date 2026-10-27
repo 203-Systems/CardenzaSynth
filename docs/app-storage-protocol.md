@@ -38,8 +38,7 @@ after any app switch, and so that apps never touch each other's files. Code: `OS
 ```text
 # Cardenza settings: Cardenza/Synth (storage protocol 1)
 # key=value per line; unknown keys are kept
-keys.scale=4
-arp.latch=1
+keys.select=1
 ```
 
 - One `key=value` per line. Lines starting with `#` (after optional spaces) are comments. Spaces
@@ -195,28 +194,31 @@ first app starts, `MigrateLegacyLayout(AppFolder("Cardenza/Synth"))` moves what 
 | projects `<name>.ccproj` | `Apps/Cardenza/Synth/Projects/` |
 | user preset banks `user.ccpreset` | `Apps/Cardenza/Synth/Presets/{DX7,Juno,Sampler,Drums}/` |
 | samples (WAV) | `Shared/Samples/` |
-| FN SETUP play settings | `Apps/Cardenza/Synth/settings.cfg` |
+| app preferences (SELECT) | `Apps/Cardenza/Synth/settings.cfg` |
 | session | `Apps/Cardenza/Synth/Session/session.ccproj` + `session.cfg` |
 | volume, key LEDs, screen | `System/settings.cfg` (device settings) |
 
-App settings keys (the FN SETUP slots of the same names): `keys.layout` (0 PIANO, 1 SCALE, 2
-CHROMA), `keys.scale` (index into the scale table), `keys.root` (0–11), `keys.octave` (−3…3),
-`keys.chord`, `keys.voicing`, `keys.lock`, `keys.velocity` (1–127), `arp.mode`, `arp.rate`,
-`arp.octaves` (1–4), `arp.gate` (10–100), `arp.latch`. They are restored at start, written a second
-after a change and on suspend, and loading or creating a project does not change them.
+App settings keys: `keys.select` (0 ONE, 1 MULTI: the ROLL selection mode), a preference restored at
+start and written a second after a change and on suspend. Older firmware also kept the keyboard
+(`keys.layout`, `keys.scale`, `keys.root`, `keys.octave`, `keys.lock`, `keys.velocity`) and one
+global chord and arpeggiator (`keys.chord`, `keys.voicing`, `arp.*`) here: the keyboard values are
+still read at start (they only matter until a session or project brings its own) and nothing writes
+them any more; the old chord and arp keys are ignored.
 
-Projects keep project content only: engines and sounds, samples by file name, patterns and song,
-mixer levels / mute / solo and the master effects. The file format stays version 4. Its UI line
-(octave, root, scale, layout, LED brightness), `MASTER` and `SYSTEM` (backlight) are still written,
-inside the ranges older firmware accepts, so older firmware opens the file; the groovebox ignores
-them when it loads. Version 5 was only written by unreleased development builds (a `PLAY` line with
-the play settings): such files still load, the `PLAY` line is skipped, and they are saved as
-version 4. The next format change takes version 6.
+Projects keep the project: engines and sounds, samples by file name, patterns and song, mixer levels
+/ mute / solo, the master effects and, from format version 6, the play settings: the keyboard for
+every track (the UI line's octave, root, scale and layout, and a `KEYS` line with scale lock and
+velocity) and each track's chord and arpeggiator (one `PLAYFX` line per track: chord, voicing, arp
+mode, rate, octaves, gate, latch). Loading a version 6 project applies them; older files (1–5) have
+none and leave the current ones in place; NEW starts from the defaults. The UI line's LED brightness,
+`MASTER` and `SYSTEM` (backlight) are device settings: still written, ignored when a project loads.
+Version 5 was only written by unreleased development builds (a `PLAY` line): such files still load,
+the `PLAY` line is skipped. The next format change takes version 7.
 
-Session: `Suspend()` saves the working project (format 4, atomic) with its name and unsaved state;
+Session: `Suspend()` saves the working project (format 6, atomic) with its name and unsaved state;
 the next `Setup()` restores it and marks it used. An unsaved sampler take blocks the session save
 exactly as it blocks SAVE: the session is then skipped (`session.cfg` records `pending=0` and the
-reason) and the app starts with its play settings but an empty project.
+reason) and the app starts with an empty project.
 
 ## 8. Device notes
 

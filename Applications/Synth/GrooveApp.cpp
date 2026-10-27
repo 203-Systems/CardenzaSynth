@@ -38,12 +38,6 @@ os::storage::Settings& AppSettings()
   return os::storage::AppSettings(synth::storage::kAppId);
 }
 
-bool SameKeyboard(const groove::KeyboardSettings& a, const groove::KeyboardSettings& b)
-{
-  return a.octave == b.octave && a.root == b.root && a.scale == b.scale && a.layout == b.layout && a.chord == b.chord &&
-         a.voicing == b.voicing && a.lock == b.lock && a.velocity == b.velocity;
-}
-
 std::unique_ptr<app::Application> CreateGrooveApplication()
 {
   return std::make_unique<GrooveApp>();
@@ -133,50 +127,43 @@ void GrooveApp::RestorePlaySettings()
   keys.scale = static_cast<std::size_t>(settings.GetInt("keys.scale", static_cast<int>(defaults.scale), 0, static_cast<int>(groove::kScales.size()) - 1));
   keys.root = settings.GetInt("keys.root", defaults.root, 0, 11);
   keys.octave = settings.GetInt("keys.octave", defaults.octave, -3, 3);
-  keys.chord = static_cast<groove::ChordType>(
-      settings.GetInt("keys.chord", static_cast<int>(defaults.chord), 0, static_cast<int>(groove::kChordTypeCount) - 1));
-  keys.voicing = static_cast<std::uint8_t>(settings.GetInt("keys.voicing", defaults.voicing, 0, static_cast<int>(groove::kVoicingNames.size()) - 1));
   keys.lock = static_cast<groove::ScaleLock>(
       settings.GetInt("keys.lock", static_cast<int>(defaults.lock), 0, static_cast<int>(groove::kScaleLockNames.size()) - 1));
+  keys.multiSelect = settings.GetInt("keys.select", defaults.multiSelect ? 1 : 0, 0, 1) != 0;
   keys.velocity = static_cast<std::uint8_t>(settings.GetInt("keys.velocity", defaults.velocity, 1, 127));
+  // The keyboard belongs to the project now; the values older firmware kept in the app settings
+  // only start a session that has no project of its own (the session file overrides them).
   controller_.Restore(ui, "");
-
-  const synth::ArpSettings arpDefaults{};
-  synth::ArpSettings arp;
-  arp.mode = static_cast<synth::ArpMode>(settings.GetInt("arp.mode", static_cast<int>(arpDefaults.mode), 0, static_cast<int>(synth::kArpModeCount) - 1));
-  arp.rate = static_cast<std::uint8_t>(settings.GetInt("arp.rate", arpDefaults.rate, 0, static_cast<int>(synth::kArpRateCount) - 1));
-  arp.octaves = static_cast<std::uint8_t>(settings.GetInt("arp.octaves", arpDefaults.octaves, 1, synth::kArpMaxOctaves));
-  arp.gate = static_cast<std::uint8_t>(settings.GetInt("arp.gate", arpDefaults.gate, synth::kArpMinGate, synth::kArpMaxGate));
-  arp.latch = settings.GetBool("arp.latch", arpDefaults.latch);
-  sequencer_.SetArpSettings(arp);
-
-  storedKeyboard_ = controller_.Settings().keyboard;
-  storedArp_ = sequencer_.GetArpSettings();
+  storedMultiSelect_ = keys.multiSelect;
 }
 
 void GrooveApp::StorePlaySettings()
 {
-  // Polled every tick: the UI changes these in many places. The system writes the file a second
-  // after the last change, and when the app is suspended.
-  const groove::KeyboardSettings keys = controller_.Settings().keyboard;
-  const synth::ArpSettings arp = sequencer_.GetArpSettings();
-  if (SameKeyboard(keys, storedKeyboard_) && arp == storedArp_) return;
-  auto& settings = AppSettings();
-  settings.SetInt("keys.layout", static_cast<int>(keys.layout));
-  settings.SetInt("keys.scale", static_cast<int>(keys.scale));
-  settings.SetInt("keys.root", keys.root);
-  settings.SetInt("keys.octave", keys.octave);
-  settings.SetInt("keys.chord", static_cast<int>(keys.chord));
-  settings.SetInt("keys.voicing", keys.voicing);
-  settings.SetInt("keys.lock", static_cast<int>(keys.lock));
-  settings.SetInt("keys.velocity", keys.velocity);
-  settings.SetInt("arp.mode", static_cast<int>(arp.mode));
-  settings.SetInt("arp.rate", arp.rate);
-  settings.SetInt("arp.octaves", arp.octaves);
-  settings.SetInt("arp.gate", arp.gate);
-  settings.SetBool("arp.latch", arp.latch);
-  storedKeyboard_ = keys;
-  storedArp_ = arp;
+  // Polled every tick. The system writes the file a second after the last change, and when the app
+  // is suspended.
+  const bool multiSelect = controller_.Settings().keyboard.multiSelect;
+  if (multiSelect == storedMultiSelect_) return;
+  AppSettings().SetInt("keys.select", multiSelect ? 1 : 0);
+  storedMultiSelect_ = multiSelect;
+}
+
+void GrooveApp::ApplyPlaySettings(const synth::ProjectData& project, groove::ProjectUiSettings& settings)
+{
+  if (!project.hasPlay) return;
+  groove::KeyboardSettings& keys = settings.keyboard;
+  keys.octave = std::clamp(project.octave, -3, 3);
+  keys.root = std::clamp(project.root, 0, 11);
+  keys.scale = std::min(project.scale, groove::kScales.size() - 1);
+  keys.layout = static_cast<groove::KeyboardLayout>(std::clamp(project.layout, 0, static_cast<int>(groove::kLayoutNames.size()) - 1));
+  keys.lock = static_cast<groove::ScaleLock>(std::clamp(project.lock, 0, static_cast<int>(groove::kScaleLockNames.size()) - 1));
+  keys.velocity = static_cast<std::uint8_t>(std::clamp(project.velocity, 1, 127));
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    const auto& play = project.play[track];
+    settings.chords[track].chord = static_cast<groove::ChordType>(std::clamp(play.chord, 0, static_cast<int>(groove::kChordTypeCount) - 1));
+    settings.chords[track].voicing = static_cast<std::uint8_t>(std::clamp(play.voicing, 0, static_cast<int>(groove::kVoicingNames.size()) - 1));
+    sequencer_.SetArpSettings(track, play.arp);
+  }
 }
 
 bool GrooveApp::SaveSessionState()
@@ -228,6 +215,7 @@ bool GrooveApp::RestoreSessionState()
     return false;
   groove::ProjectUiSettings ui = controller_.Settings();
   ui.activeTrack = project.activeTrack;
+  ApplyPlaySettings(project, ui);
   // The session comes back with its unsaved state, so loading another project still asks first.
   controller_.Restore(ui, synth::IsProjectNameValid(name) ? name : std::string(), dirty);
   return true;
@@ -277,6 +265,14 @@ void GrooveApp::UpdateLeds()
   std::array<std::uint8_t, groove::kKeyCount> levels{};
   animator_.DecorateLeds(controller_, frame, levels);
   animator_.SmoothLeds(levels);
+  // The eight edge keys (ESC TAB FN CTRL, ADD SUB OK PLAY) never go above the dimmest glow: their
+  // state shows on the screen's edge strips, the keys only say they are there.
+  for (std::size_t row = 0; row < groove::kRows; ++row)
+    for (const std::size_t column : {std::size_t{0}, groove::kColumns - 1})
+    {
+      std::uint8_t& level = levels[groove::KeyIndex(row, column)];
+      level = std::min(level, groove::kLedEdgeMax);
+    }
   for (std::size_t row = 0; row < groove::kRows; ++row)
     for (std::size_t column = 0; column < groove::kColumns; ++column)
       Device::LED::SetKey(row, column, levels[groove::KeyIndex(row, column)]);
@@ -582,12 +578,21 @@ bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth:
     return false;
   }
   project.activeTrack = settings.activeTrack;
-  // Play settings, volume, key LEDs and screen are app and device settings now. Their old fields
-  // are still written so older firmware opens the file, kept inside the ranges it accepts.
+  // The play settings belong to the project: the keyboard, each track's chord and arpeggiator.
+  project.hasPlay = true;
   project.octave = settings.keyboard.octave;
   project.root = settings.keyboard.root;
-  project.scale = settings.keyboard.scale < static_cast<std::size_t>(synth::kProjectScaleCountV4) ? settings.keyboard.scale : 0;
+  project.scale = settings.keyboard.scale;
   project.layout = static_cast<int>(settings.keyboard.layout);
+  project.lock = static_cast<int>(settings.keyboard.lock);
+  project.velocity = settings.keyboard.velocity;
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    project.play[track].chord = static_cast<int>(settings.chords[track].chord);
+    project.play[track].voicing = settings.chords[track].voicing;
+    project.play[track].arp = sequencer_.GetArpSettings(track);
+  }
+  // Volume, key LEDs and screen are device settings; their old fields are still written.
   project.ledBrightness = os::storage::KeyLedBrightness();
   project.backlight = os::storage::ScreenBacklight();
   project.mixer.master = os::storage::OutputVolume();
@@ -691,8 +696,8 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
     (void)sampler_.ConsumeTrimReset(track);
   }
   sequencer_.RestoreState(*project.sequence);
-  // Mixer levels, mute, solo and the master bus belong to the project; volume, key LEDs, screen and
-  // the play settings (arpeggiator included) do not.
+  // Mixer levels, mute, solo and the master bus belong to the project (the play settings too, applied
+  // by ApplyPlaySettings); volume, key LEDs and screen do not.
   levels_ = project.mixer.level;
   muted_ = project.mixer.muted;
   soloed_ = project.mixer.soloed;
@@ -710,9 +715,9 @@ bool GrooveApp::LoadProject(const std::string& name, groove::ProjectUiSettings& 
     return false;
   }
   if (!ReplaceSession(name, project, false, message)) return false;
-  // The play settings are app settings: they stay as they are.
   settings = controller_.Settings();
   settings.activeTrack = project.activeTrack;
+  ApplyPlaySettings(project, settings);
   return true;
 }
 
@@ -727,9 +732,12 @@ bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& mes
   }
   project.kinds = kDefaultKinds;
   if (!ReplaceSession("", project, true, message)) return false;
-  // A new project starts on the default track (T2, the piano layout) with the current play settings.
+  // A new project starts on the default track (T2, the piano layout) with the default play settings:
+  // C major, no chords, every arpeggiator off. SELECT is a preference and stays.
+  const bool multiSelect = controller_.Settings().keyboard.multiSelect;
   settings = groove::ProjectUiSettings{};
-  settings.keyboard = controller_.Settings().keyboard;
+  settings.keyboard.multiSelect = multiSelect;
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) sequencer_.SetArpSettings(track, synth::ArpSettings{});
   return true;
 }
 

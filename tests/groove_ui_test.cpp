@@ -72,17 +72,34 @@ int ParameterValue(apps::GrooveApp& app, std::size_t track, const char* id)
   return info.value;
 }
 
+// Scenes by their number on screen (0 SETUP, 1 INSTR, 2 SEQ, 3 TAPE) = their ESC map column.
 void GoToScene(Harness& h, int number)
 {
-  h.Chord(kEsc, Grid(static_cast<std::size_t>(number - 1)));
+  h.Chord(kEsc, Grid(static_cast<std::size_t>(number)));
   h.Wait(200);
-  assert(static_cast<int>(h.State().scene) == number - 1);
+  assert(static_cast<int>(h.State().scene) == number);
+}
+
+// SETUP (scene 0) is reached only with ESC held + GRID column 1; CTRL then walks its pages.
+void GoToSetupPage(Harness& h, std::uint8_t page)
+{
+  GoToScene(h, 0);
+  while (h.App().Ui().CurrentPage() != page) h.Tap(kCtrl);
+}
+
+// An INSTR page of the current track by its tab.
+void GoToInstrumentPage(Harness& h, const char* tab)
+{
+  GoToScene(h, 1);
+  for (std::size_t tries = 0; tries < 16 && std::string(h.App().Ui().CurrentInstrumentPage()->tab) != tab; ++tries) h.Tap(kCtrl);
+  assert(std::string(h.App().Ui().CurrentInstrumentPage()->tab) == tab);
 }
 
 void TestBoot(Harness& h)
 {
-  assert(h.State().scene == Scene::Sequence);
-  assert(h.App().Ui().CurrentPage() == 0);
+  // It boots on the instrument, first page (VOICE).
+  assert(h.State().scene == Scene::Instrument);
+  assert(h.App().Ui().CurrentPage() == 0 && h.App().Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::Voice);
   // It starts on T2, the first melodic track: the pads show the piano layout, white keys on the
   // bottom row, black keys above with the gaps (Shift, D, J) dark; unpressed keys are half lit.
   assert(h.State().track == synth::kDefaultActiveTrack && h.App().EngineKind(h.State().track) != synth::SynthEngineKind::Drums);
@@ -102,6 +119,8 @@ void TestBoot(Harness& h)
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
     assert(h.App().EngineKind(track) == apps::GrooveApp::kDefaultKinds[track]);
   assert(h.App().EngineKind(0) == synth::SynthEngineKind::Drums);
+  // The walkthrough continues in SEQ.
+  GoToScene(h, 2);
 }
 
 void TestNavigation(Harness& h)
@@ -112,13 +131,13 @@ void TestNavigation(Harness& h)
   assert(h.App().Ui().EscOverlay());
   h.Tap(Key{1, 3});
   assert(h.State().padNote[1 * 8 + 2] == 0xFF);
-  h.Tap(Grid(3));  // the fourth column has no scene
-  assert(h.State().scene == Scene::Sequence);
-  h.Tap(Grid(8));  // row 2, column 0
+  h.Tap(Grid(0));  // the first column is SETUP (the only way in)
+  assert(h.State().scene == Scene::Setup);
+  h.Tap(Grid(9));  // row 2, column 1: INSTR
   h.Up(kEsc);
   assert(h.State().scene == Scene::Instrument);
   assert(!h.App().Ui().EscOverlay());
-  // Tapping ESC walks the scenes in a ring: INSTR, SEQ, TAPE, INSTR.
+  // Tapping ESC walks the music scenes in a ring: INSTR, SEQ, TAPE, INSTR (never SETUP).
   h.Tap(kEsc);
   assert(h.State().scene == Scene::Sequence);
   h.Tap(kEsc);
@@ -167,43 +186,43 @@ void TestNavigation(Harness& h)
   h.Tap(kCtrl);
   assert(h.App().Ui().CurrentPage() == 0);
 
-  // The FN panel appears only after the hold threshold. FN + 1..5 or FN + CTRL pick its page, which
-  // is remembered for the next hold; none of it touches the screen underneath.
+  // Held FN shows the menu of this screen after the hold threshold: the SEQ items on rows 0-2, the
+  // shared row (SAVE, TAP, REC, SETUP) at the bottom. Nothing touches the screen underneath until an
+  // item runs.
+  const auto steps = h.Seq().populatedStepCount;
   h.Down(kFn);
   assert(!h.App().Ui().FnOverlay());
   h.Wait(300);
-  assert(h.App().Ui().FnOverlay() && h.State().fnPage == 0);
+  assert(h.App().Ui().FnOverlay() && h.App().Ui().Menu()[0].action == groove::MenuAction::Copy);
+  assert(h.App().Ui().Menu()[15].action == groove::MenuAction::Setup);
   h.Render();
-  h.Tap(Digit(3));
-  assert(h.State().fnPage == 2);
+  // FN + GRID 16 (column 4) runs SETUP; a tap on ESC goes back to where it came from, and taps
+  // never cycle into SETUP.
+  h.Tap(Grid(15));
+  h.Up(kFn);
+  assert(h.State().scene == Scene::Setup && !h.App().Ui().FnOverlay());
+  h.Render();
+  h.Tap(kEsc);
+  assert(h.State().scene == Scene::Sequence);
+  for (int tap = 0; tap < 3; ++tap)
+  {
+    h.Tap(kEsc);
+    assert(h.State().scene != Scene::Setup);
+  }
+  assert(h.State().scene == Scene::Sequence);
+  // A tap on FN keeps the menu open; the GRID runs an item and closes it. FN + GRID runs it too.
+  h.Tap(kFn);
+  assert(h.App().Ui().MenuOpen());
+  h.Render();
+  h.Tap(Grid(5));  // VIEW: ROLL -> STEP
+  assert(!h.App().Ui().MenuOpen() && h.App().Ui().View() == groove::SeqView::Step);
+  h.Chord(kFn, Grid(5));
+  assert(h.App().Ui().View() == groove::SeqView::Roll);
+  // FN + CTRL steps back a page.
+  h.Chord(kFn, kCtrl);
+  assert(h.App().Ui().CurrentPage() == 2);
   h.Tap(kCtrl);
-  assert(h.State().fnPage == 3 && h.App().Ui().CurrentPage() == 0 && !h.App().Ui().CtrlOverlay());
-  h.Up(kFn);
-  h.Hold(kFn, 300);
-  assert(h.App().Ui().FnOverlay() && std::string(h.App().Ui().SetupPageShown().tab) == "PROJECT");
-  h.Render();
-
-  // FN + GRID focuses a setting and FN + ADD / SUB change it (PROJECT: BPM, SWING); a held ADD
-  // repeats. The GRID does nothing else meanwhile.
-  const auto bpm = h.App().Sequencer().Tempo();
-  const auto swing = h.App().Sequencer().Swing();
-  const auto steps = h.Seq().populatedStepCount;
-  h.Tap(Grid(0));
-  h.Tap(kAdd);
-  assert(h.App().Sequencer().Tempo() == bpm + 1);
-  h.Tap(kSub);
-  assert(h.App().Sequencer().Tempo() == bpm);
-  h.Tap(Grid(1));
-  h.Tap(kAdd);
-  assert(h.App().Sequencer().Swing() == swing + 1 && h.App().Ui().FnFocus() == 1);
-  h.Tap(kSub);
-  h.Tap(Grid(0));
-  h.Hold(kAdd, 800);
-  h.Up(kAdd);
-  assert(h.App().Sequencer().Tempo() >= bpm + 4);
-  while (h.App().Sequencer().Tempo() > bpm) h.Tap(kSub);
-  h.Up(kFn);
-  assert(h.App().Sequencer().Swing() == swing && h.Seq().populatedStepCount == steps && h.App().Ui().CurrentPage() == 0);
+  assert(h.Seq().populatedStepCount == steps && h.App().Ui().CurrentPage() == 0);
   assert(h.State().track == 0);
 }
 
@@ -333,26 +352,29 @@ void TestInstrument(Harness& h)
   h.Tap(kSub);
   assert(app.Engine(1)->CurrentPresetId() == first);
 
-  // DCO page: GRID focuses PWM, ADD raises it, Fn + ENTER restores the default.
+  // VOICE, then the track's MIDI effects CHORD and ARP, then the engine: DCO.
   h.Tap(kCtrl);
+  assert(std::string(h.App().Ui().CurrentInstrumentPage()->tab) == "CHORD");
+  h.Tap(kCtrl);
+  assert(std::string(h.App().Ui().CurrentInstrumentPage()->tab) == "ARP");
+  h.Tap(kCtrl);
+  // DCO page: GRID focuses PWM, ADD raises it, Fn + ENTER restores the default.
   assert(std::string(h.App().Ui().CurrentInstrumentPage()->tab) == "DCO");
   h.Tap(Grid(3));
   const int pwm = ParameterValue(app, 1, "dco.pwm");
   h.Tap(kAdd);
   assert(ParameterValue(app, 1, "dco.pwm") == std::min(127, pwm + 1));
-  // FN + ADD / SUB change the FN panel's focused setting (SYSTEM VOLUME) and leave the page alone;
-  // the panel page and its focus are remembered.
-  const auto volume = app.MasterVolume();
-  h.Down(kFn);
-  h.Tap(Digit(5));
-  h.Tap(Grid(0));
-  h.Tap(kAdd);
-  h.Up(kFn);
-  assert(ParameterValue(app, 1, "dco.pwm") == std::min(127, pwm + 1));
-  assert(app.MasterVolume() == std::min(100, volume + 2));
+  // FN + ADD / SUB take big steps (PWM by ten); FN + ENTER, or RESET in the menu, restores the
+  // default.
+  h.Chord(kFn, kAdd);
+  assert(ParameterValue(app, 1, "dco.pwm") == std::min(127, pwm + 11));
   h.Chord(kFn, kSub);
-  assert(app.MasterVolume() == volume);
+  assert(ParameterValue(app, 1, "dco.pwm") == std::min(127, pwm + 1));
   h.Chord(kFn, kEnter);
+  assert(ParameterValue(app, 1, "dco.pwm") == 48);
+  h.Tap(kAdd);
+  assert(h.App().Ui().Menu()[4].action == groove::MenuAction::Default && h.App().Ui().Menu()[4].detail == "PWM");
+  h.Chord(kFn, Grid(4));
   assert(ParameterValue(app, 1, "dco.pwm") == 48);
   // A second press on a focused toggle flips it.
   const int saw = ParameterValue(app, 1, "dco.saw");
@@ -376,7 +398,7 @@ void TestInstrument(Harness& h)
   // FX page through the CTRL page map: drive, crush, filter, chorus and the two sends are sound
   // parameters of the track's engine.
   h.Down(kCtrl);
-  h.Tap(Grid(5));
+  h.Tap(Grid(7));
   h.Up(kCtrl);
   assert(std::string(h.App().Ui().CurrentInstrumentPage()->tab) == "FX");
   h.Tap(Grid(5));
@@ -394,20 +416,16 @@ void TestInstrument(Harness& h)
   assert(ParameterValue(app, 1, "fx.filter") == 64 && app.Engine(1)->DescribeParameterValue("fx.filter") == "OFF");
   h.Render();
 
-  // FN SETUP (a tap on FN) keeps the panel open on the last page; FN + 1 is SCALE, the keyboard
-  // settings for every track.
-  h.Tap(kFn);
-  assert(h.App().Ui().SetupOpen() && h.State().fnPage == 4);
-  h.Chord(kFn, Digit(1));
-  assert(h.App().Ui().SetupOpen() && h.State().fnPage == 0);
+  // SETUP KEYS: the keyboard settings for every track. ESC goes back to INSTR.
+  GoToSetupPage(h, groove::kSetupKeys);
   h.Render();
   h.Tap(Grid(3));  // OCTAVE
   h.Tap(kAdd);
   assert(h.State().keyboard.octave == 1);
-  h.Chord(kFn, kSub);  // FN + SUB works inside SETUP too and keeps it open
-  assert(h.State().keyboard.octave == 0 && h.App().Ui().SetupOpen());
-  h.Tap(kFn);
-  assert(!h.App().Ui().SetupOpen());
+  h.Chord(kFn, kEnter);  // FN + ENTER: the default
+  assert(h.State().keyboard.octave == 0);
+  h.Tap(kEsc);
+  assert(h.State().scene == Scene::Instrument);
 
   // ENGINE picker: switch track 2 from Juno to DX7.
   while (h.App().Ui().CurrentPage() != 0) h.Tap(kCtrl);
@@ -417,16 +435,27 @@ void TestInstrument(Harness& h)
   h.Tap(Grid(0));
   assert(app.EngineKind(1) == synth::SynthEngineKind::Dx7);
   assert(h.Modal() == nullptr);
-  // The preset browser filters as you type and loads with ENTER.
+  // The preset browser: the pads do not type; FN + F opens the search field, ENTER filters. ADD
+  // (the upper key) moves up, SUB down; ENTER loads.
   h.Tap(Grid(1));
   assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::PresetBrowser);
   const std::size_t all = h.Modal()->items.size();
+  h.Tap(Key{2, 2});  // A: nothing
+  assert(h.Modal()->kind == ModalKind::PresetBrowser && h.Modal()->search.empty() && h.Modal()->items.size() == all);
+  const std::size_t start = h.Modal()->cursor;
+  h.Tap(kSub);
+  assert(h.Modal()->cursor == start + 1);
+  h.Tap(kAdd);
+  assert(h.Modal()->cursor == start);
+  h.Chord(kFn, Key{2, 5});  // F
+  assert(h.Modal()->kind == ModalKind::TextEntry);
   h.Tap(Key{2, 2});  // A
-  assert(h.Modal()->items.size() < all);
+  h.Tap(kEnter);
+  assert(h.Modal()->kind == ModalKind::PresetBrowser && h.Modal()->search == "A" && h.Modal()->items.size() < all);
   h.Render();
   h.Tap(kEsc);
   assert(h.Modal() != nullptr && h.Modal()->search.empty());
-  h.Tap(kAdd);
+  h.Tap(kSub);
   h.Tap(kEnter);
   assert(h.Modal() == nullptr);
 }
@@ -502,9 +531,14 @@ void TestMix(Harness& h)
   h.Tap(kEnter);
   h.Tap(Grid(9));
   assert(!app.TrackSoloed(1) && app.TrackAudible(2));
-  // FN + a number picks an FN panel page; it no longer mutes.
+  // FN + a number does nothing (the menu is on the GRID); it never mutes.
   h.Chord(kFn, Digit(1));
-  assert(app.TrackMuted(0) && h.State().fnPage == 0);
+  assert(app.TrackMuted(0) && h.Modal() == nullptr);
+  // The MIX menu: UNMUTE ALL, then T1 muted again on the GRID.
+  h.Chord(kFn, Grid(0));
+  assert(!app.TrackMuted(0));
+  h.Tap(Grid(4));
+  assert(app.TrackMuted(0));
 }
 
 void TestSendsAndFx(Harness& h)
@@ -572,8 +606,7 @@ void TypeText(Harness& h, const std::string& text)
 void TestProject(Harness& h)
 {
   auto& app = h.App();
-  GoToScene(h, 3);
-  while (h.App().Ui().CurrentPage() != groove::kTapeProject) h.Tap(kCtrl);
+  GoToSetupPage(h, groove::kSetupProject);
   // SAVE AS: the name field starts with a suggestion; DEL erases, letters type.
   h.Tap(Grid(1));
   assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::TextEntry);
@@ -617,7 +650,7 @@ void TestProject(Harness& h)
 
   // FILES: load the saved project back, mixer and engines included.
   h.Tap(Grid(2));
-  assert(h.App().Ui().CurrentPage() == groove::kTapeFiles);
+  assert(h.App().Ui().CurrentPage() == groove::kSetupFiles);
   assert(!h.State().projects.empty());
   h.Tap(kEnter);
   assert(h.State().projectName == "GROOVE 1");
@@ -630,10 +663,8 @@ void TestProject(Harness& h)
   assert(ParameterValue(app, 2, "fx.delay") == 11);
 
   // SETUP SYSTEM page (CTRL steps the pages): key lights and screen.
-  h.Tap(kFn);
-  assert(h.App().Ui().SetupOpen());
-  while (h.State().fnPage != 4) h.Tap(kCtrl);
-  assert(std::string(h.App().Ui().SetupPageShown().tab) == "SYSTEM");
+  while (h.App().Ui().CurrentPage() != groove::kSetupSystem) h.Tap(kCtrl);
+  assert(std::string(h.App().Ui().SettingsPageShown()->tab) == "SYSTEM");
   h.Render();
   h.Tap(Grid(1));
   // KEY LED focused: the pads show the brightness ramp, dark to full.
@@ -647,23 +678,30 @@ void TestProject(Harness& h)
   h.Tap(kSub);
   assert(app.Backlight() == 175);
   h.Tap(kEsc);
-  assert(!h.App().Ui().SetupOpen());
+  assert(h.State().scene != Scene::Setup);
 }
 
 void TestQuickSaveReleasesFn(Harness& h)
 {
-  // Fn + S on an unnamed project opens the name field while FN is still held; letting go of FN
-  // must not leave it stuck down.
-  GoToScene(h, 3);
-  while (h.App().Ui().CurrentPage() != groove::kTapeProject) h.Tap(kCtrl);
+  // Fn + S on an unnamed project saves it at once as SONG nn: no name field. Letting go of FN
+  // must not leave it stuck down. The name field is one step further: SAVE AS.
+  GoToSetupPage(h, groove::kSetupProject);
+  // FN + ADD / SUB take big steps: BPM by ten.
+  h.Tap(Grid(4));
+  const auto tempo = h.App().Sequencer().Tempo();
+  h.Chord(kFn, kAdd);
+  assert(h.App().Sequencer().Tempo() == tempo + 10);
+  h.Chord(kFn, kSub);
   h.Tap(Grid(3));  // NEW
   if (h.Modal() != nullptr) h.Tap(kEnter);
   assert(h.State().projectName.empty());
   h.Down(kFn);
   h.Tap(Key{2, 3});  // S
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::TextEntry);
+  assert(h.Modal() == nullptr && h.State().projectName.rfind("SONG ", 0) == 0);
   h.Up(kFn);
   assert(!h.State().left[2].down && !h.App().Ui().FnOverlay());
+  h.Tap(Grid(1));  // SAVE AS
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::TextEntry);
   // FN in text entry is the yellow keycap layer: , / move the cursor, ; . jump to the start / end,
   // FN + del deletes forward. No FN panel shows meanwhile.
   while (!h.Modal()->text.empty()) h.Tap(kDel);  // the field opens with a suggested name
@@ -693,8 +731,7 @@ constexpr int kOff = groove::kLedOff, kHalf = groove::kLedHalf, kFull = groove::
 void TestLeds(Harness& h)
 {
   // A fresh project on T2 (Juno) in SEQ: no notes anywhere.
-  GoToScene(h, 3);
-  while (h.App().Ui().CurrentPage() != groove::kTapeProject) h.Tap(kCtrl);
+  GoToSetupPage(h, groove::kSetupProject);
   h.Tap(Grid(3));  // NEW
   if (h.Modal() != nullptr) h.Tap(kEnter);
   GoToScene(h, 2);
@@ -789,13 +826,13 @@ void TestLedMotion(Harness& h)
   h.Down(kEsc);
   h.Wait(250);
   assert(h.App().Ui().EscOverlay());
-  const int early = Led(h, Grid(14));
+  const int early = Led(h, Grid(15));
   h.Wait(250);
-  // Column 2 (TAPE, another scene) is half once it has lit; the current scene (SEQ, column 1) is
-  // full; the fourth column has no scene and stays dark; the pads go dark.
-  assert(Led(h, Grid(14)) > early && Led(h, Grid(14)) == kHalf);
-  assert(Led(h, Grid(1)) == kFull && Led(h, Grid(13)) == kFull);
-  assert(Led(h, Grid(3)) == kOff && Led(h, Key{1, 4}) == kOff);
+  // Column 4 (TAPE, another scene) is half once it has lit; the current scene (SEQ, column 3) is
+  // full; the first column (SETUP) is half like any other scene; the pads go dark.
+  assert(Led(h, Grid(15)) > early && Led(h, Grid(15)) == kHalf);
+  assert(Led(h, Grid(2)) == kFull && Led(h, Grid(14)) == kFull);
+  assert(Led(h, Grid(0)) == kHalf && Led(h, Key{1, 4}) == kOff);
   h.Up(kEsc);
   h.Wait(600);
   // CTRL map: one key per page of the current scene.
@@ -811,7 +848,8 @@ void TestLedMotion(Harness& h)
   h.App().HandleHomeButtonEvent(true);
   h.App().HandleHomeButtonEvent(false);
   h.Frames();
-  assert(Led(h, Key{1, 5}) >= 14 && Led(h, Key{3, 0}) >= 14);
+  // The edge keys never go above the dimmest glow, even here.
+  assert(Led(h, Key{1, 5}) >= 14 && Led(h, Key{3, 0}) <= groove::kLedEdgeMax && Led(h, Key{3, 0}) > 0);
   h.Wait(900);
   assert(Led(h, Key{1, 5}) < 14);
 }
@@ -838,13 +876,13 @@ void TestPlayFeatures(Harness& h)
   assert(levels[groove::KeyIndex(c3.row, c3.column)] == kHalf && levels[groove::KeyIndex(e3.row, e3.column)] == kHalf);
   assert(levels[groove::KeyIndex(cSharp.row, cSharp.column)] == kHalf);
 
-  // SETUP, MIDI FX page CHORD: TRIAD turns one key into C E G, and the chord tones light on the
-  // pads. Each page starts focused on its first setting.
-  h.Tap(kFn);
-  h.Chord(kFn, Digit(2));
-  assert(app.Ui().SetupOpen() && std::string(app.Ui().SetupPageShown().tab) == "CHORD" && app.Ui().FnFocus() == 0);
+  // INSTR CHORD (the track's MIDI effect): TRIAD turns one key into C E G, and the chord tones light
+  // on the pads. Each page starts focused on its first setting.
+  GoToInstrumentPage(h, "CHORD");
+  assert(app.Ui().InstrumentFocus() == 0);
   h.Tap(kAdd);
-  assert(keys.chord == groove::ChordType::Triad);
+  const auto& shape = h.State().chords[1];
+  assert(shape.chord == groove::ChordType::Triad);
   h.Down(c3);
   const auto& chord = h.State().padChord[PadSlot(c3)];
   assert(h.State().padChordCount[PadSlot(c3)] == 3 && chord[0] == 48 && chord[1] == 52 && chord[2] == 55);
@@ -860,14 +898,17 @@ void TestPlayFeatures(Harness& h)
   assert(chord[0] == 52 && chord[1] == 55 && chord[2] == 60);
   h.Up(c3);
   h.Chord(kFn, kEnter);
-  assert(keys.voicing == 0);
-  // SCALE page LOCK: MUTE silences keys outside the scale (and darkens them); SNAP moves them down
-  // to it.
-  h.Tap(kCtrl);
-  h.Tap(kCtrl);
-  h.Tap(kCtrl);
-  h.Tap(kCtrl);
-  assert(h.State().fnPage == 0);
+  assert(shape.voicing == 0);
+  // The chord belongs to T2: T3 still plays single notes, and comes back to its own page.
+  h.Chord(kTab, Grid(2));
+  h.Down(c3);
+  assert(h.State().padChordCount[PadSlot(c3)] == 1 && h.State().chords[2].chord == groove::ChordType::Off);
+  h.Up(c3);
+  h.Chord(kTab, Grid(1));
+  assert(std::string(app.Ui().CurrentInstrumentPage()->tab) == "CHORD");
+  // SETUP KEYS LOCK (the keyboard of every track): MUTE silences keys outside the scale (and darkens
+  // them); SNAP moves them down to it.
+  GoToSetupPage(h, groove::kSetupKeys);
   h.Tap(Grid(5));
   h.Tap(kAdd);
   assert(keys.lock == groove::ScaleLock::Mute);
@@ -888,32 +929,29 @@ void TestPlayFeatures(Harness& h)
   assert(keys.velocity == 109);
   h.Chord(kFn, kEnter);
   assert(keys.velocity == 110);
-  h.Tap(kFn);
-  assert(!app.Ui().SetupOpen());
-
-  // Held FN shows the same pages: every page draws, then CHORD back to OFF and ARP on.
-  h.Down(kFn);
-  h.Wait(300);
-  for (int page = 1; page <= 5; ++page)
+  // Every SETUP page draws; ESC goes back to INSTR, still on CHORD.
+  for (std::uint8_t page = 0; page < groove::kSetupPageCount; ++page)
   {
-    h.Tap(Digit(page));
+    while (app.Ui().CurrentPage() != page) h.Tap(kCtrl);
     h.Render();
   }
-  h.Tap(Digit(2));
-  assert(app.Ui().FnFocus() == 1);  // the page kept its focus: VOICING
+  h.Tap(kEsc);
+  assert(h.State().scene == Scene::Instrument && std::string(app.Ui().CurrentInstrumentPage()->tab) == "CHORD");
+  // CHORD back to OFF (a second press on the focused CHORD steps it); then ARP, T2's own: UP.
+  assert(app.Ui().InstrumentFocus() == 1);  // the page kept its focus: VOICING
   h.Tap(Grid(0));
-  assert(app.Ui().FnFocus() == 0 && keys.chord == groove::ChordType::Triad);
-  h.Tap(Grid(0));  // a second press on the focused CHORD steps it
-  assert(keys.chord != groove::ChordType::Triad);
-  while (keys.chord != groove::ChordType::Off) h.Tap(kSub);
-  h.Tap(Digit(3));
+  assert(app.Ui().InstrumentFocus() == 0 && shape.chord == groove::ChordType::Triad);
+  h.Tap(Grid(0));
+  assert(shape.chord != groove::ChordType::Triad);
+  while (shape.chord != groove::ChordType::Off) h.Tap(kSub);
+  h.Tap(kCtrl);
+  assert(std::string(app.Ui().CurrentInstrumentPage()->tab) == "ARP");
+  h.Render();
   h.Tap(kAdd);  // ARP UP
-  h.Up(kFn);
-  assert(app.Sequencer().GetArpSettings().mode == synth::ArpMode::Up);
-  // ARP: a held key feeds the arpeggiator; letting go stops it (latch is off). The ARP page plays
-  // along.
+  assert(app.Sequencer().GetArpSettings(1).mode == synth::ArpMode::Up && app.Sequencer().GetArpSettings(2).mode == synth::ArpMode::Off);
+  // ARP: a held key feeds T2's arpeggiator; letting go stops it (latch is off). The menu draws over it.
   h.Down(c3);
-  assert(app.Sequencer().ArpActive());
+  assert(app.Sequencer().ArpActive(1));
   h.Wait(300);
   h.Down(kFn);
   h.Wait(300);
@@ -922,8 +960,8 @@ void TestPlayFeatures(Harness& h)
   h.Up(c3);
   h.Wait(50);
   assert(!app.Sequencer().ArpActive());
-  h.Chord(kFn, kSub);
-  assert(app.Sequencer().GetArpSettings().mode == synth::ArpMode::Off);
+  h.Tap(kSub);
+  assert(app.Sequencer().GetArpSettings(1).mode == synth::ArpMode::Off);
 
   // FN + TAB = previous track, FN + ESC = all stop; neither does its plain job.
   h.Chord(kFn, kTab);
@@ -935,18 +973,20 @@ void TestPlayFeatures(Harness& h)
   // After a track change the left column says which track: T2 = the second key.
   h.Tap(kTab);
   h.Wait(60);
-  assert(Led(h, kTab) >= 13 && Led(h, kEsc) <= 2 && Led(h, kCtrl) <= 2);
+  assert(Led(h, kTab) == groove::kLedEdgeMax && Led(h, kEsc) == 0 && Led(h, kCtrl) == 0);
   h.Wait(900);
-  // Holding FN lights only the keys that have an FN function: the panel pages (the current one
-  // full), the panel settings on the GRID (the focused one full), ADD / SUB to change it.
+  // Holding FN lights only the keys that have an FN function: the menu items on the GRID, their
+  // letters and the quick keys on the pads, ADD / SUB (big steps).
   h.Down(kFn);
   h.Wait(300);
   app.Ui().ComputeLeds(levels);
-  assert(levels[groove::KeyIndex(0, 13)] == kHalf && levels[groove::KeyIndex(1, 13)] == kHalf);  // adjust
-  assert(levels[groove::KeyIndex(0, 3)] == kFull && levels[groove::KeyIndex(0, 1)] == kHalf);
+  assert(levels[groove::KeyIndex(0, 13)] == kHalf && levels[groove::KeyIndex(1, 13)] == kHalf);  // big steps
+  assert(levels[groove::KeyIndex(0, 1)] == kOff && levels[groove::KeyIndex(0, 3)] == kOff);      // 1, 3: nothing
   assert(levels[groove::KeyIndex(0, 6)] == kHalf && levels[groove::KeyIndex(1, 6)] == kHalf);  // quick BPM + / -
-  assert(levels[groove::KeyIndex(Grid(0).row, Grid(0).column)] == kFull);                         // focused ARP
-  assert(levels[groove::KeyIndex(Grid(1).row, Grid(1).column)] == kHalf);                         // RATE
+  assert(levels[groove::KeyIndex(Grid(0).row, Grid(0).column)] == kHalf);                         // PRESETS
+  assert(levels[groove::KeyIndex(Grid(15).row, Grid(15).column)] == kHalf);                       // SETUP
+  assert(levels[groove::KeyIndex(Grid(8).row, Grid(8).column)] == kOff);                          // nothing there
+  assert(levels[groove::KeyIndex(3, 5)] == kOff);                                                 // C: no COPY in INSTR
   assert(levels[groove::KeyIndex(3, 13)] == kHalf && levels[groove::KeyIndex(0, 0)] == kHalf);  // REC, STOP
   assert(levels[groove::KeyIndex(1, 2)] == kOff);                                                 // W: nothing
   assert(levels[groove::KeyIndex(2, 3)] == kHalf);                                                // S: SAVE
@@ -988,7 +1028,7 @@ void TestFnQuick(Harness& h)
   while (app.Sequencer().Tempo() > bpm) h.Tap(Key{1, 6});
   h.Up(kFn);
   // The pads play again after FN.
-  assert(!h.App().Ui().FnOverlay() && h.State().fnPage < groove::kSetupPageCount);
+  assert(!h.App().Ui().FnOverlay());
 }
 
 void TestRecording(Harness& h)
@@ -1148,6 +1188,56 @@ void TestSession(Harness& h)
   h.Render();
 }
 
+void TestSelectMode(Harness& h)
+{
+  // ROLL with SELECT ONE (the default): a GRID tap walks to that one step, its notes are full on the
+  // pads, and the same step again lets go so the pads play.
+  GoToScene(h, 2);
+  while (h.App().Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  h.Chord(kTab, Grid(1));
+  assert(!h.State().keyboard.multiSelect);
+  // Steps 1 and 5 hold just the C under the bottom-left pad.
+  const Key c{3, 1};
+  int noteC = 0;
+  assert(groove::PadNote(h.State().keyboard, h.App().EngineKind(h.State().track), c.row, c.column, noteC));
+  const std::uint8_t cNote = static_cast<std::uint8_t>(noteC);
+  for (const std::size_t step : {std::size_t{0}, std::size_t{4}})
+    assert(h.App().Sequencer().SetStepNotes(h.State().track, step, &cNote, 1, 110));
+  h.Tap(Grid(0));
+  assert(h.Seq().steps[0].held && h.Seq().heldStepCount == 1);
+  h.Tap(Grid(4));
+  assert(!h.Seq().steps[0].held && h.Seq().steps[4].held && h.Seq().heldStepCount == 1);
+  std::array<std::uint8_t, groove::kKeyCount> leds{};
+  h.App().Ui().ComputeLeds(leds);
+  assert(leds[groove::KeyIndex(c.row, c.column)] == groove::kLedFull && leds[groove::KeyIndex(3, 2)] == groove::kLedHalf);
+  assert(leds[groove::KeyIndex(Grid(4).row, Grid(4).column)] == groove::kLedFull);
+  h.Tap(Grid(4));
+  assert(!h.Seq().hasHeldSteps);
+
+  // Playing with nothing selected: the notes of the step under the playhead light up (playback
+  // starts on step 1, which holds C).
+  h.Tap(kPlay);
+  h.Wait(20);
+  assert(h.Seq().playing && h.Seq().currentStep == 0);
+  h.App().Ui().ComputeLeds(leds);
+  assert(leds[groove::KeyIndex(c.row, c.column)] == groove::kLedFull && leds[groove::KeyIndex(3, 2)] == groove::kLedHalf);
+  h.Tap(kPlay);
+  h.Wait(100);
+  h.App().Ui().ComputeLeds(leds);
+  assert(leds[groove::KeyIndex(c.row, c.column)] == groove::kLedHalf);
+
+  // SELECT MULTI (FN panel, KEYS page): taps add steps to the selection.
+  auto settings = h.App().Ui().Settings();
+  settings.keyboard.multiSelect = true;
+  h.App().Ui().Restore(settings, h.State().projectName, h.State().dirty);
+  h.Tap(Grid(0));
+  h.Tap(Grid(4));
+  assert(h.Seq().steps[0].held && h.Seq().steps[4].held && h.Seq().heldStepCount == 2);
+  h.App().Sequencer().ClearSelectedSteps();
+  settings.keyboard.multiSelect = false;
+  h.App().Ui().Restore(settings, h.State().projectName, h.State().dirty);
+}
+
 void TestRenderSmoke(Harness& h)
 {
   // Every scene and page renders; the left strips and header are always drawn.
@@ -1223,6 +1313,7 @@ int main()
   TestFnQuick(h);
   TestSession(h);
   TestRecording(h);
+  TestSelectMode(h);
   TestRenderSmoke(h);
 
   std::filesystem::current_path(std::filesystem::temp_directory_path());

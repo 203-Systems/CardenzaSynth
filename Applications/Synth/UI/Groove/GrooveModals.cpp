@@ -161,9 +161,8 @@ void Controller::ModalAdjust(int delta, bool coarse)
   if (modal == nullptr) return;
   switch (modal->kind)
   {
-    case ModalKind::Setup:
-      SetupAdjust(delta);
-      return;
+    case ModalKind::Menu:
+      return;  // the open menu only takes the GRID (and FN + its letters)
     case ModalKind::Record:
       RecordAdjust(delta);
       return;
@@ -174,7 +173,10 @@ void Controller::ModalAdjust(int delta, bool coarse)
     {
       if (modal->items.empty()) return;
       const int count = static_cast<int>(modal->items.size());
-      const int step = delta * (coarse ? 8 : 1);
+      // Vertical lists: ADD (the upper key, drawn as an up arrow) moves up, SUB down. The engine
+      // picker is a row: ADD moves right.
+      const int direction = modal->kind == ModalKind::EnginePicker ? delta : -delta;
+      const int step = direction * (coarse ? 8 : 1);
       modal->cursor = static_cast<std::size_t>(std::clamp(static_cast<int>(modal->cursor) + step, 0, count - 1));
       return;
     }
@@ -198,8 +200,7 @@ void Controller::ModalEnter()
   if (modal == nullptr) return;
   switch (modal->kind)
   {
-    case ModalKind::Setup:
-      SetupEnter();
+    case ModalKind::Menu:
       return;
     case ModalKind::Record:
       RecordEnter();
@@ -279,9 +280,11 @@ void Controller::ModalEnter()
 void Controller::ModalFnEnter()
 {
   Modal* modal = Top();
-  if (modal != nullptr && modal->kind == ModalKind::Setup)
+  if (modal != nullptr && modal->kind == ModalKind::Menu)
   {
-    SetupReset();
+    // FN + ENTER is the screen's second ENTER, menu open or not.
+    CloseModal();
+    FnEnter();
     return;
   }
   if (modal != nullptr && modal->kind == ModalKind::Record)
@@ -307,9 +310,9 @@ void Controller::ModalGrid(std::size_t index)
     SampleRecordGrid(index);
     return;
   }
-  if (modal->kind == ModalKind::Setup)
+  if (modal->kind == ModalKind::Menu)
   {
-    SetupGrid(index);
+    RunMenu(index);
     return;
   }
   if (modal->kind == ModalKind::Record)
@@ -375,6 +378,19 @@ void Controller::CommitText()
   Modal* modal = Top();
   if (modal == nullptr) return;
   const std::string text = TrimSpaces(modal->text);
+  if (modal->textPurpose == TextPurpose::Search)
+  {
+    // The browser underneath filters by it (an empty field shows everything again).
+    CloseModal();
+    Modal* browser = Top();
+    if (browser != nullptr && (browser->kind == ModalKind::PresetBrowser || browser->kind == ModalKind::SampleBrowser))
+    {
+      browser->search = text;
+      browser->cursor = 0;
+      browser->kind == ModalKind::PresetBrowser ? RefreshPresetBrowser() : RefreshSampleBrowser();
+    }
+    return;
+  }
   if (text.empty())
   {
     ShowToast("NAME REQUIRED", ToastKind::Error);
@@ -431,6 +447,8 @@ void Controller::CommitText()
       else ShowToast(sampler.BuildUiState(state_.track).statusText, ToastKind::Error);
       return;
     }
+    case TextPurpose::Search:
+      return;  // handled above
   }
 }
 

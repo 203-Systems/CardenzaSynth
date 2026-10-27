@@ -43,11 +43,10 @@ enum class PageGraphic : std::uint8_t {
   Waveform,
   DrumPads,
   FxChain,           // track insert chain and sends
-  SetupKeys,         // FN KEYS: the scale on a keyboard
-  SetupChord,        // FN CHORD: the chord one key plays, on a keyboard
-  SetupArp,          // FN ARP: the order the arpeggiator plays a chord in
-  SetupProject,      // FN PROJECT: name, saved state, patterns and song
-  SetupSystem,       // FN SYSTEM: storage, memory and audio status
+  Chord,             // INSTR CHORD: the chord one key plays, on a keyboard
+  Arp,               // INSTR ARP: the order the track's arpeggiator plays a chord in
+  Keys,              // SETUP KEYS: the scale on a keyboard
+  System,            // SETUP SYSTEM: storage, memory and audio status
 };
 
 struct GraphicArea {
@@ -71,11 +70,13 @@ struct InstrumentPageList {
   std::size_t count = 0;
 };
 
-// VOICE, the engine's parameter pages, then FX. At most 16 pages, so the CTRL page map fits the GRID.
+// In signal order: VOICE (the preset), the track's MIDI effects CHORD and ARP (not on drums), the
+// engine's parameter pages, then FX. At most 16 pages, so the CTRL page map fits the GRID.
 InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind);
 
-// The FN panel: 0 KEYS, 1 CHORD, 2 ARP, 3 PROJECT, 4 SYSTEM (FN + 1..5 picks one).
-inline constexpr std::size_t kSetupPageCount = 5;
-const InstrumentPage& SetupPage(std::size_t page);
+// The settings pages of the SETUP scene: 0 KEYS, 1 SYSTEM (scene pages kSetupKeys..).
+inline constexpr std::size_t kSettingsPageCount = 2;
+static_assert(kSetupKeys + kSettingsPageCount == kSetupPageCount);
+const InstrumentPage& SettingsPage(std::size_t page);
 
 }  // namespace groove

@@ -19,17 +19,17 @@
 
 - **PADS（第 1–8 列）**：任何场景都演奏当前轨。文本输入时整块键盘按键帽字符打字。
 - **GRID（第 9–12 列）**：屏幕中央 4×4 内容区与它一一对应，物理位置即屏幕位置：音序场景是 16 个 step，其它场景是当前页的 16 个直达槽（参数、Pattern、轨道、动作）。
-- **左侧 4 键**：屏幕左边缘的 4 个彩色键帽与它们逐行对齐，不写文字。键帽是该键颜色的纯 dither（1×1 像素点），没有边框，亮度和这个键的灯同步：灭时很淡、半亮时 30 %、全亮时实色（见第 6 节「屏幕两侧和按键灯同步」）；按下时从下往上填成实色。底行的页签和它的高亮块与左右两侧的键帽之间至少留 2 像素黑边（`kFooterX` / `kFooterRight`）。键帽中间挖出一个黑色窗口，里面的小点表示这个键管的东西：ESC 3 点（3 个场景）、TAB 4 点（4 条轨道）、FN 1 点（录音待命时亮红）、CTRL 的点数等于当前场景的页数，当前项为白点。
+- **左侧 4 键**：屏幕左边缘的 4 个彩色键帽与它们逐行对齐，不写文字。键帽是该键颜色的纯 dither（1×1 像素点），没有边框，亮度和这个键的灯同步：灭时很淡、半亮时 30 %、全亮时实色（见第 6 节「屏幕两侧和按键灯同步」）；按下时从下往上填成实色。底行的页签和它的高亮块与左右两侧的键帽之间至少留 2 像素黑边（`kFooterX` / `kFooterRight`）。键帽中间挖出一个黑色窗口，里面的小点表示这个键管的东西：ESC 4 点（4 个场景）、TAB 4 点（4 条轨道）、FN 1 点（录音待命时亮红）、CTRL 的点数等于当前场景的页数，当前项为白点。
 - **右侧 4 键**：自上而下为 ADD（+）/ SUB（−）/ ENTER / PLAY，屏幕右边缘是同样造型的 4 个键帽，内有符号。文本输入时最上面的键（键帽印 del）是删除。
 
 ## 2. 全局按键
 
 | 键 | 单击 | 按住 |
 |---|---|---|
-| ESC | 在三个场景之间循环：INSTR → SEQ → TAPE → INSTR（弹窗打开时是取消；SEQ 有选中的 step 时先取消选择） | 场景地图：GRID 的三列就是三个场景，按该列任意键跳转 |
+| ESC | 在音乐场景之间循环：1 INSTR → 2 SEQ → 3 TAPE → 1 INSTR，永远不进 0 SETUP；在 SETUP 里是回到进来之前的场景（弹窗打开时是取消；SEQ 有选中的 step 时先取消选择） | 场景地图：GRID 的四列就是四个场景（0 SETUP、1 INSTR、2 SEQ、3 TAPE），按该列任意键跳转；第一列 SETUP 只能从这里进 |
 | TAB | 切到下一轨（1→2→3→4→1） | 轨道地图：GRID 每列一条轨道，行 0 选轨、行 1 静音、行 2 独奏、行 3 音序开关（与 MIX 页同一布局）；TAB + ADD / SUB 前后切轨 |
-| FN | 打开 / 关闭 SETUP（常驻的 FN 面板，见下方「FN 面板」） | FN 面板：FN + 1–5 或 FN + CTRL 换页，FN + GRID 选参数，FN + ADD / SUB 调整；PADS 上的字母键和四周的功能键是第二功能，底行列出。输入画面里按住 FN 是键帽上的黄色丝印层（方向键等） |
-| CTRL | 切到下一个子页面（松开时生效） | 页面地图：GRID 的 16 个键依次是当前场景的全部页面，按哪个就跳到哪页，松开后停在新页面；CTRL + ADD / SUB 前后翻页 |
+| FN | 打开 / 关闭当前画面的菜单（常驻，见下方「FN 菜单」） | 当前画面的菜单：FN + GRID 执行菜单项；PADS 上的字母键和四周的功能键是第二功能，底行列出。输入画面里按住 FN 是键帽上的黄色丝印层（方向键等） |
+| CTRL | 切到下一个子页面（松开时生效）；FN + CTRL 上一个 | 页面地图：GRID 的 16 个键依次是当前场景的全部页面，按哪个就跳到哪页，松开后停在新页面；CTRL + ADD / SUB 前后翻页 |
 | ADD / SUB | 加 / 减；列表中下一项 / 上一项 | 自动连发，持续按住会加速 |
 | ENTER | 确认、进入、开关 | — |
 | PLAY | 播放 / 停止 | — |
@@ -37,72 +37,102 @@
 
 - 按住阈值 250 ms。单击在松开时生效；ESC / TAB / CTRL / FN 的地图在越过阈值时立即出现。
 - 统一规则：**按住左侧任一键时，用右侧 4×4（GRID）选择**。地图上的每个格子就在它对应的那个键的位置；按住期间 PADS 不发声。只有特殊组合留在左侧相关键上（Fn + 数字 / 字母、Fn + CTRL、TAB / CTRL + ADD / SUB）。
-- **按住 FN 时，任何键都不做它不按 FN 时的事**：没有 Fn 功能的键什么也不做（灯也是灭的），有 Fn 功能的键只做 Fn 功能。FN 面板上调整的参数直接在面板格子里显示新值；字母功能执行后在屏幕底部弹出一条反馈（名称、新值、刻度条，约 1 秒）。
+- **按住 FN 时，任何键都不做它不按 FN 时的事**：没有 Fn 功能的键什么也不做（灯也是灭的），有 Fn 功能的键只做 Fn 功能。菜单项和字母功能执行后在屏幕底部弹出一条反馈（名称、新值、刻度条，约 1 秒）。
 - 修饰键按住期间被组合使用过，松开时不再触发单击动作。
 - 自动连发：400 ms 后每 70 ms 一次，连发 12 次后步长 ×5。
 
-### FN 面板
+### FN 菜单
 
-按住 FN 时屏幕变成 FN 面板；单击 FN 打开的 SETUP 是同一个面板，只是常驻（再单击 FN 或按 ESC 关闭）。面板有 5 页，记住上一次停留的页和每页选中的参数：
+FN 是**当前画面的菜单**。按住 FN 时内容区换成菜单：4×4 的格子就在 GRID 上，FN + GRID 执行那一格；单击 FN 让同一个菜单常驻，GRID 执行一项后菜单关闭，再单击 FN 或按 ESC 也关闭（常驻时 ADD / SUB / ENTER 不起作用，演奏区照常发声）。状态行是「FN MENU」和这是哪个画面的菜单（如 SEQ ROLL）。
 
-| 页 | 换页 | 类别 | 参数（GRID 行 0 / 行 1） | 图形 |
-|---|---|---|---|---|
-| 1 KEYS | Fn + 1 | 音阶 | LAYOUT、SCALE、ROOT、OCTAVE / VELO、LOCK | 两个八度的键盘预览：音阶音带点、根音带横线，按下的音用当前轨颜色亮起 |
-| 2 CHORD | Fn + 2 | MIDI 效果 | CHORD、VOICING | 根音上的一个键弹出哪几个音（键盘上标出），以及这个调里每一级的三和弦（字体只有大写，小三和弦写作 `D-`，减三和弦 `BDIM`） |
-| 3 ARP | Fn + 3 | MIDI 效果 | ARP（模式）、RATE、RANGE、GATE / LATCH | 16 步的演奏顺序，按音高画成柱，宽度是 GATE；正在发声的一步为白色；ARP 关闭时整幅变暗 |
-| 4 PROJECT | Fn + 4 | 工程 | BPM、SWING、PLAY（LOOP / SONG）、STEPS（当前轨步数）/ REC | 工程名与保存状态、四轨当前 Pattern、编排行数 |
-| 5 SYSTEM | Fn + 5 | 设备 | VOLUME、KEY LED、SCREEN | 设备、音频后端、SD 卡、内存、构建日期 |
+每格写名称、作用对象或状态，右上角黄色字是它的 Fn 快捷键（`OK` = Fn + ENTER，`PLAY` = Fn + PLAY）。用不了的项是虚线、灯灭；能用的半亮；开着的开关全亮反显。行 0–2 属于当前页面，行 3 在所有画面相同：
+
+| 画面 | 行 0–2 |
+|---|---|
+| INSTR（所有页） | PRESETS 浏览、SAVE 存音色、SAVE AS、ENGINE；RESET（OK，焦点参数恢复默认，只在参数页，CHORD / ARP 页也是）；Sampler 另有 SAMPLES、RECORD、PREVIEW |
+| SEQ（所有页） | COPY（C）、PASTE（V）、CLEAR（X）、QUANT（Q）：对选中的 step，没有选中时对整个 Pattern；DUP（D）复制到下一个空位；VIEW（ROLL / STEP）；RECORD（RECORD 面板）；SCOPE（OK，和弦里编辑的音，有选中时） |
+| TAPE SESSION | LAUNCH（发射光标所在行）、ADD（OK，正在播的 Pattern 记成 SONG 新一行） |
+| TAPE SONG | COPY / PASTE（插在光标行后）/ DELETE / DUP 一行（C / V / X / D）；PLAY（OK，SONG / LOOP） |
+| TAPE MIX | UNMUTE ALL、UNSOLO ALL |
+| TAPE SENDS / FX | RESET（OK） |
+| SETUP PROJECT / FILES | NEW、LOAD、SAVE AS |
+| SETUP KEYS / SYSTEM | RESET（OK，焦点设置恢复默认） |
+| 行 3（所有画面） | SAVE（S，存工程）、TAP（T，Tap tempo，显示 BPM）、REC（PLAY，录音待命）、SETUP（进入 0 SETUP；在 SETUP 里是 BACK，回到进来之前的场景） |
 
 - 快捷调节：最常用的三项不用找页面，按住 FN 直接调。演奏区最右边紧挨 GRID 的 2×3 块，上排加、下排减（和右侧 ADD 在 SUB 上面一样）：`6` / `Y` 调 BPM，`7` / `U` 调主音量，`8` / `I` 调八度。按住连续调，屏幕底部弹出新值，这 6 个键在按住 FN 时半亮。
-- 换页：Fn + 1–5 直接跳，Fn + CTRL 依次循环（SETUP 打开时单击 CTRL 也行）。按住 FN 时状态行是页签：数字键 1–5，当前页黄底并写出名字；SETUP 的页签在底行。
-- 选参数：Fn + GRID。再按一次已选中的格子切换选项或开关。
-- 调整：Fn + ADD / SUB（右上角的 del 与 `\` 键），可连发。SETUP 打开时不用按 FN：GRID 选、ADD / SUB 调、ENTER 切换选项、Fn + ENTER 恢复默认。
-- 改动立刻生效；SETUP 打开时演奏区照常发声。KEYS / CHORD / ARP 是应用设置（`Apps/Cardenza/Synth/settings.cfg`，开机恢复，不随工程变）；PROJECT 的 BPM / SWING / STEPS 属于工程（改动后工程变为未保存），PLAY 与 REC 是演奏状态；SYSTEM 是设备设置（`System/settings.cfg`，所有应用共用）。
+- Fn + ADD / SUB 是大步调整：宽范围参数 ×10（BPM 一次 10），设置 ×5。
+- 底行列出菜单以外的 Fn 组合（Fn + ESC / TAB / CTRL / PLAY / ADD / SUB 和快捷调节）。
 
-**输入画面里的 FN**：文字输入、预设 / 采样列表、确认框等弹窗打开时，按住 FN 不出面板，而是键帽上的黄色丝印层：`;` `.` `,` `/` 是上、下、左、右，ADD / SUB 一次翻一页。文字输入里 Fn + `,` `/` 左右移动光标，Fn + `;` `.` 跳到开头 / 结尾，Fn + del 删除光标后的字符（不按 FN 的 del 删除光标前的字符）；光标是字符之间的竖线，在末尾时是方块。
+**输入画面里的 FN**：文字输入、预设 / 采样列表、确认框等弹窗打开时，按住 FN 不出菜单，而是键帽上的黄色丝印层：`;` `.` `,` `/` 是上、下、左、右，ADD / SUB 一次翻一页。文字输入里 Fn + `,` `/` 左右移动光标，Fn + `;` `.` 跳到开头 / 结尾，Fn + del 删除光标后的字符（不按 FN 的 del 删除光标前的字符）；光标是字符之间的竖线，在末尾时是方块。
 
-PADS 与四周按键上的第二功能（SETUP 打开时字母功能不生效）：
+PADS 与四周按键上的第二功能：
 
 | Fn + | 功能 |
 |---|---|
-| 6 / Y | BPM + / −（快捷键，任何 FN 页都能用，按住连续调） |
+| GRID | 执行菜单里这一格 |
+| 6 / Y | BPM + / −（快捷键，任何画面都能用，按住连续调） |
 | 7 / U | 主音量 + / −（同上） |
 | 8 / I | 八度 + / −（同上） |
-| 1–5 | FN 面板换页 |
-| GRID | 选 FN 面板上的参数 |
-| ADD / SUB | 调整 FN 面板上选中的参数（可连发） |
-| CTRL | FN 面板下一页 |
+| ADD / SUB | 大步调整（可连发；输入画面里一次翻一页） |
+| CTRL | 上一页 |
 | ESC | 全部停止（同 HOME 键） |
 | TAB | 上一轨 |
-| ENTER | INSTR / SENDS / FX：当前参数恢复默认值；SEQ：切换和弦中的编辑对象（全部 / 单音）；SESSION：把正在播的 Pattern 记成 SONG 的新一行；SONG：SONG / LOOP 切换；SETUP：选中的设置恢复默认；采样列表：打开改名 / 删除 |
+| ENTER | INSTR（含 CHORD / ARP）/ SENDS / FX / SETUP 设置页：当前参数恢复默认值；SEQ：切换和弦中的编辑对象（全部 / 单音）；SESSION：把正在播的 Pattern 记成 SONG 的新一行；SONG：SONG / LOOP 切换；采样列表：打开改名 / 删除 |
 | PLAY | 实时录音开关（REC） |
-| C / V | 复制 / 粘贴（选中的 step，或当前 Pattern；TAPE 中为整行） |
-| X | 清除（选中的 step，或当前 Pattern，需确认；TAPE 中删除这一行） |
-| Q | 量化（选中的 step，或当前 Pattern） |
-| D | 把当前 Pattern 复制到下一个空位；TAPE 中复制这一行 |
+| C / V / X / Q / D | 菜单里带这个字母的项：复制 / 粘贴 / 清除（需确认）/ 量化 / 复制到下一个空位（TAPE SONG 中对整行） |
 | T | Tap tempo |
 | S | 保存工程 |
 
 ## 3. 场景与子页面
 
-三个主界面：**1 INSTR 乐器**、**2 SEQ 音序器**、**3 TAPE 走带**（整首歌的 Pattern 编排，以及混音、效果和工程），再加上单击 FN 打开的全局 **SETUP**。按住 ESC + GRID 列切换；CTRL 单击在场景内循环子页面，按住 CTRL 打开页面地图直接跳页。页签显示在屏幕底部；页面放不下时只显示当前页附近的一段，两端用 `<` `>` 提示，右侧显示「当前 / 总数」。开机进入 **2 SEQ**，当前轨是 T2（第一条旋律轨，演奏区一开机就是钢琴排列：白键、黑键，缺口不亮）；NEW 的工程也从 T2 开始。默认四轨为 T1 DRUMS、T2 JUNO、T3 DX7、T4 SAMPLER；NEW 也使用这一组合。每条轨道各自记住自己停在 INSTR 的哪一页。
+四个场景，分两类，编号就是屏幕上的编号。最前面是 **0 SETUP**（工程与全局设置：工程、文件、键盘、系统），不在循环里，只能按住 ESC + GRID 第一列进入（或 FN 菜单的 SETUP 项），在里面单击 ESC 回到进来之前的场景。后面三个是音乐本身，单击 ESC 按 1 → 2 → 3 循环：**1 INSTR 乐器**（当前轨的声音，包括它自己的和弦与琶音器）、**2 SEQ 音序器**（当前轨弹什么）、**3 TAPE 走带**（四轨合在一起：Clip、整首歌的编排、混音、发送和总线效果）。按住 ESC + GRID 列切换场景；CTRL 单击在场景内循环子页面，按住 CTRL 打开页面地图直接跳页。页签显示在屏幕底部；页面放不下时只显示当前页附近的一段，两端用 `<` `>` 提示，右侧显示「当前 / 总数」。开机进入 **1 INSTR** 的第一页 VOICE，当前轨是 T2（第一条旋律轨，演奏区一开机就是钢琴排列：白键、黑键，缺口不亮）；NEW 的工程也从 T2 开始。默认四轨为 T1 DRUMS、T2 JUNO、T3 DX7、T4 SAMPLER；NEW 也使用这一组合。每条轨道各自记住自己停在 INSTR 的哪一页。
+
+### 0 SETUP（工程与全局设置）
+
+排在最前面：前两页是工程（保存、载入、速度），后两页是全局设置（所有轨道共用的键盘、设备）。按住 ESC + GRID 第一列进入，CTRL 换页，单击 ESC 回到进来之前的场景。演奏区照常发声，改设置能马上听到。
+
+| 子页面 | 内容 | GRID | ADD / SUB / ENTER |
+|---|---|---|---|
+| PROJECT | 工程名、是否未保存、四轨摘要（引擎、音色） | 行 0：SAVE / SAVE AS / LOAD（跳到 FILES）/ NEW；行 1：BPM / SWING / TAP / PLAY（LOOP ↔ SONG 开关，SONG 时灯全亮） | 调整 BPM / SWING；ENTER 保存（焦点在 TAP 时是打拍） |
+| FILES | 工程列表 | — | 选择；ENTER 载入（未保存时确认） |
+| KEYS | 两个八度的键盘预览：音阶音带点、根音带横线，按下的音用当前轨颜色亮起 | LAYOUT、SCALE、ROOT、OCTAVE / VELO、LOCK、SELECT | 选中的设置：ADD / SUB 调整，ENTER 切换选项，Fn + ENTER 恢复默认；再按一次已选中的格子切换选项或开关 |
+| SYSTEM | 设备、音频后端、SD 卡、内存、构建日期（每次进来逐行打出） | VOLUME、KEY LED、SCREEN | 同上 |
+
+键盘（LAYOUT、SCALE、ROOT、OCTAVE、VELO、LOCK）属于工程：随工程保存和载入，改动后工程变为未保存；NEW 的工程从默认键盘开始（PIANO、C MAJOR）。SELECT 是使用习惯，存在应用设置里（`Apps/Cardenza/Synth/settings.cfg`）。BPM / SWING 属于工程，PLAY 与 REC 是演奏状态；SYSTEM 是设备设置（`System/settings.cfg`，所有应用共用）。当前轨的步数在 SEQ TRACK 页，和弦与 ARP 在每条轨道的 INSTR 页。
+
+各项的取值：
+
+- KEYS：LAYOUT PIANO（默认，黑白键）/ SCALE / CHROMA；SCALE 14 种音阶；ROOT C–B；OCTAVE −3…+3；VELO 演奏力度 1–127；LOCK OFF / MUTE / SNAP；SELECT ONE / MULTI。
+- PROJECT：BPM 30–300；SWING 50–75 %；PLAY LOOP / SONG。
+- SYSTEM：VOLUME 主音量 0–100；KEY LED 按键灯 0–15（选中它时，演奏区从左到右是亮度梯（感知等级 0、6、7、8、9、11、13、15，校正后是 HAL 的 0、1、2、3、4、7、10、15），方便用眼睛判断）；SCREEN 屏幕亮度。
+
+- 键盘布局：PIANO 按钢琴排列，每两行是一个八度，下行白键、上行黑键（缺口处不发声）；SCALE 只放音阶内的音，每行高一个八度；CHROMA 每格一个半音。
+- 音阶：MAJOR、MINOR、DORIAN、MIXOLYD、MIN PENT、MAJ PENT、BLUES、HARM MIN、PHRYGIAN、LYDIAN、LOCRIAN、MEL MIN、WHOLE、IN SEN。
+- LOCK：PIANO / CHROMA 布局下音阶外的键，MUTE 不发声（灯灭），SNAP 落到下方最近的音阶音。
 
 ### 1 INSTR（乐器）
 
 | 子页面 | 内容 |
 |---|---|
 | VOICE | 引擎、音色名（大字）、实时键盘、八度 / 音阶。ADD / SUB 直接切换下一个 / 上一个音色并立即可试听；ENTER 打开音色浏览（可输入搜索）。GRID：ENGINE / PRESET / SAVE / SAVE AS |
+| CHORD | 这条轨道的和弦效果：根音上的一个键弹出哪几个音（键盘上标出），以及这个调里每一级的三和弦（小三和弦写作 `D-`，减三和弦 `BDIM`）。GRID：CHORD、VOICING |
+| ARP | 这条轨道的琶音器：16 步的演奏顺序，按音高画成柱，宽度是 GATE；正在发声的一步为白色；ARP 关闭时整幅变暗。GRID：ARP（模式）、RATE、RANGE、GATE / LATCH |
 | 引擎参数页 | 按引擎分组。GRID 槽直接选中参数，ADD / SUB 调值，Fn+ENTER 恢复默认；开关和选项再按一次同一格即切换。空槽显示该组的图形 |
 | FX | 每个引擎都有：DRIVE、CRUSH、FILTER、RESO / CHORUS、DELAY、REVERB，下半屏是信号链图 |
 
-键盘布局、音阶、和弦、ARP 对所有轨道通用，放在 FN 面板里，不在乐器页。
+页面按信号顺序排：VOICE（音色）→ CHORD → ARP（MIDI 效果，按键先经过它们）→ 引擎参数页 → FX。鼓轨没有 CHORD 和 ARP（一个键就是一个鼓）。
+
+**和弦与琶音器是每条轨道自己的效果**：每条轨道有自己的 CHORD / VOICING 和自己的一台 ARP（模式、速度、范围、GATE、LATCH），互不影响；几条轨道的 ARP 可以同时在跑（例如 T2 的 LATCH 琶音继续，切到 T3 再弹另一组）。它们属于工程（随工程保存和载入），不随音色变，换音色或换引擎时保留。键盘布局、音阶、根音、八度、锁定和力度对所有轨道通用，在 0 SETUP KEYS。
+
+- CHORD：CHORD OFF / TRIAD / 7TH / MAJ / MIN / SUS4 / MAJ7 / MIN7 / DOM7 / POWER / OCTAVE；VOICING ROOT / INV1 / INV2 / SPREAD。TRIAD / 7TH 在音阶内叠三度（音阶外的键借用大三和弦 / 属七）；其余为固定和弦。VOICING 的转位把最低的音升高八度，SPREAD 把第二个音升高八度。
+- ARP：ARP OFF / UP / DOWN / UP-DN / RANDOM / ORDER；RATE 1/4 / 1/8 / 1/8T / 1/16 / 1/16T / 1/32；RANGE 1–4 个八度；GATE 10–100 %；LATCH 松手后继续。按住的键（含和弦展开后的每个音）按顺序轮流发声，最多 16 个音。第一下立刻发声；停止时按 BPM 自由运行，播放时对齐节拍（1/16 跟随 Swing），按 PLAY / 停止不会断拍。UP / DOWN / UP-DN 从刚弹过的音继续走，到两端不重复；ORDER 按按下的顺序；RANGE 向上扩展八度。LATCH 打开时松手继续，全部松开后再按会换成新的一组。REC 打开且在播放时，ARP 弹出的音按 GATE 长度录进它那条轨道的 Pattern。ARP 的音在演奏区和屏幕键盘上同样留下余光。换轨不会停下别的轨道的 ARP；全部停止和载入工程时所有 ARP 停下。
 
 引擎参数页（括号内是 CTRL 地图上的说明）：
 
-- DX7，共 11 页：VOICE、ALGO（算法、反馈、移调，附算法图）、LEVELS（六个算子输出，附电平柱：实心是能听到的载波，dither 是调制器）、OP1–OP6（OUT、CRS、FINE、DTN / MODE（RATIO / FIXED）、AMOD / R1–R4 / L1–L4，附这一算子的包络与 CAR / MOD 标记）、LFO（SPEED、WAVE、PMD、AMD、P SENS，附波形）、FX。
-- Juno，共 6 页：VOICE、DCO（RANGE、SAW、PULSE、PWM、PW SRC、SUB、NOISE、LFO，附示波器）、VCF（CUTOFF、RESO、ENV、POL、LFO、KBD，附滤波曲线）、ENV（ADSR、VCA 模式 ENV / GATE、LEVEL，附包络）、LFO（RATE、DELAY，附延迟渐入的波形）、FX。Juno 预设自带的 Chorus I / II 映射到 FX 页的 CHORUS。
-- Sampler，共 4 页：VOICE、SAMPLE（文件、录音、裁剪、根音、循环、增益，附波形）、TONE（滤波、包络、电平）、FX。
-- Drums，共 3 页：VOICE、KIT（八鼓电平 + Master，附鼓垫）、FX。
+- DX7，共 13 页：VOICE、CHORD、ARP、ALGO（算法、反馈、移调，附算法图）、LEVELS（六个算子输出，附电平柱：实心是能听到的载波，dither 是调制器）、OP1–OP6（OUT、CRS、FINE、DTN / MODE（RATIO / FIXED）、AMOD / R1–R4 / L1–L4，附这一算子的包络与 CAR / MOD 标记）、LFO（SPEED、WAVE、PMD、AMD、P SENS，附波形）、FX。
+- Juno，共 8 页：VOICE、CHORD、ARP、DCO（RANGE、SAW、PULSE、PWM、PW SRC、SUB、NOISE、LFO，附示波器）、VCF（CUTOFF、RESO、ENV、POL、LFO、KBD，附滤波曲线）、ENV（ADSR、VCA 模式 ENV / GATE、LEVEL，附包络）、LFO（RATE、DELAY，附延迟渐入的波形）、FX。Juno 预设自带的 Chorus I / II 映射到 FX 页的 CHORUS。
+- Sampler，共 6 页：VOICE、CHORD、ARP、SAMPLE（文件、录音、裁剪、根音、循环、增益，附波形）、TONE（滤波、包络、电平）、FX。
+- Drums，共 3 页：VOICE、KIT（八鼓电平 + Master，附鼓垫）、FX（没有 CHORD / ARP）。
 
 Sampler 文件与录音流程沿用原规则：录音前确认、未保存草稿阻止替换、命名重名时确认覆盖、被其它轨引用的文件不能删除。
 
@@ -110,7 +140,7 @@ Sampler 文件与录音流程沿用原规则：录音前确认、未保存草稿
 
 | 子页面 | 内容 |
 |---|---|
-| ROLL / STEP（音符页，两种视图） | **ROLL 钢琴卷帘（默认）**：横向是 16 步（GRID 的 16 键按行排列），纵向是音高，每个音符画成和它时值一样长的条，力度越大越实；底部一条小格对应 GRID：有音符的步亮，选中的步白色。GRID 单击 = 选中 / 取消选中（可多选）；有选中时 PADS 在选中 step 上加 / 删音符，OK 循环编辑项 NOTE → LEN → VEL → TIME，ADD / SUB 调整，ESC 取消选择；无选中时按住 PADS 再点 step 写入音符。REC 打开并播放时，弹 PADS 实时录进 Pattern。**STEP 步进录制**：4×4 步格，红色蚂蚁线框是写入光标（键灯闪烁），角上的「+N」是每次写完前进的步数。按下 PADS（可同时按几个成和弦）就把这些音写进光标所在的步（替换原来的音），全部松开后光标前进；GRID 单击把光标移到那一步（同时按着 PADS 则直接写到那一步）；ADD / SUB 前后移动光标（空着走过 = 休止）。 |
+| ROLL / STEP（音符页，两种视图） | **ROLL 钢琴卷帘（默认）**：横向是 16 步（GRID 的 16 键按行排列），纵向是音高，每个音符画成和它时值一样长的条，力度越大越实；底部一条小格对应 GRID：有音符的步亮，选中的步白色。GRID 单击 = 走到这一步（只选这一步，再点放开；SETUP KEYS 页 SELECT = MULTI 时可多选），走到的步的音在演奏区全亮，播放时播放头那一步的音也亮；有选中时 PADS 在选中 step 上加 / 删音符，OK 循环编辑项 NOTE → LEN → VEL → TIME，ADD / SUB 调整，ESC 取消选择；无选中时按住 PADS 再点 step 写入音符。REC 打开并播放时，弹 PADS 实时录进 Pattern。**STEP 步进录制**：4×4 步格，红色蚂蚁线框是写入光标（键灯闪烁），角上的「+N」是每次写完前进的步数。按下 PADS（可同时按几个成和弦）就把这些音写进光标所在的步（替换原来的音），全部松开后光标前进；GRID 单击把光标移到那一步（同时按着 PADS 则直接写到那一步）；ADD / SUB 前后移动光标（空着走过 = 休止）。 |
 | PATTERN | 当前轨 16 个 Pattern 槽 + 四轨正在播放的 Pattern。GRID 单击选择；播放中会排队到当前循环结束再切换；空槽单击即新建 |
 | TRACK | 行 0：SEQ 开关、STEPS（1–16，每轨独立循环长度）、SWING、BPM；下方是四轨总览：引擎、Pattern、步数标尺与播放位置 |
 
@@ -124,7 +154,7 @@ RECORD 面板（GRID 4×4）：
 
 实时录音：REC 打开（RECORD 面板或 Fn+PLAY）后，播放中在 ROLL 视图按 PADS 按当前位置写入当前 Pattern（叠录），量化到微步。
 
-### 3 TAPE（走带：Pattern 编排、混音、工程）
+### 3 TAPE（走带：四轨的 Pattern 编排与混音）
 
 | 子页面 | 内容 | GRID | ADD / SUB / ENTER |
 |---|---|---|---|
@@ -133,26 +163,8 @@ RECORD 面板（GRID 4×4）：
 | MIX | 四个轨道推子、活动表与峰值、MUTE / SOLO / SEQ，底部主音量与输出电平 | 列 = 轨道；行 0 选中、行 1 静音、行 2 独奏、行 3 序列开关 | ADD / SUB 调音量；ENTER 在选中轨与 MASTER 之间切换 |
 | SENDS | 四轨的效果总览：每列一条轨道，行 0 FILTER（双极：中心为关，左低通右高通）、行 1 CHORUS、行 2 DELAY 发送、行 3 REVERB 发送。关闭的格子变暗；轨道发声且发送打开时格子右缘发光 | 点格子选中（同时选中该轨） | ADD / SUB 调整；ENTER：CHORUS 换模式，其它格子关闭 / 恢复原值；Fn+ENTER 默认 |
 | FX | 总线效果（属于工程）：行 0 DELAY（按速度同步的音符时值、FDBK、TONE、RETURN），行 1 REVERB（SIZE、DAMP、LOCUT、RETURN），行 2 COMP、LOW / HIGH 搁架 EQ（±12 dB）、TAPE 饱和；行 3 画出当前速度下的回声序列与混响衰减时间，以及两路返回电平 | 点格子选中 | ADD / SUB 调整；ENTER 在 DELAY 上切换时值；Fn+ENTER 默认 |
-| PROJECT | 工程名、是否未保存、BPM、Swing、四轨摘要 | 行 0：SAVE / SAVE AS / LOAD / NEW；行 1：BPM / SWING / TAP | 调整选中项；ENTER 保存 |
-| FILES | 工程列表 | — | 选择；ENTER 载入（未保存时确认） |
 
-SONG 模式：编排非空时，播放从选中的行开始，每行播放 xN 小节（1 小节 = 16 步）后进入下一行，所有轨道在行首切到该行的 Pattern 并对齐；`--` 的轨道在这一行静音。结尾回到第一行循环。LOOP 模式即各轨循环自己的当前 Pattern。工程文件 v3 起保存编排，v4 起保存总线效果（开发版曾写过带 PLAY 行的 v5，读取时跳过该行，再保存为 v4）；SETUP 设置不存在工程里；SONG / LOOP 开关是演奏状态，不存。
-
-### FN 面板的设置
-
-页面、按键和存放位置见第 2 节「FN 面板」。各项的取值：
-
-- KEYS：LAYOUT PIANO（默认，黑白键）/ SCALE / CHROMA；SCALE 14 种音阶；ROOT C–B；OCTAVE −3…+3；VELO 演奏力度 1–127；LOCK OFF / MUTE / SNAP。
-- CHORD：CHORD OFF / TRIAD / 7TH / MAJ / MIN / SUS4 / MAJ7 / MIN7 / DOM7 / POWER / OCTAVE；VOICING ROOT / INV1 / INV2 / SPREAD。
-- ARP：ARP OFF / UP / DOWN / UP-DN / RANDOM / ORDER；RATE 1/4 / 1/8 / 1/8T / 1/16 / 1/16T / 1/32；RANGE 1–4 个八度；GATE 10–100 %；LATCH 松手后继续。
-- PROJECT：BPM 30–300；SWING 50–75 %；PLAY LOOP / SONG；STEPS 当前轨 1–16 步；REC 实时录音待命。
-- SYSTEM：VOLUME 主音量 0–100；KEY LED 按键灯 0–15（在 SETUP 里选中它时，演奏区从左到右是亮度梯（感知等级 0、6、7、8、9、11、13、15，校正后是 HAL 的 0、1、2、3、4、7、10、15），方便用眼睛判断）；SCREEN 屏幕亮度。
-
-- 键盘布局：PIANO 按钢琴排列，每两行是一个八度，下行白键、上行黑键（缺口处不发声）；SCALE 只放音阶内的音，每行高一个八度；CHROMA 每格一个半音。
-- 音阶：MAJOR、MINOR、DORIAN、MIXOLYD、MIN PENT、MAJ PENT、BLUES、HARM MIN、PHRYGIAN、LYDIAN、LOCRIAN、MEL MIN、WHOLE、IN SEN。
-- 和弦：TRIAD / 7TH 在音阶内叠三度（音阶外的键借用大三和弦 / 属七）；其余为固定和弦。VOICING 的转位把最低的音升高八度，SPREAD 把第二个音升高八度。
-- LOCK：PIANO / CHROMA 布局下音阶外的键，MUTE 不发声（灯灭），SNAP 落到下方最近的音阶音。
-- ARP：按住的键（含和弦展开后的每个音）按顺序轮流发声，最多 16 个音。第一下立刻发声；停止时按 BPM 自由运行，播放时对齐节拍（1/16 跟随 Swing），按 PLAY / 停止不会断拍。UP / DOWN / UP-DN 从刚弹过的音继续走，到两端不重复；ORDER 按按下的顺序；RANGE 向上扩展八度。LATCH 打开时松手继续，全部松开后再按会换成新的一组。REC 打开且在播放时，ARP 弹出的音按 GATE 长度录进 Pattern。ARP 的音在演奏区和屏幕键盘上同样留下余光。换轨、全部停止和载入工程时 ARP 停下。鼓轨不走 ARP。
+SONG 模式：编排非空时，播放从选中的行开始，每行播放 xN 小节（1 小节 = 16 步）后进入下一行，所有轨道在行首切到该行的 Pattern 并对齐；`--` 的轨道在这一行静音。结尾回到第一行循环。LOOP 模式即各轨循环自己的当前 Pattern。工程文件 v3 起保存编排，v4 起保存总线效果，v6 起保存键盘与每轨的和弦、ARP（开发版曾写过带 PLAY 行的 v5，读取时跳过该行）；SONG / LOOP 开关是演奏状态，不存。
 
 ### 效果器
 
@@ -168,10 +180,10 @@ CPU：音频核心每 256 帧的预算是 5.8 ms。实测（鼓每步、Juno 三
 
 按住左侧键出现的都是**地图**：内容区换成与 GRID 一一对应的格子，格子画在它对应的那个键的位置；状态行换成地图标题和用法提示；GRID 的灯只亮可选的键（当前项细闪，其它呼吸或按数值亮），其余按键全暗。地图从对应的左侧色条里长出来，松开时缩回去。
 
-- **场景地图（按住 ESC，橙）**：三列高卡片，每列是一个场景：编号、名称和它的页面列表（标出进入时的页）；第四列是用法说明。
+- **场景地图（按住 ESC，橙）**：四列高卡片，每列是一个场景：编号、名称和它的页面列表（标出进入时的页）；第一列 0 SETUP 右边一条虚线、编号暗色，表示它不在单击 ESC 的循环里。状态行提示「TAP = 1>2>3」。
 - **轨道地图（按住 TAB，青）**：每列一条轨道：顶格是轨号、引擎、音色、音量条和活动表，下面三格是 MUTE / SOLO / SEQ。
 - **页面地图（按住 CTRL，紫）**：当前场景的所有页面，每格是页签、编号和一句说明（如 OP1「TUNE EG」、FX「INSERTS」）。
-- **FN 面板（按住 FN，黄）**：状态行换成面板页签（数字键 1–5，当前页黄底），内容区是这一页的参数和图形（与 SETUP 相同），底行列出 PADS 上的字母功能。SETUP 打开时按住 FN 不再叠一层；输入画面里按住 FN 不出面板。
+- **FN 菜单（按住 FN，黄）**：状态行是「FN MENU」和这是哪个画面的菜单，内容区是 16 格菜单（与单击 FN 常驻的菜单相同），底行列出菜单以外的 Fn 组合。菜单常驻时按住 FN 不再叠一层；输入画面里按住 FN 不出菜单。
 - **确认框**：危险操作（覆盖、删除、丢弃未保存）一律 ENTER 确认、ESC 取消，后果文字用红色。
 - **提示条**：保存成功、错误等写在底部状态行，2 秒后恢复页签。
 
@@ -202,7 +214,7 @@ CPU：音频核心每 256 帧的预算是 5.8 ms。实测（鼓每步、Juno 三
 
 选中使用终端反显（Ink 底、黑字）。
 
-轨道颜色在所有出现轨道的地方保持一致：状态行的轨号色块和下面的点线、TAB 色条里的四个点（当前轨加白框）、轨道地图、MIX 推子标题、SENDS 每格左缘、TAPE 每行的色条和轨号、SEQ TRACK 页的轨道表、SETUP 键盘预览里按下的音。
+轨道颜色在所有出现轨道的地方保持一致：状态行的轨号色块和下面的点线、TAB 色条里的四个点（当前轨加白框）、轨道地图、MIX 推子标题、SENDS 每格左缘、TAPE 每行的色条和轨号、SEQ TRACK 页的轨道表、SETUP KEYS 键盘预览里按下的音。
 
 ### 布局（像素）
 
@@ -247,12 +259,12 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 | 状态 | 左列 | 演奏区 | GRID | 右列 |
 |---|---|---|---|---|
 | 平常 | ESC / TAB / FN 半亮；CTRL 半亮（只有一页时灭）；按住的键全亮 | 见下方「演奏区」 | 见各场景 | ADD / SUB 可调时半亮、否则灭；ENTER 有动作时半亮、否则灭；PLAY 停止半亮、播放全亮、录音待命闪烁；按下时全亮 |
-| 弹窗 | ESC 半亮；TAB、CTRL 灭（SETUP 里 CTRL 半亮，FN 全亮） | 同平常（搜索浏览器：能输入的字母数字键半亮） | 弹窗里可选的格子半亮，当前项全亮 | 同平常；确认框的 ENTER 闪烁 |
+| 弹窗 | ESC 半亮；TAB、CTRL 灭（FN 菜单常驻时 FN 全亮，ADD / SUB / ENTER 灭） | 同平常（搜索浏览器：能输入的字母数字键半亮） | 弹窗里可选的格子半亮，当前项全亮 | 同平常；确认框的 ENTER 闪烁 |
 | 切轨后约 0.8 s | 只有对应行全亮（T1 = ESC 行 … T4 = CTRL 行），其它灭 | 不变 | 不变 | 不变 |
-| 按住 ESC | 只有 ESC 全亮 | 全灭 | 三列场景：当前场景那一列全亮，其它两列半亮；第四列灭 | 全灭 |
+| 按住 ESC | 只有 ESC 全亮 | 全灭 | 四列场景：当前场景那一列全亮，其它三列半亮（第一列是 SETUP） | 全灭 |
 | 按住 TAB | 只有 TAB 全亮 | 全灭 | 每列一轨：行 0 当前轨全亮、其它半亮；静音 / 独奏 / 音序开着全亮、关着半亮 | ADD / SUB 半亮，其它灭 |
 | 按住 CTRL | 只有 CTRL 全亮 | 全灭 | 每页一个键：当前页全亮，其它页半亮；没有页的键灭 | ADD / SUB 半亮，其它灭 |
-| 按住 FN | FN 全亮；ESC、TAB、CTRL 半亮 | 数字键 1–5：当前页全亮、其它半亮；当前画面能用的字母功能半亮；其它灭 | 面板这一页的参数半亮，焦点全亮 | ADD / SUB 半亮；ENTER 在有 Fn+ENTER 的画面半亮、否则灭；PLAY 半亮（录音已开全亮） |
+| 按住 FN | FN 全亮；ESC、TAB 半亮，CTRL 在有多页时半亮 | 菜单里能用的字母项和快捷调节的 6 个键半亮；其它灭 | 菜单项：能用的半亮，开着的开关全亮，用不了或空格灭 | ADD / SUB 半亮；ENTER 在有 Fn+ENTER 的画面半亮、否则灭；PLAY 半亮（录音已开全亮） |
 | 输入画面里按住 FN | FN 全亮 | 全灭 | 方向键 `;` `,` `.` `/` 半亮，其它灭 | ADD / SUB 半亮，其它灭 |
 | 文本输入 | ESC、FN 半亮，TAB、CTRL 灭 | 字符键半亮 | 字符键半亮 | 删除键（右上）和 ENTER 有字时半亮、否则灭；空格半亮 |
 
@@ -260,7 +272,7 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 
 | 画面 | GRID |
 |---|---|
-| INSTR 参数页 | 参数和动作半亮，焦点参数全亮，空格灭 |
+| INSTR 参数页（含 CHORD / ARP） | 参数和动作半亮，焦点参数全亮，空格灭 |
 | SEQ STEPS | 空 step 灭，有音符的半亮，选中的全亮；播放时播放头全亮走过；超出这一轨步数的灭 |
 | SEQ PATTERN | 已有的 Pattern 半亮，正在用的全亮，排队的闪烁；「+」和空位灭 |
 | SEQ TRACK | 四个设置半亮，焦点全亮 |
@@ -268,8 +280,10 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 | TAPE SONG | 有 Pattern 的格子半亮，静音（`--`）的灭；选中的格子和正在播的那一行全亮；提示跳转的行闪烁 |
 | TAPE MIX | 同按住 TAB（行 0 是 MIX 的焦点轨） |
 | TAPE SENDS | 开着的发送半亮，关着的灭，焦点全亮 |
-| TAPE FX / PROJECT | 参数和动作半亮，焦点全亮 |
-| TAPE FILES | 灭（用 ADD / SUB 选） |
+| TAPE FX | 参数半亮，焦点全亮 |
+| SETUP PROJECT | 动作半亮，焦点（BPM / SWING）全亮，PLAY 在 SONG 时全亮 |
+| SETUP FILES | 灭（用 ADD / SUB 选） |
+| SETUP KEYS / SYSTEM | 设置半亮，焦点全亮（KEY LED 焦点时演奏区是亮度梯） |
 
 ### 演奏区
 
@@ -292,8 +306,8 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 
 - 混音：每轨实时增益、静音、独奏，作用于持续音与新音；主音量走编解码器。
 - 音序：实时录音（叠录）、播放中 Pattern 排队切换、Swing、每轨步数、直接调整选中 step 的音高 / 长度 / 力度 / 微步、指定轨的序列开关、直接设置 BPM。
-- 工程文件 v2：新增混音、Swing、每轨步数与工程级设置；可读取 v1。v3 加入编排，v4 加入总线效果；均可读取更早的版本。演奏设置和设备设置不在工程里（见 SETUP 与应用存储协议）。
-- ARP 运行在音序器时钟里（96 PPQ）：停止时按 BPM 自由运行，播放时对齐节拍；它的音和音序器的音走同一条路径（同样的余光、同样可录音）。
+- 工程文件 v2：新增混音、Swing、每轨步数与工程级设置；可读取 v1。v3 加入编排，v4 加入总线效果，v6 加入键盘与每轨的和弦、ARP；均可读取更早的版本（更早的文件载入时保留当前的键盘、和弦与 ARP）。设备设置不在工程里（见 0 SETUP 与应用存储协议）。
+- ARP 每条轨道一台，都运行在音序器时钟里（96 PPQ）：停止时按 BPM 自由运行，播放时对齐节拍；它们的音和音序器的音走同一条路径（同样的余光、同样可录音）。
 - 效果器：每轨插入（DRIVE / CRUSH / FILTER / CHORUS）与 DELAY / REVERB 发送，总线 EQ / 压缩 / TAPE；见第 3 节「效果器」。
 
 ## 8. 动效
@@ -311,13 +325,13 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 | GRID 按下 | 对应格子向外扩散一圈波纹 |
 | 参数调整 | 电平条平滑过渡；数值反显弹一下再淡出；聚焦格子是流动的虚线框；包络、滤波、波形等图形随数值形变 |
 | 写入或删除音符 | 该 step 反显闪光，随后溶解（盖章效果） |
-| 播放 | 游标格内有绿色扫描线跟随时钟；走过的 step 留下渐隐的绿色余晖；每拍左侧色条和 BPM 脉动，每小节第一拍更强；状态行的进度线带彗星头 |
+| 播放 | 游标走到哪一格，那一格绿色闪一下，随后保持绿框直到下一格；走过的 step 不留余晖；每拍左侧色条和 BPM 脉动，每小节第一拍更强；状态行的进度线只有头，不带拖尾 |
 | 录音 | 内容区四周红色虚框呼吸；REC 字样闪烁；FN 色条脉动 |
 | Pattern 排队 | 目标格为绿色流动虚框，底部倒计时条随循环剩余时间缩短 |
 | 演奏 | 状态行轨号随每个音脉动；钢琴键、键位图、鼓垫松开后余光渐暗；鼓垫被击打时上跳；DX7 算法图里信号点沿连线流向载波；示波器随发声加速滚动 |
 | 混音 | 推子平滑移动；活动表带下落的峰值保持线；MUTE / SOLO / SEQ 切换时按钮弹跳并带波纹 |
 | 提示 | 从底部弹起，文字逐字打出；错误提示的色块闪烁 |
-| 参数反馈（Fn 功能、SETUP 恢复默认） | 一条黄框从底部升起：名称、大号新值、刻度条（八度这类双向值用居中的刻度），约 1.1 s 后下沉淡出；连续按会一直更新 |
+| 参数反馈（Fn 功能、菜单项、恢复默认） | 一条黄框从底部升起：名称、大号新值、刻度条（八度这类双向值用居中的刻度），约 1.1 s 后下沉淡出；连续按会一直更新 |
 | 切轨 | 状态行轨号色块变宽一下；左列按键灯只亮对应的那一行（T1 顶 … T4 底） |
 | 常驻 | 只保留有含义的：未保存标记、空状态提示缓慢闪烁。没有纯装饰的流动效果 |
 
@@ -358,7 +372,7 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 - **结构**：`GrooveController` 是纯界面状态机，只通过 `groove::Host` 接触运行时；`GrooveApp` 实现 `Host`，持有四轨音源、音序器、采样器和混音状态。渲染只读控制器状态，直接写帧缓冲。
 - **混音**：每轨音量通过 AMY 的外部渲染钩子作用在每个声部的输出上，持续音也实时生效，约 23 ms 平滑；音量 100 % 时输出与改动前逐位一致。静音不丢失延音，取消静音后延音恢复。主音量 1–100 映射到约 −42–0 dB，0 为静音。
 - **音序**：每轨独立循环长度；播放中选 Pattern 会排到该轨下一次循环开头切换；实时录音量化到最近的微步（含 Swing），不会重复触发刚弹的音。
-- **工程文件 v4**：v2 新增混音、背光、Swing、每轨步数，v3 新增整首歌的编排，v4 新增总线效果；可读取 v1–v3 和开发版的 v5。工程、音色和会话存放在应用自己的 SD 目录里（[应用存储协议](app-storage-protocol.md)）。
+- **工程文件 v6**：v2 新增混音、背光、Swing、每轨步数，v3 新增整首歌的编排，v4 新增总线效果，v6 新增键盘（KEYS 行：锁定、力度；UI 行的八度、根音、音阶、布局）与每轨的和弦和 ARP（PLAYFX 行）；可读取 v1–v4 和开发版的 v5。工程、音色和会话存放在应用自己的 SD 目录里（[应用存储协议](app-storage-protocol.md)）。
 - **走带编排**：最多 64 行，每行为四轨各指定一个 Pattern（或静音）和 1–16 小节；行在全局小节线上切换，所有轨道在行首对齐；SONG / LOOP 切换在下一条小节线生效。
 - **旧界面**：仍在仓库中，`-DCARDENZA_GROOVE_UI=OFF` 可构建，默认不编译。
 

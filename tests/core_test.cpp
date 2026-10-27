@@ -1270,11 +1270,18 @@ void TestProjectVersion2() {
   project.masterFx[static_cast<std::size_t>(fx::MasterParam::DelayTime)] = 11;
   project.masterFx[static_cast<std::size_t>(fx::MasterParam::ReverbLevel)] = 0;
   project.masterFx[static_cast<std::size_t>(fx::MasterParam::Tape)] = 127;
+  // Version 6: the keyboard and each track's chord and arpeggiator.
+  project.lock = 2;
+  project.velocity = 90;
+  project.play[3].chord = 5;
+  project.play[3].voicing = 2;
+  project.play[3].arp = ArpSettings{ArpMode::Played, 5, 4, 100, true};
   assert(SaveProjectFile("v2 trip", project, false) == ProjectResult::Ok);
   const auto path = projectDirectory / "v2 trip.ccproj";
   const std::string valid = ReadText(path);
-  assert(valid.find("CARDENZA_PROJECT 4\nBUILD CardenzaSynth 1\nUI ") == 0);
-  assert(valid.find("\nSYSTEM 7\nFX 12 11 56 72 100 76 52 36 0 0 64 64 127\nTRACK 0 ") != std::string::npos);
+  assert(valid.find("CARDENZA_PROJECT 6\nBUILD CardenzaSynth 1\nUI ") == 0);
+  assert(valid.find("\nSYSTEM 7\nFX 12 11 56 72 100 76 52 36 0 0 64 64 127\nKEYS 2 90\nPLAYFX 0 0 0 0 3 1 50 0\n") != std::string::npos);
+  assert(valid.find("\nPLAYFX 3 5 2 5 5 4 100 1\nTRACK 0 ") != std::string::npos);
   assert(valid.find("\nMIX 0 10 1 0\n") != std::string::npos && valid.find("\nSEQ 120 66\n") != std::string::npos);
 
   ProjectData loaded;
@@ -1282,6 +1289,8 @@ void TestProjectVersion2() {
   assert(loaded.mixer.level == project.mixer.level && loaded.mixer.muted == project.mixer.muted &&
          loaded.mixer.soloed == project.mixer.soloed && loaded.mixer.master == 55 && loaded.backlight == 7);
   assert(loaded.masterFx == project.masterFx);
+  assert(loaded.hasPlay && loaded.lock == 2 && loaded.velocity == 90 && loaded.play[3].chord == 5 && loaded.play[3].voicing == 2 &&
+         loaded.play[3].arp == project.play[3].arp && loaded.play[0].arp == ArpSettings{});
   assert(loaded.sequence->swing == 66 && loaded.sequence->tracks[1].stepCount == 7 && loaded.sequence->tracks[0].stepCount == 16);
   assert(loaded.sequence->tracks[0].patterns[0].steps[3].notes[0].active && loaded.sequence->tracks[0].patterns[0].steps[3].notes[0].note == 64);
   assert(loaded.engines[2].values.at("vcf.cutoff") == 40 && loaded.kinds[3] == SynthEngineKind::Juno);
@@ -1297,22 +1306,30 @@ void TestProjectVersion2() {
     assert(LoadProjectFile("v2 trip", loaded) == ProjectResult::Invalid);
     assert(loaded.sequence.get() == old && loaded.backlight == 7);
   };
-  reject("CARDENZA_PROJECT 4", "CARDENZA_PROJECT 6");
-  // Version 5 (unreleased development builds) had a PLAY line after FX: it loads, the line is
-  // skipped, and the next save writes version 4 again.
+  reject("CARDENZA_PROJECT 6", "CARDENZA_PROJECT 7");
+  reject("\nKEYS 2 90\n", "\nKEYS 3 90\n");
+  reject("\nKEYS 2 90\n", "\nKEYS 2 0\n");
+  reject("\nPLAYFX 3 5 2 5 5 4 100 1\n", "\nPLAYFX 3 11 2 5 5 4 100 1\n");
+  reject("\nPLAYFX 3 5 2 5 5 4 100 1\n", "\nPLAYFX 3 5 2 6 5 4 100 1\n");
+  reject("\nPLAYFX 3 5 2 5 5 4 100 1\n", "\nPLAYFX 3 5 2 5 5 5 100 1\n");
+  reject("\nPLAYFX 3 5 2 5 5 4 100 1\n", "\nPLAYFX 3 5 2 5 5 4 9 1\n");
+  reject("\nPLAYFX 3 5 2 5 5 4 100 1\n", "\n");
+  // Version 5 (unreleased development builds) had a PLAY line after FX and no play settings of
+  // its own: it loads without them, and the next save writes version 6.
   {
-    std::string v5 = valid;
-    v5.replace(0, std::string("CARDENZA_PROJECT 4").size(), "CARDENZA_PROJECT 5");
-    const auto track = v5.find("\nTRACK 0 ");
-    reject("CARDENZA_PROJECT 4", "CARDENZA_PROJECT 5");  // a version 5 file needs its PLAY line
-    v5.insert(track + 1, "PLAY 4 2 1 96 3 5 2 75 1\n");
+    const auto keys = valid.find("\nKEYS ");
+    const auto track = valid.find("\nTRACK 0 ");
+    std::string v5 = valid.substr(0, keys + 1) + "PLAY 4 2 1 96 3 5 2 75 1\n" + valid.substr(track + 1);
+    v5.replace(0, std::string("CARDENZA_PROJECT 6").size(), "CARDENZA_PROJECT 5");
+    reject("CARDENZA_PROJECT 6", "CARDENZA_PROJECT 5");  // a version 5 file needs its PLAY line
     WriteText(path, v5);
     ProjectData fromV5;
     assert(LoadProjectFile("v2 trip", fromV5) == ProjectResult::Ok);
+    assert(!fromV5.hasPlay && fromV5.play[3].chord == 0);
     assert(fromV5.masterFx == project.masterFx && fromV5.mixer.level == project.mixer.level && fromV5.engines[2].values.at("vcf.cutoff") == 40);
     assert(SaveProjectFile("v2 trip", fromV5, true) == ProjectResult::Ok);
     const std::string resaved = ReadText(path);
-    assert(resaved.find("CARDENZA_PROJECT 4\n") == 0 && resaved.find("PLAY") == std::string::npos);
+    assert(resaved.find("CARDENZA_PROJECT 6\n") == 0 && resaved.find("\nPLAY ") == std::string::npos);
     WriteText(path, valid);
   }
   reject("\nFX 12 11 ", "\nFX 12 12 ");  // Delay time past the last division.
@@ -1362,6 +1379,7 @@ void TestProjectVersion2() {
             "END\n");
   ProjectData legacy;
   assert(LoadProjectFile("legacy", legacy) == ProjectResult::Ok);
+  assert(!legacy.hasPlay);
   const ProjectData::MixerData defaults;
   assert(legacy.mixer.level == defaults.level && legacy.mixer.muted == defaults.muted && legacy.mixer.soloed == defaults.soloed);
   assert(legacy.mixer.master == 80 && legacy.backlight == 180 && legacy.mixer.level[3] == 100);
@@ -1375,7 +1393,7 @@ void TestProjectVersion2() {
   assert(legacy.sequence->songLength == 0 && legacy.sequence->songLoop);
   // Re-saving upgrades it to the current version with the same content.
   assert(SaveProjectFile("legacy", legacy, true) == ProjectResult::Ok);
-  assert(ReadText(projectDirectory / "legacy.ccproj").find("CARDENZA_PROJECT 4\n") == 0);
+  assert(ReadText(projectDirectory / "legacy.ccproj").find("CARDENZA_PROJECT 6\n") == 0);
   ProjectData upgraded;
   assert(LoadProjectFile("legacy", upgraded) == ProjectResult::Ok);
   assert(upgraded.masterFx == ProjectData::DefaultMasterFx());
@@ -1408,7 +1426,7 @@ void TestProjectSong() {
   const auto path = projectDirectory / "song trip.ccproj";
   const std::string valid = ReadText(path);
   const std::string section = "SONG 2 0\nR 0 2 -1 0 4\nR -1 0 0 0 16\n";
-  assert(valid.find("CARDENZA_PROJECT 4\n") == 0 && valid.find("\n" + section + "END\n") != std::string::npos);
+  assert(valid.find("CARDENZA_PROJECT 6\n") == 0 && valid.find("\n" + section + "END\n") != std::string::npos);
 
   ProjectData loaded;
   assert(LoadProjectFile("song trip", loaded) == ProjectResult::Ok);
@@ -1446,11 +1464,12 @@ void TestProjectSong() {
   reject("\nR 0 2 -1 0 4\n", "\nX 0 2 -1 0 4\n");
   reject("\n" + section, "\n");  // Version 3 needs its song section.
 
-  // Version 3 files have no FX line and load with the default master effects.
+  // Version 3 files have no FX line (nor the play settings of version 6) and load with the default
+  // master effects.
   const auto fxLine = valid.find("\nFX ");
   std::string v3 = valid;
-  v3.erase(fxLine + 1, valid.find('\n', fxLine + 1) - fxLine);
-  v3.replace(0, std::string("CARDENZA_PROJECT 4").size(), "CARDENZA_PROJECT 3");
+  v3.erase(fxLine + 1, valid.find("\nTRACK 0 ") - fxLine);
+  v3.replace(0, std::string("CARDENZA_PROJECT 6").size(), "CARDENZA_PROJECT 3");
   WriteText(path, v3);
   assert(LoadProjectFile("song trip", loaded) == ProjectResult::Ok && loaded.masterFx == ProjectData::DefaultMasterFx());
 

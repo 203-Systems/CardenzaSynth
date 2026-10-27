@@ -14,9 +14,12 @@
 namespace groove {
 
 // UI state that is stored with a project.
+// UI state saved with the project: the active track, the keyboard for every track and each
+// track's chord effect (the arpeggiators live in the sequencer).
 struct ProjectUiSettings {
   std::size_t activeTrack = synth::kDefaultActiveTrack;
   KeyboardSettings keyboard{};
+  std::array<ChordSettings, kTrackCount> chords{};
 };
 
 enum class SaveResult : std::uint8_t {

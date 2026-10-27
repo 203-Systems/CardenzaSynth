@@ -41,8 +41,8 @@ inline bool operator!=(const SongRow& left, const SongRow& right)
   return !(left == right);
 }
 
-// Live arpeggiator. Held notes of one track play one at a time on the arp clock: the transport
-// grid while playing, else a free clock at the current tempo started by the first key press.
+// Live arpeggiator, one per track. Held notes of the track play one at a time on the arp clock: the
+// transport grid while playing, else a free clock at the current tempo started by the first key press.
 enum class ArpMode : std::uint8_t { Off, Up, Down, UpDown, Random, Played };
 inline constexpr std::size_t kArpModeCount = 6;
 inline constexpr std::array<const char*, kArpModeCount> kArpModeNames{{"OFF", "UP", "DOWN", "UP-DN", "RANDOM", "ORDER"}};
@@ -173,7 +173,8 @@ struct SequencerUiState {
   bool copySourceIsPattern = false;
   std::size_t copySourceIndex = 0;
   std::array<SequencerStepUiState, kSequencerStepCount> steps{};
-  // Arpeggiator: mode on and notes held or latched, on arpTrack. arpNotes lists the first
+  // Arpeggiator of the track the state was built for (arpTrack): mode on and notes held or
+  // latched. arpNotes lists the first
   // arpNoteCount notes in press order; arpSounding is the playing arp note (-1 = none) and
   // arpTick counts every arp note played. arpLastNote is the pitch of the latest arp note
   // (-1 before the first); it outlives the note's gate, so a UI polling slower than a short gate

@@ -14,19 +14,24 @@ namespace synth {
 
 static_assert(kSynthTrackCount == 4, "Mixer defaults list one level per track.");
 
-// Scale indices the UI line may hold. Readers of format v4 and earlier accept 0..7 only, so a
-// writer that wants older firmware to open the file keeps the index below kProjectScaleCountV4.
+// Scale indices the UI line may hold (readers of format v4 and earlier accepted 0..7 only).
 inline constexpr int kProjectScaleCount = 14;
 inline constexpr int kProjectScaleCountV4 = 8;
+// Ranges of the play settings stored from version 6 (the groovebox's chords, voicings, scale locks).
+inline constexpr int kProjectChordCount = 11;
+inline constexpr int kProjectVoicingCount = 4;
+inline constexpr int kProjectLockCount = 3;
 
 struct ProjectData {
-  // Project file v4. Version 1 files load with these mixer and backlight defaults; versions 1
+  // Project file v6. Version 1 files load with these mixer and backlight defaults; versions 1
   // and 2 load with an empty song; versions 1 to 3 load with the default master effects.
   // Version 5 files (unreleased development builds) load too; their PLAY line is skipped.
   //
-  // The UI line (octave, root, scale, layout, LED brightness), MASTER and SYSTEM (backlight) are
-  // device and app settings now (docs/app-storage-protocol.md): the groovebox still writes them so
-  // older firmware can open the file, but ignores them when it loads a project.
+  // From version 6 the play settings belong to the project (hasPlay): the keyboard (the UI line's
+  // octave, root, scale and layout, plus KEYS: scale lock and velocity) and each track's chord and
+  // arpeggiator (PLAYFX lines). Older files have none; the groovebox then keeps the ones it has.
+  // LED brightness (UI line), MASTER and SYSTEM (backlight) are device settings
+  // (docs/app-storage-protocol.md): still written, ignored when a project loads.
   struct MixerData {
     std::array<std::uint8_t, kSynthTrackCount> level{{100, 100, 100, 100}};  // 0..100
     std::array<bool, kSynthTrackCount> muted{};
@@ -49,6 +54,16 @@ struct ProjectData {
   std::uint8_t backlight = 180;  // 0..255
   // Master bus effects, indexed by fx::MasterParam.
   std::array<std::uint8_t, fx::kMasterParamCount> masterFx = DefaultMasterFx();
+  // Play settings (version 6).
+  struct TrackPlay {
+    int chord = 0;    // 0..kProjectChordCount - 1
+    int voicing = 0;  // 0..kProjectVoicingCount - 1
+    ArpSettings arp{};
+  };
+  bool hasPlay = false;
+  int lock = 0;        // 0..kProjectLockCount - 1
+  int velocity = 110;  // 1..127
+  std::array<TrackPlay, kSynthTrackCount> play{};
 
   static std::array<std::uint8_t, fx::kMasterParamCount> DefaultMasterFx()
   {

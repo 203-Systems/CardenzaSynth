@@ -34,7 +34,7 @@ void DrawList(Gfx& g, const Controller& controller, Animator& animator, const Mo
     const int x = g.Text(kContentX + 60, kContentY, "/", kFn);
     const int end = g.Text(x + 2, kContentY, modal.search, kInk);
     if ((controller.State().now / 400) % 2 == 0) g.Fill(Rect{end, kContentY, 5, 7}, kInk);
-    if (modal.search.empty()) g.Text(x + 10, kContentY, "TYPE TO SEARCH", kFaint);
+    if (modal.search.empty()) g.Text(x + 10, kContentY, "FN+F SEARCH", kFaint);
   }
   char count[16];
   std::snprintf(count, sizeof(count), "%u/%u", static_cast<unsigned>(modal.items.empty() ? 0 : modal.cursor + 1), static_cast<unsigned>(modal.items.size()));
@@ -310,7 +310,7 @@ void ModalContent(Gfx& g, const Controller& controller, Animator& animator, cons
     case ModalKind::SampleOptions: DrawList(g, controller, animator, modal, false); break;
     case ModalKind::EnginePicker: DrawEnginePicker(g, controller, animator, modal); break;
     case ModalKind::SampleRecord: DrawSampleRecord(g, controller, animator); break;
-    case ModalKind::Setup: SetupContent(g, controller, animator); break;
+    case ModalKind::Menu: MenuContent(g, controller, animator, 1.0f); break;
     case ModalKind::Record: DrawRecord(g, controller, animator); break;
     case ModalKind::None:
     default: break;
@@ -323,11 +323,11 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
   {
     case ModalKind::TextEntry: return "ENTER OK   DEL ERASE   ESC CANCEL";
     case ModalKind::Confirm: return modal.danger ? "ENTER CONFIRM   ESC KEEP" : "ENTER YES   ESC NO";
-    case ModalKind::PresetBrowser: return "SUB ADD MOVE   ENTER LOAD   ESC BACK";
-    case ModalKind::SampleBrowser: return "ENTER LOAD   FN+ENTER RENAME/DELETE";
+    case ModalKind::PresetBrowser: return "ENTER LOAD   FN+F SEARCH   ESC BACK";
+    case ModalKind::SampleBrowser: return "ENTER LOAD  FN+F SEARCH  FN+ENTER EDIT";
     case ModalKind::SampleOptions: return "ENTER CHOOSE   ESC BACK";
     case ModalKind::EnginePicker: return "GRID OR SUB ADD   ENTER SWITCH";
-    case ModalKind::Setup: return "";
+    case ModalKind::Menu: return "GRID RUNS   FN OR ESC CLOSES";
     case ModalKind::Record: return "+- BAR  OK NEW PATTERN  FN+OK MERGE";
     case ModalKind::SampleRecord:
     {

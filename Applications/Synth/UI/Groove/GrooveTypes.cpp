@@ -77,7 +77,8 @@ bool InScale(const KeyboardSettings& settings, int note)
   return ((mask >> degree) & 1u) != 0;
 }
 
-std::size_t PadNotes(const KeyboardSettings& settings, synth::SynthEngineKind kind, int note, std::array<std::uint8_t, kMaxPadNotes>& notes)
+std::size_t PadNotes(const KeyboardSettings& settings, const ChordSettings& shape, synth::SynthEngineKind kind, int note,
+                     std::array<std::uint8_t, kMaxPadNotes>& notes)
 {
   if (note < 0 || note > 127) return 0;
   if (kind == synth::SynthEngineKind::Drums)
@@ -107,7 +108,7 @@ std::size_t PadNotes(const KeyboardSettings& settings, synth::SynthEngineKind ki
       }
   };
   const bool inScale = InScale(settings, note);
-  switch (settings.chord)
+  switch (shape.chord)
   {
     case ChordType::Triad: if (inScale) stack(3); else { add(0); add(4); add(7); } break;
     case ChordType::Seventh: if (inScale) stack(4); else { add(0); add(4); add(7); add(10); } break;
@@ -125,7 +126,7 @@ std::size_t PadNotes(const KeyboardSettings& settings, synth::SynthEngineKind ki
   // Voicing: inversions lift the lowest notes an octave; SPREAD lifts the second note.
   if (count > 1)
   {
-    switch (settings.voicing)
+    switch (shape.voicing)
     {
       case 1: chord[0] += 12; break;
       case 2: chord[0] += 12; if (count > 2) chord[1] += 12; break;

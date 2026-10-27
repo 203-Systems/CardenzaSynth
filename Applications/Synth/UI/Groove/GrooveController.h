@@ -22,6 +22,8 @@ inline constexpr std::uint32_t kOkHoldMs = 450;
 inline constexpr std::uint8_t kLedOff = 0;
 inline constexpr std::uint8_t kLedHalf = 6;
 inline constexpr std::uint8_t kLedFull = 15;
+// The edge keys (left and right columns) light at most this much on the keys themselves.
+inline constexpr std::uint8_t kLedEdgeMax = kLedHalf;
 inline constexpr std::uint32_t kRepeatDelayMs = 400;
 inline constexpr std::uint32_t kRepeatIntervalMs = 70;
 inline constexpr std::uint32_t kRepeatAccelerateAfter = 12;
@@ -46,7 +48,7 @@ enum class ModalKind : std::uint8_t {
   SampleBrowser,
   SampleOptions,
   SampleRecord,
-  Setup,   // FN SETUP: the FN panel kept open
+  Menu,    // a tap on FN: the menu of the screen underneath, kept open
   Record,  // SEQ: hold OK. Live recording, step recording and the captured takes
 };
 
@@ -94,6 +96,7 @@ enum class TextPurpose : std::uint8_t {
   PresetSaveAs,
   SampleName,
   SampleRename,
+  Search,  // the filter of the preset / sample browser underneath (FN + F)
 };
 
 enum class ConfirmPurpose : std::uint8_t {
@@ -168,8 +171,7 @@ struct LeftKeyState {
 struct RepeatState {
   bool down = false;
   int direction = 0;
-  bool coarse = false;
-  bool fnPanel = false;  // FN + ADD / SUB: the FN panel's focused setting
+  bool coarse = false;  // FN + ADD / SUB: bigger steps
   std::uint32_t nextAt = 0;
   std::uint32_t count = 0;
   // FN + a quick key (FnQuickControls): the setting it changes and the key held (kKeyCount = none).
@@ -177,8 +179,58 @@ struct RepeatState {
   std::size_t quickKey = kKeyCount;
 };
 
+// FN is the menu of the current screen. Hold FN (or tap it to keep the menu open) and the GRID shows
+// what this screen can do: rows 0-2 belong to the page, row 3 is the same everywhere. FN + GRID
+// (or GRID in the open menu) runs an item; items with a letter also run on FN + that pad.
+enum class MenuAction : std::uint8_t {
+  None,
+  // Row 3, every screen
+  Save,
+  TapTempo,
+  Record,
+  Setup,  // in SETUP: back to the scene it was opened from
+  // INSTR
+  Presets,
+  SavePreset,
+  SavePresetAs,
+  Engine,
+  Default,  // the focused value back to its default (also FN + ENTER)
+  SampleFiles,
+  SampleRecord,
+  SamplePreview,
+  // SEQ
+  Copy,
+  Paste,
+  Clear,
+  Quantize,
+  Duplicate,
+  View,         // ROLL / STEP
+  RecordPanel,  // the RECORD panel (also a held OK)
+  Scope,        // the note a chord step edits (also FN + ENTER)
+  // TAPE
+  LaunchRow,
+  Capture,   // the playing patterns become a new SONG row (also FN + ENTER on SESSION)
+  SongMode,  // SONG / LOOP (also FN + ENTER on SONG)
+  UnmuteAll,
+  UnsoloAll,
+  // SETUP
+  NewProject,
+  LoadProject,
+  SaveProjectAs,
+};
+
+struct MenuItem {
+  MenuAction action = MenuAction::None;
+  const char* label = "";
+  std::string detail;        // what it acts on, or its state
+  const char* key = nullptr;  // the FN shortcut that also runs it ("OK" = FN + ENTER, "PLAY" = FN + PLAY)
+  bool available = true;
+  bool on = false;            // a switch that is on (full LED)
+};
+using MenuItems = std::array<MenuItem, kGridCount>;
+
 // FN quick controls: while FN is held, the 2x3 pad block beside the GRID changes the most used
-// settings at once on any FN page. Upper key +, lower key - (like ADD over SUB).
+// settings at once on any screen. Upper key +, lower key - (like ADD over SUB).
 struct FnQuickControl {
   char up;
   char down;
@@ -211,11 +263,14 @@ struct RecordState {
 };
 
 struct UiState {
-  Scene scene = Scene::Sequence;
-  Scene previousScene = Scene::Instrument;
+  // It boots on the instrument, first page (VOICE).
+  Scene scene = Scene::Instrument;
+  Scene previousScene = Scene::Sequence;
   std::array<std::uint8_t, kSceneCount> page{};
   std::size_t track = synth::kDefaultActiveTrack;
   KeyboardSettings keyboard{};
+  // Each track's chord effect (INSTR CHORD).
+  std::array<ChordSettings, kTrackCount> chords{};
 
   std::array<LeftKeyState, 4> left{};  // ESC, TAB, FN, CTRL
   RepeatState repeat{};
@@ -230,7 +285,7 @@ struct UiState {
   std::array<std::uint8_t, 16> instrumentFocus{};
   std::array<std::uint8_t, kTrackCount> trackInstrumentPage{};
   std::array<std::array<std::uint8_t, 16>, kTrackCount> trackInstrumentFocus{};
-  std::uint8_t projectFocus = 4;  // BPM
+  std::uint8_t projectFocus = 4;  // SETUP PROJECT: BPM
   std::uint8_t seqTrackFocus = 0;
   std::uint8_t mixFocus = 0;      // 0..3 track, 4 master
   std::uint8_t sendsFocus = 2;    // TAPE SENDS cell: row = effect, column = track
@@ -260,10 +315,8 @@ struct UiState {
   std::array<std::uint8_t, kRows * kPadColumns> padChordCount{};
   std::array<std::uint8_t, kRows * kPadColumns> padTrack{};
   std::array<bool, kRows * kPadColumns> padArp{};  // the pad feeds the arpeggiator
-  // FN panel (hold FN, or tap it for SETUP): the page shown and the focused setting of each page.
-  // Both are remembered, so FN opens where it was left.
-  std::uint8_t fnPage = 0;
-  std::array<std::uint8_t, kSetupPageCount> fnFocus{};
+  // SETUP settings pages (KEYS, SYSTEM): the focused setting of each.
+  std::array<std::uint8_t, kSettingsPageCount> settingsFocus{};
   RecordState record;
   // TAPE song cursor edits the pattern (0) or the row length in bars (1); a second tap toggles.
   std::uint8_t songLane = 0;
@@ -303,14 +356,15 @@ public:
   const UiState& State() const { return state_; }
   const Host& HostView() const { return host_; }
   const Modal* TopModal() const { return state_.modals.empty() ? nullptr : &state_.modals.back(); }
-  // Hold maps: while a left key is held, the GRID chooses what it switches to. ESC = scenes,
-  // TAB = tracks (select / mute / solo / seq), CTRL = pages of the current scene, FN = functions.
+  // Hold maps: while a left key is held, the GRID chooses what it switches to. ESC = scenes (column
+  // 4 is SETUP), TAB = tracks (select / mute / solo / seq), CTRL = pages of the current scene, FN =
+  // the menu of the current screen.
   bool EscOverlay() const;
   bool TabOverlay() const;
   bool FnOverlay() const;
   bool CtrlOverlay() const;
-  // The FN panel kept open by a tap on FN (a modal).
-  bool SetupOpen() const { return TopModal() != nullptr && TopModal()->kind == ModalKind::Setup; }
+  // The menu kept open by a tap on FN (a modal).
+  bool MenuOpen() const { return TopModal() != nullptr && TopModal()->kind == ModalKind::Menu; }
   bool RecordOpen() const { return TopModal() != nullptr && TopModal()->kind == ModalKind::Record; }
   SeqView View() const { return state_.record.view; }
 
@@ -329,10 +383,12 @@ public:
   std::size_t TakeBars(const CaptureTake& take) const;
   std::size_t TakeBarNotes(const CaptureTake& take, std::size_t bar, std::array<PlacedNote, kCaptureNotes>& notes) const;
   // While a screen takes input (text, lists, the sample editor) FN is the yellow keycap layer:
-  // ; , . / are arrows. Everywhere else FN is the FN panel.
-  bool FnYellowMode() const { return TopModal() != nullptr && TopModal()->kind != ModalKind::Setup; }
-  // The FN panel is on screen: FN held (past the hold threshold) or SETUP open.
-  bool FnPanelShown() const { return FnOverlay() || SetupOpen(); }
+  // ; , . / are arrows. Everywhere else FN is the menu.
+  bool FnYellowMode() const { return TopModal() != nullptr && TopModal()->kind != ModalKind::Menu; }
+  // The menu is on screen: FN held (past the hold threshold) or kept open.
+  bool MenuShown() const { return FnOverlay() || MenuOpen(); }
+  // The menu of the current screen (the screen under the open menu).
+  MenuItems Menu() const;
 
   std::size_t PageCount(Scene scene) const;
   std::uint8_t CurrentPage() const { return state_.page[static_cast<std::size_t>(state_.scene)]; }
@@ -347,7 +403,7 @@ public:
   bool IsPadDown(std::size_t row, std::size_t column) const;
   bool IsNoteHeld(int note) const;
 
-  // Fn shortcut table for the current scene (for the Fn overlay).
+  // FN combinations besides the menu (ESC stop, TAB previous track, ...), for the menu's footer.
   struct FnEntry {
     const char* key;
     const char* label;
@@ -355,15 +411,16 @@ public:
   };
   std::vector<FnEntry> FnEntries() const;
 
-  // Presentation helpers shared by renderer and LEDs. Slots are engine parameters or global
-  // settings: "keys.*" (layout, scale, root, octave, chord, voicing, lock, velocity), "arp.*" (mode,
-  // rate, octaves, gate, latch) and "sys.*" (volume, led, screen).
+  // Presentation helpers shared by renderer and LEDs. Slots are engine parameters or settings:
+  // "keys.*" (layout, scale, root, octave, lock, velocity, select) for every track, "chord.*" (type,
+  // voicing) and "arp.*" (mode, rate, octaves, gate, latch) of the current track, "proj.*" (bpm,
+  // swing, mode, steps, rec) and "sys.*" (volume, led, screen).
   bool SlotHasValue(const Slot& slot) const;
   bool SlotValue(const Slot& slot, synth::SynthParameterInfo& info, std::string& text) const;
   bool SettingValue(const char* id, synth::SynthParameterInfo& info, std::string& text) const;
-  // The FN panel page in use (held FN or SETUP) and its focused GRID cell.
-  const InstrumentPage& SetupPageShown() const;
-  std::uint8_t FnFocus() const { return state_.fnFocus[state_.fnPage % kSetupPageCount]; }
+  // The SETUP settings page on screen (KEYS, SYSTEM), or null, and its focused cell.
+  const InstrumentPage* SettingsPageShown() const;
+  std::uint8_t SettingsFocus() const;
   // Pads that sound right now for the active track, base keys and chord notes.
   bool IsChordNoteHeld(int note) const;
 
@@ -434,12 +491,13 @@ private:
   void ResetSetting(const char* id);
   void ShowSettingHud(const char* id, const char* label);
   void ShowHud(const std::string& label, const std::string& value, float fraction = -1.0f, bool bipolar = false);
-  void SetFnPage(std::size_t page);
-  void OpenSetup();
-  void SetupGrid(std::size_t index);
-  void SetupAdjust(int delta);
-  void SetupEnter();
-  void SetupReset();
+  void SettingsGrid(std::size_t index);
+  void SettingsAdjust(int delta, bool coarse);
+  void SettingsEnter();
+  void SettingsReset();
+  void SettingsArrow(int step);
+  void OpenMenu();
+  void RunMenu(std::size_t index);
   void SoundPad(std::size_t index, bool on);
   void StepPreset(int delta);
   bool PadForSequence(int note, bool pressed);

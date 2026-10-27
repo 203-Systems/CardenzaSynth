@@ -70,9 +70,9 @@ If this stays, the wasm build is missing: run make web and serve build/web/site.
             <h3>Left keys: tap, or hold for a map</h3>
             <p>Holding a left key turns the screen into a map that matches the <b>GRID</b> (columns 9–12). Pick with the GRID key at the same place.</p>
             <ul>
-              <li><b class="c-esc">ESC</b> tap: next scene (INSTR → SEQ → TAPE), cancels pop-ups. Hold: scene map, GRID columns = INSTR · SEQ · TAPE.</li>
+              <li><b class="c-esc">ESC</b> tap: next scene (INSTR → SEQ → TAPE), cancels pop-ups; in SETUP it goes back. Hold: scene map, GRID columns = 0 SETUP · 1 INSTR · 2 SEQ · 3 TAPE (column 1 is the only way into SETUP: project, files, keys, system).</li>
               <li><b class="c-tab">TAB</b> tap: next track. Hold: track map, a GRID column per track (row 1 select, 2 mute, 3 solo, 4 sequencer on/off). TAB + ADD/SUB: previous/next track.</li>
-              <li><b class="c-fn">FN</b> tap: SETUP (the FN panel kept open). Hold: the FN panel: <b>1–5</b> pages, GRID picks a setting, ADD/SUB change it; <b>6/Y</b> BPM, <b>7/U</b> volume, <b>8/I</b> octave; S save, C/V copy/paste, X clear, Q quantize, D duplicate, T tap tempo.</li>
+              <li><b class="c-fn">FN</b> is the menu of the current screen. Hold: the menu on the GRID, FN + GRID runs an item; tap: the menu stays open, a GRID key runs an item. <b>6/Y</b> BPM, <b>7/U</b> volume, <b>8/I</b> octave; S save, C/V copy/paste, X clear, Q quantize, D duplicate, T tap tempo; FN + CTRL previous page, FN + ADD/SUB big steps.</li>
               <li><b class="c-ctrl">CTRL</b> tap: next page. Hold: page map of the scene. CTRL + ADD/SUB turns pages.</li>
             </ul>
           </div>
@@ -85,7 +85,7 @@ If this stays, the wasm build is missing: run make web and serve build/web/site.
               <li><b>HOME</b> stops everything.</li>
             </ul>
             <h3>First loop</h3>
-            <p>Boots on <b>2 SEQ</b> with T1 drums. Hold a pad and tap GRID keys to write steps, press PLAY (Space). TAB to T2 Juno and write a melody. Save from TAPE → PROJECT (hold CTRL for the page map) or FN + S.</p>
+            <p>Boots on <b>1 INSTR</b> (VOICE) with T2 Juno: ADD/SUB try presets. Tap ESC for <b>2 SEQ</b>, hold TAB and press GRID column 1 for T1 drums. Hold a pad and tap GRID keys to write steps, press PLAY (Space). Save with FN + S, or in SETUP → PROJECT (hold ESC, press GRID column 1). Chord and arpeggiator are per track, on the INSTR pages after VOICE.</p>
           </div>
           <div>
             <h3>Computer keyboard</h3>
