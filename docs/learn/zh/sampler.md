@@ -1,6 +1,6 @@
 # 采样 {#sampler}
 
-{{icon:sample}} SAMPLER 音源（默认 {{track:4}}）播放一段 WAV 录音。采样可以从 SD 卡载入，也可以直接用机器上的麦克风录。所有应用共用 SD 卡上的 `Cardenza/Shared/Samples` 目录。
+{{icon:sample}} SAMPLER 音源（默认 {{track:4}}）播放一段 WAV 录音。采样可以从 SD 卡载入，也可以直接用机器上的麦克风录。采样存在 SD 卡上的 `CardenzaSynth/Samples` 目录。
 
 支持的文件：单声道 16 位 PCM WAV，采样率 8–96 kHz。
 

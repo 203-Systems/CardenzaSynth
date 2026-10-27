@@ -10,7 +10,7 @@
 namespace synth::storage {
 
 std::string ProjectDirectory();
-// Samples are shared between apps (Shared/Samples); projects name them by file name.
+// Samples are shared between apps (CardenzaSynth/Samples); projects name them by file name.
 std::string SampleDirectory();
 // User preset banks, one folder per engine (`group` is the engine's display name).
 std::string PresetDirectory(std::string_view group);

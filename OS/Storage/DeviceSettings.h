@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// Device-wide settings: kept in System/settings.cfg (sys.volume, sys.led, sys.screen), applied to the
+// Device-wide settings: kept in Settings/system.cfg (sys.volume, sys.led, sys.screen), applied to the
 // device at boot and shared by every app. Apps change them only through these functions; projects
 // never carry them.
 namespace os::storage {

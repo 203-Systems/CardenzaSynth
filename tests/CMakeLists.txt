@@ -22,7 +22,7 @@ else()
 endif()
 add_test(NAME CardenzaArpTests COMMAND CardenzaArpTests)
 
-# App storage protocol: OS/Storage on the simulator's card and internal-flash store.
+# SD-only storage protocol on the simulator's card.
 cardenza_collect_storage_cpp_sources(${PROJECT_SOURCE_DIR} storage_test_sources)
 add_executable(CardenzaStorageTests
   storage_protocol_test.cpp
@@ -31,6 +31,16 @@ add_executable(CardenzaStorageTests
 )
 target_include_directories(CardenzaStorageTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaStorageTests COMMAND CardenzaStorageTests)
+
+# Fault-injected SD settings: no card, insertion/replacement, I/O errors and oversized files.
+# This executable supplies its own Device::Storage implementation.
+add_executable(CardenzaSettingsSdOnlyTests
+  settings_sd_only_test.cpp
+  ${PROJECT_SOURCE_DIR}/OS/Storage/Storage.cpp
+  ${PROJECT_SOURCE_DIR}/OS/Storage/Settings.cpp
+)
+target_include_directories(CardenzaSettingsSdOnlyTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaSettingsSdOnlyTests COMMAND CardenzaSettingsSdOnlyTests)
 
 add_executable(CardenzaSamplerTests
   sampler_test.cpp
@@ -90,6 +100,9 @@ if(CARDENZA_GROOVE_UI)
   add_executable(CardenzaAppLifecycleTests app_lifecycle_test.cpp)
   target_link_libraries(CardenzaAppLifecycleTests PRIVATE CardenzaSystem CardenzaSimDevice)
   add_test(NAME CardenzaAppLifecycleTests COMMAND CardenzaAppLifecycleTests)
+  add_test(NAME CardenzaLateCardLifecycleTests COMMAND CardenzaAppLifecycleTests --late-card)
+  # Old on-card layouts must remain byte-for-byte untouched during normal runtime persistence.
+  add_test(NAME CardenzaLegacyCardLifecycleTests COMMAND CardenzaAppLifecycleTests --legacy-card)
   list(APPEND cardenza_ui_tests CardenzaAppLifecycleTests)
 endif()
 
@@ -112,7 +125,7 @@ set_tests_properties(CardenzaSimShotRejectsUnknownKey PROPERTIES
   PASS_REGULAR_EXPRESSION "shot-unknown-key\\.script:2: unknown key target 'nosuchkey'"
 )
 
-foreach(target CardenzaCoreTests CardenzaStorageTests CardenzaSamplerTests ${cardenza_ui_tests} CardenzaLedTests)
+foreach(target CardenzaCoreTests CardenzaStorageTests CardenzaSettingsSdOnlyTests CardenzaSamplerTests ${cardenza_ui_tests} CardenzaLedTests)
   if(MSVC)
     target_compile_options(${target} PRIVATE /UNDEBUG)
     target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)

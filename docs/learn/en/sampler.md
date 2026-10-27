@@ -1,6 +1,6 @@
 # Sampling {#sampler}
 
-{{icon:sample}} The SAMPLER engine ({{track:4}} by default) plays a WAV recording. Load samples from the SD card or record one with the built-in microphone. All apps share the `Cardenza/Shared/Samples` folder on the card.
+{{icon:sample}} The SAMPLER engine ({{track:4}} by default) plays a WAV recording. Load samples from the SD card or record one with the built-in microphone. Samples live in `CardenzaSynth/Samples` on the SD card.
 
 Supported files: mono 16-bit PCM WAV, 8–96 kHz sample rate.
 

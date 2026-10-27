@@ -61,6 +61,6 @@ ADD SUB OK PLAY = Backspace · \ · Enter · 空格
 ## 存储与采样 {#web-storage}
 
 - 设置、工程和音色存在浏览器里（IndexedDB），目录结构和 SD 卡一样，刷新页面后还在。清除网站数据会把它们删掉。
-- 「Load WAV…」把电脑上的 WAV 放进共用采样目录 `Shared/Samples`，之后在 SAMPLER 的文件列表里就能选到。
+- 「Load WAV…」把电脑上的 WAV 放进采样目录 `CardenzaSynth/Samples`，之后在 SAMPLER 的文件列表里就能选到。
 
 <!-- keywords: 浏览器存储, 导入 wav, 上传采样, 保存在哪, browser storage, indexeddb, load wav, upload sample -->

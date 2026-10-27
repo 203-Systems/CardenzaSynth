@@ -21,11 +21,12 @@ Cardenza hardware layer (also used by Cardenza-MPE). We consume it; we do not ma
 
 The spec is `docs/app-storage-protocol.md`; keep it in sync with behaviour changes.
 
-- Apps store data only through the OS storage API (`OS/Storage`: `os::storage::AppFolder`, `AppSettings`, `SharedSamplesDirectory`, `WriteFileAtomic`), in their own app folder `Cardenza/Apps/<Author>/<Name>/` (plus `Shared/` for samples). Never hard-code card paths and never call `Device::Storage` from app code (enforced by ValidateArchitecture).
-- `Device::Storage` is the low-level card (root, mount, free space, internal-flash records). Folder knowledge belongs to `OS/Storage`, not to the device layer.
-- Settings are `key=value` text read tolerantly (unknown keys kept); change them in RAM and let the system write them (one second after the last change, on suspend). Volume, key LEDs and screen are device settings (`os::storage::Set…`); projects never carry them. The keyboard, chords and arpeggiators are project data, not settings.
-- An app persists its working state in `Suspend()` (its `Session/` folder) and restores it in `Setup()`; the system destroys the app before it creates the next one.
-- Groovebox project files are format 6 (the play settings are project data: keyboard, per-track chord and arpeggiator); version 5 was an unreleased development format with a PLAY line; the next format change takes version 7.
+- Apps store data only through the OS storage API (`OS/Storage`: `os::storage::AppFolder`, `AppSettings`, `SharedSamplesDirectory`, `WriteFileAtomic`). All data lives under `/CardenzaSynth` on the SD card: `Settings/{system,synth}.cfg`, `Projects/`, `Presets/<engine>/`, `Samples/` and `Session/`. The built-in `Cardenza/Synth` app maps directly to that root; other app ids have isolated folders under `Apps/<Author>/<Name>/` only when needed. Never hard-code card paths and never call `Device::Storage` from app code (enforced by ValidateArchitecture).
+- `Device::Storage` is the low-level card (root, mount, capacity and free space). Folder knowledge belongs to `OS/Storage`, not to the device layer.
+- Use only the current storage paths. Do not automatically discover, import, move or remove data from older layouts. Leave old folders and their contents untouched. Discuss any required migration with the user before implementing or running it.
+- Settings are `key=value` text read tolerantly (unknown keys kept); change them in RAM and let the system write them (one second after the last change, on suspend). A missing or unwritable card leaves changes dirty in RAM, with retries every five seconds; they do not survive power loss. Never read, write or erase NVS settings or recreate an internal-flash fallback. Volume, key LEDs and screen are device settings (`os::storage::Set…`); projects never carry them. Keyboard, chord and arpeggiator settings belong to the project; only `keys.select` is an app preference.
+- An app attempts to persist its working state in `Suspend()` (its `Session/` folder) and restores a saved session in `Setup()`; the system destroys the app before it creates the next one. A session needs a successful SD write; direct power loss does not invoke this lifecycle.
+- Groovebox project files use format 6 for keyboard and per-track chord/arpeggiator data; version 5 was an unreleased development format with a PLAY line. The next format change takes version 7.
 
 ## Groovebox UI Rules
 

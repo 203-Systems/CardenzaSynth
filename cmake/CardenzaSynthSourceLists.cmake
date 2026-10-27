@@ -121,7 +121,6 @@ endfunction()
 function(cardenza_collect_storage_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/OS/Storage/DeviceSettings.cpp
-        ${root_dir}/OS/Storage/Migration.cpp
         ${root_dir}/OS/Storage/Settings.cpp
         ${root_dir}/OS/Storage/Storage.cpp
     )

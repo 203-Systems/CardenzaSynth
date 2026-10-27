@@ -2,10 +2,7 @@
 #include "Devices/LedFrameBuffer.h"
 #include "Devices/LedLight.h"
 
-#include <algorithm>
 #include <array>
-#include <string_view>
-#include <utility>
 
 #include <esp_attr.h>
 #include <esp_lcd_panel_io.h>
@@ -14,8 +11,6 @@
 #include <esp_vfs_fat.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
-#include <nvs.h>
-#include <nvs_flash.h>
 
 #include "cardenzaHAL.h"
 
@@ -33,9 +28,6 @@ constexpr char kCardRoot[] = "/sdcard";
 constexpr std::int64_t kMountRetryUs = 5 * 1000 * 1000;
 std::int64_t lastMountAttemptUs = 0;
 bool mountAttempted = false;
-// Internal flash records (settings kept while the card is missing).
-constexpr char kNvsNamespace[] = "cardenza";
-bool nvsReady = false;
 
 constexpr bool IsValidMatrixPosition(std::size_t row, std::size_t column) {
   return row < static_cast<std::size_t>(Device::LED::kRows) &&
@@ -97,23 +89,6 @@ bool EnsureDisplayPresentSync(esp_lcd_panel_io_handle_t panelIo) {
 
   displayCallbacksInstalled = true;
   return true;
-}
-
-bool InitNvs() {
-  esp_err_t status = nvs_flash_init();
-  if (status == ESP_ERR_NVS_NO_FREE_PAGES || status == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    // Truncated or written by a newer NVS layout: start over (it only holds settings copies).
-    if (nvs_flash_erase() != ESP_OK) {
-      return false;
-    }
-    status = nvs_flash_init();
-  }
-  return status == ESP_OK;
-}
-
-bool ValidInternalKey(std::string_view key) {
-  return !key.empty() && key.size() <= Device::Storage::kInternalKeyMax &&
-         std::all_of(key.begin(), key.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
 }
 
 }  // namespace
@@ -274,57 +249,6 @@ std::uint64_t FreeBytes() {
   return IsMounted() && esp_vfs_fat_info(kCardRoot, &total, &free) == ESP_OK ? free : 0;
 }
 
-bool ReadInternal(std::string_view key, std::string& value) {
-  if (!nvsReady || !ValidInternalKey(key)) {
-    return false;
-  }
-  nvs_handle_t handle = 0;
-  if (nvs_open(kNvsNamespace, NVS_READONLY, &handle) != ESP_OK) {
-    return false;
-  }
-  const std::string name(key);
-  std::size_t length = 0;
-  bool ok = nvs_get_blob(handle, name.c_str(), nullptr, &length) == ESP_OK && length <= kInternalValueMax;
-  std::string data(ok ? length : 0, '\0');
-  if (ok && length != 0) {
-    ok = nvs_get_blob(handle, name.c_str(), data.data(), &length) == ESP_OK && length == data.size();
-  }
-  nvs_close(handle);
-  if (ok) {
-    value = std::move(data);
-  }
-  return ok;
-}
-
-bool WriteInternal(std::string_view key, std::string_view value) {
-  if (!nvsReady || !ValidInternalKey(key) || value.size() > kInternalValueMax) {
-    return false;
-  }
-  nvs_handle_t handle = 0;
-  if (nvs_open(kNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) {
-    return false;
-  }
-  const std::string name(key);
-  const bool ok = nvs_set_blob(handle, name.c_str(), value.data(), value.size()) == ESP_OK && nvs_commit(handle) == ESP_OK;
-  nvs_close(handle);
-  return ok;
-}
-
-bool EraseInternal(std::string_view key) {
-  if (!nvsReady || !ValidInternalKey(key)) {
-    return false;
-  }
-  nvs_handle_t handle = 0;
-  if (nvs_open(kNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) {
-    return false;
-  }
-  const std::string name(key);
-  const esp_err_t status = nvs_erase_key(handle, name.c_str());
-  const bool ok = (status == ESP_OK || status == ESP_ERR_NVS_NOT_FOUND) && nvs_commit(handle) == ESP_OK;
-  nvs_close(handle);
-  return ok;
-}
-
 }  // namespace Storage
 
 std::string Name() {
@@ -344,7 +268,6 @@ bool Init() {
   // CardenzaHAL::Init has just tried to mount the card; Storage::Mount retries later.
   mountAttempted = true;
   lastMountAttemptUs = esp_timer_get_time();
-  nvsReady = InitNvs();
   return true;
 }
 

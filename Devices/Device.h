@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <string_view>
 
 namespace Device {
 
@@ -155,14 +154,6 @@ bool IsMounted();
 // Size and free space of the mounted card in bytes (0 when unknown).
 std::uint64_t CapacityBytes();
 std::uint64_t FreeBytes();
-
-// Small records in internal flash that work without a card: NVS on the device, files in
-// "<working directory>/internal" in the simulator. Keys are 1..15 characters of [a-z0-9_].
-inline constexpr std::size_t kInternalKeyMax = 15;
-inline constexpr std::size_t kInternalValueMax = 4000;
-bool ReadInternal(std::string_view key, std::string& value);
-bool WriteInternal(std::string_view key, std::string_view value);
-bool EraseInternal(std::string_view key);
 
 }  // namespace Storage
 

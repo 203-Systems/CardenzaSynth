@@ -7,7 +7,7 @@
 
 namespace synth::storage {
 
-// The id the groovebox (and the previous UI) registers; its folder is Apps/Cardenza/Synth.
+// The id the groovebox (and the previous UI) registers; its SD folder is /CardenzaSynth.
 inline constexpr std::string_view kAppId = "Cardenza/Synth";
 
 const os::storage::AppFolder& AppFolder();

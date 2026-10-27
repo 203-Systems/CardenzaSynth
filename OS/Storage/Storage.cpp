@@ -19,12 +19,10 @@ namespace os::storage {
 
 namespace {
 
-constexpr std::string_view kRootFolder = "Cardenza";
-constexpr std::string_view kSystemFolder = "System";
-constexpr std::string_view kSharedFolder = "Shared";
+constexpr std::string_view kRootFolder = "CardenzaSynth";
+constexpr std::string_view kSettingsFolder = "Settings";
 constexpr std::string_view kSamplesFolder = "Samples";
 constexpr std::string_view kAppsFolder = "Apps";
-constexpr std::string_view kSettingsFile = "settings.cfg";
 constexpr std::size_t kMaxIdPart = 24;
 constexpr std::size_t kMaxFolderName = 32;
 
@@ -62,17 +60,17 @@ std::string Root()
 
 std::string SystemDirectory()
 {
-  return JoinPath(Root(), kSystemFolder);
+  return JoinPath(Root(), kSettingsFolder);
 }
 
 std::string SystemSettingsPath()
 {
-  return JoinPath(SystemDirectory(), kSettingsFile);
+  return JoinPath(SystemDirectory(), "system.cfg");
 }
 
 std::string SharedDirectory()
 {
-  return JoinPath(Root(), kSharedFolder);
+  return Root();
 }
 
 std::string SharedSamplesDirectory()
@@ -104,12 +102,13 @@ AppFolder::AppFolder(std::string_view id)
 
 std::string AppFolder::Root() const
 {
-  return Valid() ? JoinPath(AppsDirectory(), id_) : std::string();
+  if (!Valid()) return {};
+  return id_ == kPrimaryAppId ? os::storage::Root() : JoinPath(AppsDirectory(), id_);
 }
 
 std::string AppFolder::SettingsPath() const
 {
-  return Valid() ? JoinPath(Root(), kSettingsFile) : std::string();
+  return Valid() ? JoinPath(JoinPath(Root(), kSettingsFolder), id_ == kPrimaryAppId ? "synth.cfg" : "app.cfg") : std::string();
 }
 
 std::string AppFolder::Projects() const
@@ -142,6 +141,11 @@ bool CardPresent()
   return Device::Storage::Mount();
 }
 
+bool CardMounted()
+{
+  return Device::Storage::IsMounted();
+}
+
 std::uint64_t CardCapacityBytes()
 {
   return CardPresent() ? Device::Storage::CapacityBytes() : 0;
@@ -155,7 +159,7 @@ std::uint64_t CardFreeBytes()
 bool EnsureSystemLayout()
 {
   if (!CardPresent()) return false;
-  for (const std::string& path : {Root(), SystemDirectory(), SharedDirectory(), SharedSamplesDirectory(), AppsDirectory()})
+  for (const std::string& path : {Root(), SystemDirectory(), SharedSamplesDirectory()})
     if (!CreateDirectories(path)) return false;
   return true;
 }
@@ -163,7 +167,7 @@ bool EnsureSystemLayout()
 bool EnsureAppLayout(const AppFolder& app, const std::vector<std::string>& presetGroups)
 {
   if (!app.Valid() || !EnsureSystemLayout()) return false;
-  for (const std::string& path : {app.Root(), app.Projects(), app.Presets(), app.Session()})
+  for (const std::string& path : {app.Root(), JoinPath(app.Root(), kSettingsFolder), app.Projects(), app.Presets(), app.Session()})
     if (!CreateDirectories(path)) return false;
   for (const std::string& group : presetGroups)
   {

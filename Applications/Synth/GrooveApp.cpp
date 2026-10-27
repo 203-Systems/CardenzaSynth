@@ -29,7 +29,7 @@ namespace apps {
 
 namespace {
 
-// Session handover files in Apps/Cardenza/Synth/Session.
+// Session handover files in CardenzaSynth/Session.
 constexpr const char* kSessionProject = "session.ccproj";
 constexpr const char* kSessionState = "session.cfg";
 
@@ -101,7 +101,7 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
     rack_.AttachEngine(track, kDefaultKinds[track]);
     sampler_.OnTrackEngineChanged(track, kDefaultKinds[track]);
   }
-  storageReady_ = synth::storage::EnsureLayout();
+  (void)synth::storage::EnsureLayout();
   ApplyMix();
   ApplyMasterFx(synth::ProjectData::DefaultMasterFx());
   // Volume, key LEDs and screen are device settings: the system applied them at boot.
@@ -498,7 +498,7 @@ bool GrooveApp::TrackAudible(std::size_t track) const
 
 void GrooveApp::SetMasterVolume(std::uint8_t percent)
 {
-  // A device setting (System/settings.cfg) on the system's perceptual curve.
+  // A device setting (Settings/system.cfg) on the system's perceptual curve.
   os::storage::SetOutputVolume(percent);
 }
 
@@ -614,7 +614,6 @@ groove::SaveResult GrooveApp::SaveProject(const std::string& name, bool overwrit
   synth::ProjectData project;
   if (!CaptureProject(settings, project, message)) return groove::SaveResult::Failed;
   const auto result = synth::SaveProjectFile(name, project, overwrite);
-  storageReady_ = result != synth::ProjectResult::StorageError;
   switch (result)
   {
     case synth::ProjectResult::Ok: return groove::SaveResult::Ok;
@@ -744,7 +743,7 @@ bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& mes
 // ---------------------------------------------------------------------------------------------
 // System
 
-// Device settings: os::storage keeps them in System/settings.cfg for every app.
+// Device settings: os::storage keeps them in CardenzaSynth/Settings/system.cfg.
 void GrooveApp::SetLedBrightness(std::uint8_t level)
 {
   os::storage::SetKeyLedBrightness(level);
@@ -769,7 +768,7 @@ groove::SystemInfo GrooveApp::QuerySystem() const
 {
   groove::SystemInfo info;
   info.backend = Device::BackendName();
-  info.storageReady = storageReady_;
+  info.storageReady = os::storage::CardMounted();
 #if defined(ESP_PLATFORM)
   info.freeHeap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
   info.minimumFreeHeap = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);

@@ -38,7 +38,7 @@ hold FN + 7 > fn-volume @14,94,212,28 | 主音量：按住 {{key:FN}}，用 {{ke
 
 ## 我的东西存在哪？怎么才不会丢 {#faq-save}
 
-工程用 {{key:FN+S}} 或在 {{scene:SETUP}} {{page:PROJECT}} 保存（见 [[#project-save]]），存在 SD 卡的 `Cardenza/Apps/Cardenza/Synth/Projects`。设置会自动保存。切换应用或关机前的工作状态会自动保留（见 [[#project-session]]）。
+工程要 {{key:FN+S}} 保存，存在 SD 卡的 `CardenzaSynth/Projects`。卡可写时，设置会自动存到 `CardenzaSynth/Settings`；没有卡时，改动只留在 RAM，断电会丢失。session 恢复也需要先成功写入 SD 卡（见 [[#project-session]]）。
 
 <!-- keywords: 丢失, 保存在哪, 自动保存, lost my work, where saved, autosave -->
 
@@ -58,7 +58,7 @@ hold FN + 7 > fn-volume @14,94,212,28 | 主音量：按住 {{key:FN}}，用 {{ke
 
 ## 怎么切到别的应用 {#faq-apps}
 
-Groovebox 是设备上的一个应用。切换应用用设备自带的启动器；切走前的工作状态会保留，回来时恢复。
+Groovebox 是设备上的一个应用。切换应用用设备自带的启动器，切换前先保存工程。重启到启动器不能保证保存 session（见 [[#project-session]]）。
 
 <!-- keywords: 应用, 启动器, 切换应用, 其它固件, app, launcher, switch app -->
 

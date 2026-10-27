@@ -61,6 +61,6 @@ You can also click or touch the keys on the page.
 ## Storage and samples {#web-storage}
 
 - Settings, projects and sounds are stored in the browser (IndexedDB) in the same folders as on the SD card, and survive a reload. Clearing the site's data deletes them.
-- "Load WAV…" puts a WAV from your computer into the shared sample folder `Shared/Samples`, where the SAMPLER's file list finds it.
+- "Load WAV…" puts a WAV from your computer into the sample folder `CardenzaSynth/Samples`, where the SAMPLER's file list finds it.
 
 <!-- keywords: browser storage, indexeddb, load wav, upload sample, where is it saved, 浏览器存储 -->

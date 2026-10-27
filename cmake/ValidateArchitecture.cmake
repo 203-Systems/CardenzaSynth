@@ -101,8 +101,6 @@ if(cardenza_cmake MATCHES "add_subdirectory\\(cardenza\\)")
     message(FATAL_ERROR "Cardenza root CMake path must not expose the ESP-IDF HAL as a host subdirectory")
 endif()
 
-message(STATUS "CardenzaSynth architecture guardrails passed")
-
 # The groovebox UI is portable: it reaches the runtime only through groove::Host and draws only
 # into the framebuffer, so it builds unchanged for the simulator, tests and firmware.
 file(GLOB_RECURSE cardenza_groove_ui_sources RELATIVE "${CARDENZA_ROOT}"
@@ -114,13 +112,12 @@ foreach(relative_path ${cardenza_groove_ui_sources})
 endforeach()
 
 # App storage protocol (docs/app-storage-protocol.md): apps and the synth library reach the card only
-# through OS/Storage; the device layer only provides the card root, mounting and internal records.
+# through OS/Storage; the device layer only provides the card root, mounting and capacity.
 cardenza_require_file("docs/app-storage-protocol.md")
 foreach(relative_path
         "OS/Storage/Storage.cpp"
         "OS/Storage/Settings.cpp"
         "OS/Storage/DeviceSettings.cpp"
-        "OS/Storage/Migration.cpp"
         "Devices/CardenzaSim/Storage.cpp")
     cardenza_require_file("${relative_path}")
     cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "${relative_path}")
@@ -135,3 +132,28 @@ file(GLOB_RECURSE cardenza_storage_client_sources RELATIVE "${CARDENZA_ROOT}"
 foreach(relative_path ${cardenza_storage_client_sources})
     cardenza_forbid_text("${relative_path}" "Device::Storage")
 endforeach()
+
+# Application persistence is SD-only. Check owned sources, excluding the read-only HAL and
+# platform dependencies; the firmware partition table is independent of application storage.
+cardenza_forbid_text("Devices/Cardenza/CMakeLists.txt" "nvs_flash")
+foreach(source_root "Devices" "OS" "Applications" "Library/Synth")
+    file(GLOB_RECURSE cardenza_persistence_sources RELATIVE "${CARDENZA_ROOT}"
+         "${CARDENZA_ROOT}/${source_root}/*.c" "${CARDENZA_ROOT}/${source_root}/*.cc"
+         "${CARDENZA_ROOT}/${source_root}/*.cpp" "${CARDENZA_ROOT}/${source_root}/*.h"
+         "${CARDENZA_ROOT}/${source_root}/*.hpp")
+    foreach(relative_path ${cardenza_persistence_sources})
+        if(relative_path MATCHES "^Devices/Cardenza/cardenza/")
+            continue()
+        endif()
+        file(READ "${CARDENZA_ROOT}/${relative_path}" persistence_source)
+        if(persistence_source MATCHES "ReadInternal|WriteInternal|EraseInternal|kInternalKeyMax|kInternalValueMax")
+            message(FATAL_ERROR "${relative_path} contains a removed internal-storage API; application persistence must use SD storage")
+        endif()
+        string(TOLOWER "${persistence_source}" persistence_source_lower)
+        if(persistence_source_lower MATCHES "(^|[^a-z0-9_])nvs[_./]")
+            message(FATAL_ERROR "${relative_path} contains an NVS dependency; application persistence must use SD storage")
+        endif()
+    endforeach()
+endforeach()
+
+message(STATUS "CardenzaSynth architecture guardrails passed")
