@@ -1,6 +1,7 @@
 #include "Devices/Device.h"
 #include "Devices/DeviceAudio.h"
 #include "Devices/AudioOutputTransfer.h"
+#include "Devices/PcmInputRing.h"
 #include "Devices/Cardenza/AudioDiagnostics.h"
 
 #include <algorithm>
@@ -31,9 +32,7 @@ std::mutex g_audioInputDataMutex;
 std::atomic<bool> g_audioInputEnabled{false};
 std::atomic<bool> g_audioInputOverflow{false};
 constexpr std::size_t kInputRingFrames = 16384;
-std::array<std::int16_t, kInputRingFrames> g_audioInputRing{};
-std::size_t g_audioInputHead = 0;
-std::size_t g_audioInputCount = 0;
+device::audio::PcmInputRing<kInputRingFrames> g_audioInputRing;
 TaskHandle_t g_audioInputTask = nullptr;
 
 std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
@@ -331,16 +330,10 @@ void AudioInputTask(void*)
       }
       const std::size_t count = bytesRead / sizeof(std::int16_t);
       std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
-      if (count > kInputRingFrames - g_audioInputCount)
+      if (!g_audioInputRing.Write(frames.data(), count))
       {
         g_audioInputOverflow.store(true, std::memory_order_relaxed);
-        continue;
       }
-      for (std::size_t i = 0; i < count; ++i)
-      {
-        g_audioInputRing[(g_audioInputHead + g_audioInputCount + i) % kInputRingFrames] = frames[i];
-      }
-      g_audioInputCount += count;
     }
   }
 }
@@ -392,8 +385,7 @@ InputStatus StartInput()
   }
   {
     std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
-    g_audioInputHead = 0;
-    g_audioInputCount = 0;
+    g_audioInputRing.Reset();
     g_audioInputOverflow.store(false, std::memory_order_relaxed);
   }
   if (i2s_channel_enable(inputChannel) != ESP_OK)
@@ -447,13 +439,7 @@ InputStatus ReadInputFrames(std::int16_t* destination,
         ESP_LOGW(kLogTag, "microphone input overflow; recording must stop");
         return InputStatus::Overflow;
       }
-      framesRead = std::min(frameCount, g_audioInputCount);
-      for (std::size_t i = 0; i < framesRead; ++i)
-      {
-        destination[i] = g_audioInputRing[(g_audioInputHead + i) % kInputRingFrames];
-      }
-      g_audioInputHead = (g_audioInputHead + framesRead) % kInputRingFrames;
-      g_audioInputCount -= framesRead;
+      framesRead = g_audioInputRing.Read(destination, frameCount);
     }
     if (framesRead != 0 || timeoutMs == 0 || esp_timer_get_time() >= deadline)
     {
