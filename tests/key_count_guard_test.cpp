@@ -1,4 +1,4 @@
-#include "Devices/Cardenza/cardenza/keyboard/internal/key_debounce.h"
+#include "Devices/Cardenza/CardenzaHAL/keyboard/internal/key_debounce.h"
 
 #include <algorithm>
 #include <iostream>

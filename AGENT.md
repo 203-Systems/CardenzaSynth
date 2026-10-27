@@ -2,7 +2,7 @@
 
 ## CardenzaHAL is a read-only dependency (hard rule)
 
-`Devices/Cardenza/cardenza` is the git submodule https://github.com/203-Systems/CardenzaHAL, the shared
+`Devices/Cardenza/CardenzaHAL` is the git submodule https://github.com/203-Systems/CardenzaHAL, the shared
 Cardenza hardware layer (also used by Cardenza-MPE). We consume it; we do not maintain it.
 
 **User-approved local HAL work:** 6×256 audio DMA, Launcher LED GPIO handoff, keyboard/LED CPU
@@ -16,12 +16,12 @@ retry/readiness, display and keyboard initialization recovery, SD checks after f
 native NEC infrared encoding/carrier. Keep these local; no upstream push was authorized.
 The keyboard's excessive-key interference guard was also explicitly authorized.
 
-- **Never change it.** Do not edit, add, delete, format or generate anything under `Devices/Cardenza/cardenza`, do not commit inside it, and never push to `github.com/203-Systems/CardenzaHAL` (no fixes, branches, tags, force pushes or pull requests), even when the account has the rights. Do not copy HAL code into this repository either.
+- **Never change it.** Do not edit, add, delete, format or generate anything under `Devices/Cardenza/CardenzaHAL`, do not commit inside it, and never push to `github.com/203-Systems/CardenzaHAL` (no fixes, branches, tags, force pushes or pull requests), even when the account has the rights. Do not copy HAL code into this repository either.
 - **Pulling is fine.** `make hal-update` moves the submodule to upstream `main`; then commit only the new submodule pointer here. Never pin it to a commit that is not on upstream `main`.
 - **Reuse it.** Use what the HAL provides through its public headers, included from the HAL root (`"cardenzaHAL.h"`, `"keyboard/keyboard.h"`, `"audio/audio.h"`, `"mic/mic.h"`): keyboard scan and key LEDs (`setLED`, `setLEDGlobalBrightness`, `enableLED`), audio TX with mono / stereo `Init` and codec volume, mic RX channel, display panel handles and backlight, SD card mount, Func button, IR. Do not re-implement a driver or a HAL feature in this repository.
 - **Missing or wrong in the HAL?** Work above it in `Devices/Cardenza` (the device layer, ours) or model it in shared code (`Devices/LedLight.h` models the LED scan for the simulators). Tell the user what the HAL would need, so its maintainer can change it upstream. Never patch the submodule to get there.
 - **Enforced.** `make hal-check` runs before every firmware build and the CMake configure checks too: they fail when the HAL has local changes or a commit that is not on upstream, and they set the submodule's push URL to `no-push://…` so a push cannot leave the machine.
-- The HAL keeps its own rules in `Devices/Cardenza/cardenza/AGENT.md` (ESP-IDF only, native handles, no copyleft code); they matter only for reading it.
+- The HAL keeps its own rules in `Devices/Cardenza/CardenzaHAL/AGENT.md` (ESP-IDF only, native handles, no copyleft code); they matter only for reading it.
 
 ## Workflow
 

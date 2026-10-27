@@ -26,7 +26,7 @@ if(DEFINED COMPONENT_DIR)
             ${AMY_C_SOURCES}
         INCLUDE_DIRS
             ${CARDENZA_ROOT}
-            ${CMAKE_CURRENT_LIST_DIR}/cardenza
+            ${CMAKE_CURRENT_LIST_DIR}/CardenzaHAL
             ${AMY_SRC_DIR}
         REQUIRES
             driver

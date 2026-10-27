@@ -1,6 +1,6 @@
-#include "Devices/Cardenza/cardenza/display/backlight_brightness.h"
-#include "Devices/Cardenza/cardenza/keyboard/internal/key_debounce.h"
-#include "Devices/Cardenza/cardenza/keyboard/internal/led_frame.h"
+#include "Devices/Cardenza/CardenzaHAL/display/backlight_brightness.h"
+#include "Devices/Cardenza/CardenzaHAL/keyboard/internal/key_debounce.h"
+#include "Devices/Cardenza/CardenzaHAL/keyboard/internal/led_frame.h"
 
 #include <cmath>
 #include <iostream>

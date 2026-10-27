@@ -18,7 +18,7 @@
 
   // ---------------------------------------------------------------------------------------
   // Device keys (mirrors RoleFor / kLegend in Applications/Synth/UI/Groove/GrooveTypes.h and
-  // the keycap prints in Devices/Cardenza/cardenza/keyboard/layout.h).
+  // the keycap prints in Devices/Cardenza/CardenzaHAL/keyboard/layout.h).
 
   const LEFT_ROLES = ['ESC', 'TAB', 'FN', 'CTRL'];
   const RIGHT_ROLES = ['ADD', 'SUB', 'ENTER', 'PLAY'];

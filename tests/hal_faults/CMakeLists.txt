@@ -1,4 +1,4 @@
-set(hal_root ${PROJECT_SOURCE_DIR}/Devices/Cardenza/cardenza)
+set(hal_root ${PROJECT_SOURCE_DIR}/Devices/Cardenza/CardenzaHAL)
 set(fake_include ${CMAKE_CURRENT_BINARY_DIR}/sdk-headers)
 # Generate include-name shims in the build tree, keeping test SDK definitions in one file.
 foreach(header esp_log.h esp_attr.h esp_check.h esp_timer.h esp_system.h esp_vfs_fat.h sdmmc_cmd.h

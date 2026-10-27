@@ -53,10 +53,10 @@ endif
 
 all: build
 
-# CardenzaHAL (Devices/Cardenza/cardenza) is the upstream submodule
+# CardenzaHAL (Devices/Cardenza/CardenzaHAL) is the upstream submodule
 # https://github.com/203-Systems/CardenzaHAL, a read-only dependency (AGENT.md): no local changes, no
 # local commits, never a push. hal-check enforces it before every firmware build; hal-update pulls.
-HAL_DIR := Devices/Cardenza/cardenza
+HAL_DIR := Devices/Cardenza/CardenzaHAL
 HAL_NO_PUSH := no-push://CardenzaHAL-is-a-read-only-dependency
 
 hal-check:
