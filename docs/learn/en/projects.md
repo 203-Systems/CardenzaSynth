@@ -1,6 +1,6 @@
 # Projects and storage {#projects}
 
-A **project** is one song: the four tracks' engines and sounds, every pattern, the arrangement, the mix, track and master effects, BPM and swing. Projects live on the SD card.
+A **project** is one song: the four tracks' engines and sounds, every pattern, the arrangement, the mix, track and master effects, BPM and swing. Projects live on the SD card; they are saved, loaded and created on the PROJECT and FILES pages of {{scene:SETUP}}.
 
 | Kept in the project | Not in the project (saved automatically) |
 |---|---|
@@ -11,20 +11,21 @@ A **project** is one song: the four tracks' engines and sounds, every pattern, t
 ## Save, save as, new, open {#project-save}
 
 {{strip
-FN+S > save-name @8,40,222,30 | {{key:FN+S}}: save. A project without a name asks for one first (it suggests SONG).
-OK > save-done @0,123,120,12 | {{key:OK}}: saved, SAVED shows at the bottom.
-- > tape-project @cells:1,1-1,4 | {{scene:TAPE}} {{page:PROJECT}}: SAVE, SAVE AS, LOAD, NEW.
+FN+S > save-name @footer | {{key:FN+S}} on any screen (or SAVE in the FN menu): saved, SAVED and the name show at the bottom. A project without a name gets the first free one: SONG 01, SONG 02…
+hold ESC + G4 > setup-project @cells:1,1-1,4 | {{scene:SETUP}} {{page:PROJECT}}: SAVE, SAVE AS (type your own name), LOAD, NEW.
+CTRL > setup-files @content | {{page:FILES}}: the projects on the card; {{key:ADD}} / {{key:SUB}} choose, {{key:OK}} loads.
 }}
 
-{{shot:tape-project|The PROJECT page.
+{{shot:setup-project|The PROJECT page of SETUP.
 mark cell:1,1 = SAVE: save now
 mark cell:1,2 = SAVE AS: save under a new name
 mark cell:1,3 = LOAD: open the FILES list
 mark cell:1,4 = NEW: start a new project
-mark 100,85,48,10 = UNSAVED: changes not saved yet
+mark 108,74,46,10 = UNSAVED: changes not saved yet
 }}
 
-- With unsaved changes the status line says UNSAVED; creating or opening another project asks first.
+- With unsaved changes the PROJECT page says UNSAVED next to the name, and SAVE in the FN menu reads UNSAVED; creating or opening another project asks first ({{key:OK}} = yes, {{key:ESC}} = no).
+- The FN menu on PROJECT and FILES has NEW, LOAD and SAVE AS. More in [[#setup-project]] and [[#setup-files]].
 - A NEW project has the default four tracks: {{track:1}} {{track:2}} {{track:3}} {{track:4}}.
 - Projects are written as format v4 (`.ccproj`); v1–v3 and the v5 of development builds also load. Writing is atomic: a temporary file is written first and then replaces the old one, so a power cut never leaves a broken project.
 
@@ -71,7 +72,7 @@ Reading is forgiving: broken lines are skipped and unknown keys are kept as they
 
 ## No card, or a bad card {#storage-card}
 
-{{shot:setup-system|FN panel 5 SYSTEM: the SD card state.
+{{shot:setup-system|SETUP SYSTEM: the SD card state.
 mark 8,66,150,10 = SD card: READY / no card
 mark cells:1,1-1,3 = VOLUME · KEY LED · SCREEN
 }}

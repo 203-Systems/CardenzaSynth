@@ -5,7 +5,7 @@
 {{keymap:最左列是导航，中间 4×8 弹琴，右边 4×4 是屏幕格子，最右列调值和播放
 ESC = ESC 场景
 TAB = TAB 轨道
-FN = FN 第二功能
+FN = FN 当前画面的菜单
 CTRL = CTRL 页面
 PADS = 演奏区 PADS
 GRID = GRID 4×4
@@ -29,25 +29,26 @@ PLAY = 播放
 
 | 键 | {{icon:tap}} 单击 | {{icon:hold}} 按住 |
 |---|---|---|
-| {{key:ESC}} | 循环场景 {{scene:INSTR}} → {{scene:SEQ}} → {{scene:TAPE}}；弹窗里是取消 | 场景地图：GRID 三列 = 三个场景 |
+| {{key:ESC}} | 循环场景 {{scene:INSTR}} → {{scene:SEQ}} → {{scene:TAPE}}；在 {{scene:SETUP}} 里是返回；弹窗里是取消 | 场景地图：GRID 四列 = 四个场景，第 4 列 = SETUP |
 | {{key:TAB}} | 下一条轨道 {{track:1}} → {{track:2}} → {{track:3}} → {{track:4}} | 轨道地图：选轨、静音、独奏、音序开关 |
-| {{key:FN}} | 打开 / 关闭 SETUP（常驻的 FN 面板） | FN 面板 + 第二功能，见 [[#fn-panel]] |
+| {{key:FN}} | 打开 / 关闭当前画面的菜单 | FN 菜单 + 第二功能，见 [[#fn-menu]] |
 | {{key:CTRL}} | 下一页 | 页面地图：当前场景的所有页面 |
 
 {{shot:map-esc|按住 ESC：屏幕变成场景地图，GRID 的列就是场景。
 mark cells:1,1-4,1 = 1 INSTR
 mark cells:1,2-4,2 = 2 SEQ（当前）
 mark cells:1,3-4,3 = 3 TAPE
-mark strip:ESC = 按住的 ESC：全亮
+mark cells:1,4-4,4 = 4 SETUP：只能从这里进
+mark strip:ESC = 按住的 ESC
 key ESC = 按住
-key G1-G3 = 场景：当前全亮、其它半亮
+key GRID = 场景：当前全亮、其它半亮
 }}
 
 屏幕左边缘的四个色块就是这四个键（从上到下 ESC 红橙、TAB 青、FN 黄、CTRL 紫）。色块中间的小点：
 
 | 色块 | 小点 |
 |---|---|
-| {{key:ESC}} | 3 点 = 3 个场景，白点是当前场景 |
+| {{key:ESC}} | 4 点 = 4 个场景，白点是当前场景 |
 | {{key:TAB}} | 4 点 = 4 条轨道（轨道色），白点是当前轨 |
 | {{key:FN}} | 1 点，录音待命时变红 |
 | {{key:CTRL}} | 点数 = 当前场景的页数，白点是当前页 |
@@ -112,7 +113,7 @@ G6 > tape-mix @cells:1,2-4,2 | MIX：每一列是一条轨道的选中、静音�
 | | 规则 |
 |---|---|
 | {{hold:ESC}} {{hold:TAB}} {{hold:CTRL}} | **按住左侧任一键时，用右侧 GRID 选择**。地图上的每一格就在它对应的那个键的位置 |
-| {{hold:FN}} | 按住 FN 时，**任何键都不做平时的事**：有 FN 功能的键只做 FN 功能（灯亮），没有的什么也不做（灯灭） |
+| {{hold:FN}} | 按住 FN 时，**任何键都不做平时的事**：GRID 是菜单，有 FN 功能的键只做 FN 功能（灯亮），没有的什么也不做（灯灭） |
 | {{icon:tap}} | 修饰键按住期间被组合用过，松开时就不再触发它的单击动作 |
 | {{icon:hold}} | 按住的判定是 250 毫秒；{{key:ADD}} / {{key:SUB}} 按住 0.4 秒后开始连发，连发 12 次后步长 ×5 |
 

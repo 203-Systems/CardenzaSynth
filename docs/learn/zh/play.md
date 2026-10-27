@@ -1,6 +1,6 @@
 # 演奏 {#play}
 
-演奏区（PADS）永远在弹当前轨。键盘排列、音阶、八度、力度、和弦和琶音（ARP）四条轨道通用，在 FN 面板的 **1 KEYS**、**2 CHORD**、**3 ARP** 三页里设置（见 [[#fn-pages]]）。这些是应用设置：开机恢复，载入或新建工程都不会改变它们。
+演奏区（PADS）永远在弹当前轨。键盘排列、音阶、八度、力度、和弦和琶音（ARP）四条轨道通用，在 {{scene:SETUP}} 的 **KEYS**、**CHORD**、**ARP** 三页里设置（见 [[#setup-keys]]）。这些是应用设置：开机恢复，载入或新建工程都不会改变它们。
 
 {{keymap:PADS：中间 4×8，永远弹当前轨
 PADS = 演奏区
@@ -26,7 +26,7 @@ key r0c1-r1c8 = 高一个八度
 | **CHROMA 半音** | 每个键一个半音，从左到右、从下到上 | 全部 {{led:half}} |
 
 {{strip
-hold FN + 1, G1 > keys-scale @cell:1,1 | FN 面板 1 KEYS：点 LAYOUT 切换。SCALE：每个键都在音阶里。
+G1 > keys-scale @cell:1,1 | SETUP KEYS：点 LAYOUT 切换。SCALE：每个键都在音阶里。
 G1 > keys-chroma @cell:1,1 | 再点：CHROMA，每个键一个半音。
 G1 > setup-keys @cell:1,1 | 再点：回到 PIANO。
 }}
@@ -43,13 +43,14 @@ G1 > setup-keys @cell:1,1 | 再点：回到 PIANO。
 
 KEYS 页的 SCALE 和 ROOT 选音阶和根音（C–B）。音阶决定 SCALE 排列里放哪些音、和弦怎么叠、LOCK 管哪些键。
 
-{{shot:setup-keys|FN 面板 1 KEYS 页。
+{{shot:setup-keys|SETUP 的 KEYS 页。
 mark cell:1,1 = LAYOUT 排列
 mark cell:1,2 = SCALE 音阶
 mark cell:1,3 = ROOT 根音
 mark cell:1,4 = OCTAVE 八度
 mark cell:2,1 = VELO 力度
 mark cell:2,2 = LOCK 锁定
+mark cell:2,3 = SELECT 单选 / 多选
 mark cells:3,1-4,4 = 当前音阶在键盘上
 }}
 
@@ -64,8 +65,8 @@ mark cells:3,1-4,4 = 当前音阶在键盘上
 KEYS 页的 OCTAVE（−3 到 +3）把整个键盘上下移动。最快的方法：
 
 {{strip
-hold FN + 8 > fn-octave @14,102,212,26 | 按住 {{key:FN}}，{{key:8}} 升八度。屏幕底部弹出新值。
-hold FN + I > fn-held @cell:1,4 | {{key:I}} 降八度。也可以在 KEYS 页直接调 OCTAVE。
+hold FN + 8 > fn-octave @14,94,212,28 | 按住 {{key:FN}}，{{key:8}} 升八度、{{key:I}} 降八度。屏幕底部弹出新值。
+G4 > setup-keys @cell:1,4 | 也可以在 SETUP KEYS：点 OCTAVE（GRID 4），用 {{key:ADD}} / {{key:SUB}} 调。
 }}
 
 <!-- keywords: 八度, 移调, 升高, 降低, 高音, 低音, octave, transpose, shift, higher, lower -->
@@ -90,11 +91,11 @@ PIANO 和 CHROMA 排列下，音阶外的键怎么办：
 
 ## 和弦 {#play-chords}
 
-FN 面板的 **2 CHORD** 页让一个键弹出一个和弦：
+SETUP 的 **CHORD** 页让一个键弹出一个和弦：
 
 {{strip
-hold FN + 2 > setup-chord @cell:1,1 | {{key:FN+2}}：CHORD 页。CHORD 是 OFF。
-G1 > chord-on @cell:1,1 @14,48,200,20 | 点 CHORD：TRIAD。图上写着根音上的键会弹哪几个音（C3 PLAYS C3 E3 G3）。
+hold CTRL + G4 > setup-chord @cell:1,1 | 在 {{scene:SETUP}} 里按住 {{key:CTRL}} 按 G4：CHORD 页。CHORD 是 OFF。
+G1 > chord-on @cell:1,1 @9,43,170,20 | 点 CHORD：TRIAD。图上写着根音上的键会弹哪几个音（C3 PLAYS C3 E3 G3）。
 hold r3c1~C > chord-held @cells:3,1-4,2 | 按一个键：三个音一起响，组成音在屏幕和演奏区上都亮。
 }}
 
@@ -105,8 +106,8 @@ hold r3c1~C > chord-held @cells:3,1-4,2 | 按一个键：三个音一起响，�
 {{shot:chord-held|按住 C：和弦 C E G 三个音全亮。
 mark cell:1,1 = CHORD 和弦
 mark cell:1,2 = VOICING 转位
-mark 9,48,140,9 = 根音上的键弹出的音
-mark 9,58,180,9 = 这个调的每一级
+mark 9,43,140,10 = 根音上的键弹出的音
+mark 9,53,170,10 = 这个调的每一级
 mark cells:3,1-4,4 = 组成音（蓝）
 key r3c1 r3c3 r3c5 = 和弦音：全亮
 }}
@@ -115,7 +116,7 @@ key r3c1 r3c3 r3c5 = 和弦音：全亮
 
 ## 琶音 ARP {#play-arp}
 
-FN 面板的 **3 ARP** 页：按住几个键，它们按顺序轮流发声。
+SETUP 的 **ARP** 页：按住几个键，它们按顺序轮流发声。
 
 {{shot:arp-running|ARP UP：按住 C E G，三个音从下往上轮流弹。白色的柱是正在发声的那一步。
 mark cell:1,1 = 模式

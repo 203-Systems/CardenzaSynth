@@ -14,7 +14,7 @@ G1 > sampler-files @0,13,240,10 | FILE opens the sample list; type to filter.
 OK > instr-sampler-sample @cells:1,3-1,4 | {{key:ADD}} / {{key:SUB}} choose, {{key:OK}} loads. {{key:PLAY}} previews.
 }}
 
-Once loaded, the pads play the sample; ROOT decides which key plays it at its original pitch.
+On every page of a SAMPLER track the FN menu also has SAMPLES (the list), RECORD and PREVIEW. Once loaded, the pads play the sample; ROOT decides which key plays it at its original pitch.
 
 > [!tip] In the web simulator "Load WAV…" puts a WAV from your computer into the shared sample folder (see [[#web-storage]]).
 

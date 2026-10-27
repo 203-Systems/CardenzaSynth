@@ -1,8 +1,27 @@
 # 版本 {#changelog}
 
-说明书的版本号在右上角（例如 v1.1.4），后面是它所描述的固件版本（代码提交号，带 `+` 表示包含未提交的改动）和生成日期。说明书里的参数表、截图和按键灯都是从固件代码直接生成的，所以总是和那个固件版本一致。
+说明书的版本号在右上角（例如 v1.2.0），后面是它所描述的固件版本（代码提交号，带 `+` 表示包含未提交的改动）和生成日期。说明书里的参数表、截图和按键灯都是从固件代码直接生成的，所以总是和那个固件版本一致。
 
 <!-- keywords: 版本, 更新, 更新日志, 版本号, version, changelog, release notes, what's new -->
+
+## 1.2.0 · 2026-10-27 {#version-1-2-0}
+
+四个场景，FN 变成当前画面的菜单：
+
+- **四个场景，分两类**：1 INSTR（当前轨的声音）、2 SEQ（当前轨弹什么）、3 TAPE（四轨合在一起：SESSION、SONG、MIX、SENDS、FX），以及新的 **4 SETUP**（全局与设置：PROJECT、FILES、KEYS、CHORD、ARP、SYSTEM）。见 [[#nav-scenes]] 和 [[#setup]]。
+- 单击 ESC 只在 1 → 2 → 3 之间循环。进 SETUP 要按住 ESC 再按 GRID 第 4 列（场景地图现在有四列），或用 FN 菜单的 SETUP；在 SETUP 里单击 ESC 回到进来之前的场景。
+- PROJECT 和 FILES 从 TAPE 搬到 SETUP。工程页还多了 PLAY（LOOP / SONG）。FN+S 不再问名字：还没起名的工程存成 SONG 01、SONG 02……
+- **FN 是当前画面的菜单**（[[#fn-menu]]）：按住时 GRID 显示这一页能做的事（复制、粘贴、音色、发射、恢复默认……），每个画面最下面一行都是 SAVE、TAP、REC、SETUP；单击 FN 菜单常驻。FN 面板、QUICK 页、FN SETUP 和 FN + 1…5 都去掉了；设置在 SETUP 的 KEYS、CHORD、ARP、SYSTEM 页。FN + CTRL 改成上一页，FN + ADD / SUB 是大步调整。
+- 开机进入 1 INSTR 的 VOICE 页（当前轨仍是 T2）。
+- 播放时的 STEP 视图：播放头走进的那一步绿色闪一下并保持绿框，后面不留拖尾。
+
+<!-- keywords: 1.2.0, setup, 设置, 四个场景, fn 菜单, 菜单, 设置搬家, fn 面板, 开机 -->
+
+## 1.1.5 · 2026-10-27 {#version-1-1-5}
+
+- ROLL 里单击 GRID 是「走到这一步」：只选中这一步，再点放开；那一步的音在演奏区全亮，没音的步演奏区只是很暗的键盘。播放时播放头那一步的音也亮。要多选，在 FN 面板 1 KEYS 页把 SELECT 改成 MULTI。
+
+<!-- keywords: 1.1.5, 多选, 单选, 走到, 当前步, select -->
 
 ## 1.1.4 · 2026-10-26 {#version-1-1-4}
 

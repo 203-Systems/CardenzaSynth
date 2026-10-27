@@ -1,10 +1,12 @@
 # 3 TAPE 走带 {#tape}
 
-TAPE 是整首歌：哪一段放哪些 Pattern、四轨怎么混、总线效果和工程文件。七页（{{key:CTRL}} 翻）：
+TAPE 是四轨合在一起：哪一段放哪些 Pattern、整首歌的编排、混音、发送和总线效果。五页（{{key:CTRL}} 翻）：
 
-{{page:SESSION}} {{page:SONG}} {{page:MIX}} {{page:SENDS}} {{page:FX}} {{page:PROJECT}} {{page:FILES}}
+{{page:SESSION}} {{page:SONG}} {{page:MIX}} {{page:SENDS}} {{page:FX}}
 
-<!-- keywords: 走带, 整首歌, 编排, 混音, 工程, tape, song, arrangement, mixer, project -->
+保存、载入和工程的 BPM 属于全局，在 {{scene:SETUP}} 里：见 [[#setup-project]] 和 [[#setup-files]]。
+
+<!-- keywords: 走带, 整首歌, 编排, 混音, 四轨, tape, song, arrangement, mixer -->
 
 ## SESSION：像 Ableton 那样发射 {#tape-session}
 
@@ -28,7 +30,8 @@ PLAY, G6 > tape-session-queued @cell:2,2 | 播放中点一格：这一轨在这�
 
 - 点格子：让这一轨播这个 Pattern。最后一个 Pattern 之后的「+」新建一个。
 - {{key:ADD}} / {{key:SUB}}：上下移动光标并滚动；{{key:OK}}：发射光标所在的整行（所有有这个 Pattern 的轨道）。
-- {{key:FN+OK}}：把每轨正在播（或排队）的 Pattern 记成 SONG 的新一行。
+- {{key:FN+OK}}：把每轨正在播（或排队）的 Pattern 记成 SONG 的新一段。
+- FN 菜单：**LAUNCH**（发射光标所在的行）和 **ADD** TO SONG（同 {{key:FN+OK}}）。
 - 从 SESSION 发射会退出 SONG 模式。正在播的格子是绿色底、▶ 和走动的播放头。
 
 <!-- keywords: session, 片段, 发射, 场景发射, ableton, live, clip, launch, scene launch -->
@@ -49,7 +52,8 @@ mark 196,108,32,12 = LOOP / SONG 模式
 - 点格子选中，再点一次同一格在「Pattern」和「小节数」之间切换。`--` 表示这一轨在这一段不出声。
 - {{key:ADD}} / {{key:SUB}}：换这一格的 Pattern，或改这一段的小节数（1–16）。
 - {{key:OK}}：从这一段开始播（自动进入 SONG 模式）；{{key:FN+OK}}：切换 SONG / LOOP。
-- {{key:FN+C}} / {{key:FN+V}} / {{key:FN+X}} / {{key:FN+D}}：复制、粘贴、删除、复制一段。
+- {{key:FN+C}} / {{key:FN+V}} / {{key:FN+X}} / {{key:FN+D}}：复制、粘贴（插在光标之后）、删除、复制一段。FN 菜单里也有（COPY、PASTE、DELETE、DUP，写着 ROW n），另有 PLAY 切换 SONG / LOOP。
+- [[#setup-project]] 上的 PLAY 开关就是同一个 SONG / LOOP 设置。
 
 SONG 模式下每段播放 xN 小节（1 小节 = 16 步）后进入下一段，结尾回到第一段。LOOP 模式即各轨循环自己的当前 Pattern。
 
@@ -72,6 +76,7 @@ key G5-G8 = 静音
 
 - GRID 每列一条轨道：行 1 选中、行 2 静音、行 3 独奏、行 4 音序开关。
 - {{key:ADD}} / {{key:SUB}} 调选中轨的音量；{{key:OK}} 在选中轨和 MASTER 之间切换。
+- FN 菜单：**UNMUTE** ALL 全部取消静音、**UNSOLO** ALL 全部取消独奏（有轨道被静音 / 独奏时才能用）。
 
 > [!tip] 按住 {{key:TAB}} 在任何画面都能用同一个布局（轨道地图）。
 
@@ -89,7 +94,7 @@ key G1-G16 = 开着：半亮 · 关着：灭
 }}
 
 - 点格子选中（同时选中那一轨），{{key:ADD}} / {{key:SUB}} 调整。关着的格子变暗。
-- {{key:OK}}：CHORUS 换模式，其它格子关闭 / 恢复原值；{{key:FN+OK}}：恢复默认。
+- {{key:OK}}：CHORUS 换模式，其它格子关闭 / 恢复原值；{{key:FN+OK}} 或 FN 菜单的 RESET：恢复默认。
 
 <!-- keywords: 发送, 效果发送, 混响发送, 延迟发送, sends, send, aux, reverb send, delay send -->
 
@@ -104,35 +109,6 @@ mark cells:3,1-3,4 = COMP · LOW · HIGH · TAPE
 mark cells:4,1-4,4 = 回声序列 · 混响衰减
 }}
 
-{{key:OK}} 在 DELAY 上切换时值；{{key:FN+OK}} 恢复默认。详见 [[#fx-master]]。
+{{key:OK}} 在 DELAY 上切换时值；{{key:FN+OK}}（或 FN 菜单的 RESET）恢复默认。详见 [[#fx-master]]。
 
 <!-- keywords: 总线, 主效果, 压缩, 均衡, 饱和, master fx, bus, compressor, eq, tape saturation, master delay, master reverb -->
-
-## PROJECT：工程 {#tape-project}
-
-{{shot:tape-project|PROJECT：工程名、是否未保存、四轨摘要。
-mark cell:1,1 = SAVE
-mark cell:1,2 = SAVE AS
-mark cell:1,3 = LOAD
-mark cell:1,4 = NEW
-mark cell:2,1 = BPM
-mark cell:2,2 = SWING
-mark cell:2,3 = TAP 敲速度
-mark 100,85,48,10 = UNSAVED：有没保存的改动
-}}
-
-- 行 1：SAVE（保存）、SAVE AS（另存为）、LOAD（打开 FILES）、NEW（新建，有未保存的改动时先确认）。
-- 行 2：BPM、SWING、TAP（敲击速度）。
-
-<!-- keywords: 工程, 保存, 另存, 新建, 打开, project, save, save as, new, load, open -->
-
-## FILES：工程列表 {#tape-files}
-
-SD 卡上的所有工程。{{key:ADD}} / {{key:SUB}} 选择，{{key:OK}} 载入；有未保存的改动时先问。
-
-{{shot:tape-files|FILES：卡上还没有工程时。
-mark content = 工程列表
-mark footer = FILES 页
-}}
-
-<!-- keywords: 文件, 工程列表, 载入工程, 打开工程, files, load project, open project, project list -->

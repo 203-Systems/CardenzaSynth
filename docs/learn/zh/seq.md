@@ -25,7 +25,7 @@ OK > seq-notes @footer | 再单击：回到 ROLL。{{key:OK}} 的灯 ROLL 时 {{
 | | {{icon:roll}} ROLL | {{icon:step}} STEP |
 |---|---|---|
 | 屏幕 | 时间 × 音高，音符画成条 | 4×4 步格，写着音名或和弦 |
-| GRID 单击 | 选中 / 取消选中这一步 | 把写入光标移到这一步 |
+| GRID 单击 | 走到这一步（再点一次放开）；SELECT MULTI 时可多选 | 把写入光标移到这一步 |
 | 弹 PADS | 有选中的步时加 / 删音符；没有时就是弹奏（REC 打开时实时录音） | 写进光标所在的步，松开后光标前进 |
 | {{key:ADD}} / {{key:SUB}} | 调整选中的步 | 移动光标 |
 
@@ -52,7 +52,7 @@ hold r3c1~C + G1 > seq-hold-tap @27,52,14,10 | 不松手，点 GRID 1：第 1 �
 hold r3c1~C + G5, G9 > seq-notes @26,119,198,9 | 继续点 5、9……换个音再点几步。
 }}
 
-- **选中编辑**：单击 GRID 选中一步（可以多选），见 [[#seq-edit]]。
+- **走到一步**：单击 GRID 走到那一步，那一步的音在演奏区全亮，一眼就知道这一步有没有音；再点同一步放开。见 [[#seq-edit]]。
 - **实时录音**：打开 REC（{{key:FN+PLAY}} 或 RECORD 面板），播放，然后弹，见 [[#seq-transport]]。
 
 <!-- keywords: 钢琴卷帘, 卷帘窗, 音高, 时值, 音符长度, piano roll, roll, pitch, note length, duration -->
@@ -81,13 +81,24 @@ key OK = STEP：全亮
 }}
 
 - 每次前进几步在 RECORD 面板的 STEP 里设（1 / 2 / 4）。
-- 写进去的音用 KEYS 页的力度（VELO），长度一步。之后可以切回 ROLL 细调。
+- 写进去的音用 SETUP KEYS 的力度（VELO），长度一步。之后可以切回 ROLL 细调。
+- 播放时，播放头走进的那一步绿色闪一下，然后保持绿框直到下一步；走过的步不留拖尾。
+- FN 菜单里的 VIEW 也能切换视图，SEQ 的每一页都行。
 
 <!-- keywords: 步进录制, 一步一步, 逐步输入, 输入音符, 休止, step record, step input, step entry, rest, cursor -->
 
 ## 选中与编辑 {#seq-edit}
 
-在 ROLL 视图里单击 GRID 选中一步或几步，然后：
+在 ROLL 视图里单击 GRID **走到一步**：只选中这一步，换一步就跟着走过去，再点同一步放开（演奏区又回到弹奏）。走到的那一步，它的音在演奏区全亮；没有音的步，演奏区只有很暗的键盘。想一次选几步，在 {{scene:SETUP}} 的 KEYS 页把 **SELECT** 改成 MULTI（见 [[#setup-keys]]）。
+
+{{shot:seq-selected|走到第 5 步：这一列高亮，这一步的音在演奏区全亮。
+mark 75,15,14,104 = 走到的这一步
+key G5 = 当前步：全亮
+key r3c1 = 这一步的音：全亮
+key PADS = 别的键：很暗
+}}
+
+播放时（没有选中步），播放头走到的那一步，它的音也在演奏区亮起来。走到一步之后：
 
 {{strip
 G5 > seq-selected @75,15,14,104 | 单击 GRID 5：第 5 步选中，这一列高亮。
@@ -115,7 +126,7 @@ FN+PLAY > seq-recording @strip:PLAY @footer | {{key:FN+PLAY}}：录音待命（R
 r3c1~C > seq-recording @0,13,240,110 | 播放中弹 PADS：音符按弹的位置写进 Pattern（叠录）。
 }}
 
-- REC 也可以在 RECORD 面板里点开。录音待命时左侧 FN 色块里的点变红。
+- REC 也可以在 RECORD 面板里点开，或用 FN 菜单的 REC。录音待命时左侧 FN 色块里的点变红。
 - 录音是叠录，不会删掉已有的音，对齐到微步。ARP 打开时录的是 ARP 弹出的音。
 - 弹错了可以选中那一步用 {{key:FN+X}} 清除，或用 {{key:FN+Q}} 量化。
 
@@ -162,7 +173,7 @@ key G5-G12 = take
 r3c1~C, r3c3~E, r3c5~G > seq-keyboard | 随便弹。停顿超过 2.5 秒、换轨、超过 48 个音或 60 秒，就开始新的一段（take）。
 hold OK > record @cells:2,1-3,4 | 按住 {{key:OK}}：中间两行是最近 8 段 take，编号、轨道、音符数。
 G6 > record @cell:2,2 @cells:4,1-4,4 | 点一个 take：第 4 行是它这一小节放进去的样子。{{key:ADD}} / {{key:SUB}} 换小节。
-OK > record-placed @14,102,212,26 | {{key:OK}}：放进这一轨的**新 Pattern**，原有的一个音都不动。
+OK > record-placed @14,94,212,28 | {{key:OK}}：放进这一轨的**新 Pattern**，原有的一个音都不动。
 }}
 
 - 没有空 Pattern 时会提示，用 {{key:FN+OK}} 合并进当前 Pattern。
@@ -210,7 +221,7 @@ mark 9,40,222,80 = 四轨：音源 · Pattern · 步数标尺
 
 ## 复制、粘贴、清除、量化 {#seq-tools}
 
-按住 {{key:FN}} 用字母键（音符页里作用于选中的步；没有选中时作用于整个 Pattern）：
+按住 {{key:FN}} 用字母键，或在 FN 菜单里选（COPY、PASTE、CLEAR、QUANT、DUP，第二行写着 STEPS 还是 PATTERN）。音符页里作用于选中的步；没有选中时，以及在 PATTERN、TRACK 页，作用于整个 Pattern：
 
 {{keymap:按住 FN 的编辑键
 FN = 按住
@@ -229,6 +240,8 @@ T = 敲速度
 | {{key:FN+Q}} | 量化到整步 |
 | {{key:FN+D}} | 复制 Pattern 到下一个空槽 |
 | {{key:FN+T}} | 敲击设定速度 |
+
+完整的 SEQ 菜单（还有 VIEW、RECORD、SCOPE）见 [[#fn-menus]]。
 
 > [!warn] 没有撤销，所以清除整个 Pattern 前一定会确认。
 

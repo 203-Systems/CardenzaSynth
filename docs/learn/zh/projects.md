@@ -1,6 +1,6 @@
 # 工程与存储 {#projects}
 
-一个**工程**是一首歌：四条轨道的音源和音色、所有 Pattern、编排、混音、每轨效果和总线效果、BPM 和 Swing。工程存在 SD 卡上。
+一个**工程**是一首歌：四条轨道的音源和音色、所有 Pattern、编排、混音、每轨效果和总线效果、BPM 和 Swing。工程存在 SD 卡上，在 {{scene:SETUP}} 的 PROJECT 和 FILES 页保存、载入、新建。
 
 | 存在工程里 | 不在工程里（自动保存） |
 |---|---|
@@ -11,20 +11,21 @@
 ## 保存、另存、新建、打开 {#project-save}
 
 {{strip
-FN+S > save-name @8,40,222,30 | {{key:FN+S}}：保存。还没有名字时先起名（默认建议 SONG）。
-OK > save-done @0,123,120,12 | {{key:OK}}：存好了，底部显示 SAVED。
-- > tape-project @cells:1,1-1,4 | {{scene:TAPE}} {{page:PROJECT}}：SAVE、SAVE AS、LOAD、NEW。
+FN+S > save-name @footer | 任何画面按 {{key:FN+S}}（或 FN 菜单的 SAVE）：存好了，底部显示 SAVED 和名字。还没有名字的工程自动用第一个空着的名字：SONG 01、SONG 02……
+hold ESC + G4 > setup-project @cells:1,1-1,4 | {{scene:SETUP}} {{page:PROJECT}}：SAVE、SAVE AS（自己起名）、LOAD、NEW。
+CTRL > setup-files @content | {{page:FILES}}：卡上的工程；{{key:ADD}} / {{key:SUB}} 选择，{{key:OK}} 载入。
 }}
 
-{{shot:tape-project|PROJECT 页。
+{{shot:setup-project|SETUP 的 PROJECT 页。
 mark cell:1,1 = SAVE 保存
 mark cell:1,2 = SAVE AS 另存为
 mark cell:1,3 = LOAD 打开 FILES 列表
 mark cell:1,4 = NEW 新建
-mark 100,85,48,10 = UNSAVED：有没保存的改动
+mark 108,74,46,10 = UNSAVED：有没保存的改动
 }}
 
-- 有未保存的改动时，状态行显示 UNSAVED；新建或打开别的工程前会先确认。
+- 有未保存的改动时，PROJECT 页工程名旁边写着 UNSAVED，FN 菜单的 SAVE 也写着 UNSAVED；新建或打开别的工程前会先确认（{{key:OK}} 是，{{key:ESC}} 否）。
+- PROJECT 和 FILES 页的 FN 菜单有 NEW、LOAD、SAVE AS。详见 [[#setup-project]] 和 [[#setup-files]]。
 - NEW 的工程是默认的四轨：{{track:1}} {{track:2}} {{track:3}} {{track:4}}。
 - 工程文件格式是 v4（`.ccproj`），能读 v1–v3 和开发版写的 v5。写文件是原子的：先写临时文件再替换，中途断电也不会坏掉。
 
@@ -71,7 +72,7 @@ arp.latch=1
 
 ## 没插卡或卡坏了 {#storage-card}
 
-{{shot:setup-system|FN 面板 5 SYSTEM：SD 卡状态。
+{{shot:setup-system|SETUP SYSTEM：SD 卡状态。
 mark 8,66,150,10 = SD 卡：READY / 没有卡
 mark cells:1,1-1,3 = 音量 · 按键灯 · 屏幕
 }}

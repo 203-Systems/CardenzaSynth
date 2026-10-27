@@ -48,6 +48,8 @@ key PADS = 能发声：半亮
 - > tape-session | **SESSION**：每轨当前 Pattern 全亮，其它半亮，排队的闪烁。
 - > tape-mix | **MIX**：选中轨全亮；静音 / 独奏 / 音序开着全亮、关着半亮。
 - > map-esc | **按住 ESC / TAB / CTRL**：当前项全亮，其它半亮；演奏区全灭。
+- > fn-held | **按住 FN**：GRID 上的菜单项、菜单项的字母键和快捷调节键半亮，其它全灭。
+- > setup-keys @cell:1,1 | **SETUP 设置页**：设置半亮，焦点全亮。
 }}
 
 | 画面 | GRID 上的灯 |
@@ -58,16 +60,29 @@ key PADS = 能发声：半亮
 | TAPE SESSION | 每轨当前的 Pattern 全亮，其它半亮，排队的闪烁 |
 | TAPE SONG | 有 Pattern 的格子半亮，`--` 灭，选中的格子和正在播的那一行全亮 |
 | TAPE MIX | 选中轨全亮；静音 / 独奏 / 音序开着全亮、关着半亮 |
-| TAPE SENDS | 开着的发送半亮，关着的灭，焦点全亮 |
-| 按住 ESC / TAB / CTRL | 地图上能选的键：当前项全亮，其它半亮；演奏区全灭 |
-| 按住 FN | 有 FN 功能的键半亮（当前页、按下的快捷键全亮），其它全灭 |
+| TAPE SENDS · FX | 开着的发送半亮，关着的灭，焦点全亮；FX：参数半亮，焦点全亮 |
+| SETUP PROJECT | 动作半亮，焦点 BPM / SWING 全亮，PLAY 在 SONG 时全亮 |
+| SETUP FILES | 灭（用 ADD / SUB 选） |
+| SETUP KEYS · CHORD · ARP · SYSTEM | 设置半亮，焦点全亮（焦点在 KEY LED 时演奏区是亮度梯） |
+| 按住 ESC | 四列，一列一个场景：当前场景全亮，其它三列半亮（第 4 列是 SETUP）；演奏区全灭 |
+| 按住 TAB / CTRL | 地图上能选的键：当前项全亮，其它半亮；演奏区全灭 |
+| 按住 FN / FN 菜单 | 菜单项半亮，开着的开关全亮，用不了的项和空格灭 |
 | 文字输入 | 字符键半亮，有字时删除和 OK 半亮 |
 
 - **演奏区**永远是当前轨的键盘：能发声的半亮，按住和正在发声的全亮，发不出声的灭（见 [[#play-keyboard]]）。
-- **左侧四个键**：ESC、TAB、FN 半亮，CTRL 在有多页时半亮；按住的键全亮。
+- **左侧四个键**：ESC、TAB、FN 半亮，CTRL 在有多页时半亮；按住的键全亮；菜单常驻时 FN 全亮（这时 TAB、CTRL 灭，和所有弹窗一样）。
 - **右侧**：ADD / SUB 有东西可调时半亮，OK 有动作时半亮（SEQ STEP 视图全亮），PLAY 停止半亮、播放全亮、录音待命闪烁。
 
-<!-- keywords: 灯光规则, 哪些亮, 为什么亮, 为什么不亮, light rules, which keys light, why is it lit, why dark -->
+按住 {{key:FN}} 时，整个键盘显示 FN 在这个画面能做什么：
+
+| 键 | 按住 FN 时 |
+|---|---|
+| GRID | 菜单：能用的项 {{led:half|半亮}}，开着的开关 {{led:full|全亮}}，用不了的项和空格 {{led:off|灭}} |
+| 演奏区 | 能用的菜单项的字母键（{{key:C}} {{key:V}} {{key:X}} {{key:Q}} {{key:D}}、{{key:S}} {{key:T}}）和快捷调节 {{key:6}} {{key:7}} {{key:8}} {{key:Y}} {{key:U}} {{key:I}} 半亮，其它全灭 |
+| {{key:ESC}} {{key:TAB}} {{key:CTRL}} | ESC、TAB 半亮；场景有不止一页时 CTRL 半亮 |
+| {{key:ADD}} {{key:SUB}} {{key:OK}} {{key:PLAY}} | ADD / SUB 半亮；画面有 {{key:FN+OK}} 时 OK 半亮；PLAY 半亮，录音待命时全亮 |
+
+<!-- keywords: 灯光规则, 哪些亮, 为什么亮, 为什么不亮, fn 灯, light rules, which keys light, why is it lit, why dark -->
 
 ## 屏幕两侧和按键灯同步 {#lights-edges}
 
@@ -98,7 +113,7 @@ key ESC FN CTRL = 灭
 
 ## 亮度设置与灯光测试 {#lights-ramp}
 
-FN 面板 5 SYSTEM 页的 **KEY LED**（0–15）是所有键灯的总亮度。
+SETUP 的 SYSTEM 页上的 **KEY LED**（0–15）是所有键灯的总亮度。
 
 {{shot:setup-keyled|选中 KEY LED：演奏区从左到右是从暗到亮的亮度梯。
 mark cell:1,2 = KEY LED 总亮度
@@ -111,7 +126,8 @@ key r0c8-r3c8 = 全亮
 }}
 
 {{strip
-FN, FN+5 > setup-system @footer | 单击 {{key:FN}} 打开 SETUP，{{key:FN+5}} 到 SYSTEM 页。
+hold ESC + G4 > setup-project @8,0,41,11 | 按住 {{key:ESC}}，按 GRID 第 4 列的键：进入 {{scene:SETUP}}。
+hold CTRL + G6 > setup-system @footer | 按住 {{key:CTRL}} 按 G6：SYSTEM 页。
 G2 > setup-keyled @cell:1,2 | 点 KEY LED：演奏区变成亮度梯。{{key:ADD}} / {{key:SUB}} 调总亮度。
 }}
 

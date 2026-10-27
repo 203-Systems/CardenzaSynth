@@ -5,7 +5,7 @@ The keyboard has 4 rows × 14 columns in four blocks, each with its own colour a
 {{keymap:The left column navigates, the 4×8 in the middle plays, the 4×4 on the right is the screen's cells, the last column sets values and plays
 ESC = ESC: scenes
 TAB = TAB: tracks
-FN = FN: second functions
+FN = FN: the menu of this screen
 CTRL = CTRL: pages
 PADS = PADS: play
 GRID = GRID 4×4
@@ -29,25 +29,26 @@ All four keys work the same way: **a tap does one thing, a hold shows a map**:
 
 | Key | {{icon:tap}} Tap | {{icon:hold}} Hold |
 |---|---|---|
-| {{key:ESC}} | walks the scenes {{scene:INSTR}} → {{scene:SEQ}} → {{scene:TAPE}}; cancels in a pop-up | scene map: the GRID's three columns = the three scenes |
+| {{key:ESC}} | walks the scenes {{scene:INSTR}} → {{scene:SEQ}} → {{scene:TAPE}}; in {{scene:SETUP}} goes back; cancels in a pop-up | scene map: the GRID's four columns = the four scenes, column 4 = SETUP |
 | {{key:TAB}} | next track {{track:1}} → {{track:2}} → {{track:3}} → {{track:4}} | track map: select, mute, solo, sequencer on |
-| {{key:FN}} | opens / closes SETUP (the FN panel kept open) | FN panel and second functions, see [[#fn-panel]] |
+| {{key:FN}} | opens / closes the menu of this screen | the FN menu and second functions, see [[#fn-menu]] |
 | {{key:CTRL}} | next page | page map: every page of the current scene |
 
 {{shot:map-esc|Holding ESC: the screen becomes the scene map, and the GRID's columns are the scenes.
 mark cells:1,1-4,1 = 1 INSTR
 mark cells:1,2-4,2 = 2 SEQ (current)
 mark cells:1,3-4,3 = 3 TAPE
-mark strip:ESC = ESC held: fully lit
+mark cells:1,4-4,4 = 4 SETUP: only from here
+mark strip:ESC = ESC held
 key ESC = Hold
-key G1-G3 = Scenes: current fully lit, others half lit
+key GRID = Scenes: current fully lit, others half lit
 }}
 
 The four strips on the screen's left edge are these four keys (top to bottom: ESC red-orange, TAB cyan, FN yellow, CTRL violet). The small marks inside the strips:
 
 | Strip | Marks |
 |---|---|
-| {{key:ESC}} | 3 marks = 3 scenes, the white one is the current scene |
+| {{key:ESC}} | 4 marks = 4 scenes, the white one is the current scene |
 | {{key:TAB}} | 4 marks = 4 tracks (in track colours), the white one is the current track |
 | {{key:FN}} | 1 mark, turns red while recording is armed |
 | {{key:CTRL}} | one mark per page of the current scene, the white one is the current page |
@@ -112,7 +113,7 @@ While a left key is held the GRID becomes that key's "map", see [[#nav-maps]].
 | | Rule |
 |---|---|
 | {{hold:ESC}} {{hold:TAB}} {{hold:CTRL}} | **While a left key is held, choose on the GRID.** Each cell of a map sits on the key that picks it |
-| {{hold:FN}} | While FN is held, **no key does its usual job**: keys with an FN function do only that (lit), the others do nothing (off) |
+| {{hold:FN}} | While FN is held, **no key does its usual job**: the GRID is the menu, keys with an FN function do only that (lit), the others do nothing (off) |
 | {{icon:tap}} | A modifier that was used in a combination does not also fire its tap when released |
 | {{icon:hold}} | A hold is 250 ms; {{key:ADD}} / {{key:SUB}} start repeating after 0.4 s and move 5 at a time after 12 repeats |
 

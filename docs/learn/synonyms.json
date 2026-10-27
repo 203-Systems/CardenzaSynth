@@ -189,7 +189,11 @@
       "open",
       "load",
       "import",
-      "recall"
+      "recall",
+      "载入工程",
+      "打开工程",
+      "load project",
+      "open project"
     ],
     [
       "新建",
@@ -621,15 +625,30 @@
       "function"
     ],
     [
-      "fn 面板",
-      "设置面板",
       "设置",
+      "设置页",
+      "设置面板",
       "系统设置",
+      "全局",
+      "全局设置",
+      "偏好",
       "setup",
       "settings",
-      "fn panel",
+      "settings page",
+      "global",
       "preferences",
       "options"
+    ],
+    [
+      "fn 菜单",
+      "fn菜单",
+      "菜单",
+      "当前画面的菜单",
+      "fn 面板",
+      "menu",
+      "fn menu",
+      "fn panel",
+      "context menu"
     ],
     [
       "快捷键",

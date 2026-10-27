@@ -48,6 +48,8 @@ key PADS = Can sound: half lit
 - > tape-session | **SESSION**: each track's current pattern fully lit, the others half lit, queued ones blinking.
 - > tape-mix | **MIX**: the selected track fully lit; mute / solo / sequencer fully lit when on, half lit when off.
 - > map-esc | **Holding ESC / TAB / CTRL**: the current item fully lit, the others half lit; the pads all off.
+- > fn-held | **Holding FN**: the menu items on the GRID, the letters of the items and the quick controls half lit; everything else off.
+- > setup-keys @cell:1,1 | **SETUP settings pages**: settings half lit, the focused one fully lit.
 }}
 
 | Screen | GRID lights |
@@ -58,16 +60,29 @@ key PADS = Can sound: half lit
 | TAPE SESSION | each track's current pattern fully lit, the others half lit, queued ones blink |
 | TAPE SONG | cells with a pattern half lit, `--` off, the selected cell and the playing row fully lit |
 | TAPE MIX | the selected track fully lit; mute / solo / sequencer fully lit when on, half lit when off |
-| TAPE SENDS | sends that are on half lit, off ones off, the focus fully lit |
-| holding ESC / TAB / CTRL | the keys the map accepts: the current one fully lit, the others half lit; the pads all off |
-| holding FN | keys with an FN function half lit (the current page and a pressed quick key fully lit), everything else off |
+| TAPE SENDS · FX | sends that are on half lit, off ones off, the focus fully lit; FX: parameters half lit, the focus fully lit |
+| SETUP PROJECT | actions half lit, the focused BPM / SWING fully lit, PLAY fully lit in SONG |
+| SETUP FILES | off (choose with ADD / SUB) |
+| SETUP KEYS · CHORD · ARP · SYSTEM | settings half lit, the focus fully lit (with KEY LED focused the pads are the brightness ramp) |
+| holding ESC | four columns, one per scene: the current scene fully lit, the other three half lit (column 4 is SETUP); the pads all off |
+| holding TAB / CTRL | the keys the map accepts: the current one fully lit, the others half lit; the pads all off |
+| holding FN / the FN menu | menu items half lit, a switch that is on fully lit, unavailable items and empty cells off |
 | text entry | character keys half lit; erase and OK half lit once there is text |
 
 - **The pads** are always the current track's keyboard: keys that sound half lit, held and sounding keys fully lit, keys that cannot sound off (see [[#play-keyboard]]).
-- **The four left keys**: ESC, TAB and FN half lit, CTRL half lit when the screen has pages; a held key fully lit.
+- **The four left keys**: ESC, TAB and FN half lit, CTRL half lit when the screen has pages; a held key fully lit; FN fully lit while its menu is kept open (TAB and CTRL are off then, as in every pop-up).
 - **Right side**: ADD / SUB half lit when there is something to change, OK half lit when it has an action (fully lit in the SEQ STEP view), PLAY half lit when stopped, fully lit when playing, blinking while recording is armed.
 
-<!-- keywords: light rules, which keys light, why is it lit, why is it dark, 灯光规则 -->
+While {{key:FN}} is held the whole keyboard shows what FN can do on this screen:
+
+| Keys | While FN is held |
+|---|---|
+| GRID | the menu: available items {{led:half|half lit}}, a switch that is on {{led:full|fully lit}}, unavailable items and empty cells {{led:off|off}} |
+| PADS | the letters of the available items ({{key:C}} {{key:V}} {{key:X}} {{key:Q}} {{key:D}}, {{key:S}} {{key:T}}) and the quick controls {{key:6}} {{key:7}} {{key:8}} {{key:Y}} {{key:U}} {{key:I}} half lit; every other pad off |
+| {{key:ESC}} {{key:TAB}} {{key:CTRL}} | ESC and TAB half lit; CTRL half lit when the scene has more than one page |
+| {{key:ADD}} {{key:SUB}} {{key:OK}} {{key:PLAY}} | ADD / SUB half lit; OK half lit where the screen has an {{key:FN+OK}}; PLAY half lit, fully lit while recording is armed |
+
+<!-- keywords: light rules, which keys light, why is it lit, why is it dark, fn lights, 灯光规则 -->
 
 ## Screen edges follow the key lights {#lights-edges}
 
@@ -98,7 +113,7 @@ Holds, the track hint, maps and blinking always match between screen and keys.
 
 ## Brightness and the light test {#lights-ramp}
 
-**KEY LED** (0–15) on the FN panel's 5 SYSTEM page is the overall brightness of all key lights.
+**KEY LED** (0–15) on SETUP's SYSTEM page is the overall brightness of all key lights.
 
 {{shot:setup-keyled|KEY LED focused: from left to right the pads are a brightness ramp, dark to bright.
 mark cell:1,2 = KEY LED brightness
@@ -111,7 +126,8 @@ key r0c8-r3c8 = Fully lit
 }}
 
 {{strip
-FN, FN+5 > setup-system @footer | Tap {{key:FN}} to open SETUP, {{key:FN+5}} for the SYSTEM page.
+hold ESC + G4 > setup-project @8,0,41,11 | Hold {{key:ESC}} and press a key of GRID column 4: {{scene:SETUP}}.
+hold CTRL + G6 > setup-system @footer | Hold {{key:CTRL}} and press G6: the SYSTEM page.
 G2 > setup-keyled @cell:1,2 | Tap KEY LED: the pads become a brightness ramp. {{key:ADD}} / {{key:SUB}} set the overall brightness.
 }}
 

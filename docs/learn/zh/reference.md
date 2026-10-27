@@ -5,7 +5,7 @@
 {{keymap:全部按键一览
 ESC = 场景
 TAB = 轨道
-FN = FN 面板 · 第二功能
+FN = FN 菜单 · 第二功能
 CTRL = 页面
 PADS = 演奏当前轨
 GRID = 屏幕格子
@@ -18,10 +18,10 @@ PLAY = 播放 / 停止
 
 | 按键 | 作用 |
 |---|---|
-| {{key:ESC}} 单击 / 按住 | 循环场景 / 场景地图 |
+| {{key:ESC}} 单击 / 按住 | 循环场景 1 → 2 → 3（在 SETUP 里是返回）/ 场景地图（第 4 列 = SETUP） |
 | {{key:TAB}} 单击 / 按住 | 下一轨 / 轨道地图 |
 | {{key:CTRL}} 单击 / 按住 | 下一页 / 页面地图 |
-| {{key:FN}} 单击 / 按住 | SETUP / FN 面板 |
+| {{key:FN}} 单击 / 按住 | 当前画面的菜单（常驻）/ 按住期间的 FN 菜单 |
 | {{key:ADD}} {{key:SUB}} | 加减、移动；按住连发 |
 | {{key:OK}} | 确认；SEQ 音符页单击切换 ROLL / STEP，按住打开 RECORD |
 | {{key:PLAY}} | 播放 / 停止 |
@@ -29,16 +29,17 @@ PLAY = 播放 / 停止
 | {{key:FN}} + {{key:6}} / {{key:Y}} | BPM + / − |
 | {{key:FN}} + {{key:7}} / {{key:U}} | 主音量 + / − |
 | {{key:FN}} + {{key:8}} / {{key:I}} | 八度 + / − |
-| {{key:FN}} + {{key:1}}–{{key:5}} | FN 面板页 |
+| {{key:FN}} + GRID | 执行菜单项 |
 | {{key:FN+PLAY}} | 录音开关 |
 | {{key:FN+ESC}} | 全部停止 |
 | {{key:FN+TAB}} | 上一轨 |
-| {{key:FN+CTRL}} | FN 面板下一页 |
-| {{key:FN+OK}} | 恢复默认 / 上下文第二功能 |
+| {{key:FN+CTRL}} | 上一页 |
+| {{key:FN+ADD}} / {{key:FN+SUB}} | 大步调整（×10，BPM 一次 10；设置 ×5） |
+| {{key:FN+OK}} | 这个画面的第二个 OK：恢复默认、SCOPE、ADD TO SONG、SONG / LOOP |
 | {{key:FN+C}} {{key:FN+V}} | 复制 / 粘贴 |
 | {{key:FN+X}} | 清除 |
 | {{key:FN+Q}} | 量化 |
-| {{key:FN+D}} | 复制 Pattern / 编排行 |
+| {{key:FN+D}} | 复制 Pattern / 编排的一段 |
 | {{key:FN+T}} | 敲击速度 |
 | {{key:FN+S}} | 保存 |
 | {{key:TAB}} / {{key:CTRL}} + {{key:ADD}} / {{key:SUB}} | 前后切轨 / 翻页 |
@@ -67,7 +68,9 @@ PLAY = 播放 / 停止
 | 步 Step | 音序器的最小格子，1/16 音符 |
 | 微步 Microstep | 一步里的 6 个细分，用来记录不完全对齐的时间 |
 | Pattern | 一段最多 16 步的音序，每轨最多 16 个 |
-| 编排行 Song row | SONG 里的一段：每轨播哪个 Pattern、播几小节 |
+| 编排行 Song row | SONG 里的一段：每轨播哪个 Pattern、播几小节（SONG 页上的一列，FN 菜单里写作 ROW n） |
+| SETUP | 第四个场景：工程、文件和设置；按住 ESC + GRID 第 4 列进入 |
+| FN 菜单 | 当前画面能做的事，按住 FN 时铺在 GRID 上（单击 FN 常驻） |
 | Take | 无感录制记下的一段弹奏 |
 | GRID | 右侧 4×4，对应屏幕中间的 4×4 |
 | PADS 演奏区 | 中间 4×8，永远弹当前轨 |

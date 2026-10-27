@@ -30,6 +30,7 @@ key G1-G4 = ENGINE PRESET SAVE SAVE AS
 
 - {{key:ADD}} / {{key:SUB}}：直接切到下一个 / 上一个音色，马上可以试听。
 - {{key:OK}}：打开音色浏览。
+- INSTR 的每一页，FN 菜单里都有 PRESETS、SAVE、SAVE AS、ENGINE，不用回到 VOICE 也能浏览和保存音色（见 [[#fn-menus]]）。
 
 换音源会把这条轨道换成新音源的默认音色；同一轨的音序不受影响。
 
@@ -56,7 +57,7 @@ OK > instr-voice @8,40,200,26 | {{key:ADD}} / {{key:SUB}} 移动，{{key:OK}} �
 
 ## 参数页 {#instr-params}
 
-音源的其它页面都是参数页：**GRID 上每个键直接选中一个参数**，{{key:ADD}} / {{key:SUB}} 调值（按住连发），{{key:FN+OK}} 恢复默认。开关和选项型参数再按一次同一个键就切换。
+音源的其它页面都是参数页：**GRID 上每个键直接选中一个参数**，{{key:ADD}} / {{key:SUB}} 调值（按住连发），{{key:FN+OK}}（或 FN 菜单的 RESET）恢复默认。开关和选项型参数再按一次同一个键就切换。
 
 {{shot:instr-juno-vcf|Juno VCF 页：上面两行是参数，下面画着滤波曲线。
 mark cell:1,1 = 焦点参数：白底

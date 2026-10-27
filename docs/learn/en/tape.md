@@ -1,10 +1,12 @@
 # 3 TAPE {#tape}
 
-TAPE is the whole song: which patterns play when, how the four tracks are mixed, the master effects and the project files. Seven pages ({{key:CTRL}} steps):
+TAPE is all four tracks together: which patterns play when, the song's arrangement, the mix, the sends and the master effects. Five pages ({{key:CTRL}} steps):
 
-{{page:SESSION}} {{page:SONG}} {{page:MIX}} {{page:SENDS}} {{page:FX}} {{page:PROJECT}} {{page:FILES}}
+{{page:SESSION}} {{page:SONG}} {{page:MIX}} {{page:SENDS}} {{page:FX}}
 
-<!-- keywords: tape, song, arrangement, mixer, project, whole song, 走带 -->
+Saving, loading and the project's BPM are global and live in {{scene:SETUP}}: see [[#setup-project]] and [[#setup-files]].
+
+<!-- keywords: tape, song, arrangement, mixer, whole song, four tracks, 走带 -->
 
 ## SESSION: launch like Ableton {#tape-session}
 
@@ -29,6 +31,7 @@ PLAY, G6 > tape-session-queued @cell:2,2 | While playing, tap a cell: the track 
 - Tap a cell: that track plays that pattern. The "+" after the last pattern creates a new one.
 - {{key:ADD}} / {{key:SUB}}: move the cursor and scroll; {{key:OK}}: launch the cursor's whole row (every track that has that pattern).
 - {{key:FN+OK}}: capture what every track plays (or has queued) as a new part in SONG.
+- FN menu: **LAUNCH** (the cursor's row) and **ADD** TO SONG (the same as {{key:FN+OK}}).
 - Launching from SESSION leaves SONG mode. A playing cell is green with ▶ and a moving playhead.
 
 <!-- keywords: session, clip, launch, scene launch, ableton, live, grid launch -->
@@ -49,7 +52,8 @@ mark 196,108,32,12 = LOOP / SONG mode
 - Tap a cell to select it; tap the same cell again to switch between "pattern" and "bars". `--` means the track is silent in that part.
 - {{key:ADD}} / {{key:SUB}}: change the cell's pattern, or the part's length in bars (1–16).
 - {{key:OK}}: play from this part (switches to SONG mode); {{key:FN+OK}}: SONG / LOOP.
-- {{key:FN+C}} / {{key:FN+V}} / {{key:FN+X}} / {{key:FN+D}}: copy, paste, delete, duplicate a part.
+- {{key:FN+C}} / {{key:FN+V}} / {{key:FN+X}} / {{key:FN+D}}: copy, paste (after the cursor), delete, duplicate a part. The FN menu has them too (COPY, PASTE, DELETE, DUP, each marked ROW n), with PLAY for SONG / LOOP.
+- The PLAY switch on [[#setup-project]] is the same SONG / LOOP setting.
 
 In SONG mode each part plays xN bars (1 bar = 16 steps), then the next; after the last part it starts over from the first. LOOP mode: every track loops its current pattern.
 
@@ -72,6 +76,7 @@ key G5-G8 = Mute
 
 - One GRID column per track: row 1 select, row 2 mute, row 3 solo, row 4 sequencer on / off.
 - {{key:ADD}} / {{key:SUB}} set the selected track's level; {{key:OK}} switches between the track and MASTER.
+- FN menu: **UNMUTE** ALL and **UNSOLO** ALL (available when a track is muted / soloed).
 
 > [!tip] Holding {{key:TAB}} gives the same layout on any screen (the track map).
 
@@ -89,7 +94,7 @@ key G1-G16 = On: half lit · off: off
 }}
 
 - Tap a cell to select it (and its track), {{key:ADD}} / {{key:SUB}} change it. Cells that are off are dimmed.
-- {{key:OK}}: CHORUS changes mode, other cells turn off / back to their value; {{key:FN+OK}}: default.
+- {{key:OK}}: CHORUS changes mode, other cells turn off / back to their value; {{key:FN+OK}} or RESET in the FN menu: default.
 
 <!-- keywords: sends, send, aux, reverb send, delay send, effects overview, 发送 -->
 
@@ -104,35 +109,6 @@ mark cells:3,1-3,4 = COMP · LOW · HIGH · TAPE
 mark cells:4,1-4,4 = Echo train · reverb decay
 }}
 
-{{key:OK}} on DELAY steps the note value; {{key:FN+OK}} restores the default. See [[#fx-master]].
+{{key:OK}} on DELAY steps the note value; {{key:FN+OK}} (or RESET in the FN menu) restores the default. See [[#fx-master]].
 
 <!-- keywords: master fx, bus, compressor, eq, equalizer, tape saturation, master delay, master reverb, 总线 -->
-
-## PROJECT {#tape-project}
-
-{{shot:tape-project|PROJECT: the project name, whether it is unsaved, a summary of the four tracks.
-mark cell:1,1 = SAVE
-mark cell:1,2 = SAVE AS
-mark cell:1,3 = LOAD
-mark cell:1,4 = NEW
-mark cell:2,1 = BPM
-mark cell:2,2 = SWING
-mark cell:2,3 = TAP: tap tempo
-mark 100,85,48,10 = UNSAVED: unsaved changes
-}}
-
-- Row 1: SAVE, SAVE AS, LOAD (opens FILES), NEW (asks first if there are unsaved changes).
-- Row 2: BPM, SWING, TAP (tap tempo).
-
-<!-- keywords: project, save, save as, new, load, open, 工程 -->
-
-## FILES: project list {#tape-files}
-
-All projects on the SD card. {{key:ADD}} / {{key:SUB}} choose, {{key:OK}} loads; with unsaved changes it asks first.
-
-{{shot:tape-files|FILES: no projects on the card yet.
-mark content = Project list
-mark footer = FILES page
-}}
-
-<!-- keywords: files, load project, open project, project list, 文件 -->

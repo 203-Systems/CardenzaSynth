@@ -14,7 +14,7 @@ G1 > sampler-files @0,13,240,10 | 按 FILE 打开采样列表，可以打字过�
 OK > instr-sampler-sample @cells:1,3-1,4 | {{key:ADD}} / {{key:SUB}} 选择，{{key:OK}} 载入。{{key:PLAY}} 预听。
 }}
 
-载入后演奏区就用这段采样弹，根音（ROOT）决定哪个键是原始音高。
+SAMPLER 轨的每一页，FN 菜单里也有 SAMPLES（采样列表）、RECORD（录音）、PREVIEW（试听）。载入后演奏区就用这段采样弹，根音（ROOT）决定哪个键是原始音高。
 
 > [!tip] 在网页模拟器里可以用「Load WAV…」把电脑上的 WAV 放进共用采样目录（见 [[#web-storage]]）。
 

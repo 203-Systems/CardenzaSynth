@@ -94,8 +94,10 @@ class Script:
 
 def shot_script():
     s = Script()
-    # The boot screen: SEQ on T2, the pads a piano. Then T1 drums and a first beat (kick, snare, hat).
-    s.shot("seq-empty")
+    # The boot screen: INSTR VOICE on T2, the pads a piano. Then SEQ, T1 drums and a first beat (kick,
+    # snare, hat).
+    s.shot("instr-boot")
+    s.scene(2).shot("seq-empty")
     s.track(1)
     s.act("down 3,1").shot("seq-drum-held", 20)
     s.act(*[f"tap {grid_key(i)}" for i in (0, 4, 8, 12)], "up 3,1")
@@ -149,8 +151,11 @@ def shot_script():
     s.act("tap 1,6").wait(60).act("tap 0,7").shot("fn-volume", 6)
     s.act("tap 1,7").wait(60).act("tap 0,8").shot("fn-octave", 6)
     s.act("tap 1,8").act("up fn").wait(60)
-    # INSTR on T2 (Juno).
+    # A tap on FN keeps the menu open.
+    s.act("tap fn").shot("fn-menu-open", 30).act("tap fn").wait(40)
+    # INSTR on T2 (Juno), and its FN menu.
     s.scene(1).page(0).shot("instr-voice")
+    s.act("down fn").shot("fn-menu-instr", 30).act("up fn").wait(40)
     s.act(f"tap {grid_key(0)}").shot("engine-picker").act("tap esc").wait(30)
     s.act(f"tap {grid_key(1)}").shot("preset-browser")
     s.act("tap b", "tap a", "tap s", "tap s").shot("preset-filtered", 30).act("tap esc").wait(10).act("tap esc").wait(30)
@@ -167,10 +172,11 @@ def shot_script():
     s.act(f"tap {grid_key(1)}").shot("sampler-rec", 30).act("tap esc").wait(30)
     s.page(2).shot("instr-sampler-tone")
     s.track(2).page(0)
-    # FN panel as SETUP, with the keyboard layouts, a chord and the arpeggiator.
-    s.act("tap fn").wait(20)
-    for page, name in enumerate(["keys", "chord", "arp", "project", "system"], start=1):
-        s.act("down fn", f"tap 0,{page}", "up fn").shot(f"setup-{name}")
+    # SETUP (ESC + GRID column 4): the settings pages, with the keyboard layouts, a chord and the
+    # arpeggiator; ESC goes back to INSTR.
+    s.scene(4)
+    for page, name in [(2, "keys"), (3, "chord"), (4, "arp"), (5, "system")]:
+        s.page(page).shot(f"setup-{name}")
         if name == "keys":
             s.act(f"tap {grid_key(0)}").shot("keys-scale").act(f"tap {grid_key(0)}").shot("keys-chroma")
             s.act(f"tap {grid_key(0)}").wait(20)
@@ -183,7 +189,7 @@ def shot_script():
             s.act("down 3,1", "down 3,3", "down 3,5").shot("arp-running", 50).act("up 3,1", "up 3,3", "up 3,5")
             s.act(f"tap {grid_key(0)}", *["tap 1,13"] * 8).wait(20)
     s.act(f"tap {grid_key(1)}").shot("setup-keyled")
-    s.act(f"tap {grid_key(0)}", "down fn", "tap 0,1", "up fn", "tap fn").wait(40)
+    s.act(f"tap {grid_key(0)}").page(2).act("tap esc").wait(40)
     # TAPE: a few song rows first (SESSION capture).
     s.scene(3).page(0).shot("tape-session")
     s.act("tap space").wait(20).act(f"tap {grid_key(5)}").shot("tape-session-queued", 8)
@@ -194,12 +200,13 @@ def shot_script():
     s.page(2).shot("tape-mix")
     s.page(3).shot("tape-sends")
     s.page(4).shot("tape-fx")
-    s.page(5).shot("tape-project")
+    # SETUP PROJECT and FILES.
+    s.scene(4).page(0).shot("setup-project")
     s.act(f"tap {grid_key(1)}").shot("text-entry")
     s.act("tap esc").wait(30)
     s.act(f"tap {grid_key(3)}").shot("confirm")
     s.act("tap esc").wait(30)
-    s.page(6).shot("tape-files")
+    s.page(1).shot("setup-files")
     # Recording armed while playing.
     s.scene(2).page(0).act("down fn", "tap space", "up fn", "tap space").shot("seq-recording", 30)
     s.act("tap space", "down fn", "tap space", "up fn").wait(40)
@@ -250,7 +257,14 @@ def run_shots(sim_build, out_dir, work):
 def shot_setup(name):
     first_track = ("seq-drum-held", "seq-drums", "seq-drums-playing")
     steps = []
-    if name.startswith(("seq-", "record", "fn-", "map-", "setup-", "tab-", "keys-", "chord-", "arp-", "save-")):
+    setup_pages = {"setup-project": 0, "text-entry": 0, "confirm": 0, "setup-files": 1, "setup-keys": 2, "keys-scale": 2,
+                   "keys-chroma": 2, "setup-chord": 3, "chord-on": 3, "chord-held": 3, "setup-arp": 4, "arp-running": 4,
+                   "setup-system": 5, "setup-keyled": 5}
+    if name in setup_pages:
+        steps = [["scene", 4], ["track", 2], ["page", setup_pages[name]]]
+    elif name in ("instr-boot", "fn-menu-instr"):
+        steps = [["scene", 1], ["track", 2], ["page", 0]]
+    elif name.startswith(("seq-", "record", "fn-", "map-", "tab-", "save-")):
         steps = [["scene", 2], ["track", 1 if name in first_track else 2]]
         steps.append(["page", 1 if name == "seq-pattern" else 2 if name == "seq-track" else 0])
     elif name.startswith(("instr-", "engine-", "preset-", "sampler-")):
@@ -260,9 +274,8 @@ def shot_setup(name):
                  "instr-sampler-tone": (4, 2), "sampler-files": (4, 1), "sampler-rec": (4, 1)}
         track, page = pages.get(name, (2, 0))
         steps = [["scene", 1], ["track", track], ["page", page]]
-    elif name.startswith(("tape-", "text-entry", "confirm")):
-        pages = {"tape-session": 0, "tape-session-queued": 0, "tape-song": 1, "tape-mix": 2, "tape-sends": 3, "tape-fx": 4,
-                 "tape-project": 5, "text-entry": 5, "confirm": 5, "tape-files": 6}
+    elif name.startswith("tape-"):
+        pages = {"tape-session": 0, "tape-session-queued": 0, "tape-song": 1, "tape-mix": 2, "tape-sends": 3, "tape-fx": 4}
         steps = [["scene", 3], ["page", pages.get(name, 0)]]
     return steps
 
@@ -360,9 +373,8 @@ def engine_reference(dump, engine, lang):
 def fn_reference(dump, lang):
     t = T[lang]
     parts = []
-    for number, page in enumerate(dump["fnPages"], start=1):
-        parts.append(f'<h4 class="ref-page"><span class="kc">FN</span>+<span class="kc">{number}</span> {html.escape(page["tab"])} '
-                     f'<small>{html.escape(page["name"])}</small></h4>')
+    for page in dump["settingsPages"]:
+        parts.append(f'<h4 class="ref-page">SETUP {html.escape(page["tab"])} <small>{html.escape(page["name"])}</small></h4>')
         parts.append(f'<div class="table-wrap"><table class="ref"><thead><tr><th>{t["slot"]}</th><th>{t["param"]}</th>'
                      f'<th>{t["range"]}</th><th>{t["default"]}</th></tr></thead><tbody>')
         for slot in page["slots"]:
@@ -401,7 +413,6 @@ def pages_reference(dump, lang):
     rows.append(("INSTR", " · ".join(f'{e["engine"]}: ' + " ".join(p["tab"] for p in e["pages"]) for e in dump["engines"])))
     for scene, pages in dump["scenes"].items():
         rows.append((scene, " · ".join(p["tab"] for p in pages)))
-    rows.append(("FN", " · ".join(f'{i}&nbsp;{p["tab"]}' for i, p in enumerate((p for p in dump["fnPages"]), start=1))))
     body = "".join(f"<tr><th>{a}</th><td>{b}</td></tr>" for a, b in rows)
     return f'<div class="table-wrap"><table class="ref lists"><tbody>{body}</tbody></table></div>'
 
@@ -411,16 +422,16 @@ def pages_reference(dump, lang):
 
 DEVICE_LINKS = {
     # (row, col) -> section id
-    "left": ["nav-scenes", "nav-tracks", "fn-panel", "nav-pages"],
+    "left": ["nav-scenes", "nav-tracks", "fn-menu", "nav-pages"],
     "right": ["keys-right", "keys-right", "keys-right", "seq-transport"],
 }
 MAP_TEXT = {
-    "zh": {"esc": "ESC：切换场景 / 返回", "tab": "TAB：切换轨道", "fn": "FN：FN 面板与快捷键", "ctrl": "CTRL：切换页面",
+    "zh": {"esc": "ESC：切换场景 / 返回", "tab": "TAB：切换轨道", "fn": "FN：当前画面的菜单", "ctrl": "CTRL：切换页面",
            "add": "ADD：加", "sub": "SUB：减", "enter": "ENTER：确认", "play": "PLAY：播放 / 停止",
            "pads": "演奏区：弹当前轨", "grid": "GRID：屏幕 4×4", "quick": "FN 快捷：BPM / 音量 / 八度",
            "screen": "屏幕", "header": "状态行", "footer": "页签", "content": "内容区（对应 GRID）", "strips": "两侧色块 = 两侧按键",
            "home": "HOME 侧键：全部停止"},
-    "en": {"esc": "ESC: scenes / back", "tab": "TAB: tracks", "fn": "FN: FN panel and shortcuts", "ctrl": "CTRL: pages",
+    "en": {"esc": "ESC: scenes / back", "tab": "TAB: tracks", "fn": "FN: the menu of this screen", "ctrl": "CTRL: pages",
            "add": "ADD: increase", "sub": "SUB: decrease", "enter": "ENTER: confirm", "play": "PLAY: play / stop",
            "pads": "Pads: play the current track", "grid": "GRID: the screen's 4×4", "quick": "FN quick: BPM / volume / octave",
            "screen": "Screen", "header": "Status line", "footer": "Page tabs", "content": "Content (mirrors the GRID)",
@@ -484,12 +495,12 @@ SCENE_MAP = [
     ("2 SEQ", "seq", [("ROLL", "seq-roll", "seq-notes"), ("STEP REC", "seq-step-rec", "seq-step"), ("RECORD", "record-panel", "record"),
                       ("PATTERN", "seq-patterns", "seq-pattern"), ("TRACK", "seq-track", "seq-track")]),
     ("3 TAPE", "tape", [("SESSION", "tape-session", "tape-session"), ("SONG", "tape-song", "tape-song"), ("MIX", "tape-mix", "tape-mix"),
-                        ("SENDS", "tape-sends", "tape-sends"), ("FX", "tape-fx", "tape-fx"), ("PROJECT", "tape-project", "tape-project"),
-                        ("FILES", "tape-files", "tape-files")]),
-    ("FN", "fn-panel", [("1 KEYS", "fn-pages", "setup-keys"), ("2 CHORD", "play-chords", "setup-chord"), ("3 ARP", "play-arp", "setup-arp"),
-                        ("4 PROJECT", "fn-pages", "setup-project"), ("5 SYSTEM", "fn-pages", "setup-system")]),
+                        ("SENDS", "tape-sends", "tape-sends"), ("FX", "tape-fx", "tape-fx")]),
+    ("4 SETUP", "setup", [("PROJECT", "setup-project", "setup-project"), ("FILES", "setup-files", "setup-files"),
+                          ("KEYS", "setup-keys", "setup-keys"), ("CHORD", "play-chords", "setup-chord"), ("ARP", "play-arp", "setup-arp"),
+                          ("SYSTEM", "setup-system", "setup-system")]),
     ("HOLD", "nav-maps", [("ESC", "nav-scenes", "map-esc"), ("TAB", "nav-tracks", "map-tab"), ("CTRL", "nav-pages", "map-ctrl"),
-                          ("FN", "fn-panel", "fn-held")]),
+                          ("FN", "fn-menu", "fn-held")]),
 ]
 
 
@@ -519,10 +530,10 @@ def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
-SCENES = {"INSTR": ("1", "instr"), "SEQ": ("2", "seq"), "TAPE": ("3", "tape"), "FN": ("FN", "fn"), "SETUP": ("FN", "fn")}
+SCENES = {"INSTR": ("1", "instr"), "SEQ": ("2", "seq"), "TAPE": ("3", "tape"), "SETUP": ("4", "setup"), "FN": ("FN", "fn")}
 TRACKS = {"1": "DRUMS", "2": "JUNO", "3": "DX7", "4": "SAMPLER"}
 LED_STATES = ("off", "half", "full", "blink")
-CHAPTER_ICONS = {"start": "book", "keys": "keyboard", "navigate": "map", "play": "note", "fn": "fn", "instr": "instr",
+CHAPTER_ICONS = {"start": "book", "keys": "keyboard", "navigate": "map", "play": "note", "fn": "fn", "instr": "instr", "setup": "list",
                  "sampler": "sample", "seq": "seq", "tape": "tape", "effects": "fx", "lights": "light", "projects": "folder",
                  "web": "web", "faq": "faq", "reference": "list", "changelog": "tag"}
 CALLOUT_ICONS = {"tip": "tip", "warn": "warn", "note": "eye", "try": "play", "keys": "keyboard"}
@@ -547,7 +558,7 @@ def chip(kind, arg, doc):
             sys.exit(f"learn: [{doc.lang}] unknown scene {arg}")
         number, _glyph = SCENES[name]
         if number == "FN":
-            return f'<span class="chip scene fn"><b>FN</b> SETUP</span>'
+            return f'<span class="chip scene fn"><b>FN</b> MENU</span>'
         return f'<span class="chip scene"><b>{number}</b> {html.escape(name)}</span>'
     if kind == "track":
         if arg not in TRACKS:
@@ -703,7 +714,7 @@ def directive(name, arg, doc, body=()):
         kind, _, rest = arg.partition(":")
         if kind == "engine":
             return engine_reference(doc.dump, rest, doc.lang)
-        if kind == "fn":
+        if kind in ("fn", "settings"):
             return fn_reference(doc.dump, doc.lang)
         if kind == "fn-quick":
             return fn_quick_reference(doc.dump, doc.lang)

@@ -1,6 +1,6 @@
 # Playing {#play}
 
-The PADS always play the current track. Keyboard layout, scale, octave, velocity, chords and the arpeggiator (ARP) are shared by all four tracks and set on the FN panel's **1 KEYS**, **2 CHORD** and **3 ARP** pages (see [[#fn-pages]]). They are app settings: restored at power-on, never changed by loading or creating a project.
+The PADS always play the current track. Keyboard layout, scale, octave, velocity, chords and the arpeggiator (ARP) are shared by all four tracks and set on the **KEYS**, **CHORD** and **ARP** pages of {{scene:SETUP}} (see [[#setup-keys]]). They are app settings: restored at power-on, never changed by loading or creating a project.
 
 {{keymap:PADS: the 4×8 in the middle, always playing the current track
 PADS = PADS
@@ -26,7 +26,7 @@ key r0c1-r1c8 = One octave up
 | **CHROMA** | one semitone per key, left to right and bottom to top | all {{led:half}} |
 
 {{strip
-hold FN + 1, G1 > keys-scale @cell:1,1 | FN panel 1 KEYS: tap LAYOUT to switch. SCALE: every key is in the scale.
+G1 > keys-scale @cell:1,1 | SETUP KEYS: tap LAYOUT to switch. SCALE: every key is in the scale.
 G1 > keys-chroma @cell:1,1 | Tap again: CHROMA, one semitone per key.
 G1 > setup-keys @cell:1,1 | Tap again: back to PIANO.
 }}
@@ -43,13 +43,14 @@ G1 > setup-keys @cell:1,1 | Tap again: back to PIANO.
 
 SCALE and ROOT on the KEYS page choose the scale and its root note (C–B). The scale decides which notes the SCALE layout holds, how chords stack and which keys LOCK acts on.
 
-{{shot:setup-keys|The FN panel's 1 KEYS page.
+{{shot:setup-keys|The KEYS page of SETUP.
 mark cell:1,1 = LAYOUT
 mark cell:1,2 = SCALE
 mark cell:1,3 = ROOT note
 mark cell:1,4 = OCTAVE
 mark cell:2,1 = VELO (velocity)
 mark cell:2,2 = LOCK (scale lock)
+mark cell:2,3 = SELECT (one step / several)
 mark cells:3,1-4,4 = The current scale on the keyboard
 }}
 
@@ -64,8 +65,8 @@ There are 14 scales:
 OCTAVE on the KEYS page (−3 to +3) moves the whole keyboard up or down. The quickest way:
 
 {{strip
-hold FN + 8 > fn-octave @14,102,212,26 | Hold {{key:FN}} and press {{key:8}} for an octave up. The new value pops up at the bottom of the screen.
-hold FN + I > fn-held @cell:1,4 | {{key:I}} for an octave down. You can also set OCTAVE on the KEYS page.
+hold FN + 8 > fn-octave @14,94,212,28 | Hold {{key:FN}} and press {{key:8}} for an octave up, {{key:I}} for an octave down. The new value pops up at the bottom of the screen.
+G4 > setup-keys @cell:1,4 | Or on SETUP KEYS: tap OCTAVE (GRID 4) and change it with {{key:ADD}} / {{key:SUB}}.
 }}
 
 <!-- keywords: octave, transpose, shift, higher, lower, 八度 -->
@@ -90,11 +91,11 @@ In the PIANO and CHROMA layouts, what keys outside the scale do:
 
 ## Chords {#play-chords}
 
-The FN panel's **2 CHORD** page turns one key into a chord:
+SETUP's **CHORD** page turns one key into a chord:
 
 {{strip
-hold FN + 2 > setup-chord @cell:1,1 | {{key:FN+2}}: the CHORD page. CHORD is OFF.
-G1 > chord-on @cell:1,1 @14,48,200,20 | Tap CHORD: TRIAD. The picture shows which notes the key on the root plays (C3 PLAYS C3 E3 G3).
+hold CTRL + G4 > setup-chord @cell:1,1 | In {{scene:SETUP}} hold {{key:CTRL}} and press G4: the CHORD page. CHORD is OFF.
+G1 > chord-on @cell:1,1 @9,43,170,20 | Tap CHORD: TRIAD. The picture shows which notes the key on the root plays (C3 PLAYS C3 E3 G3).
 hold r3c1~C > chord-held @cells:3,1-4,2 | Press a key: three notes sound together, and the chord tones light up on the screen and on the pads.
 }}
 
@@ -105,8 +106,8 @@ hold r3c1~C > chord-held @cells:3,1-4,2 | Press a key: three notes sound togethe
 {{shot:chord-held|Holding C: the three chord tones C E G are fully lit.
 mark cell:1,1 = CHORD
 mark cell:1,2 = VOICING
-mark 9,48,140,9 = Notes the root key plays
-mark 9,58,180,9 = Every degree of the key
+mark 9,43,140,10 = Notes the root key plays
+mark 9,53,170,10 = Every degree of the key
 mark cells:3,1-4,4 = Chord tones (blue)
 key r3c1 r3c3 r3c5 = Chord tones: fully lit
 }}
@@ -115,7 +116,7 @@ key r3c1 r3c3 r3c5 = Chord tones: fully lit
 
 ## Arpeggiator {#play-arp}
 
-The FN panel's **3 ARP** page: hold a few keys and they sound one after another.
+SETUP's **ARP** page: hold a few keys and they sound one after another.
 
 {{shot:arp-running|ARP UP: holding C E G, the three notes play in turn from low to high. The white bar is the step sounding now.
 mark cell:1,1 = Mode

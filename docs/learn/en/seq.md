@@ -25,7 +25,7 @@ Both views edit the same pattern, and the 16 GRID keys are the 16 steps in both 
 | | {{icon:roll}} ROLL | {{icon:step}} STEP |
 |---|---|---|
 | Screen | time × pitch, notes as bars | a 4×4 of steps with note names or chords |
-| GRID tap | selects / deselects the step | moves the write cursor to the step |
+| GRID tap | goes to that step (tap it again to let go); with SELECT MULTI it adds steps | moves the write cursor to the step |
 | Playing PADS | add / remove notes on selected steps; with none selected they just play (and record live with REC on) | write into the cursor step, the cursor moves on when released |
 | {{key:ADD}} / {{key:SUB}} | change the selected steps | move the cursor |
 
@@ -52,7 +52,7 @@ hold r3c1~C + G1 > seq-hold-tap @27,52,14,10 | Keep holding and tap GRID 1: C is
 hold r3c1~C + G5, G9 > seq-notes @26,119,198,9 | Go on with 5, 9…, then switch to another note and tap a few more steps.
 }}
 
-- **Select and edit**: tap a GRID key to select a step (several at once work too), see [[#seq-edit]].
+- **Go to a step**: tap a GRID key to go to that step; its notes light up fully on the pads, so you see at once whether the step has notes. Tap the same step again to let go. See [[#seq-edit]].
 - **Record live**: turn REC on ({{key:FN+PLAY}} or the RECORD panel), start playback, then play the pads, see [[#seq-transport]].
 
 <!-- keywords: piano roll, roll, pitch, note length, duration, 钢琴卷帘 -->
@@ -81,13 +81,24 @@ key OK = STEP: fully lit
 }}
 
 - How far the cursor moves each time is STEP in the RECORD panel (1 / 2 / 4).
-- Written notes use the KEYS page velocity (VELO) and are one step long. Switch back to ROLL later to fine-tune them.
+- Written notes use the velocity of SETUP KEYS (VELO) and are one step long. Switch back to ROLL later to fine-tune them.
+- While playing, the step the playhead enters flashes green once and keeps a green outline until the next step; the steps behind it leave no trail.
+- VIEW in the FN menu switches the view too, from every SEQ page.
 
 <!-- keywords: step record, step input, step entry, rest, cursor, one step at a time, 步进录制 -->
 
 ## Selecting and editing {#seq-edit}
 
-In the ROLL view, tap GRID keys to select one or more steps, then:
+In the ROLL view a GRID tap **goes to a step**: only that step is selected, tapping another step moves there, and tapping the same step again lets go (the pads play again). The notes of the step you are on light up fully on the pads; on a step without notes the pads stay a very dim keyboard. To select several steps at once, set **SELECT** to MULTI on the KEYS page of {{scene:SETUP}} (see [[#setup-keys]]).
+
+{{shot:seq-selected|On step 5: its column is highlighted and its note lights up fully on the pads.
+mark 75,15,14,104 = The step you are on
+key G5 = Current step: fully lit
+key r3c1 = This step's note: fully lit
+key PADS = Other keys: very dim
+}}
+
+While playing with no step selected, the notes of the step under the playhead light up on the pads too. Once on a step:
 
 {{strip
 G5 > seq-selected @75,15,14,104 | Tap GRID 5: step 5 is selected and its column highlighted.
@@ -115,7 +126,7 @@ FN+PLAY > seq-recording @strip:PLAY @footer | {{key:FN+PLAY}}: record arm (REC).
 r3c1~C > seq-recording @0,13,240,110 | Play the PADS while it plays: the notes are written into the pattern where you play them (overdub).
 }}
 
-- REC can also be turned on in the RECORD panel. While recording is armed the dot in the FN strip on the left turns red.
+- REC can also be turned on in the RECORD panel or with REC in the FN menu. While recording is armed the dot in the FN strip on the left turns red.
 - Recording is overdub: existing notes stay, and new ones land on the nearest microstep. With ARP on, the arpeggiator's notes are what gets recorded.
 - A wrong note: select its step and clear it with {{key:FN+X}}, or tidy the timing with {{key:FN+Q}}.
 
@@ -162,7 +173,7 @@ key G5-G12 = Takes
 r3c1~C, r3c3~E, r3c5~G > seq-keyboard | Just play. A pause longer than 2.5 s, a track change, more than 48 notes or 60 seconds starts a new take.
 hold OK > record @cells:2,1-3,4 | Hold {{key:OK}}: the two middle rows are the last 8 takes, with number, track and note count.
 G6 > record @cell:2,2 @cells:4,1-4,4 | Tap a take: row 4 shows how its bar would land. {{key:ADD}} / {{key:SUB}} pick another bar.
-OK > record-placed @14,102,212,26 | {{key:OK}}: into a **new pattern** on this track; not a single existing note is touched.
+OK > record-placed @14,94,212,28 | {{key:OK}}: into a **new pattern** on this track; not a single existing note is touched.
 }}
 
 - Without a free pattern slot it tells you; use {{key:FN+OK}} to merge into the current pattern instead.
@@ -210,7 +221,7 @@ mark 9,40,222,80 = Four tracks: engine · pattern · step ruler
 
 ## Copy, paste, clear, quantize {#seq-tools}
 
-Hold {{key:FN}} with a letter (on the note page they act on the selected steps; with none selected, on the whole pattern):
+Hold {{key:FN}} with a letter, or pick the item in the FN menu (COPY, PASTE, CLEAR, QUANT, DUP: their second line says STEPS or PATTERN). On the note page they act on the selected steps; with none selected, and on PATTERN and TRACK, on the whole pattern:
 
 {{keymap:Edit keys while FN is held
 FN = Hold
@@ -229,6 +240,8 @@ T = Tap tempo
 | {{key:FN+Q}} | quantize to whole steps |
 | {{key:FN+D}} | duplicate the pattern into the next free slot |
 | {{key:FN+T}} | tap tempo |
+
+The full SEQ menu, with VIEW, RECORD and SCOPE, is in [[#fn-menus]].
 
 > [!warn] There is no undo, so clearing a whole pattern always asks first.
 

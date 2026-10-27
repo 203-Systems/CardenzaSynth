@@ -30,6 +30,7 @@ key G1-G4 = ENGINE PRESET SAVE SAVE AS
 
 - {{key:ADD}} / {{key:SUB}}: straight to the next / previous sound, ready to hear.
 - {{key:OK}}: opens the sound browser.
+- On every INSTR page the FN menu has PRESETS, SAVE, SAVE AS and ENGINE, so you can browse and save without going back to VOICE (see [[#fn-menus]]).
 
 Changing the engine gives the track the new engine's default sound; the track's sequence is not touched.
 
@@ -56,7 +57,7 @@ OK > instr-voice @8,40,200,26 | {{key:ADD}} / {{key:SUB}} move, {{key:OK}} loads
 
 ## Parameter pages {#instr-params}
 
-The engine's other pages are parameter pages: **each GRID key picks one parameter**, {{key:ADD}} / {{key:SUB}} change it (held they repeat), {{key:FN+OK}} restores its default. Switches and choices step with a second press on the same key.
+The engine's other pages are parameter pages: **each GRID key picks one parameter**, {{key:ADD}} / {{key:SUB}} change it (held they repeat), {{key:FN+OK}} (or RESET in the FN menu) restores its default. Switches and choices step with a second press on the same key.
 
 {{shot:instr-juno-vcf|Juno VCF page: parameters on the top two rows, the filter curve below.
 mark cell:1,1 = Focused parameter: white

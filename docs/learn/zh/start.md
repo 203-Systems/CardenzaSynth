@@ -13,9 +13,9 @@ RIGHT = 右侧四键：调值 · 播放
 
 | 颜色 | 键 | 管什么 |
 |---|---|---|
-| {{key:ESC}} 红橙 | 场景 | 1 INSTR / 2 SEQ / 3 TAPE |
+| {{key:ESC}} 红橙 | 场景 | 1 INSTR / 2 SEQ / 3 TAPE，还有 4 SETUP |
 | {{key:TAB}} 青 | 轨道 | {{track:1}} {{track:2}} {{track:3}} {{track:4}} |
-| {{key:FN}} 黄 | 第二功能 | FN 面板、快捷键 |
+| {{key:FN}} 黄 | 第二功能 | 当前画面的菜单、快捷键 |
 | {{key:CTRL}} 紫 | 页面 | 屏幕最下面的页签，如 {{page:ROLL}} |
 | {{key:PLAY}} 绿 | 走带 | 播放 / 停止 |
 
@@ -28,7 +28,8 @@ RIGHT = 右侧四键：调值 · 播放
 跟着这几格做一遍，就会了一大半：
 
 {{strip
-- > seq-empty @scene @track | 开机停在 {{scene:SEQ}}，当前轨是 {{track:2}}：演奏区就是钢琴，下面一行白键、上面一行黑键，缺口（Shift、D、J）不亮；没按的键半亮。
+- > instr-boot @8,0,41,11 @51,0,15,11 @8,40,200,26 | 开机停在 {{scene:INSTR}} 的 VOICE 页，当前轨是 {{track:2}} 和它的音色（LEAD I）：演奏区就是钢琴，下面一行白键、上面一行黑键，缺口（Shift、D、J）不亮；没按的键半亮。
+ESC > seq-empty @scene | 单击 {{key:ESC}}：到 {{scene:SEQ}}，在这里写这一轨的音符。还是 {{track:2}}。
 hold r3c1~C + G1 > seq-hold-tap @27,52,14,10 | 按住一个音，点一步：音符写进去了。按住的键全亮。
 hold TAB + G1 > seq-drum-held @track | 按住 {{key:TAB}} 点 GRID 1：换到 {{track:1}} 鼓，每一列是一个鼓。
 hold r3c1~底鼓 + G1, G5, G9, G13 > seq-drums @26,119,198,9 | 按住底鼓键，点 GRID 1、5、9、13：四拍底鼓写好了。
@@ -36,12 +37,13 @@ PLAY > seq-drums-playing | 播放！绿线走到哪一步，哪一步就响。�
 hold OK > record | 刚才随便弹过的不会丢：按住 {{key:OK}}，把它放进 Pattern。
 }}
 
-再记住三件事：
+再记住四件事：
 
 {{strip
-ESC > instr-voice @scene | 单击 {{key:ESC}} 在三个场景里循环：{{scene:INSTR}} 选音色 → {{scene:SEQ}} 写音符 → {{scene:TAPE}} 编排混音。
-hold FN + 7 > fn-volume @14,102,212,26 | 按住 {{key:FN}}：{{key:6}} {{key:Y}} 调 BPM，{{key:7}} {{key:U}} 调音量，{{key:8}} {{key:I}} 调八度。
-FN+S > save-done @0,123,120,12 | {{key:FN+S}} 保存工程，第一次会让你起名。
+hold ESC > map-esc @cells:1,1-4,4 | 单击 {{key:ESC}} 在三个音乐场景里循环：{{scene:INSTR}} 音色 → {{scene:SEQ}} 音符 → {{scene:TAPE}} 编排混音。按住它是这张地图：第 4 列是 {{scene:SETUP}}，工程和设置都在那里。
+hold FN > fn-held @cells:1,1-4,4 | 按住 {{key:FN}}：GRID 上是当前画面的菜单（复制、粘贴、保存、录音……），FN + GRID 键执行。
+hold FN + 7 > fn-volume @14,94,212,28 | 按住 FN 时：{{key:6}} {{key:Y}} 调 BPM，{{key:7}} {{key:U}} 调音量，{{key:8}} {{key:I}} 调八度。
+FN+S > save-name @footer | {{key:FN+S}} 保存工程；第一次保存时名字是 SONG 01。
 }}
 
 <!-- keywords: 快速开始, 上手, 第一次, 教程, quick start, tutorial, getting started, 入门教程 -->

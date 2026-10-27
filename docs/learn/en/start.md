@@ -13,9 +13,9 @@ RIGHT = Right four keys: values · play
 
 | Colour | Key | Looks after |
 |---|---|---|
-| {{key:ESC}} red-orange | scenes | 1 INSTR / 2 SEQ / 3 TAPE |
+| {{key:ESC}} red-orange | scenes | 1 INSTR / 2 SEQ / 3 TAPE, and 4 SETUP |
 | {{key:TAB}} cyan | tracks | {{track:1}} {{track:2}} {{track:3}} {{track:4}} |
-| {{key:FN}} yellow | second functions | FN panel, shortcuts |
+| {{key:FN}} yellow | second functions | the menu of this screen, shortcuts |
 | {{key:CTRL}} violet | pages | the tabs at the bottom of the screen, like {{page:ROLL}} |
 | {{key:PLAY}} green | transport | play / stop |
 
@@ -28,7 +28,8 @@ How to use this manual: {{icon:map}} the **Map** (top right) jumps straight to a
 Follow these steps once and you know most of it:
 
 {{strip
-- > seq-empty @scene @track | After power-on you are in {{scene:SEQ}}, on track {{track:2}}: the pads are a piano, white keys on the bottom row, black keys above, the gaps (Shift, D, J) dark; keys you are not pressing are half lit.
+- > instr-boot @8,0,41,11 @51,0,15,11 @8,40,200,26 | After power-on you are in {{scene:INSTR}} on the VOICE page, on track {{track:2}} with its sound (LEAD I): the pads are a piano, white keys on the bottom row, black keys above, the gaps (Shift, D, J) dark; keys you are not pressing are half lit.
+ESC > seq-empty @scene | Tap {{key:ESC}}: {{scene:SEQ}}, where the track's notes are written. Still {{track:2}}.
 hold r3c1~C + G1 > seq-hold-tap @27,52,14,10 | Hold a note and tap a step: the note is written. The held key is fully lit.
 hold TAB + G1 > seq-drum-held @track | Hold {{key:TAB}} and tap GRID 1: you are on {{track:1}}, the drums, one drum per column.
 hold r3c1~Kick + G1, G5, G9, G13 > seq-drums @26,119,198,9 | Hold the kick key and tap GRID 1, 5, 9 and 13: a kick on all four beats is written.
@@ -36,12 +37,13 @@ PLAY > seq-drums-playing | Play! Each step sounds when the green line reaches it
 hold OK > record | Whatever you just played is not lost: hold {{key:OK}} to put it into a pattern.
 }}
 
-Three more things to remember:
+Four more things to remember:
 
 {{strip
-ESC > instr-voice @scene | Tap {{key:ESC}} to walk the three scenes: {{scene:INSTR}} pick sounds → {{scene:SEQ}} write notes → {{scene:TAPE}} arrange and mix.
-hold FN + 7 > fn-volume @14,102,212,26 | Hold {{key:FN}}: {{key:6}} {{key:Y}} set the BPM, {{key:7}} {{key:U}} the volume, {{key:8}} {{key:I}} the octave.
-FN+S > save-done @0,123,120,12 | {{key:FN+S}} saves the project; the first time it asks you for a name.
+hold ESC > map-esc @cells:1,1-4,4 | Tap {{key:ESC}} to walk the three music scenes: {{scene:INSTR}} sounds → {{scene:SEQ}} notes → {{scene:TAPE}} arrange and mix. Hold it for this map: column 4 is {{scene:SETUP}}, the project and the settings.
+hold FN > fn-held @cells:1,1-4,4 | Hold {{key:FN}}: the menu of this screen on the GRID (copy, paste, save, record…); FN + a GRID key runs an item.
+hold FN + 7 > fn-volume @14,94,212,28 | With FN held: {{key:6}} {{key:Y}} set the BPM, {{key:7}} {{key:U}} the volume, {{key:8}} {{key:I}} the octave.
+FN+S > save-name @footer | {{key:FN+S}} saves the project; the first time it is called SONG 01.
 }}
 
 <!-- keywords: quick start, tutorial, first steps, how to begin, getting started, 快速开始, 上手 -->

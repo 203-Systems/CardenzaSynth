@@ -1,5 +1,5 @@
 {
-  "version": "1.1.4",
+  "version": "1.2.0",
   "title": {
     "zh": "Cardenza Groovebox 说明书",
     "en": "Cardenza Groovebox manual"
@@ -14,6 +14,7 @@
     "sampler",
     "seq",
     "tape",
+    "setup",
     "effects",
     "lights",
     "projects",

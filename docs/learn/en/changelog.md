@@ -1,8 +1,27 @@
 # Versions {#changelog}
 
-The manual's version is at the top right (for example v1.1.4), followed by the firmware it describes (the code commit; a `+` means uncommitted changes are included) and the build date. The parameter tables, screenshots and key lights in this manual are generated from the firmware code, so they always match that firmware.
+The manual's version is at the top right (for example v1.2.0), followed by the firmware it describes (the code commit; a `+` means uncommitted changes are included) and the build date. The parameter tables, screenshots and key lights in this manual are generated from the firmware code, so they always match that firmware.
 
 <!-- keywords: version, changelog, release notes, what's new, update, 版本 -->
+
+## 1.2.0 · 2026-10-27 {#version-1-2-0}
+
+Four scenes, and FN becomes the menu of the screen:
+
+- **Four scenes in two kinds**: 1 INSTR (what the current track sounds like), 2 SEQ (what it plays), 3 TAPE (all four tracks together: SESSION, SONG, MIX, SENDS, FX) and the new **4 SETUP** (global and settings: PROJECT, FILES, KEYS, CHORD, ARP, SYSTEM). See [[#nav-scenes]] and [[#setup]].
+- A tap on ESC walks only 1 → 2 → 3. SETUP is reached by holding ESC and pressing GRID column 4 (the scene map now has four columns), or with SETUP in the FN menu; in SETUP a tap on ESC goes back to where you came from.
+- PROJECT and FILES moved from TAPE to SETUP. The project page also has PLAY (LOOP / SONG). FN+S never asks for a name: an untitled project is saved as SONG 01, SONG 02…
+- **FN is the menu of the current screen** ([[#fn-menu]]): hold it and the GRID shows what this page can do (copy, paste, presets, launch, reset…), with SAVE, TAP, REC and SETUP on the bottom row of every screen; tap it and the menu stays open. The FN panel, its QUICK page, FN SETUP and FN + 1…5 are gone; the settings live on SETUP's KEYS, CHORD, ARP and SYSTEM pages. FN + CTRL is now the previous page, FN + ADD / SUB take big steps.
+- Power-on starts on 1 INSTR, page VOICE (track T2 as before).
+- STEP view while playing: the step the playhead enters flashes green once and keeps an outline; no trail behind it.
+
+<!-- keywords: 1.2.0, setup, four scenes, fn menu, menu, settings moved, fn panel, boot -->
+
+## 1.1.5 · 2026-10-27 {#version-1-1-5}
+
+- In ROLL a GRID tap goes to that step: only it is selected, and tapping it again lets go. Its notes light up fully on the pads; on an empty step the pads stay a very dim keyboard. While playing, the notes of the step under the playhead light up too. For several steps at once, set SELECT to MULTI on the FN panel's 1 KEYS page.
+
+<!-- keywords: 1.1.5, multi select, single select, current step, select -->
 
 ## 1.1.4 · 2026-10-26 {#version-1-1-4}
 

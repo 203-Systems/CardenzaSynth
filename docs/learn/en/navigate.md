@@ -1,42 +1,57 @@
 # Navigation {#navigate}
 
-Three scenes with a few pages each, and four tracks you can switch at any time. The four left keys do all the navigation:
+Four scenes with a few pages each, and four tracks you can switch at any time. The four left keys do all the navigation:
 
 {{keymap:The four left keys handle all the navigation
 ESC = Scenes
 TAB = Tracks
-FN = FN panel
+FN = The menu of this screen
 CTRL = Pages
 }}
 
-<!-- keywords: navigation, menu, switch, move around, 导航 -->
+<!-- keywords: navigation, switch, move around, where am i, 导航 -->
 
 ## Scenes: ESC {#nav-scenes}
 
+Four scenes in two kinds. The first three are the music itself, the fourth is everything global:
+
 | Scene | For | Pages |
 |---|---|---|
-| {{scene:INSTR}} instrument | choosing the engine and sound, setting parameters and effects | VOICE, engine pages, FX |
-| {{scene:SEQ}} sequencer | writing notes, recording, managing patterns | ROLL / STEP, PATTERN, TRACK |
-| {{scene:TAPE}} tape | arranging the whole song, mixing, master effects, projects | SESSION, SONG, MIX, SENDS, FX, PROJECT, FILES |
+| {{scene:INSTR}} instrument | what the current track sounds like: engine, sound, parameters, effects | VOICE, engine pages, FX |
+| {{scene:SEQ}} sequencer | what the current track plays: notes, recording, patterns | ROLL / STEP, PATTERN, TRACK |
+| {{scene:TAPE}} tape | all four tracks together: launching, the song, the mix, sends, master effects | SESSION, SONG, MIX, SENDS, FX |
+| {{scene:SETUP}} setup | global and settings: the project and its files, keyboard, chords, ARP, system | PROJECT, FILES, KEYS, CHORD, ARP, SYSTEM |
 
-**Tap {{key:ESC}}**: the three scenes in turn. The groovebox starts in {{scene:SEQ}}.
-
-{{strip
-ESC > instr-voice @scene | {{scene:INSTR}}: sounds and parameters.
-ESC > tape-session @scene | {{scene:TAPE}}: arrangement, mixing, projects.
-ESC > seq-notes @scene | Back to {{scene:SEQ}}: write notes.
-}}
-
-**Hold {{key:ESC}}**: the scene map; press any key of a column to jump straight there.
+**Tap {{key:ESC}}**: the three music scenes in turn, 1 → 2 → 3 → 1. The groovebox starts in {{scene:INSTR}} on the VOICE page.
 
 {{strip
-hold ESC > map-esc @cells:1,1-4,3 | Hold ESC: three columns = three scenes, column 4 is empty.
-hold ESC + G1 > instr-voice @scene | Tap column 1: straight to {{scene:INSTR}}. Release ESC and the map folds away.
+ESC > seq-notes @scene | {{scene:SEQ}}: write notes.
+ESC > tape-session @8,0,41,11 | {{scene:TAPE}}: launch, arrange and mix.
+ESC > instr-voice @8,0,41,11 | Back to {{scene:INSTR}}: sounds and parameters.
 }}
 
-> [!note] In a pop-up {{key:ESC}} cancels; in SEQ with steps selected, ESC clears the selection first.
+**Hold {{key:ESC}}**: the scene map, four tall columns, one per scene; press any key of a column to jump straight there. The tap ring never enters SETUP: **column 4 is the way in**.
 
-<!-- keywords: scene, mode, instr, seq, tape, instrument, sequencer, escape, 场景 -->
+{{shot:map-esc|Holding ESC: four columns = four scenes, each listing its pages; the page you would land on is marked.
+mark cells:1,1-4,1 = 1 INSTR
+mark cells:1,2-4,2 = 2 SEQ (current)
+mark cells:1,3-4,3 = 3 TAPE
+mark cells:1,4-4,4 = 4 SETUP: dotted rule, dim number
+mark 162,0,70,11 = Tap ESC = 1 > 2 > 3
+key ESC = Hold
+key G2 G6 G10 G14 = Current scene: fully lit
+key G4 G8 G12 G16 = SETUP: half lit
+}}
+
+{{strip
+hold ESC + G1 > instr-voice @8,0,41,11 | Tap column 1: straight to {{scene:INSTR}}. Release ESC and the map folds away.
+hold ESC + G4 > setup-project @8,0,41,11 | Tap column 4: {{scene:SETUP}}, on the page you were last on.
+ESC > seq-notes @scene | In SETUP a tap on {{key:ESC}} goes back to the scene you came from.
+}}
+
+> [!note] In a pop-up {{key:ESC}} cancels; in SEQ with steps selected, ESC clears the selection first. The FN menu also reaches SETUP (its bottom-right item, see [[#fn-menus]]).
+
+<!-- keywords: scene, scenes, mode, instr, seq, tape, setup, instrument, sequencer, escape, four scenes, scene map, 场景 -->
 
 ## Tracks: TAB {#nav-tracks}
 
@@ -72,14 +87,14 @@ hold CTRL > map-ctrl @cells:1,1-1,3 | Hold CTRL: the page map; each cell shows t
 hold CTRL + G3 > seq-track @footer | Tap a cell to jump to that page; you stay there after releasing.
 }}
 
-- {{key:CTRL}} + {{key:ADD}} / {{key:SUB}}: next / previous page.
+- {{key:CTRL}} + {{key:ADD}} / {{key:SUB}}: next / previous page; {{key:FN+CTRL}}: previous page.
 - Each track remembers which INSTR page it was on.
 
 <!-- keywords: page, pages, next page, sub page, tabs, 页面, 翻页 -->
 
 ## Hold a left key = a map {#nav-maps}
 
-Hold {{key:ESC}}, {{key:TAB}} or {{key:CTRL}} for more than 250 ms and the middle of the screen becomes a map: **each cell sits on the GRID key that picks it**. Holding {{key:FN}} shows the FN panel instead (see [[#fn-panel]]).
+Hold {{key:ESC}}, {{key:TAB}} or {{key:CTRL}} for more than 250 ms and the middle of the screen becomes a map: **each cell sits on the GRID key that picks it**. Holding {{key:FN}} shows the menu of the current screen instead, laid out the same way (see [[#fn-menu]]).
 
 {{shot:map-ctrl|Holding CTRL: the page map.
 mark cell:1,1 = Current page
@@ -104,14 +119,15 @@ Release the left key and the map folds away.
 ## Back and cancel {#nav-back}
 
 {{shot:confirm|Anything destructive always asks first, with the consequence written in red.
-mark 10,77,104,28 = OK confirms
-mark 125,77,103,28 = ESC cancels
-mark 8,49,172,14 = Consequence (in red)
+mark 10,70,104,26 = OK confirms
+mark 125,70,104,26 = ESC cancels
+mark 8,43,172,11 = Consequence (in red)
 key OK = Blinking: waiting for you
 key ESC = Cancel
 }}
 
-- In a pop-up (lists, confirmations, text entry, the RECORD panel, SETUP) {{key:ESC}} closes or cancels.
+- In a pop-up (lists, confirmations, text entry, the RECORD panel, the open FN menu) {{key:ESC}} closes or cancels.
+- In {{scene:SETUP}} {{key:ESC}} goes back to the scene you came from.
 - In a confirmation {{key:OK}} confirms and {{key:ESC}} cancels; overwriting, deleting and discarding unsaved work always ask first.
 - In SEQ with steps selected {{key:ESC}} clears the selection first.
 
