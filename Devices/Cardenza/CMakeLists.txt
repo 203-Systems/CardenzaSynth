@@ -35,6 +35,7 @@ if(DEFINED COMPONENT_DIR)
             fatfs
             freertos
             log
+            nvs_flash
             pthread
             sdmmc
             vfs

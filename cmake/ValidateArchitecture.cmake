@@ -112,3 +112,26 @@ foreach(relative_path ${cardenza_groove_ui_sources})
     cardenza_forbid_text("${relative_path}" "esp_")
     cardenza_forbid_text("${relative_path}" "Devices/Cardenza/")
 endforeach()
+
+# App storage protocol (docs/app-storage-protocol.md): apps and the synth library reach the card only
+# through OS/Storage; the device layer only provides the card root, mounting and internal records.
+cardenza_require_file("docs/app-storage-protocol.md")
+foreach(relative_path
+        "OS/Storage/Storage.cpp"
+        "OS/Storage/Settings.cpp"
+        "OS/Storage/DeviceSettings.cpp"
+        "OS/Storage/Migration.cpp"
+        "Devices/CardenzaSim/Storage.cpp")
+    cardenza_require_file("${relative_path}")
+    cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "${relative_path}")
+endforeach()
+foreach(old_function "SampleDirectoryPath" "ProjectDirectoryPath" "PresetDirectoryPath" "EnsureDirectoryLayout")
+    cardenza_forbid_text("Devices/Device.h" "${old_function}")
+endforeach()
+cardenza_forbid_text("Devices/Cardenza/Device.cpp" "/sdcard/CardenzaSynth")
+file(GLOB_RECURSE cardenza_storage_client_sources RELATIVE "${CARDENZA_ROOT}"
+     "${CARDENZA_ROOT}/Applications/*.cpp" "${CARDENZA_ROOT}/Applications/*.h"
+     "${CARDENZA_ROOT}/Library/Synth/*.cpp" "${CARDENZA_ROOT}/Library/Synth/*.h")
+foreach(relative_path ${cardenza_storage_client_sources})
+    cardenza_forbid_text("${relative_path}" "Device::Storage")
+endforeach()

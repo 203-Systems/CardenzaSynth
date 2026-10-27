@@ -41,6 +41,35 @@ inline bool operator!=(const SongRow& left, const SongRow& right)
   return !(left == right);
 }
 
+// Live arpeggiator. Held notes of one track play one at a time on the arp clock: the transport
+// grid while playing, else a free clock at the current tempo started by the first key press.
+enum class ArpMode : std::uint8_t { Off, Up, Down, UpDown, Random, Played };
+inline constexpr std::size_t kArpModeCount = 6;
+inline constexpr std::array<const char*, kArpModeCount> kArpModeNames{{"OFF", "UP", "DOWN", "UP-DN", "RANDOM", "ORDER"}};
+// Note values, in pulses at 96 PPQ: 1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32.
+inline constexpr std::size_t kArpRateCount = 6;
+inline constexpr std::array<const char*, kArpRateCount> kArpRateNames{{"1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"}};
+inline constexpr std::array<std::uint16_t, kArpRateCount> kArpRatePulses{{96, 48, 32, 24, 16, 12}};
+inline constexpr std::uint8_t kArpMaxOctaves = 4;
+inline constexpr std::uint8_t kArpMinGate = 10;
+inline constexpr std::uint8_t kArpMaxGate = 100;
+// Held (or latched) notes the arp keeps, in press order; further presses are ignored.
+inline constexpr std::size_t kArpMaxNotes = 16;
+
+struct ArpSettings {
+  ArpMode mode = ArpMode::Off;
+  std::uint8_t rate = 3;      // index into kArpRatePulses (1/16)
+  std::uint8_t octaves = 1;   // 1..kArpMaxOctaves
+  std::uint8_t gate = 50;     // kArpMinGate..kArpMaxGate % of the note value
+  bool latch = false;
+
+  bool operator==(const ArpSettings& other) const
+  {
+    return mode == other.mode && rate == other.rate && octaves == other.octaves && gate == other.gate && latch == other.latch;
+  }
+  bool operator!=(const ArpSettings& other) const { return !(*this == other); }
+};
+
 inline const char* SequencerEditLaneLabel(SequencerEditLane lane)
 {
   switch (lane)
@@ -144,6 +173,18 @@ struct SequencerUiState {
   bool copySourceIsPattern = false;
   std::size_t copySourceIndex = 0;
   std::array<SequencerStepUiState, kSequencerStepCount> steps{};
+  // Arpeggiator: mode on and notes held or latched, on arpTrack. arpNotes lists the first
+  // arpNoteCount notes in press order; arpSounding is the playing arp note (-1 = none) and
+  // arpTick counts every arp note played. arpLastNote is the pitch of the latest arp note
+  // (-1 before the first); it outlives the note's gate, so a UI polling slower than a short gate
+  // still knows which note a new arpTick stands for.
+  bool arpActive = false;
+  std::uint8_t arpTrack = 0;
+  std::uint8_t arpNoteCount = 0;
+  std::array<std::uint8_t, kArpMaxNotes> arpNotes{};
+  int arpSounding = -1;
+  std::uint32_t arpTick = 0;
+  int arpLastNote = -1;
 };
 
 }  // namespace synth

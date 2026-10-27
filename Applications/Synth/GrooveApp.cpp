@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <new>
 #include <set>
+#include <utility>
 
 #if defined(ESP_PLATFORM)
 #include <dirent.h>
@@ -15,15 +16,33 @@
 #endif
 
 #include "Applications/Synth/Runtime/ProjectStorage.h"
+#include "Applications/Synth/Runtime/SynthStorage.h"
 #include "Applications/Synth/UI/Groove/Render/Gfx.h"
 #include "Applications/Synth/UI/Groove/Render/GrooveRenderer.h"
 #include "Devices/Device.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "OS/MIDI/MIDI.h"
+#include "OS/Storage/DeviceSettings.h"
+#include "OS/Storage/Settings.h"
 
 namespace apps {
 
 namespace {
+
+// Session handover files in Apps/Cardenza/Synth/Session.
+constexpr const char* kSessionProject = "session.ccproj";
+constexpr const char* kSessionState = "session.cfg";
+
+os::storage::Settings& AppSettings()
+{
+  return os::storage::AppSettings(synth::storage::kAppId);
+}
+
+bool SameKeyboard(const groove::KeyboardSettings& a, const groove::KeyboardSettings& b)
+{
+  return a.octave == b.octave && a.root == b.root && a.scale == b.scale && a.layout == b.layout && a.chord == b.chord &&
+         a.voicing == b.voicing && a.lock == b.lock && a.velocity == b.velocity;
+}
 
 std::unique_ptr<app::Application> CreateGrooveApplication()
 {
@@ -58,6 +77,18 @@ void RegisterGrooveApplication()
 
 GrooveApp::GrooveApp() : controller_(*this) {}
 
+GrooveApp::~GrooveApp()
+{
+  // Silence the engines and hand the sample memory back before the next app starts.
+  sequencer_.ArpReleaseAll();
+  sequencer_.Stop();
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    synth::audio::AllNotesOff(track);
+    sampler_.OnTrackEngineChanged(track, synth::SynthEngineKind::None);
+  }
+}
+
 std::uint32_t GrooveApp::NowMs() const
 {
   if (clock_ != nullptr) return clock_();
@@ -76,13 +107,130 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
     rack_.AttachEngine(track, kDefaultKinds[track]);
     sampler_.OnTrackEngineChanged(track, kDefaultKinds[track]);
   }
-  storageReady_ = Device::Storage::EnsureDirectoryLayout();
+  storageReady_ = synth::storage::EnsureLayout();
   ApplyMix();
-  SetMasterVolume(masterVolume_);
   ApplyMasterFx(synth::ProjectData::DefaultMasterFx());
-  Device::Display::SetBacklight(backlight_);
-  controller_.Restore(groove::ProjectUiSettings{}, "");
+  // Volume, key LEDs and screen are device settings: the system applied them at boot.
+  RestorePlaySettings();
+  (void)RestoreSessionState();
   initialized_ = true;
+}
+
+void GrooveApp::Suspend()
+{
+  StorePlaySettings();
+  (void)SaveSessionState();
+}
+
+void GrooveApp::RestorePlaySettings()
+{
+  const auto& settings = AppSettings();
+  groove::ProjectUiSettings ui;
+  groove::KeyboardSettings& keys = ui.keyboard;
+  const groove::KeyboardSettings defaults{};
+  keys.layout = static_cast<groove::KeyboardLayout>(
+      settings.GetInt("keys.layout", static_cast<int>(defaults.layout), 0, static_cast<int>(groove::kLayoutNames.size()) - 1));
+  keys.scale = static_cast<std::size_t>(settings.GetInt("keys.scale", static_cast<int>(defaults.scale), 0, static_cast<int>(groove::kScales.size()) - 1));
+  keys.root = settings.GetInt("keys.root", defaults.root, 0, 11);
+  keys.octave = settings.GetInt("keys.octave", defaults.octave, -3, 3);
+  keys.chord = static_cast<groove::ChordType>(
+      settings.GetInt("keys.chord", static_cast<int>(defaults.chord), 0, static_cast<int>(groove::kChordTypeCount) - 1));
+  keys.voicing = static_cast<std::uint8_t>(settings.GetInt("keys.voicing", defaults.voicing, 0, static_cast<int>(groove::kVoicingNames.size()) - 1));
+  keys.lock = static_cast<groove::ScaleLock>(
+      settings.GetInt("keys.lock", static_cast<int>(defaults.lock), 0, static_cast<int>(groove::kScaleLockNames.size()) - 1));
+  keys.velocity = static_cast<std::uint8_t>(settings.GetInt("keys.velocity", defaults.velocity, 1, 127));
+  controller_.Restore(ui, "");
+
+  const synth::ArpSettings arpDefaults{};
+  synth::ArpSettings arp;
+  arp.mode = static_cast<synth::ArpMode>(settings.GetInt("arp.mode", static_cast<int>(arpDefaults.mode), 0, static_cast<int>(synth::kArpModeCount) - 1));
+  arp.rate = static_cast<std::uint8_t>(settings.GetInt("arp.rate", arpDefaults.rate, 0, static_cast<int>(synth::kArpRateCount) - 1));
+  arp.octaves = static_cast<std::uint8_t>(settings.GetInt("arp.octaves", arpDefaults.octaves, 1, synth::kArpMaxOctaves));
+  arp.gate = static_cast<std::uint8_t>(settings.GetInt("arp.gate", arpDefaults.gate, synth::kArpMinGate, synth::kArpMaxGate));
+  arp.latch = settings.GetBool("arp.latch", arpDefaults.latch);
+  sequencer_.SetArpSettings(arp);
+
+  storedKeyboard_ = controller_.Settings().keyboard;
+  storedArp_ = sequencer_.GetArpSettings();
+}
+
+void GrooveApp::StorePlaySettings()
+{
+  // Polled every tick: the UI changes these in many places. The system writes the file a second
+  // after the last change, and when the app is suspended.
+  const groove::KeyboardSettings keys = controller_.Settings().keyboard;
+  const synth::ArpSettings arp = sequencer_.GetArpSettings();
+  if (SameKeyboard(keys, storedKeyboard_) && arp == storedArp_) return;
+  auto& settings = AppSettings();
+  settings.SetInt("keys.layout", static_cast<int>(keys.layout));
+  settings.SetInt("keys.scale", static_cast<int>(keys.scale));
+  settings.SetInt("keys.root", keys.root);
+  settings.SetInt("keys.octave", keys.octave);
+  settings.SetInt("keys.chord", static_cast<int>(keys.chord));
+  settings.SetInt("keys.voicing", keys.voicing);
+  settings.SetInt("keys.lock", static_cast<int>(keys.lock));
+  settings.SetInt("keys.velocity", keys.velocity);
+  settings.SetInt("arp.mode", static_cast<int>(arp.mode));
+  settings.SetInt("arp.rate", arp.rate);
+  settings.SetInt("arp.octaves", arp.octaves);
+  settings.SetInt("arp.gate", arp.gate);
+  settings.SetBool("arp.latch", arp.latch);
+  storedKeyboard_ = keys;
+  storedArp_ = arp;
+}
+
+bool GrooveApp::SaveSessionState()
+{
+  // Without a card there is nowhere to put the project; with an unsaved sampler take the project
+  // cannot be saved (same rule as SAVE). The previous session file is then marked as used up so a
+  // stale state never comes back.
+  const std::string directory = synth::storage::SessionDirectory();
+  if (!synth::storage::EnsureLayout() || directory.empty()) return false;
+  const std::string statePath = os::storage::JoinPath(directory, kSessionState);
+  synth::ProjectData project;
+  std::string message;
+  const groove::ProjectUiSettings ui = controller_.Settings();
+  std::vector<os::storage::SettingsEntry> state;
+  if (!CaptureProject(ui, project, message) ||
+      synth::SaveProjectFileAt(os::storage::JoinPath(directory, kSessionProject), project) != synth::ProjectResult::Ok)
+  {
+    state = {{"pending", "0"}, {"skipped", message.empty() ? "STORAGE" : message}};
+    (void)os::storage::WriteFileAtomic(statePath, os::storage::FormatSettings(state, "Cardenza/Synth session"));
+    return false;
+  }
+  const auto& view = controller_.State();
+  state = {{"pending", "1"}, {"name", view.projectName}, {"dirty", view.dirty ? "1" : "0"}};
+  return os::storage::WriteFileAtomic(statePath, os::storage::FormatSettings(state, "Cardenza/Synth session"));
+}
+
+bool GrooveApp::RestoreSessionState()
+{
+  const std::string directory = synth::storage::SessionDirectory();
+  const std::string statePath = os::storage::JoinPath(directory, kSessionState);
+  std::string text;
+  if (directory.empty() || !os::storage::ReadFileWithBackup(statePath, text, os::storage::kMaxSettingsFileBytes)) return false;
+  std::string name;
+  bool pending = false;
+  bool dirty = false;
+  for (const auto& entry : os::storage::ParseSettings(text))
+  {
+    if (entry.first == "pending") pending = entry.second == "1";
+    else if (entry.first == "name") name = entry.second;
+    else if (entry.first == "dirty") dirty = entry.second == "1";
+  }
+  if (!pending) return false;
+  // Used up before it is applied: a session that fails (or crashes) is not retried at every start.
+  (void)os::storage::WriteFileAtomic(statePath, os::storage::FormatSettings({{"pending", "0"}}, "Cardenza/Synth session"));
+  synth::ProjectData project;
+  std::string message;
+  if (synth::LoadProjectFileAt(os::storage::JoinPath(directory, kSessionProject), project) != synth::ProjectResult::Ok ||
+      !ReplaceSession(name, project, false, message))
+    return false;
+  groove::ProjectUiSettings ui = controller_.Settings();
+  ui.activeTrack = project.activeTrack;
+  // The session comes back with its unsaved state, so loading another project still asks first.
+  controller_.Restore(ui, synth::IsProjectNameValid(name) ? name : std::string(), dirty);
+  return true;
 }
 
 void GrooveApp::Tick()
@@ -100,6 +248,7 @@ void GrooveApp::Tick()
   const std::uint32_t now = NowMs();
   controller_.Tick(now);
   animator_.Update(controller_, now);
+  StorePlaySettings();
 }
 
 void GrooveApp::SyncSamplerTrim()
@@ -150,6 +299,16 @@ void GrooveApp::RenderFrame()
     std::printf("Groove: render avg=%luus max=%luus heap=%u min=%u\n", static_cast<unsigned long>(renderTotalUs_ / renderFrames_),
                 static_cast<unsigned long>(renderMaxUs_), static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
                 static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)));
+    // The key LED levels this frame (0..f per key, rows top to bottom), to check the lights from
+    // the serial console.
+    char leds[4 * 15 + 1] = {};
+    for (std::size_t row = 0; row < 4; ++row)
+    {
+      for (std::size_t column = 0; column < 14; ++column)
+        leds[row * 15 + column] = "0123456789abcdef"[Device::LED::Brightness(row, column) & 0x0F];
+      leds[row * 15 + 14] = row == 3 ? '\0' : ' ';
+    }
+    std::printf("Groove: leds %s master=%u\n", leds, static_cast<unsigned>(Device::LED::GlobalBrightness()));
     renderFrames_ = 0;
     renderTotalUs_ = 0;
     renderMaxUs_ = 0;
@@ -263,8 +422,8 @@ void GrooveApp::PreviewSample(std::size_t track)
 std::vector<std::string> GrooveApp::ListSamples() const
 {
   std::set<std::string> names;
-  const std::string directory = Device::Storage::SampleDirectoryPath();
-  if (!Device::Storage::EnsureDirectoryLayout() || directory.empty()) return {};
+  const std::string directory = synth::storage::SampleDirectory();
+  if (!synth::storage::EnsureLayout() || directory.empty()) return {};
 #if defined(ESP_PLATFORM)
   DIR* handle = opendir(directory.c_str());
   if (handle == nullptr) return {};
@@ -343,16 +502,13 @@ bool GrooveApp::TrackAudible(std::size_t track) const
 
 void GrooveApp::SetMasterVolume(std::uint8_t percent)
 {
-  masterVolume_ = std::min<std::uint8_t>(percent, 100);
-  // The codec steps about 0.95 dB per device percent, so a linear map would leave the lower half of
-  // the UI range inaudible. UI 1..100 spans roughly -42..0 dB; 0 is mute.
-  const int device = masterVolume_ == 0 ? 0 : 100 - (100 - masterVolume_) * 42 / 100;
-  Device::Audio::SetOutputVolume(static_cast<std::uint8_t>(device));
+  // A device setting (System/settings.cfg) on the system's perceptual curve.
+  os::storage::SetOutputVolume(percent);
 }
 
 std::uint8_t GrooveApp::MasterVolume() const
 {
-  return masterVolume_;
+  return os::storage::OutputVolume();
 }
 
 float GrooveApp::TrackActivity(std::size_t track) const
@@ -399,6 +555,50 @@ std::vector<std::string> GrooveApp::ListProjects() const
   return synth::ListProjects();
 }
 
+bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth::ProjectData& project, std::string& message) const
+{
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    const auto sample = sampler_.BuildUiState(track);
+    if (sample.recording || sample.hasDraft)
+    {
+      message = "SAVE SAMPLE FIRST";
+      return false;
+    }
+    const auto& slot = rack_.Slot(track);
+    if (!slot.engine)
+    {
+      message = "ENGINE OFFLINE";
+      return false;
+    }
+    project.kinds[track] = slot.kind;
+    project.engines[track] = slot.engine->CaptureState();
+    project.samples[track] = sample.sampleFileName;
+  }
+  project.sequence = sequencer_.CaptureState();
+  if (!project.sequence)
+  {
+    message = "NO MEMORY";
+    return false;
+  }
+  project.activeTrack = settings.activeTrack;
+  // Play settings, volume, key LEDs and screen are app and device settings now. Their old fields
+  // are still written so older firmware opens the file, kept inside the ranges it accepts.
+  project.octave = settings.keyboard.octave;
+  project.root = settings.keyboard.root;
+  project.scale = settings.keyboard.scale < static_cast<std::size_t>(synth::kProjectScaleCountV4) ? settings.keyboard.scale : 0;
+  project.layout = static_cast<int>(settings.keyboard.layout);
+  project.ledBrightness = os::storage::KeyLedBrightness();
+  project.backlight = os::storage::ScreenBacklight();
+  project.mixer.master = os::storage::OutputVolume();
+  project.mixer.level = levels_;
+  project.mixer.muted = muted_;
+  project.mixer.soloed = soloed_;
+  for (std::size_t param = 0; param < synth::fx::kMasterParamCount; ++param)
+    project.masterFx[param] = static_cast<std::uint8_t>(MasterFx(param));
+  return true;
+}
+
 groove::SaveResult GrooveApp::SaveProject(const std::string& name, bool overwrite, const groove::ProjectUiSettings& settings, std::string& message)
 {
   if (!synth::IsProjectNameValid(name))
@@ -407,43 +607,7 @@ groove::SaveResult GrooveApp::SaveProject(const std::string& name, bool overwrit
     return groove::SaveResult::Failed;
   }
   synth::ProjectData project;
-  project.sequence = sequencer_.CaptureState();
-  if (!project.sequence)
-  {
-    message = "NO MEMORY";
-    return groove::SaveResult::Failed;
-  }
-  project.activeTrack = settings.activeTrack;
-  project.octave = settings.keyboard.octave;
-  project.root = settings.keyboard.root;
-  project.scale = settings.keyboard.scale;
-  project.layout = static_cast<int>(settings.keyboard.layout);
-  project.ledBrightness = Device::LED::GlobalBrightness();
-  project.backlight = backlight_;
-  project.mixer.level = levels_;
-  project.mixer.muted = muted_;
-  project.mixer.soloed = soloed_;
-  project.mixer.master = masterVolume_;
-  for (std::size_t param = 0; param < synth::fx::kMasterParamCount; ++param)
-    project.masterFx[param] = static_cast<std::uint8_t>(MasterFx(param));
-  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
-  {
-    const auto sample = sampler_.BuildUiState(track);
-    if (sample.recording || sample.hasDraft)
-    {
-      message = "SAVE SAMPLE FIRST";
-      return groove::SaveResult::Failed;
-    }
-    const auto& slot = rack_.Slot(track);
-    if (!slot.engine)
-    {
-      message = "ENGINE OFFLINE";
-      return groove::SaveResult::Failed;
-    }
-    project.kinds[track] = slot.kind;
-    project.engines[track] = slot.engine->CaptureState();
-    project.samples[track] = sample.sampleFileName;
-  }
+  if (!CaptureProject(settings, project, message)) return groove::SaveResult::Failed;
   const auto result = synth::SaveProjectFile(name, project, overwrite);
   storageReady_ = result != synth::ProjectResult::StorageError;
   switch (result)
@@ -507,7 +671,9 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
     }
   }
 
-  // No file reads or allocations that can fail remain: swap bindings in place.
+  // No file reads or allocations that can fail remain: swap bindings in place. The arpeggiator
+  // goes first so no arp note fires while the engines are swapped.
+  sequencer_.ArpReleaseAll();
   sequencer_.Stop();
   sequencer_.SetRecordArmed(false);
   sequencer_.ClearSelectedSteps();
@@ -525,14 +691,13 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
     (void)sampler_.ConsumeTrimReset(track);
   }
   sequencer_.RestoreState(*project.sequence);
+  // Mixer levels, mute, solo and the master bus belong to the project; volume, key LEDs, screen and
+  // the play settings (arpeggiator included) do not.
   levels_ = project.mixer.level;
   muted_ = project.mixer.muted;
   soloed_ = project.mixer.soloed;
   ApplyMix();
-  SetMasterVolume(project.mixer.master);
   ApplyMasterFx(project.masterFx);
-  SetBacklight(project.backlight);
-  Device::LED::SetGlobalBrightness(static_cast<std::uint8_t>(project.ledBrightness));
   return true;
 }
 
@@ -545,11 +710,9 @@ bool GrooveApp::LoadProject(const std::string& name, groove::ProjectUiSettings& 
     return false;
   }
   if (!ReplaceSession(name, project, false, message)) return false;
+  // The play settings are app settings: they stay as they are.
+  settings = controller_.Settings();
   settings.activeTrack = project.activeTrack;
-  settings.keyboard.octave = project.octave;
-  settings.keyboard.root = project.root;
-  settings.keyboard.scale = project.scale;
-  settings.keyboard.layout = static_cast<groove::KeyboardLayout>(std::clamp(project.layout, 0, 2));
   return true;
 }
 
@@ -563,36 +726,35 @@ bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& mes
     return false;
   }
   project.kinds = kDefaultKinds;
-  project.mixer.master = masterVolume_;
-  project.backlight = backlight_;
-  project.ledBrightness = Device::LED::GlobalBrightness();
   if (!ReplaceSession("", project, true, message)) return false;
+  // A new project starts on the default track (T2, the piano layout) with the current play settings.
   settings = groove::ProjectUiSettings{};
+  settings.keyboard = controller_.Settings().keyboard;
   return true;
 }
 
 // ---------------------------------------------------------------------------------------------
 // System
 
+// Device settings: os::storage keeps them in System/settings.cfg for every app.
 void GrooveApp::SetLedBrightness(std::uint8_t level)
 {
-  Device::LED::SetGlobalBrightness(std::min<std::uint8_t>(level, Device::LED::kBrightnessMax));
+  os::storage::SetKeyLedBrightness(level);
 }
 
 std::uint8_t GrooveApp::LedBrightness() const
 {
-  return Device::LED::GlobalBrightness();
+  return os::storage::KeyLedBrightness();
 }
 
 void GrooveApp::SetBacklight(std::uint8_t level)
 {
-  backlight_ = std::max<std::uint8_t>(level, 10);
-  Device::Display::SetBacklight(backlight_);
+  os::storage::SetScreenBacklight(level);
 }
 
 std::uint8_t GrooveApp::Backlight() const
 {
-  return backlight_;
+  return os::storage::ScreenBacklight();
 }
 
 groove::SystemInfo GrooveApp::QuerySystem() const

@@ -5,17 +5,8 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <filesystem>
-#include <system_error>
-
-#if defined(_WIN32)
-#define NOMINMAX
-#include <Windows.h>
-#endif
 
 namespace {
-
-namespace fs = std::filesystem;
 
 std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
 Device::Keyboard::MatrixKeyState keyboardState{};
@@ -32,29 +23,6 @@ constexpr bool IsValidMatrixPosition(std::size_t row, std::size_t column) {
 
 constexpr std::size_t MatrixIndex(std::size_t row, std::size_t column) {
   return row * static_cast<std::size_t>(Device::LED::kColumns) + column;
-}
-
-fs::path SimulatorExecutableDirectory() {
-#if defined(_WIN32)
-  std::array<char, MAX_PATH> buffer{};
-  const DWORD length = GetModuleFileNameA(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-  if (length != 0 && length < buffer.size()) {
-    return fs::path(std::string(buffer.data(), length)).parent_path();
-  }
-#endif
-
-  std::error_code error;
-  const fs::path currentDirectory = fs::current_path(error);
-  return error ? fs::path{"."} : currentDirectory;
-}
-
-const fs::path& StorageRootDirectory() {
-  static const fs::path root = SimulatorExecutableDirectory() / "sdcard" / "CardenzaSynth";
-  return root;
-}
-
-std::string PathString(const fs::path& path) {
-  return path.generic_string();
 }
 
 }  // namespace
@@ -170,63 +138,25 @@ bool Enabled() {
 
 }  // namespace LED
 
-namespace Storage {
-
-std::string RootPath() {
-  return PathString(StorageRootDirectory());
-}
-
-std::string SampleDirectoryPath() {
-  return PathString(StorageRootDirectory() / "Sample");
-}
-
-std::string PresetDirectoryPath() {
-  return PathString(StorageRootDirectory() / "Preset");
-}
-
-std::string PresetDirectoryPath(std::string_view instrument) {
-  return PathString(StorageRootDirectory() / "Preset" / std::string(instrument));
-}
-
-std::string ProjectDirectoryPath() {
-  return PathString(StorageRootDirectory() / "Project");
-}
-
-bool EnsureDirectoryLayout() {
-  std::error_code error;
-  const std::array<fs::path, 8> directories = {
-      StorageRootDirectory(),
-      StorageRootDirectory() / "Sample",
-      StorageRootDirectory() / "Preset",
-      StorageRootDirectory() / "Preset" / "DX7",
-      StorageRootDirectory() / "Preset" / "Juno",
-      StorageRootDirectory() / "Preset" / "Sampler",
-      StorageRootDirectory() / "Preset" / "Drums",
-      StorageRootDirectory() / "Project",
-  };
-
-  for (const fs::path& path : directories) {
-    fs::create_directories(path, error);
-    if (error) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-}  // namespace Storage
-
 std::string Name() {
+#if defined(__EMSCRIPTEN__)
+  return "CardenzaWeb";  // Devices/CardenzaWeb reuses this facade in the browser.
+#else
   return "CardenzaSim";
+#endif
 }
 
 std::string BackendName() {
+#if defined(__EMSCRIPTEN__)
+  return "sim-web";
+#else
   return "sim-host";
+#endif
 }
 
 bool Init() {
-  (void)Storage::EnsureDirectoryLayout();
+  // The card folders themselves belong to the OS storage protocol (os::storage).
+  (void)Storage::Mount();
   return true;
 }
 

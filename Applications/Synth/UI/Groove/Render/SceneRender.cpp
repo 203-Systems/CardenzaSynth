@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
@@ -99,26 +100,39 @@ void DrawPads(Gfx& g, const Controller& controller, Animator& animator, const Re
   }
 }
 
-void DrawMiniPiano(Gfx& g, const Rect& rect, const Controller& controller, Animator& animator, int baseNote)
+void DrawMiniPiano(Gfx& g, const Rect& rect, const Controller& controller, Animator& animator, int baseNote, bool showScale = false,
+                   const std::array<bool, 128>* marked = nullptr)
 {
-  // Two octaves: outlined white keys, dithered black keys; held notes light up and fade after release.
+  // Two octaves: outlined white keys, dithered black keys; held notes (whole chords) light up in the
+  // track color and fade after release. With showScale, scale tones carry a dot and the root a bar.
   static constexpr std::array<int, 7> kWhite{{0, 2, 4, 5, 7, 9, 11}};
   static constexpr std::array<int, 7> kBlackAfter{{1, 3, -1, 6, 8, 10, -1}};
   const std::uint32_t now = animator.Now();
+  const KeyboardSettings& keys = controller.State().keyboard;
+  const Color held = TrackColor(controller.State().track);
   const int whiteCount = 14;
   const int keyWidth = rect.width / whiteCount;
   const int left = rect.x + (rect.width - keyWidth * whiteCount) / 2;
+  auto mark = [&](const Rect& key, int note, Color color) {
+    if (!showScale || !InScale(keys, note)) return;
+    const bool root = ((note - keys.root) % 12 + 12) % 12 == 0;
+    if (root) g.Fill(Rect{key.x + 1, key.y + key.height - 3, key.width - 2, 2}, color);
+    else g.Pixel(key.x + key.width / 2, key.y + key.height - 3, color);
+  };
   for (int index = 0; index < whiteCount; ++index)
   {
     const int note = baseNote + (index / 7) * 12 + kWhite[static_cast<std::size_t>(index % 7)];
     const Rect key{left + index * keyWidth, rect.y, keyWidth - 1, rect.height};
     const float glow = fx::Decay(now, animator.NoteHitAt(note), kAfterglowMs);
-    if (controller.IsNoteHeld(note)) g.Fill(key, kInk);
+    const bool down = controller.IsChordNoteHeld(note);
+    if (down) g.Fill(key, held);
     else
     {
+      if (marked != nullptr && note >= 0 && note < 128 && (*marked)[static_cast<std::size_t>(note)]) g.Dither(key, held, 8);
       if (glow > 0.0f) g.Dither(key, kInk, static_cast<int>(glow * 11.0f));
       g.Stroke(key, index % 7 == 0 ? kDim : kFaint);
     }
+    mark(key, note, down ? kBlack : kInk);
   }
   for (int index = 0; index < whiteCount; ++index)
   {
@@ -126,14 +140,16 @@ void DrawMiniPiano(Gfx& g, const Rect& rect, const Controller& controller, Anima
     if (black < 0) continue;
     const int note = baseNote + (index / 7) * 12 + black;
     const Rect key{left + index * keyWidth + keyWidth * 2 / 3, rect.y, keyWidth * 2 / 3, rect.height * 3 / 5};
-    const bool held = controller.IsNoteHeld(note);
+    const bool down = controller.IsChordNoteHeld(note);
     const float glow = fx::Decay(now, animator.NoteHitAt(note), kAfterglowMs);
-    g.Fill(key, held ? kTab : kBlack);
-    if (!held)
+    const bool chordTone = marked != nullptr && note >= 0 && note < 128 && (*marked)[static_cast<std::size_t>(note)];
+    g.Fill(key, down || chordTone ? held : kBlack);
+    if (!down && !chordTone)
     {
-      g.Dither(Rect{key.x + 1, key.y, key.width - 2, key.height - 1}, glow > 0.0f ? kTab : kDim, glow > 0.0f ? 4 + static_cast<int>(glow * 10.0f) : 8);
+      g.Dither(Rect{key.x + 1, key.y, key.width - 2, key.height - 1}, glow > 0.0f ? held : kDim, glow > 0.0f ? 4 + static_cast<int>(glow * 10.0f) : 8);
       g.Stroke(key, kFaint);
     }
+    mark(key, note, kInk);
   }
   g.Text(left + 2, rect.y + rect.height - 9, NoteName(baseNote), kDim);
 }
@@ -150,7 +166,7 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
   const std::uint32_t changed = std::max(animator.PresetChangedAt(state.track), animator.TrackChangedAt());
   fx::DecodeText(g, area.x, area.y + 2, name, kInk, font, fx::Progress(now, changed, 420), changed / 7 + now / 60, area.width);
   const int infoY = area.y + (font == Font::Huge ? 27 : 21);
-  int x = g.Text(area.x, infoY, EngineShortName(host.EngineKind(state.track)), kTab);
+  int x = g.Text(area.x, infoY, EngineShortName(host.EngineKind(state.track)), TrackColor(state.track));
   if (engine != nullptr && engine->CurrentPresetId().rfind("user.", 0) == 0) x = g.Text(x + 6, infoY, "USER", kFn);
   if (host.EngineKind(state.track) != synth::SynthEngineKind::Drums)
   {
@@ -170,38 +186,6 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
   }
   const int base = synth::kHomePerformanceBaseMidiNote + state.keyboard.octave * 12;
   DrawMiniPiano(g, lower, controller, animator, base);
-}
-
-void DrawKeyMap(Gfx& g, const Controller& controller, Animator& animator, const Rect& area)
-{
-  const int cellWidth = area.width / static_cast<int>(kPadColumns);
-  const int cellHeight = area.height / static_cast<int>(kRows);
-  const auto& keys = controller.State().keyboard;
-  const std::uint32_t now = animator.Now();
-  for (std::size_t row = 0; row < kRows; ++row)
-  {
-    for (std::size_t column = 0; column < kPadColumns; ++column)
-    {
-      const Rect cell{area.x + static_cast<int>(column) * cellWidth, area.y + static_cast<int>(row) * cellHeight, cellWidth - 2, cellHeight - 2};
-      int note = 0;
-      if (!controller.PadNoteFor(row, kPadFirstColumn + column, note))
-      {
-        g.Dither(cell, kFaint, 2);
-        continue;
-      }
-      const bool held = controller.IsPadDown(row, kPadFirstColumn + column);
-      const float glow = fx::Decay(now, animator.NoteHitAt(note), kAfterglowMs);
-      const bool root = keys.layout == KeyboardLayout::Piano ? note % 12 == 0 : (note - keys.root) % 12 == 0;
-      if (held) g.Fill(cell, kInk);
-      else
-      {
-        if (glow > 0.0f) g.Dither(cell, kInk, static_cast<int>(glow * 10.0f));
-        if (root) g.Stroke(cell, kDim);
-        else g.DottedHLine(cell.x, cell.y + cell.height - 1, cell.width, kFaint);
-      }
-      g.TextFit(cell.x + 2, cell.y + (cell.height - 7) / 2, cell.width - 3, NoteName(note), held ? kBlack : root ? kInk : kDim);
-    }
-  }
 }
 
 // The track's insert chain left to right (drive, crush, filter, chorus) and its two sends dropping
@@ -312,6 +296,8 @@ void DrawFxChain(Gfx& g, const Controller& controller, Animator& animator, const
   }
 }
 
+void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, const Rect& panel);
+
 void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const InstrumentPage& page)
 {
   const Host& host = controller.HostView();
@@ -325,9 +311,6 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
   {
     case PageGraphic::Voice:
       DrawVoice(g, controller, animator, area);
-      break;
-    case PageGraphic::KeyMap:
-      DrawKeyMap(g, controller, animator, area);
       break;
     case PageGraphic::Algorithm:
       widgets::Dx7Algorithm(g, Rect{area.x + 4, area.y, area.width - 8, area.height}, EngineRaw(engine, "global.algorithm", 1), 0,
@@ -443,6 +426,127 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
     case PageGraphic::FxChain:
       DrawFxChain(g, controller, animator, area);
       break;
+    case PageGraphic::SetupKeys:
+    {
+      // The keyboard from the lowest pad's C: scale tones dotted, the root barred, held chords lit.
+      const int base = static_cast<int>(synth::kHomePerformanceBaseMidiNote) + std::clamp(state.keyboard.octave, -3, 3) * 12;
+      DrawMiniPiano(g, area, controller, animator, base - ((base % 12) + 12) % 12, true);
+      break;
+    }
+    case PageGraphic::SetupChord:
+    {
+      // What one key plays: the chord on the root, then the chords of every scale degree.
+      const KeyboardSettings& keys = state.keyboard;
+      const int base = static_cast<int>(synth::kHomePerformanceBaseMidiNote) + std::clamp(keys.octave, -3, 3) * 12;
+      const int root = base - ((base % 12) + 12) % 12 + keys.root;
+      std::array<std::uint8_t, kMaxPadNotes> notes{};
+      const std::size_t count = PadNotes(keys, synth::SynthEngineKind::Juno, root, notes);
+      std::array<bool, 128> marked{};
+      std::string line = NoteName(root) + " PLAYS ";
+      for (std::size_t index = 0; index < count; ++index)
+      {
+        marked[notes[index]] = true;
+        line += (index == 0 ? "" : " ") + NoteName(notes[index]);
+      }
+      g.TextFit(area.x + 2, area.y + 2, area.width - 4, line, kInk);
+      // The scale's own chords (stacked thirds), I to VII.
+      KeyboardSettings triads = keys;
+      triads.chord = ChordType::Triad;
+      triads.voicing = 0;
+      triads.lock = ScaleLock::Off;
+      std::string degrees;
+      for (int semitone = 0, degree = 0; semitone < 12 && degree < 7; ++semitone)
+      {
+        if (!InScale(keys, root + semitone)) continue;
+        ++degree;
+        std::array<std::uint8_t, kMaxPadNotes> triad{};
+        if (PadNotes(triads, synth::SynthEngineKind::Juno, root + semitone, triad) < 3) continue;
+        const int third = triad[1] - triad[0];
+        const int fifth = triad[2] - triad[0];
+        // Uppercase font: minor is "-", as in lead sheets.
+        const char* quality = third == 3 && fifth == 6 ? "DIM" : third == 3 ? "-" : fifth == 8 ? "+" : "";
+        degrees += std::string(degrees.empty() ? "" : " ") + kNoteNames[static_cast<std::size_t>((root + semitone) % 12)] + quality;
+      }
+      g.TextFit(area.x + 2, area.y + 12, area.width - 4, "IN KEY  " + degrees, kDim);
+      DrawMiniPiano(g, Rect{area.x, area.y + 24, area.width, area.height - 24}, controller, animator, root - keys.root, true, &marked);
+      break;
+    }
+    case PageGraphic::SetupArp:
+    {
+      // The order the arpeggiator plays: the held notes (or the root chord) across the range, as
+      // bars by pitch; the step playing now is white.
+      const auto seq = host.Sequencer().BuildUiState(track);
+      const synth::ArpSettings arp = host.Sequencer().GetArpSettings();
+      std::vector<int> held;
+      if (seq.arpActive)
+        for (std::size_t index = 0; index < seq.arpNoteCount; ++index) held.push_back(seq.arpNotes[index]);
+      if (held.empty())
+      {
+        const KeyboardSettings& keys = state.keyboard;
+        const int base = static_cast<int>(synth::kHomePerformanceBaseMidiNote) + keys.root;
+        std::array<std::uint8_t, kMaxPadNotes> notes{};
+        const std::size_t count = PadNotes(keys, synth::SynthEngineKind::Juno, base, notes);
+        for (std::size_t index = 0; index < count; ++index) held.push_back(notes[index]);
+        if (held.size() < 2) held = {base, base + 4, base + 7};
+      }
+      std::vector<int> pool;
+      for (int octave = 0; octave < std::max<int>(1, arp.octaves); ++octave)
+        for (const int note : held) pool.push_back(note + octave * 12);
+      std::vector<int> order = pool;
+      if (arp.mode != synth::ArpMode::Played) std::sort(order.begin(), order.end());
+      if (arp.mode == synth::ArpMode::Down) std::reverse(order.begin(), order.end());
+      if (arp.mode == synth::ArpMode::UpDown && order.size() > 2)
+        for (std::size_t index = order.size() - 2; index > 0; --index) order.push_back(order[index]);
+      if (arp.mode == synth::ArpMode::Random)
+        for (std::size_t index = 0; index < order.size(); ++index) std::swap(order[index], order[(index * 7 + 3) % order.size()]);
+      const int low = *std::min_element(pool.begin(), pool.end());
+      const int high = *std::max_element(pool.begin(), pool.end());
+      const Rect lane{area.x + 2, area.y + 10, area.width - 4, area.height - 12};
+      const int steps = 16;
+      const int width = lane.width / steps;
+      const bool off = arp.mode == synth::ArpMode::Off;
+      g.Text(area.x + 2, area.y, off ? "ARP OFF" : std::string(synth::kArpModeNames[static_cast<std::size_t>(arp.mode)]) + "  " +
+                                       synth::kArpRateNames[std::min<std::size_t>(arp.rate, synth::kArpRateCount - 1)] + "  GATE " + std::to_string(arp.gate) + "%",
+             off ? kFaint : kDim);
+      for (int step = 0; step < steps; ++step)
+      {
+        const int note = order[static_cast<std::size_t>(step) % order.size()];
+        const int height = 3 + (note - low) * (lane.height - 4) / std::max(1, high - low);
+        const int barWidth = std::max(1, (width - 1) * std::max<int>(10, arp.gate) / 100);
+        const bool now = seq.arpActive && static_cast<int>(seq.arpTick % static_cast<std::uint32_t>(steps)) == step;
+        const Rect bar{lane.x + step * width, lane.y + lane.height - height, barWidth, height};
+        if (off) g.Dither(bar, kFaint, 6);
+        else g.Fill(bar, now ? kInk : TrackColor(track));
+      }
+      break;
+    }
+    case PageGraphic::SetupProject:
+    {
+      // The project at a glance: name and saved state, each track's pattern, the song.
+      const auto seq = host.Sequencer().BuildUiState(track);
+      int y = area.y + 2;
+      g.Text(area.x + 2, y, "PROJECT", kDim);
+      g.TextFit(area.x + 52, y, area.width - 54, state.projectName.empty() ? std::string("UNTITLED") : state.projectName, kInk);
+      if (state.dirty) g.Text(area.x + area.width - Gfx::Measure("UNSAVED") - 2, y, "UNSAVED", kFn);
+      y += 12;
+      g.Text(area.x + 2, y, "PATTERNS", kDim);
+      for (std::size_t t = 0; t < kTrackCount; ++t)
+      {
+        char label[16];
+        std::snprintf(label, sizeof(label), "P%02u/%02u", static_cast<unsigned>(seq.tracks[t].activePattern + 1),
+                      static_cast<unsigned>(seq.tracks[t].patternCount));
+        g.Text(area.x + 52 + static_cast<int>(t) * 42, y, label, TrackColor(t));
+      }
+      y += 12;
+      g.Text(area.x + 2, y, "SONG", kDim);
+      g.Text(area.x + 52, y, std::to_string(seq.songLength) + " ROWS", kInk);
+      y += 12;
+      g.Text(area.x + 2, y, "FN + S SAVE   FN + T TAP TEMPO", kFaint);
+      break;
+    }
+    case PageGraphic::SetupSystem:
+      DrawSystemInfo(g, controller, animator, area);
+      break;
     case PageGraphic::Waveform:
     {
       const auto sampler = host.Sampler().BuildUiState(track);
@@ -538,15 +642,13 @@ void DrawStepCell(Gfx& g, Animator& animator, const Rect& rect, std::size_t inde
   if (selected) fx::MarchingAnts(g, Rect{rect.x - 2, rect.y - 2, rect.width + 4, rect.height + 4}, kInk, now);
 }
 
-void InstrumentScene(Gfx& g, const Controller& controller, Animator& animator, std::uint8_t pageIndex)
+// A page of slots (INSTR pages and SETUP): parameter cells with value bars, action cells, the
+// gliding focus frame and the page graphic. `current` animates edits and presses.
+void DrawSlotPage(Gfx& g, const Controller& controller, Animator& animator, const InstrumentPage& page, std::uint8_t focus, bool current,
+                  std::uint32_t focusKey)
 {
-  const InstrumentPageList list = controller.InstrumentPages();
-  const std::size_t index = std::min<std::size_t>(pageIndex, list.count - 1);
-  const InstrumentPage& page = list.pages[index];
   const UiState& state = controller.State();
   const std::uint32_t now = animator.Now();
-  const bool current = index == controller.CurrentPage();
-  const std::uint8_t focus = state.instrumentFocus[std::min<std::size_t>(index, state.instrumentFocus.size() - 1)];
   for (std::size_t slotIndex = 0; slotIndex < kGridCount; ++slotIndex)
   {
     const Slot& slot = page.slots[slotIndex];
@@ -576,9 +678,8 @@ void InstrumentScene(Gfx& g, const Controller& controller, Animator& animator, s
   if (page.slots[focus].IsParameter())
   {
     const Rect target = Cell(focus / kGridColumns, focus % kGridColumns);
-    const std::uint32_t key = Animator::Key("instr-focus", static_cast<std::uint32_t>(state.track) * 16u + static_cast<std::uint32_t>(index));
-    const int x = static_cast<int>(std::lround(animator.Smooth(key, static_cast<float>(target.x), 50.0f)));
-    const int y = static_cast<int>(std::lround(animator.Smooth(key + 1, static_cast<float>(target.y), 50.0f)));
+    const int x = static_cast<int>(std::lround(animator.Smooth(focusKey, static_cast<float>(target.x), 50.0f)));
+    const int y = static_cast<int>(std::lround(animator.Smooth(focusKey + 1, static_cast<float>(target.y), 50.0f)));
     fx::MarchingAnts(g, Rect{x - 1, y - 1, target.width + 2, target.height + 2}, kInk, now);
   }
   if (page.graphic != PageGraphic::None) DrawGraphic(g, controller, animator, page);
@@ -587,6 +688,131 @@ void InstrumentScene(Gfx& g, const Controller& controller, Animator& animator, s
     if (!page.slots[slotIndex].Empty() || InArea(page.area, slotIndex)) continue;
     const Rect cell = Cell(slotIndex / kGridColumns, slotIndex % kGridColumns);
     g.Pixel(cell.x + cell.width / 2, cell.y + cell.height / 2, kShade);
+  }
+}
+
+void InstrumentScene(Gfx& g, const Controller& controller, Animator& animator, std::uint8_t pageIndex)
+{
+  const InstrumentPageList list = controller.InstrumentPages();
+  const std::size_t index = std::min<std::size_t>(pageIndex, list.count - 1);
+  const UiState& state = controller.State();
+  const std::uint8_t focus = state.instrumentFocus[std::min<std::size_t>(index, state.instrumentFocus.size() - 1)];
+  DrawSlotPage(g, controller, animator, list.pages[index], focus, index == controller.CurrentPage(),
+               Animator::Key("instr-focus", static_cast<std::uint32_t>(state.track) * 16u + static_cast<std::uint32_t>(index)));
+}
+
+// SEQ ROLL: the pattern as a piano roll. Steps run left to right (the GRID's 16 keys, row by row),
+// pitch bottom to top; each note is a bar as long as it plays, its fill as strong as its velocity.
+// The strip at the bottom is the GRID: lit where a step holds notes, white where it is selected.
+void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, const synth::SequencerUiState& seq)
+{
+  const UiState& state = controller.State();
+  const std::uint32_t now = animator.Now();
+  const auto& sequencer = controller.HostView().Sequencer();
+  const std::size_t steps = std::max<std::size_t>(1, seq.tracks[state.track].stepCount);
+  const Color trackColor = TrackColor(state.track);
+  constexpr int kGutter = 20;
+  constexpr int kStrip = 9;
+  const int x0 = kContentX + kGutter;
+  const int column = (kContentWidth - kGutter) / static_cast<int>(kGridCount);
+  const int top = kContentY + 1;
+  const int bottom = kContentBottom - kStrip - 2;
+
+  // Every note of the pattern, to fit the pitch range around them.
+  std::array<std::array<synth::SynthSequencer::StepNoteView, 8>, kGridCount> notes{};
+  std::array<std::size_t, kGridCount> counts{};
+  int low = 128, high = -1;
+  for (std::size_t step = 0; step < kGridCount; ++step)
+  {
+    counts[step] = sequencer.StepNoteEvents(state.track, step, notes[step]);
+    for (std::size_t index = 0; index < counts[step]; ++index)
+    {
+      low = std::min<int>(low, notes[step][index].note);
+      high = std::max<int>(high, notes[step][index].note);
+    }
+  }
+  if (high < 0)
+  {
+    low = static_cast<int>(synth::kHomePerformanceBaseMidiNote) + std::clamp(state.keyboard.octave, -3, 3) * 12;
+    high = low + 12;
+  }
+  else
+  {
+    low -= 2;
+    high += 2;
+    while (high - low < 12)
+    {
+      --low;
+      ++high;
+    }
+    if (high - low > 40) high = low + 40;
+  }
+  low = std::max(0, low);
+  high = std::min(127, high);
+  const int rows = high - low + 1;
+  const int rowHeight = std::max(2, (bottom - top) / rows);
+  const int height = rowHeight * rows;
+  const int y0 = top + (bottom - top - height) / 2;
+  auto rowY = [&](int note) { return y0 + (high - note) * rowHeight; };
+
+  // Keyboard rows: black keys shaded, every C labelled.
+  for (int note = low; note <= high; ++note)
+  {
+    const int pitch = note % 12;
+    const bool black = pitch == 1 || pitch == 3 || pitch == 6 || pitch == 8 || pitch == 10;
+    const int y = rowY(note);
+    if (black) g.Dither(Rect{x0, y, column * static_cast<int>(steps), rowHeight}, kShade, 3);
+    if (pitch == 0)
+    {
+      g.DottedHLine(x0, y + rowHeight - 1, column * static_cast<int>(steps), kShade, 2);
+      if (rowHeight >= 3 || note % 24 == 0) g.Text(kContentX, std::max(top, y + rowHeight - 7), NoteName(note), kFaint, Font::Micro);
+    }
+  }
+  // Beats, the selection and the playhead.
+  for (std::size_t step = 0; step <= steps; step += 4)
+    for (int y = y0; y < y0 + height; y += 2) g.Pixel(x0 + static_cast<int>(step) * column, y, step % 16 == 0 ? kDim : kShade);
+  for (std::size_t step = 0; step < steps; ++step)
+    if (seq.steps[step].held) g.Dither(Rect{x0 + static_cast<int>(step) * column, y0, column, height}, kInk, 3);
+  // The notes.
+  for (std::size_t step = 0; step < steps; ++step)
+  {
+    for (std::size_t index = 0; index < counts[step]; ++index)
+    {
+      const auto& note = notes[step][index];
+      if (note.note < low || note.note > high) continue;
+      const int x = x0 + static_cast<int>(step) * column + static_cast<int>(note.microstep) * column / synth::kSequencerMicrostepCount;
+      const int width = std::max(2, static_cast<int>(note.lengthPulses) * column / synth::kSequencerPulsesPerStep - 1);
+      const Rect bar{x, rowY(note.note), std::min(width, x0 + column * static_cast<int>(steps) - x), std::max(1, rowHeight - 1)};
+      const bool held = seq.steps[step].held;
+      g.Dither(bar, held ? kInk : trackColor, 6 + note.velocity * 10 / 127);
+      g.Fill(Rect{bar.x, bar.y, 1, bar.height}, held ? kInk : trackColor);
+      if (held) g.Stroke(Rect{bar.x - 1, bar.y - 1, bar.width + 2, bar.height + 2}, kInk);
+    }
+  }
+  if (seq.playing)
+  {
+    const int x = x0 + static_cast<int>(seq.patternProgress * static_cast<float>(steps) * static_cast<float>(column));
+    g.VLine(x, y0, height, kPlay);
+  }
+  // The GRID strip.
+  const int stripY = kContentBottom - kStrip;
+  for (std::size_t step = 0; step < kGridCount; ++step)
+  {
+    const Rect cell{x0 + static_cast<int>(step) * column + 1, stripY, column - 2, kStrip - 2};
+    if (step >= steps) continue;
+    const auto& info = seq.steps[step];
+    if (info.held) g.Fill(cell, kInk);
+    else if (info.playing && seq.playing) g.Fill(cell, kPlay);
+    else if (info.hasEvents) g.Dither(cell, trackColor, 10);
+    else g.Stroke(cell, kShade);
+    if (step % 4 == 0) g.Text(cell.x, stripY - 8, std::to_string(step + 1), kFaint, Font::Micro);
+  }
+  if (high - low <= 12 && counts == std::array<std::size_t, kGridCount>{})
+  {
+    const Rect band{x0, y0 + height / 2 - 10, column * static_cast<int>(steps), 20};
+    g.Fill(band, kBlack);
+    g.TextAligned(Rect{band.x, band.y, band.width, 10}, "HOLD A PAD + TAP STEPS", kDim, Font::Micro, Align::Center);
+    g.TextAligned(Rect{band.x, band.y + 10, band.width, 10}, "OK STEP REC  HOLD OK TAKES", (now / 600) % 2 ? kFaint : kShade, Font::Micro, Align::Center);
   }
 }
 
@@ -602,6 +828,17 @@ void SequenceScene(Gfx& g, const Controller& controller, Animator& animator, std
   {
     case 0:
     {
+      if (state.record.view == SeqView::Roll)
+      {
+        DrawPianoRoll(g, controller, animator, seq);
+        if (!track.enabled)
+        {
+          const Rect band{kContentX, kContentY + kContentHeight / 2 - 6, kContentWidth, 12};
+          g.Fill(band, kBlack);
+          g.TextAligned(band, "SEQUENCE OFF - SEQ > TRACK", (now / 500) % 2 ? kDim : kFaint, Font::Micro, Align::Center);
+        }
+        break;
+      }
       const float position = seq.patternProgress * static_cast<float>(std::max<std::size_t>(1, track.stepCount));
       const float phaseInStep = position - std::floor(position);
       // Stop: a green head runs back from the last step to step 1.
@@ -618,6 +855,15 @@ void SequenceScene(Gfx& g, const Controller& controller, Animator& animator, std
         DrawStepCell(g, animator, Cell(index / kGridColumns, index % kGridColumns), index, seq.steps[index], index < track.stepCount,
                      index % 4 == 0, drums, phaseInStep, rewind);
         GridRipple(g, animator, index, seq.steps[index].held ? kInk : kTab);
+      }
+      // STEP REC: the write cursor, with how far it moves after each write.
+      {
+        const std::size_t cursor = std::min<std::size_t>(state.record.cursor, kGridCount - 1);
+        const Rect cell = Cell(cursor / kGridColumns, cursor % kGridColumns);
+        fx::MarchingAnts(g, Rect{cell.x - 2, cell.y - 2, cell.width + 4, cell.height + 4}, kRec, now);
+        const std::string advance = "+" + std::to_string(state.record.stepLength);
+        g.Fill(Rect{cell.x + cell.width - Gfx::Measure(advance) - 3, cell.y + cell.height - 9, Gfx::Measure(advance) + 3, 9}, kRec);
+        g.Text(cell.x + cell.width - Gfx::Measure(advance) - 1, cell.y + cell.height - 8, advance, kBlack);
       }
       if (!track.enabled)
       {
@@ -705,7 +951,8 @@ void SequenceScene(Gfx& g, const Controller& controller, Animator& animator, std
         const auto& summary = seq.tracks[row];
         const bool currentTrack = row == state.track;
         const Color ink = currentTrack ? kInk : kDim;
-        g.Text(table.x, y, "T" + std::to_string(row + 1), currentTrack ? kTab : kDim, Font::Small);
+        if (currentTrack) g.Fill(Rect{table.x - 2, y - 1, 15, 11}, TrackColor(row));
+        g.Text(table.x, y, "T" + std::to_string(row + 1), currentTrack ? kBlack : TrackColor(row), Font::Small);
         g.Text(table.x + 22, y + 1, EngineShortName(host.EngineKind(row)), ink);
         char pattern[16];
         std::snprintf(pattern, sizeof(pattern), "P%02u/%02u", static_cast<unsigned>(summary.activePattern + 1), static_cast<unsigned>(summary.patternCount));
@@ -730,6 +977,30 @@ void SequenceScene(Gfx& g, const Controller& controller, Animator& animator, std
       break;
     }
   }
+}
+
+// SETUP SYSTEM: a terminal-style status report that types itself out.
+void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, const Rect& panel)
+{
+  const Host& host = controller.HostView();
+  const std::uint32_t now = animator.Now();
+  const SystemInfo info = host.QuerySystem();
+  int y = panel.y + 4;
+  int line = 0;
+  const float typed = fx::Clamp01(static_cast<float>(now - animator.ModalOpenedAt()) / 600.0f);
+  auto row = [&](const char* label, const std::string& value, Color color) {
+    const float reveal = fx::Clamp01(typed * 5.0f - static_cast<float>(line));
+    g.Text(panel.x, y, label, kDim);
+    fx::TypeText(g, panel.x + 60, y, value, color, Font::Micro, reveal);
+    y += 11;
+    ++line;
+  };
+  row("DEVICE", "CARDENZA GROOVEBOX", kInk);
+  row("BACKEND", info.backend, kInk);
+  row("SD CARD", info.storageReady ? "READY" : "NOT FOUND", info.storageReady ? kPlay : kRec);
+  row("MEMORY", info.freeHeap == 0 ? std::string("N/A") :
+      std::to_string(info.freeHeap / 1024) + "K FREE  MIN " + std::to_string(info.minimumFreeHeap / 1024) + "K", kInk);
+  row("BUILD", std::string(__DATE__), kDim);
 }
 
 void ProjectScene(Gfx& g, const Controller& controller, Animator& animator, std::uint8_t page)
@@ -771,7 +1042,7 @@ void ProjectScene(Gfx& g, const Controller& controller, Animator& animator, std:
         const int tx = info.x + column * (info.width / 2);
         const int ty = info.y + 24 + row * 12;
         const float activity = animator.MeterPeak(track);
-        g.Text(tx, ty, "T" + std::to_string(track + 1), activity > 0.3f ? kInk : kTab);
+        g.Text(tx, ty, "T" + std::to_string(track + 1), activity > 0.3f ? kInk : TrackColor(track));
         const auto* engine = host.Engine(track);
         g.Text(tx + 16, ty, EngineCode(host.EngineKind(track)), kDim);
         if (engine != nullptr) g.TextFit(tx + 40, ty, info.width / 2 - 44, engine->CurrentPresetName(), kInk);
@@ -801,40 +1072,6 @@ void ProjectScene(Gfx& g, const Controller& controller, Animator& animator, std:
         g.TextFit(list.x + 10, y, list.width - 12, state.projects[index], covered ? kBlack : kInk);
       }
       widgets::ScrollIndicator(g, Rect{kContentRight - 2, kContentY + 1, 1, kContentHeight - 2}, first, visible, state.projects.size());
-      break;
-    }
-    case 2:
-    default:
-    {
-      const std::array<const char*, 3> labels{{"KEY LED", "SCREEN", "VOLUME"}};
-      const std::array<int, 3> values{{host.LedBrightness(), host.Backlight(), host.MasterVolume()}};
-      const std::array<int, 3> maxima{{15, 255, 100}};
-      for (std::size_t index = 0; index < labels.size(); ++index)
-      {
-        const float target = static_cast<float>(values[index]) / static_cast<float>(maxima[index]);
-        widgets::ParamCell(g, Cell(0, index), labels[index], std::to_string(values[index]), animator.Smooth(Animator::Key(labels[index], 77u), target),
-                           index == state.systemFocus ? CellStyle::Focused : CellStyle::Normal, 0.0f, now);
-        GridRipple(g, animator, index, kInk);
-      }
-      const SystemInfo info = host.QuerySystem();
-      const Rect panel = CellSpan(1, 0, 3, 4);
-      int y = panel.y + 4;
-      int line = 0;
-      // Lines type out one after another, like a terminal printing a report.
-      const float typed = fx::Clamp01(static_cast<float>(now - animator.CurrentTransition().start) / 600.0f);
-      auto row = [&](const char* label, const std::string& value, Color color) {
-        const float reveal = fx::Clamp01(typed * 5.0f - static_cast<float>(line));
-        g.Text(panel.x, y, label, kDim);
-        fx::TypeText(g, panel.x + 60, y, value, color, Font::Micro, reveal);
-        y += 11;
-        ++line;
-      };
-      row("DEVICE", "CARDENZA GROOVEBOX", kInk);
-      row("BACKEND", info.backend, kInk);
-      row("SD CARD", info.storageReady ? "READY" : "NOT FOUND", info.storageReady ? kPlay : kRec);
-      row("MEMORY", info.freeHeap == 0 ? std::string("N/A") :
-          std::to_string(info.freeHeap / 1024) + "K FREE  MIN " + std::to_string(info.minimumFreeHeap / 1024) + "K", kInk);
-      row("BUILD", std::string(__DATE__), kDim);
       break;
     }
   }
@@ -895,7 +1132,7 @@ void TapeScene(Gfx& g, const Controller& controller, Animator& animator)
         ink = kBlack;
       }
       else if (pattern >= 0)
-        g.Fill(Rect{cell.x, cell.y + cell.height - 2, cell.width, 2}, playingRow ? kPlay : kDim);
+        g.Fill(Rect{cell.x, cell.y + cell.height - 2, cell.width, 2}, playingRow ? kPlay : TrackColor(track));
       else g.DottedHLine(cell.x, cell.y + cell.height - 1, cell.width, kFaint);
       if (track == 0)
       {
@@ -904,9 +1141,16 @@ void TapeScene(Gfx& g, const Controller& controller, Animator& animator)
         std::snprintf(label, sizeof(label), "%02u", static_cast<unsigned>(row + 1));
         g.Text(cell.x + 3, cell.y + 2, label, cursor ? kBlack : (playingRow ? kPlay : kDim));
         std::snprintf(label, sizeof(label), "x%u", static_cast<unsigned>(songRow.repeats));
-        g.Text(cell.x + cell.width - Gfx::Measure(label) - 2, cell.y + 2, label, cursor ? kBlack : kFn);
+        const int barsX = cell.x + cell.width - Gfx::Measure(label) - 2;
+        // While the cursor edits the row length (BARS lane), its bar count is the highlighted value.
+        if (state.songLane == 1 && row == state.songRow)
+        {
+          g.Fill(Rect{barsX - 2, cell.y + 1, Gfx::Measure(label) + 4, 9}, kFn);
+          g.Text(barsX, cell.y + 2, label, kBlack);
+        }
+        else g.Text(barsX, cell.y + 2, label, cursor ? kBlack : kFn);
       }
-      else g.Text(cell.x + 3, cell.y + 2, "T" + std::to_string(track + 1), cursor ? kBlack : kFaint);
+      else g.Text(cell.x + 3, cell.y + 2, "T" + std::to_string(track + 1), cursor ? kBlack : TrackColor(track));
       char name[8];
       if (pattern < 0) std::snprintf(name, sizeof(name), "--");
       else std::snprintf(name, sizeof(name), "P%02d", pattern + 1);
@@ -942,7 +1186,7 @@ void MixScene(Gfx& g, const Controller& controller, Animator& animator)
     const Rect fader{top.x + 1, top.y + 1, 9, bottom.y + bottom.height - top.y - 2};
     const float level = animator.Smooth(Animator::Key("mix-level", static_cast<std::uint32_t>(track)), static_cast<float>(host.TrackLevel(track)) / 100.0f);
     widgets::Fader(g, fader, level, audible ? kInk : kFaint, focused);
-    if (focused) fx::MarchingAnts(g, Rect{fader.x - 1, fader.y - 1, fader.width + 2, fader.height + 2}, kTab, now);
+    if (focused) fx::MarchingAnts(g, Rect{fader.x - 1, fader.y - 1, fader.width + 2, fader.height + 2}, TrackColor(track), now);
     // Activity meter with a falling peak marker.
     const float activity = animator.Smooth(Animator::Key("mix-act", static_cast<std::uint32_t>(track)), host.TrackActivity(track), 35.0f);
     const int meter = static_cast<int>(activity * static_cast<float>(fader.height));
@@ -956,10 +1200,10 @@ void MixScene(Gfx& g, const Controller& controller, Animator& animator)
     const std::string label = "T" + std::to_string(track + 1);
     if (focused)
     {
-      g.Fill(Rect{x - 2, top.y, width + 2, 10}, kTab);
+      g.Fill(Rect{x - 2, top.y, width + 2, 10}, TrackColor(track));
       g.Text(x, top.y + 2, label, kBlack);
     }
-    else g.Text(x, top.y + 2, label, kTab);
+    else g.Text(x, top.y + 2, label, TrackColor(track));
     g.TextFit(x + 15, top.y + 2, width - 15, EngineCode(host.EngineKind(track)), focused ? kBlack : kDim);
     g.Text(x, top.y + 13, std::to_string(host.TrackLevel(track)), audible ? kInk : kDim, Font::Small);
 
@@ -982,6 +1226,75 @@ void MixScene(Gfx& g, const Controller& controller, Animator& animator)
     }
     for (std::size_t row = 0; row < kRows; ++row) GridRipple(g, animator, row * kGridColumns + track, kInk);
   }
+}
+
+// SESSION: the clip grid. Columns are the tracks (in their colors), rows are pattern slots. Each
+// cell shows its pattern's steps as ticks; the playing pattern of a track carries a moving playhead
+// and a green wash, a queued one crawling yellow ants, the next free slot a "+" to create it.
+void SessionScene(Gfx& g, const Controller& controller, Animator& animator)
+{
+  const UiState& state = controller.State();
+  const Host& host = controller.HostView();
+  const std::uint32_t now = animator.Now();
+  const auto& sequencer = host.Sequencer();
+  const auto seq = sequencer.BuildUiState(state.track);
+  for (std::size_t index = 0; index < kGridCount; ++index)
+  {
+    const std::size_t track = index % kGridColumns;
+    const std::size_t pattern = state.sessionScroll + index / kGridColumns;
+    const Rect cell = Cell(index / kGridColumns, track);
+    const auto& summary = seq.tracks[track];
+    const Color color = TrackColor(track);
+    g.Fill(Rect{cell.x - 2, cell.y, 1, cell.height}, color);
+    if (pattern >= summary.patternCount)
+    {
+      if (pattern == summary.patternCount && pattern < synth::kSequencerMaxPatternCount)
+      {
+        g.DottedHLine(cell.x, cell.y, cell.width, kFaint);
+        g.DottedHLine(cell.x, cell.y + cell.height - 1, cell.width, kFaint);
+        g.TextAligned(cell, "+", kDim, Font::Small, Align::Center);
+      }
+      else g.Pixel(cell.x + cell.width / 2, cell.y + cell.height / 2, kShade);
+      GridRipple(g, animator, index, kInk);
+      continue;
+    }
+    const bool active = pattern == summary.activePattern;
+    const bool playing = active && seq.playing && !summary.songSilent;
+    const bool queued = pattern == summary.queuedPattern;
+    const bool audible = summary.enabled && !summary.muted && host.TrackAudible(track);
+    if (playing) g.Dither(cell, kPlay, 3);
+    if (active) g.Stroke(cell, color);
+    const std::uint16_t mask = sequencer.PatternStepMask(track, pattern);
+    char name[12];
+    std::snprintf(name, sizeof(name), "P%02u", static_cast<unsigned>(pattern + 1));
+    g.Text(cell.x + 3, cell.y + 3, name, active ? color : (mask != 0 ? kInk : kDim));
+    if (playing) g.DrawGlyph(cell.x + cell.width - 9, cell.y + 3, Glyph::Play, kPlay);
+    else if (queued && (now / 250) % 2 == 0) g.Text(cell.x + cell.width - Gfx::Measure("NXT") - 3, cell.y + 3, "NXT", kFn);
+    // Steps as ticks: filled where the pattern has notes, the playhead in white.
+    const int left = cell.x + 3;
+    const int span = cell.width - 6;
+    for (std::size_t step = 0; step < summary.stepCount && step < synth::kSequencerStepCount; ++step)
+    {
+      const int x = left + static_cast<int>(step) * span / static_cast<int>(synth::kSequencerStepCount);
+      const bool on = ((mask >> step) & 1u) != 0;
+      const bool head = playing && step == summary.currentStep;
+      if (head) g.Fill(Rect{x, cell.y + 13, 2, 7}, kInk);
+      else if (on) g.Fill(Rect{x, cell.y + 15, 2, 5}, audible ? color : kDim);
+      else g.Pixel(x, cell.y + 19, kFaint);
+    }
+    if (queued) fx::MarchingAnts(g, Rect{cell.x - 1, cell.y - 1, cell.width + 2, cell.height + 2}, kFn, now);
+    GridRipple(g, animator, index, kInk);
+  }
+  // The cursor glides like every focus frame.
+  if (state.sessionPattern >= state.sessionScroll && state.sessionPattern < state.sessionScroll + kRows)
+  {
+    const Rect target = Cell(state.sessionPattern - state.sessionScroll, state.sessionTrack);
+    const std::uint32_t key = Animator::Key("session-focus");
+    const int x = static_cast<int>(std::lround(animator.Smooth(key, static_cast<float>(target.x), 50.0f)));
+    const int y = static_cast<int>(std::lround(animator.Smooth(key + 1, static_cast<float>(target.y), 50.0f)));
+    fx::MarchingAnts(g, Rect{x - 2, y - 2, target.width + 4, target.height + 4}, kInk, now);
+  }
+  widgets::ScrollIndicator(g, Rect{kContentRight, kContentY + 1, 1, kContentHeight - 2}, state.sessionScroll, kRows, synth::kSequencerMaxPatternCount);
 }
 
 // SENDS: one column per track (like MIX), one row per effect: filter, chorus, delay send, reverb
@@ -1007,6 +1320,7 @@ void SendsScene(Gfx& g, const Controller& controller, Animator& animator)
     const bool focused = state.sendsFocus == index;
     const bool off = info.value == info.defaultValue;
     const CellStyle style = focused ? CellStyle::Focused : off ? CellStyle::Disabled : CellStyle::Normal;
+    g.Fill(Rect{cell.x - 2, cell.y, 1, cell.height}, TrackColor(track));
     const std::string text = engine->DescribeParameterValue(kSendIds[row]);
     const std::uint32_t key = Animator::Key(kSendIds[row], static_cast<std::uint32_t>(track) * 53u + 5u);
     if (row == 0)
@@ -1138,6 +1452,12 @@ void FxScene(Gfx& g, const Controller& controller, Animator& animator)
 
 }  // namespace
 
+void SetupContent(Gfx& g, const Controller& controller, Animator& animator)
+{
+  const std::uint8_t page = controller.State().fnPage;
+  DrawSlotPage(g, controller, animator, SetupPage(page), controller.FnFocus(), true, Animator::Key("setup-focus", page));
+}
+
 void SceneContent(Gfx& g, const Controller& controller, Animator& animator, Scene scene, std::uint8_t page)
 {
   switch (scene)
@@ -1145,7 +1465,8 @@ void SceneContent(Gfx& g, const Controller& controller, Animator& animator, Scen
     case Scene::Instrument: InstrumentScene(g, controller, animator, page); break;
     case Scene::Sequence: SequenceScene(g, controller, animator, page); break;
     case Scene::Tape:
-      if (page == kTapeSong) TapeScene(g, controller, animator);
+      if (page == kTapeSession) SessionScene(g, controller, animator);
+      else if (page == kTapeSong) TapeScene(g, controller, animator);
       else if (page == kTapeMix) MixScene(g, controller, animator);
       else if (page == kTapeSends) SendsScene(g, controller, animator);
       else if (page == kTapeFx) FxScene(g, controller, animator);

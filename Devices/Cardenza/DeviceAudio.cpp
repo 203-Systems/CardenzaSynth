@@ -9,7 +9,7 @@
 #include <mutex>
 
 #include "audio/audio.h"
-#include "cardenza/mic/mic.h"
+#include "mic/mic.h"
 
 #include <esp_log.h>
 #include <esp_attr.h>
@@ -53,7 +53,6 @@ constexpr uint32_t kAudioTaskStackSize = 16 * 1024;
 constexpr int64_t kRenderBudgetUs =
   static_cast<int64_t>((1000000ULL * kRenderFrameCount) / device::kDefaultSynthAudioSampleRate);
 constexpr uint32_t kTimingLogBlockInterval = 1024;
-constexpr std::int32_t kVolumeScaleUnity = 32768;
 constexpr char kLogTag[] = "CardenzaAudio";
 std::mutex g_audioPumpMutex;
 TaskHandle_t g_audioPumpTask = nullptr;
@@ -80,20 +79,6 @@ bool EnsureOutputChannelEnabled()
   g_audioOutputEnabled = true;
   (void)CardenzaHAL::Audio::SetVolume(CardenzaHAL::Audio::GetVolume());
   return true;
-}
-
-void ApplyVolume(std::int16_t* samples, std::size_t sampleCount, std::uint8_t volume)
-{
-  if (volume >= 100)
-  {
-    return;
-  }
-
-  const std::int32_t gain = (static_cast<std::int32_t>(volume) * kVolumeScaleUnity + 50) / 100;
-  for (std::size_t index = 0; index < sampleCount; ++index)
-  {
-    samples[index] = static_cast<std::int16_t>((static_cast<std::int32_t>(samples[index]) * gain) / kVolumeScaleUnity);
-  }
 }
 
 bool WriteOutputFrames(i2s_chan_handle_t outputChannel, const std::int16_t* samples, std::size_t sampleCount)
@@ -146,8 +131,6 @@ void AudioRenderTask(void*)
     const int64_t renderStartUs = esp_timer_get_time();
     RenderSynthFrames(buffer.data(), buffer.size());
     const int64_t renderEndUs = esp_timer_get_time();
-    ApplyVolume(buffer.data(), buffer.size(), CardenzaHAL::Audio::GetVolume());
-
     const int64_t writeStartUs = esp_timer_get_time();
 
     if (!WriteOutputFrames(outputChannel, buffer.data(), buffer.size()))
@@ -200,7 +183,8 @@ bool EnsureAudioPumpStarted()
   {
     return true;
   }
-  if (!CardenzaHAL::Audio::Init() || CardenzaHAL::Audio::GetTxChannel() == nullptr)
+  // Mono: one sample per frame, the HAL sends it to both codec slots.
+  if (!CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO) || CardenzaHAL::Audio::GetTxChannel() == nullptr)
   {
     ESP_LOGW(kLogTag, "audio output not ready");
     return false;
@@ -403,7 +387,7 @@ SynthAudioPipelineBinding ConnectSynthAudioPipeline(std::size_t engineIndex) {
   binding.engineIndex = engineIndex;
   binding.backendName = "cardenza-i2s";
 
-  const bool status = CardenzaHAL::Audio::Init();
+  const bool status = CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO);
   binding.hasNativeOutput = status && EnsureAudioPumpStarted();
   binding.connected = binding.hasNativeOutput;
   return binding;

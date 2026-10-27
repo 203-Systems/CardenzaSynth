@@ -18,11 +18,19 @@ namespace apps {
 
 // The Cardenza groovebox: four engine tracks, the step sequencer, sampler, mixer and project
 // storage behind the terminal / dither UI in Applications/Synth/UI/Groove.
+//
+// Storage (docs/app-storage-protocol.md): projects in Apps/Cardenza/Synth/Projects, preset banks in
+// Apps/Cardenza/Synth/Presets/<engine>, samples in Shared/Samples. The FN SETUP play settings
+// (keys.*, arp.*) are app settings in Apps/Cardenza/Synth/settings.cfg; volume, key LEDs and screen
+// are device settings (os::storage). Neither changes when a project is loaded or created. Suspend
+// saves the working project to Apps/Cardenza/Synth/Session and the next Setup restores it.
 class GrooveApp : public app::Application, public groove::Host {
 public:
   GrooveApp();
+  ~GrooveApp() override;
 
   void Setup(const std::vector<std::string>& args) override;
+  void Suspend() override;
   void Tick() override;
   void UpdateLeds() override;
   void RenderFrame() override;
@@ -84,6 +92,14 @@ private:
   void ApplyMasterFx(const std::array<std::uint8_t, synth::fx::kMasterParamCount>& values);
   void SyncSamplerTrim();
   bool ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message);
+  // The current session as project data. False (with a UI message) while a sampler take is unsaved.
+  bool CaptureProject(const groove::ProjectUiSettings& settings, synth::ProjectData& project, std::string& message) const;
+  // FN SETUP play settings <-> the app settings file.
+  void RestorePlaySettings();
+  void StorePlaySettings();
+  // Session handover across an app switch (Session/session.ccproj + session.cfg).
+  bool SaveSessionState();
+  bool RestoreSessionState();
   static void SendSequencerMidi(void* context, std::size_t trackIndex, const midi::MidiPacket& packet);
 
   bool initialized_ = false;
@@ -96,8 +112,9 @@ private:
   std::array<std::uint8_t, synth::kSynthTrackCount> levels_{{100, 100, 100, 100}};
   std::array<bool, synth::kSynthTrackCount> muted_{};
   std::array<bool, synth::kSynthTrackCount> soloed_{};
-  std::uint8_t masterVolume_ = 85;
-  std::uint8_t backlight_ = 180;
+  // The play settings last written to the app settings, to notice changes cheaply every tick.
+  groove::KeyboardSettings storedKeyboard_{};
+  synth::ArpSettings storedArp_{};
   // Tempo last sent to the synced delay.
   std::uint16_t fxTempo_ = 0;
   // Probed at boot and after saves; the SYSTEM page reads it every frame.

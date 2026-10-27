@@ -14,11 +14,34 @@ constexpr InstrumentPage kVoicePage{
       E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
     PageGraphic::Voice, {1, 0, 3, 4}, 0};
 
-constexpr InstrumentPage kKeysPage{
-    "LAYOUT", "KEYS",
-    {{P("keys.layout", "LAYOUT"), P("keys.scale", "SCALE"), P("keys.root", "ROOT"), P("keys.octave", "OCTAVE"),
-      E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
-    PageGraphic::KeyMap, {1, 0, 3, 4}, 0};
+// The FN panel (hold FN, or tap it to keep it open). Five pages, picked with FN + 1..5 or FN + CTRL:
+// the GRID chooses a setting, ADD / SUB change it. Keyboard, chord and arp settings belong to the app,
+// project settings to the open project, system settings to the device.
+constexpr std::array<InstrumentPage, kSetupPageCount> kSetupPages{{
+    InstrumentPage{"SCALE", "KEYS",
+                   {{P("keys.layout", "LAYOUT"), P("keys.scale", "SCALE"), P("keys.root", "ROOT"), P("keys.octave", "OCTAVE"),
+                     P("keys.velocity", "VELO"), P("keys.lock", "LOCK"), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::SetupKeys, {2, 0, 2, 4}, 0},
+    InstrumentPage{"MIDI FX", "CHORD",
+                   {{P("keys.chord", "CHORD"), P("keys.voicing", "VOICING"), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::SetupChord, {1, 0, 3, 4}, 0},
+    InstrumentPage{"MIDI FX", "ARP",
+                   {{P("arp.mode", "ARP"), P("arp.rate", "RATE"), P("arp.octaves", "RANGE"), P("arp.gate", "GATE"),
+                     P("arp.latch", "LATCH"), E(), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::SetupArp, {2, 0, 2, 4}, 0},
+    InstrumentPage{"PROJECT", "PROJECT",
+                   {{P("proj.bpm", "BPM"), P("proj.swing", "SWING"), P("proj.mode", "PLAY"), P("proj.steps", "STEPS"),
+                     P("proj.rec", "REC"), E(), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::SetupProject, {2, 0, 2, 4}, 0},
+    InstrumentPage{"DEVICE", "SYSTEM",
+                   {{P("sys.volume", "VOLUME"), P("sys.led", "KEY LED"), P("sys.screen", "SCREEN"), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::SetupSystem, {1, 0, 3, 4}, 0},
+}};
 
 // Signal order left to right: drive, crush, filter, then chorus and the two sends.
 constexpr InstrumentPage kFxPage{
@@ -39,7 +62,7 @@ constexpr InstrumentPage kFxPage{
                    P("op" #n ".sustain", "L3"), P("op" #n ".level4", "L4")}},                                        \
                  PageGraphic::OperatorEnvelope, {1, 2, 1, 2}, n}
 
-constexpr std::array<InstrumentPage, 12> kDx7Pages{{
+constexpr std::array<InstrumentPage, 11> kDx7Pages{{
     kVoicePage,
     InstrumentPage{"ROUTING", "ALGO",
                    {{P("global.algorithm", "ALG"), P("global.feedback", "FB"), P("global.transpose", "TRNS"), E(),
@@ -62,12 +85,11 @@ constexpr std::array<InstrumentPage, 12> kDx7Pages{{
                      E(), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::Lfo, {2, 0, 2, 4}, 0},
     kFxPage,
-    kKeysPage,
 }};
 
 #undef CARDENZA_DX7_OP_PAGE
 
-constexpr std::array<InstrumentPage, 7> kJunoPages{{
+constexpr std::array<InstrumentPage, 6> kJunoPages{{
     kVoicePage,
     InstrumentPage{"WAVES", "DCO",
                    {{P("dco.range", "RANGE"), P("dco.saw", "SAW"), P("dco.pulse", "PULSE"), P("dco.pwm", "PWM"),
@@ -89,10 +111,9 @@ constexpr std::array<InstrumentPage, 7> kJunoPages{{
                      E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::Lfo, {1, 0, 3, 4}, 0},
     kFxPage,
-    kKeysPage,
 }};
 
-constexpr std::array<InstrumentPage, 5> kSamplerPages{{
+constexpr std::array<InstrumentPage, 4> kSamplerPages{{
     kVoicePage,
     InstrumentPage{"WAV", "SAMPLE",
                    {{A(SlotAction::SampleFile, "FILE"), A(SlotAction::SampleRecord, "REC"), P("sample.start", "START"), P("sample.end", "END"),
@@ -104,7 +125,6 @@ constexpr std::array<InstrumentPage, 5> kSamplerPages{{
                      P("amp.level", "LEVEL"), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::Filter, {2, 0, 2, 4}, 0},
     kFxPage,
-    kKeysPage,
 }};
 
 constexpr std::array<InstrumentPage, 3> kDrumPages{{
@@ -118,6 +138,11 @@ constexpr std::array<InstrumentPage, 3> kDrumPages{{
 }};
 
 }  // namespace
+
+const InstrumentPage& SetupPage(std::size_t page)
+{
+  return kSetupPages[page < kSetupPages.size() ? page : 0];
+}
 
 InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind)
 {

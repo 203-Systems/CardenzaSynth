@@ -1,5 +1,5 @@
 #include "Applications/Synth/UI/SynthLedFeedback.h"
-#include "Devices/Cardenza/cardenza/keyboard/internal/led_pwm.h"
+#include "Devices/LedLight.h"
 #include "Devices/LedFrameBuffer.h"
 
 #include <array>
@@ -8,46 +8,31 @@
 
 int main()
 {
-  using namespace CardenzaHAL::Keyboard::detail;
-  // Exercise the production integer PWM math without mocking ESP-IDF or GPIO.
-  std::array<bool, kLedPwmPhaseCount> ranks{};
-  for (unsigned phase = 0; phase < kLedPwmPhaseCount; ++phase)
+  using namespace Device::LED;
+  // Perceived levels go through the gamma table to the HAL's linear duty; a lit level never goes
+  // dark, the table only climbs and keeps both ends.
+  assert(KeyLevel(0) == 0 && KeyLevel(15) == 15 && KeyLevel(255) == 15);
+  for (unsigned level = 1; level <= 15; ++level) assert(KeyLevel(level) >= 1 && KeyLevel(level) >= KeyLevel(level - 1));
+  // The light: duty of the mapped level times the gamma-2 global PWM (Devices/LedLight.h).
+  for (unsigned master = 0; master <= 15; ++master)
   {
-    const auto rank = LedPhaseRank(phase);
-    assert(rank < ranks.size() && !ranks[rank]);
-    ranks[rank] = true;
-  }
-  unsigned lastDuty = 0;
-  for (unsigned level = 0; level <= 15; ++level)
-  {
-    unsigned duty = 0;
-    for (unsigned phase = 0; phase < kLedPwmPhaseCount; ++phase)
-      duty += LedPhaseOn(level, 15, phase);
-    assert(level == 0 ? duty == 0 : duty >= lastDuty);
-    lastDuty = duty;
-    for (unsigned master = 0; master <= 15; ++master)
+    unsigned lastLight = 0;
+    for (unsigned level = 0; level <= 15; ++level)
     {
-      assert(LedDuty(level, master) == LedDuty(master, level));
-      assert(LedDuty(level, master) <= kLedPwmPhaseCount);
-      if (master == 0 || level == 0) assert(LedDuty(level, master) == 0);
-      else assert(LedDuty(level, master) > 0);
-      if (master > 0) assert(LedDuty(level, master) >= LedDuty(level, master - 1));
+      const unsigned light = LightPermille(level, master);
+      assert(light >= lastLight);
+      lastLight = light;
+      if (level == 0 || master == 0) assert(light == 0);
+      else assert(KeyDuty(KeyLevel(level)) * GlobalDuty(master) > 0.0f);
     }
   }
-  assert(lastDuty == kLedPwmPhaseCount);
-  assert(LedDuty(255, 255) == kLedPwmPhaseCount);
-  // Stable roles must occupy separate fast PWM stages at the default master.
-  assert(LedDuty(synth::led::kAvailable, 15) == 1);
-  assert(LedDuty(synth::led::kContent, 15) == 2);
-  assert(LedDuty(synth::led::kSelected, 15) == 3);
-  assert(LedDuty(synth::led::kPressed, 15) == 4);
-  int lastNotification = -4;
-  for (int cycle = 0; cycle < 48; ++cycle)
-    if (NotifyKeysAtPhase(cycle % kLedPwmPhaseCount))
-    {
-      assert(cycle - lastNotification == 4);
-      lastNotification = cycle;
-    }
+  assert(LightPermille(15, 15) == 1000);
+  assert(LightPermille(6, 15) == 67);   // half: the dimmest duty the keys have
+  assert(LightPermille(15, 8) == 284);  // the global level dims every key, with gamma 2
+  // The older roles keep their order at the default master.
+  assert(LightPermille(synth::led::kAvailable, 15) <= LightPermille(synth::led::kContent, 15));
+  assert(LightPermille(synth::led::kContent, 15) < LightPermille(synth::led::kSelected, 15));
+  assert(LightPermille(synth::led::kSelected, 15) < LightPermille(synth::led::kPressed, 15));
 
   synth::UiScreenSnapshot screen;
   synth::UiBarItemSnapshot item;

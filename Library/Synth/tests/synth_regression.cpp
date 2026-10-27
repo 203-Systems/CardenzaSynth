@@ -12,6 +12,7 @@
 #include "Devices/DeviceAudio.h"
 #include "Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.h"
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
+#include "Library/Synth/Core/SynthStorage.h"
 // Include the runtime once to check both rendered PCM and mapping state against AMY.
 #include "Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp"
 
@@ -35,9 +36,9 @@ void* operator new[](std::size_t size, const std::nothrow_t&) noexcept
   if (failAllocationsFrom != 0 && size >= failAllocationsFrom) return nullptr;
   try { return ::operator new[](size); } catch (...) { return nullptr; }
 }
-namespace Device::Storage {
-std::string PresetDirectoryPath(std::string_view instrument) { return (storageRoot / std::string(instrument)).string(); }
-bool EnsureDirectoryLayout()
+namespace synth::storage {
+std::string PresetDirectory(std::string_view instrument) { return (storageRoot / std::string(instrument)).string(); }
+bool EnsureLayout()
 {
   for (const char* engine : {"DX7", "Juno", "Sampler", "Drums"}) std::filesystem::create_directories(storageRoot / engine);
   return true;
@@ -59,7 +60,7 @@ int main()
   using namespace synth;
   using namespace synth::audio;
   storageRoot = std::filesystem::current_path() / ("synth-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-  Device::Storage::EnsureDirectoryLayout();
+  synth::storage::EnsureLayout();
   std::array<std::int16_t, 2048> pcm{};
   const auto energy = [&]() { return std::accumulate(pcm.begin(), pcm.end(), std::uint64_t{0}, [](auto n, auto v) { return n + std::abs(int(v)); }); };
   const auto oscillator = [](std::uint8_t synthId, int oscillatorId) {

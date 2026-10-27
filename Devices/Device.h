@@ -74,6 +74,8 @@ inline constexpr int kColumns = Keyboard::kColumns;
 inline constexpr int kLedCount = kRows * kColumns;
 inline constexpr std::uint8_t kBrightnessOff = 0;
 inline constexpr std::uint8_t kBrightnessMax = 15;
+// Key levels are perceived brightness (0 off, 15 full); the device gamma-corrects them
+// (Devices/LedLight.h). The global level is the KEY LED setting.
 
 // Stage a complete update without blanking the currently displayed LED frame.
 void BeginFrame();
@@ -140,12 +142,27 @@ struct FileHandleView {
   bool writable = false;
 };
 
+// Low-level storage only. Folders and files on the card belong to the OS storage protocol
+// (OS/Storage, docs/app-storage-protocol.md); apps never call these functions directly.
+
+// Root of the removable card: "/sdcard" on the device, "<working directory>/sdcard" in the
+// simulator (beside the executable on Windows).
 std::string RootPath();
-std::string SampleDirectoryPath();
-std::string PresetDirectoryPath();
-std::string PresetDirectoryPath(std::string_view instrument);
-std::string ProjectDirectoryPath();
-bool EnsureDirectoryLayout();
+// Mounts the card when it is not mounted. False when it is missing or cannot be mounted; the device
+// may limit how often a missing card is probed.
+bool Mount();
+bool IsMounted();
+// Size and free space of the mounted card in bytes (0 when unknown).
+std::uint64_t CapacityBytes();
+std::uint64_t FreeBytes();
+
+// Small records in internal flash that work without a card: NVS on the device, files in
+// "<working directory>/internal" in the simulator. Keys are 1..15 characters of [a-z0-9_].
+inline constexpr std::size_t kInternalKeyMax = 15;
+inline constexpr std::size_t kInternalValueMax = 4000;
+bool ReadInternal(std::string_view key, std::string& value);
+bool WriteInternal(std::string_view key, std::string_view value);
+bool EraseInternal(std::string_view key);
 
 }  // namespace Storage
 

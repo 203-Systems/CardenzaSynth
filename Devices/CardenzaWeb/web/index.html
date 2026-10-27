@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>Cardenza Simulator</title>
+  <meta name="description" content="CardenzaSynth groovebox running in the browser: the device firmware's app and synth compiled to WebAssembly.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23000'/%3E%3Crect x='2' y='3' width='3' height='10' fill='%23ff5a36'/%3E%3Crect x='6' y='3' width='3' height='10' fill='%2336d6e6'/%3E%3Crect x='10' y='3' width='4' height='10' fill='%23e8e8e0'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="cardenza-web.css">
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>CARDENZA <span class="brand-sub">browser simulator</span></div>
+      <div class="state" id="state" role="status">loading…</div>
+    </header>
+
+    <section class="device" aria-label="Cardenza device">
+      <div class="screen-row">
+        <div class="bezel">
+          <canvas id="screen" width="240" height="135" aria-label="Device screen, 240 by 135 pixels"></canvas>
+          <!-- Shown until the wasm build boots; the screen is only ever the C++ framebuffer. -->
+          <div class="overlay" id="overlay">
+            <div class="overlay-card">
+              <div class="overlay-title" id="overlay-title">LOADING</div>
+              <div class="overlay-text" id="overlay-text">cardenza.js / cardenza.wasm
+If this stays, the wasm build is missing: run make web and serve build/web/site.</div>
+            </div>
+          </div>
+        </div>
+        <div class="side">
+          <button class="home" id="home" type="button" title="HOME side button: all stop (PC key: Home)">
+            <span class="home-dot" aria-hidden="true"></span>
+            <span class="home-label">HOME</span>
+            <span class="home-sub">all stop</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="keyboard-wrap">
+        <div class="zones" aria-hidden="true">
+          <span class="zone zone-left">MODS</span>
+          <span class="zone zone-pads">PADS · play the current track</span>
+          <span class="zone zone-grid">GRID · 4×4 cells on screen</span>
+          <span class="zone zone-right">EDIT</span>
+        </div>
+        <div class="keyboard" id="keyboard" role="group" aria-label="4 by 14 key matrix"></div>
+      </div>
+
+      <div class="statusline" id="statusline" aria-live="polite">Press a computer key or click a key. Right-click latches a key (hold it with the mouse).</div>
+    </section>
+
+    <section class="toolbar">
+      <button type="button" class="tool" id="audio-button" title="Start or stop audio output">
+        <span class="tool-dot" id="audio-dot" aria-hidden="true"></span><span id="audio-label">Start audio</span>
+      </button>
+      <button type="button" class="tool" id="wav-button" title="Copy WAV files into the sampler's Sample folder (stored in this browser)">Load WAV…</button>
+      <a class="tool" href="learn/" title="The manual: every key, page and setting, searchable, 中文 / English">Learn · 说明书</a>
+      <input type="file" id="wav-input" accept=".wav,audio/wav,audio/x-wav,audio/*" multiple hidden>
+      <span class="tool-info" id="storage-info">storage: …</span>
+      <span class="tool-info" id="audio-info"></span>
+    </section>
+
+    <section class="help">
+      <details open>
+        <summary>How to play</summary>
+        <div class="help-grid">
+          <div>
+            <h3>Left keys: tap, or hold for a map</h3>
+            <p>Holding a left key turns the screen into a map that matches the <b>GRID</b> (columns 9–12). Pick with the GRID key at the same place.</p>
+            <ul>
+              <li><b class="c-esc">ESC</b> tap: next scene (INSTR → SEQ → TAPE), cancels pop-ups. Hold: scene map, GRID columns = INSTR · SEQ · TAPE.</li>
+              <li><b class="c-tab">TAB</b> tap: next track. Hold: track map, a GRID column per track (row 1 select, 2 mute, 3 solo, 4 sequencer on/off). TAB + ADD/SUB: previous/next track.</li>
+              <li><b class="c-fn">FN</b> tap: SETUP (the FN panel kept open). Hold: the FN panel: <b>1–5</b> pages, GRID picks a setting, ADD/SUB change it; <b>6/Y</b> BPM, <b>7/U</b> volume, <b>8/I</b> octave; S save, C/V copy/paste, X clear, Q quantize, D duplicate, T tap tempo.</li>
+              <li><b class="c-ctrl">CTRL</b> tap: next page. Hold: page map of the scene. CTRL + ADD/SUB turns pages.</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Pads, grid and the right column</h3>
+            <ul>
+              <li><b>PADS</b> (columns 1–8) always play notes on the current track; on T1 drums each column is a drum.</li>
+              <li><b>GRID</b> (columns 9–12) is the 4×4 cell grid in the middle of the screen: steps on SEQ, parameters and slots elsewhere.</li>
+              <li><b>ADD / SUB</b> (+ / −) change values, hold to repeat. <b>ENTER</b> (OK) confirms; on the SEQ note page it is the record key: tap switches PIANO ROLL / STEP REC, hold opens RECORD (live REC and the captured takes). <b>PLAY</b> starts/stops; FN + PLAY arms recording.</li>
+              <li><b>HOME</b> stops everything.</li>
+            </ul>
+            <h3>First loop</h3>
+            <p>Boots on <b>2 SEQ</b> with T1 drums. Hold a pad and tap GRID keys to write steps, press PLAY (Space). TAB to T2 Juno and write a melody. Save from TAPE → PROJECT (hold CTRL for the page map) or FN + S.</p>
+          </div>
+          <div>
+            <h3>Computer keyboard</h3>
+            <p>Keys map by position, whatever your layout: the digit row is row 0, Q row is row 1, A row is row 2, Z row is row 3. Esc or <kbd>`</kbd> = ESC, <kbd>Tab</kbd> = TAB, <kbd>Caps</kbd> or <kbd>Shift</kbd> (left) = FN, <kbd>Ctrl</kbd> = CTRL, <kbd>Backspace</kbd> = ADD, <kbd>\</kbd> = SUB, <kbd>Enter</kbd> = ENTER, <kbd>Space</kbd> = PLAY, <kbd>Home</kbd> = HOME. Each key shows its computer key at the bottom. On macOS Caps Lock latches FN (press again to release); hold left Shift for a momentary FN.</p>
+            <p>Mouse: press and hold a key. Right-click latches a key down (for holding ESC, FN… while clicking the GRID); right-click again to release. Touch: multi-touch works.</p>
+            <p>Projects and presets are kept in this browser (IndexedDB). <b>Load WAV…</b> copies files into the sampler's Sample folder (converted to mono 16-bit, at most 5 s).</p>
+          </div>
+        </div>
+      </details>
+    </section>
+    <footer class="footer" id="footer"></footer>
+  </main>
+
+  <div class="audio-hint" id="audio-hint" hidden>
+    <span class="audio-hint-icon" aria-hidden="true">♪</span> Click anywhere or press a key to start audio
+  </div>
+
+  <script src="cardenza-web.js"></script>
+  <script src="cardenza.js" async onload="window.CardenzaWeb && window.CardenzaWeb.start()" onerror="window.CardenzaWeb && window.CardenzaWeb.fail('cardenza.js could not be loaded: the wasm build is missing. Run make web, then serve build/web/site (make web-serve).')"></script>
+</body>
+</html>

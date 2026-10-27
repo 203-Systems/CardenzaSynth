@@ -7,6 +7,31 @@ add_executable(CardenzaCoreTests
 target_include_directories(CardenzaCoreTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaCoreTests COMMAND CardenzaCoreTests)
 
+# Arpeggiator: the sequencer built with its test hooks, so the clock can be stepped by hand.
+add_executable(CardenzaArpTests
+  arp_test.cpp
+  ${PROJECT_SOURCE_DIR}/Applications/Synth/Runtime/Sequencer/SynthSequencer.cpp
+  ${PROJECT_SOURCE_DIR}/OS/Framework/Midi/MidiPacket.cpp
+)
+target_include_directories(CardenzaArpTests PRIVATE ${PROJECT_SOURCE_DIR})
+target_compile_definitions(CardenzaArpTests PRIVATE CARDENZA_SEQUENCER_TEST_HOOKS=1)
+if(MSVC)
+  target_compile_definitions(CardenzaArpTests PRIVATE _CRT_SECURE_NO_WARNINGS)
+else()
+  target_link_libraries(CardenzaArpTests PRIVATE pthread)
+endif()
+add_test(NAME CardenzaArpTests COMMAND CardenzaArpTests)
+
+# App storage protocol: OS/Storage on the simulator's card and internal-flash store.
+cardenza_collect_storage_cpp_sources(${PROJECT_SOURCE_DIR} storage_test_sources)
+add_executable(CardenzaStorageTests
+  storage_protocol_test.cpp
+  ${storage_test_sources}
+  ${PROJECT_SOURCE_DIR}/Devices/CardenzaSim/Storage.cpp
+)
+target_include_directories(CardenzaStorageTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaStorageTests COMMAND CardenzaStorageTests)
+
 add_executable(CardenzaSamplerTests
   sampler_test.cpp
   ${PROJECT_SOURCE_DIR}/Applications/Synth/Runtime/Sampler/SamplerManager.cpp
@@ -31,7 +56,8 @@ target_include_directories(CardenzaUiTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaUiTests COMMAND CardenzaUiTests)
 
 cardenza_collect_synth_app_cpp_sources(${PROJECT_SOURCE_DIR} project_workflow_app_sources)
-list(FILTER project_workflow_app_sources EXCLUDE REGEX "Renderer\\.cpp$|/UI/Render/")
+# The synth's storage folders are stubbed by the test (a flat scratch layout).
+list(FILTER project_workflow_app_sources EXCLUDE REGEX "Renderer\\.cpp$|/UI/Render/|/Runtime/SynthStorage\\.cpp$")
 cardenza_collect_synth_core_cpp_sources(${PROJECT_SOURCE_DIR} project_workflow_engine_sources)
 cardenza_collect_midi_framework_cpp_sources(${PROJECT_SOURCE_DIR} project_workflow_midi_sources)
 add_executable(CardenzaProjectTests
@@ -55,6 +81,16 @@ if(CARDENZA_GROOVE_UI)
   target_link_libraries(CardenzaGrooveUiTests PRIVATE CardenzaSystem CardenzaSimDevice)
   add_test(NAME CardenzaGrooveUiTests COMMAND CardenzaGrooveUiTests)
   list(APPEND cardenza_ui_tests CardenzaGrooveUiTests)
+
+  # Exports pages, parameters and shortcuts as JSON for the Learn manual (tools/learn/build.py).
+  add_executable(CardenzaLearnDump ${PROJECT_SOURCE_DIR}/tools/learn/learn_dump.cpp)
+  target_link_libraries(CardenzaLearnDump PRIVATE CardenzaSystem CardenzaSimDevice)
+
+  # App switching and the groovebox's settings and session on the real system.
+  add_executable(CardenzaAppLifecycleTests app_lifecycle_test.cpp)
+  target_link_libraries(CardenzaAppLifecycleTests PRIVATE CardenzaSystem CardenzaSimDevice)
+  add_test(NAME CardenzaAppLifecycleTests COMMAND CardenzaAppLifecycleTests)
+  list(APPEND cardenza_ui_tests CardenzaAppLifecycleTests)
 endif()
 
 add_executable(CardenzaLedTests led_feedback_test.cpp)
@@ -76,7 +112,7 @@ set_tests_properties(CardenzaSimShotRejectsUnknownKey PROPERTIES
   PASS_REGULAR_EXPRESSION "shot-unknown-key\\.script:2: unknown key target 'nosuchkey'"
 )
 
-foreach(target CardenzaCoreTests CardenzaSamplerTests ${cardenza_ui_tests} CardenzaLedTests)
+foreach(target CardenzaCoreTests CardenzaStorageTests CardenzaSamplerTests ${cardenza_ui_tests} CardenzaLedTests)
   if(MSVC)
     target_compile_options(${target} PRIVATE /UNDEBUG)
     target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)

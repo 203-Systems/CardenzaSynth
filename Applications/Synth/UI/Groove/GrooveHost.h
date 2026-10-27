@@ -15,7 +15,7 @@ namespace groove {
 
 // UI state that is stored with a project.
 struct ProjectUiSettings {
-  std::size_t activeTrack = 0;
+  std::size_t activeTrack = synth::kDefaultActiveTrack;
   KeyboardSettings keyboard{};
 };
 

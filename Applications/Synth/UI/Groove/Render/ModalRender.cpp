@@ -73,22 +73,29 @@ void DrawTextEntry(Gfx& g, const Controller& controller, Animator& animator, con
   g.DottedHLine(box.x, box.y + box.height, box.width, kDim);
   const int advance = Gfx::Advance(Font::Large);
   const std::size_t fit = static_cast<std::size_t>((box.width - advance) / advance);
-  const std::string shown = modal.text.size() > fit ? modal.text.substr(modal.text.size() - fit) : modal.text;
-  const int end = g.Text(box.x, box.y + 5, shown, kInk, Font::Large);
+  // The window of text keeps the cursor in view.
+  const std::size_t cursor = std::min(modal.textCursor, modal.text.size());
+  const std::size_t first = cursor > fit ? cursor - fit : 0;
+  const std::string shown = modal.text.substr(first, fit);
+  g.Text(box.x, box.y + 5, shown, kInk, Font::Large);
+  const int caretX = box.x + static_cast<int>(cursor - first) * advance;
   const float pop = fx::Decay(animator.Now(), animator.TextTypedAt(), 220);
-  if (pop > 0.0f && !shown.empty())
+  if (pop > 0.0f && cursor > first)
   {
-    // The newest character lands with a flash and a ripple.
-    const Rect last{end - advance, box.y + 3, advance, 18};
+    // The character just typed lands with a flash and a ripple.
+    const Rect last{caretX - advance, box.y + 3, advance, 18};
     if (pop > 0.6f) g.Fill(last, kTab);
-    g.Text(end - advance, box.y + 5, shown.substr(shown.size() - 1), pop > 0.6f ? kBlack : kInk, Font::Large);
+    g.Text(caretX - advance, box.y + 5, modal.text.substr(cursor - 1, 1), pop > 0.6f ? kBlack : kInk, Font::Large);
     fx::Ripple(g, last, 1.0f - pop, kTab);
   }
-  if ((controller.State().now / 400) % 2 == 0) g.Fill(Rect{end + 1, box.y + 4, 10, 16}, kInk);
-  char counter[16];
+  // A block at the end, a bar between characters.
+  if ((controller.State().now / 400) % 2 == 0)
+    g.Fill(cursor < modal.text.size() ? Rect{caretX - 1, box.y + 2, 2, 20} : Rect{caretX + 1, box.y + 4, 10, 16}, kInk);
+  char counter[24];
   std::snprintf(counter, sizeof(counter), "%u/%u", static_cast<unsigned>(modal.text.size()), static_cast<unsigned>(modal.maxLength));
   g.Text(kContentRight - Gfx::Measure(counter), kContentY, counter, kDim);
   g.Text(kContentX, kContentY + 70, "A-Z 0-9 SPACE -", kFaint);
+  g.Text(kContentX, kContentY + 80, "FN + , / MOVE   FN + ; . START / END   FN + DEL DELETE", kFaint);
 }
 
 void DrawConfirm(Gfx& g, Animator& animator, const Modal& modal)
@@ -189,6 +196,107 @@ void DrawSampleRecord(Gfx& g, const Controller& controller, Animator& animator)
   if (sampler.phase == synth::SamplerTrackPhase::Error) g.TextFit(kContentX, kContentY + 78, kContentWidth, sampler.statusText, kRec);
 }
 
+// RECORD (hold OK in SEQ): the record settings on row 0, the captured takes on rows 1 and 2 (newest
+// first) and below them the bar of the chosen take that OK would put into a pattern.
+void DrawRecord(Gfx& g, const Controller& controller, Animator& animator)
+{
+  const UiState& state = controller.State();
+  const RecordState& rec = state.record;
+  const std::uint32_t now = animator.Now();
+  const bool armed = controller.HostView().Sequencer().RecordArmed();
+  const std::array<std::pair<const char*, std::string>, 4> settings{{
+      {"REC", armed ? "ON" : "OFF"},
+      {"SNAP", rec.snap ? "STEPS" : "FREE"},
+      {"STEP", "+" + std::to_string(rec.stepLength)},
+      {"VIEW", rec.view == SeqView::Roll ? "ROLL" : "STEP"},
+  }};
+  for (std::size_t index = 0; index < settings.size(); ++index)
+  {
+    const CellStyle style = rec.focus == index ? CellStyle::Focused : CellStyle::Normal;
+    widgets::ParamCell(g, Cell(0, index), settings[index].first, settings[index].second, -1.0f, style);
+    if (index == kRecordRec && armed && (now / 400) % 2) g.Fill(Rect{Cell(0, index).x + Cell(0, index).width - 7, Cell(0, index).y + 3, 4, 4}, kRec);
+  }
+  for (std::size_t order = 0; order < kCaptureTakes; ++order)
+  {
+    const std::size_t slot = kRecordFirstTake + order;
+    const Rect cell = Cell(slot / kGridColumns, slot % kGridColumns);
+    const CaptureTake* take = controller.TakeAt(order);
+    if (take == nullptr)
+    {
+      g.DottedHLine(cell.x, cell.y + cell.height - 1, cell.width, kShade);
+      if (order == 0) g.Text(cell.x + 2, cell.y + 3, "PLAY PADS", kFaint, Font::Micro);
+      continue;
+    }
+    const bool focused = rec.focus == slot;
+    const Color color = TrackColor(take->track);
+    if (focused) g.Fill(cell, kInk);
+    const Color ink = focused ? kBlack : kInk;
+    char label[16];
+    std::snprintf(label, sizeof(label), "#%u", static_cast<unsigned>(take->id));
+    g.Fill(Rect{cell.x, cell.y, 3, cell.height}, color);
+    g.Text(cell.x + 5, cell.y + 2, label, ink);
+    g.Text(cell.x + cell.width - Gfx::Measure("T4") - 2, cell.y + 2, "T" + std::to_string(take->track + 1), focused ? kBlack : color);
+    const std::string info = std::to_string(take->count) + (take->count == 1 ? " NOTE" : " NOTES");
+    g.TextFit(cell.x + 5, cell.y + 12, cell.width - 6, info, focused ? kBlack : kDim, Font::Micro);
+    // A sketch of the take: its notes as ticks over time.
+    const std::uint32_t span = std::max<std::uint32_t>(1, take->endedAt - take->startedAt);
+    for (std::size_t index = 0; index < take->count; ++index)
+    {
+      const auto& note = take->notes[index];
+      const int x = cell.x + 5 + static_cast<int>(static_cast<std::uint64_t>(note.startMs) * static_cast<std::uint64_t>(cell.width - 8) / span);
+      g.Pixel(x, cell.y + cell.height - 3 - (note.note % 12) / 4, focused ? kBlack : color);
+    }
+  }
+  // Row 3: what OK does now.
+  const Rect area{Cell(3, 0).x, Cell(3, 0).y, Cell(3, 3).x + Cell(3, 3).width - Cell(3, 0).x, Cell(3, 0).height};
+  const CaptureTake* take = rec.focus >= kRecordFirstTake ? controller.TakeAt(rec.focus - kRecordFirstTake) : nullptr;
+  if (take == nullptr)
+  {
+    static constexpr std::array<const char*, 4> kHelp{{
+        "REC: PLAY + PADS RECORD INTO THE PATTERN (ALSO FN + PLAY)",
+        "SNAP: TAKES LAND ON WHOLE STEPS, OR KEEP THEIR TIMING",
+        "STEP REC: STEPS THE CURSOR MOVES AFTER EACH WRITE",
+        "VIEW: PIANO ROLL OR STEP REC (TAP OK)",
+    }};
+    g.TextFit(area.x + 2, area.y + 4, area.width - 4, rec.focus < kHelp.size() ? kHelp[rec.focus] : "", kDim, Font::Micro);
+    g.TextFit(area.x + 2, area.y + 15, area.width - 4,
+              controller.TakeCount() == 0 ? "EVERYTHING THE PADS PLAY IS KEPT HERE AS TAKES" : "PICK A TAKE ABOVE TO PUT IT INTO A PATTERN",
+              kFaint, Font::Micro);
+    return;
+  }
+  const std::size_t bars = controller.TakeBars(*take);
+  const std::size_t bar = std::min<std::size_t>(rec.takeBar, bars - 1);
+  std::array<Controller::PlacedNote, kCaptureNotes> notes{};
+  const std::size_t count = controller.TakeBarNotes(*take, bar, notes);
+  const std::size_t steps = std::max<std::size_t>(1, controller.HostView().Sequencer().TrackStepCount(take->track));
+  const int labelWidth = 44;
+  char barLabel[24];
+  std::snprintf(barLabel, sizeof(barLabel), "BAR %u/%u", static_cast<unsigned>(bar + 1), static_cast<unsigned>(bars));
+  g.Text(area.x + 2, area.y + 3, barLabel, kInk);
+  const std::uint32_t age = (now - take->endedAt) / 1000;
+  g.Text(area.x + 2, area.y + 13, age < 60 ? std::to_string(age) + "S AGO" : std::to_string(age / 60) + "M AGO", kFaint, Font::Micro);
+  const Rect lane{area.x + labelWidth, area.y + 2, area.width - labelWidth - 2, area.height - 4};
+  g.Stroke(lane, kShade);
+  int low = 127, high = 0;
+  for (std::size_t index = 0; index < count; ++index)
+  {
+    low = std::min<int>(low, notes[index].note);
+    high = std::max<int>(high, notes[index].note);
+  }
+  const int span = std::max(1, high - low);
+  for (std::size_t index = 0; index < count; ++index)
+  {
+    const auto& note = notes[index];
+    const int x = lane.x + 1 + static_cast<int>((note.step * synth::kSequencerPulsesPerStep + note.microstep * synth::kSequencerPulsesPerMicrostep) *
+                                                (lane.width - 2) / (steps * synth::kSequencerPulsesPerStep));
+    const int width = std::max(2, static_cast<int>(note.lengthPulses * (lane.width - 2) / (steps * synth::kSequencerPulsesPerStep)));
+    const int y = lane.y + lane.height - 3 - (note.note - low) * (lane.height - 4) / span;
+    g.Fill(Rect{x, y, std::min(width, lane.x + lane.width - 1 - x), 2}, TrackColor(take->track));
+  }
+  if (count == 0) g.TextAligned(lane, "NO NOTES IN THIS BAR", kFaint, Font::Micro, Align::Center);
+}
+
+
 }  // namespace
 
 void ModalContent(Gfx& g, const Controller& controller, Animator& animator, const Modal& modal)
@@ -202,6 +310,8 @@ void ModalContent(Gfx& g, const Controller& controller, Animator& animator, cons
     case ModalKind::SampleOptions: DrawList(g, controller, animator, modal, false); break;
     case ModalKind::EnginePicker: DrawEnginePicker(g, controller, animator, modal); break;
     case ModalKind::SampleRecord: DrawSampleRecord(g, controller, animator); break;
+    case ModalKind::Setup: SetupContent(g, controller, animator); break;
+    case ModalKind::Record: DrawRecord(g, controller, animator); break;
     case ModalKind::None:
     default: break;
   }
@@ -217,6 +327,8 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
     case ModalKind::SampleBrowser: return "ENTER LOAD   FN+ENTER RENAME/DELETE";
     case ModalKind::SampleOptions: return "ENTER CHOOSE   ESC BACK";
     case ModalKind::EnginePicker: return "GRID OR SUB ADD   ENTER SWITCH";
+    case ModalKind::Setup: return "";
+    case ModalKind::Record: return "+- BAR  OK NEW PATTERN  FN+OK MERGE";
     case ModalKind::SampleRecord:
     {
       const auto sampler = controller.HostView().Sampler().BuildUiState(controller.State().track);

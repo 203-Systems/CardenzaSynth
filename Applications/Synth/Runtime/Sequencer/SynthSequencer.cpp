@@ -45,6 +45,8 @@ constexpr std::uint16_t kMaxTempo = 300;
 constexpr std::size_t kClockIdleSleepMs = 2;
 constexpr std::size_t kClockTaskStackWords = 4096;
 constexpr int kClockTaskPriority = 4;
+// The clock catches up on late pulses at most this far; further behind, it restarts from now.
+constexpr std::uint64_t kClockMaxLagMicros = 50000;
 
 }  // namespace
 
@@ -144,6 +146,8 @@ SynthSequencer::SynthSequencer()
 
 SynthSequencer::~SynthSequencer()
 {
+  // Stop() alone keeps a held arp running.
+  ArpReleaseAll();
   Stop();
   StopClockWorker();
 }
@@ -171,6 +175,8 @@ void SynthSequencer::SetActiveTrack(std::size_t trackIndex)
         heldEditLanes_.fill(false);
         editLane_ = SequencerEditLane::Note;
         noteScopeIndex_ = -1;
+        // The arp plays the track it was started on: leaving that track releases it.
+        if (arpTrack_ != trackIndex) ReleaseArpLocked(events, eventCount);
       }
       activeTrack_ = trackIndex;
       NormalizeScopeLocked();
@@ -194,6 +200,8 @@ void SynthSequencer::Play()
   // Pulse 0 is a bar line: the song, when switched on, takes over there from its start row.
   LeaveSongLocked();
   playing_ = true;
+  // A running arp locks onto the transport grid from its first pulse.
+  if (ArpActiveLocked()) AlignArpToTransportLocked(absolutePulse_);
 }
 
 void SynthSequencer::Stop()
@@ -217,6 +225,8 @@ void SynthSequencer::StopLocked(std::array<PendingMidiEvent, kMaxPendingMidiEven
   // The song position survives for Resume(); a pending jump does not.
   songJumpPending_ = false;
   playing_ = false;
+  // The all-notes-off below silences the arp note too; a held arp runs on, on its free clock.
+  CutArpNoteLocked(events, count);
   CollectAllNoteOffsLocked(events, count);
 }
 
@@ -241,7 +251,9 @@ void SynthSequencer::Resume()
   EnsureClockWorkerStarted();
   std::lock_guard<std::mutex> outputLock(outputMutex_);
   std::lock_guard<std::mutex> lock(mutex_);
+  const bool wasPlaying = playing_;
   playing_ = clockWorkerRunning_.load();
+  if (playing_ && !wasPlaying && ArpActiveLocked()) AlignArpToTransportLocked(absolutePulse_);
 }
 
 std::uint16_t SynthSequencer::Tempo() const
@@ -301,6 +313,7 @@ void SynthSequencer::ToggleTrackEnabled()
 
 void SynthSequencer::Reset()
 {
+  ArpReleaseAll();
   Stop();
   ClearHeldSteps();
   std::lock_guard<std::mutex> lock(mutex_);
@@ -375,6 +388,7 @@ bool SynthSequencer::ValidateState(const ProjectState& state)
 bool SynthSequencer::RestoreState(const ProjectState& state)
 {
   if (!ValidateState(state)) return false;
+  ArpReleaseAll();
   Stop();
   ClearHeldSteps();
   std::lock_guard<std::mutex> lock(mutex_);
@@ -548,6 +562,18 @@ bool SynthSequencer::CopyPattern(std::size_t sourcePattern, std::size_t destinat
   return true;
 }
 
+std::uint16_t SynthSequencer::PatternStepMask(std::size_t trackIndex, std::size_t patternIndex) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (trackIndex >= tracks_.size() || patternIndex >= kSequencerMaxPatternCount) return 0;
+  const TrackData& track = tracks_[trackIndex];
+  if (patternIndex >= std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount) || !track.patterns.Allocated(patternIndex)) return 0;
+  std::uint16_t mask = 0;
+  for (std::size_t step = 0; step < kSequencerStepCount; ++step)
+    if (ActiveNoteCount(track.patterns[patternIndex].steps[step]) > 0) mask = static_cast<std::uint16_t>(mask | (1u << step));
+  return mask;
+}
+
 bool SynthSequencer::PatternHasEvents(std::size_t patternIndex) const
 {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -717,6 +743,71 @@ bool SynthSequencer::CopyStep(std::size_t sourceStep, std::size_t destinationSte
   }
   NormalizeScopeLocked();
   return true;
+}
+
+std::size_t SynthSequencer::StepNoteEvents(std::size_t trackIndex, std::size_t stepIndex, std::array<StepNoteView, 8>& notes) const
+{
+  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerStepCount) return 0;
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::size_t count = 0;
+  for (const NoteEvent& event : ActivePatternLocked(tracks_[trackIndex]).steps[stepIndex].notes)
+  {
+    if (!event.active || count >= notes.size()) continue;
+    notes[count++] = StepNoteView{event.note, event.velocity, event.lengthPulses, event.microstep};
+  }
+  return count;
+}
+
+bool SynthSequencer::SetStepNotes(std::size_t trackIndex, std::size_t stepIndex, const std::uint8_t* notes, std::size_t count,
+                                  std::uint8_t velocity)
+{
+  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerStepCount || (count > 0 && notes == nullptr)) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  StepData& step = ActivePatternLocked(tracks_[trackIndex]).steps[stepIndex];
+  ClearStepLocked(step);
+  std::size_t slot = 0;
+  for (std::size_t index = 0; index < count && slot < step.notes.size(); ++index)
+  {
+    if (notes[index] > 127) continue;
+    NoteEvent& event = step.notes[slot++];
+    event.active = true;
+    event.note = notes[index];
+    event.velocity = std::clamp<std::uint8_t>(velocity, 1, 127);
+    event.microstep = 0;
+    event.lengthPulses = kSequencerPulsesPerStep;
+  }
+  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  return true;
+}
+
+bool SynthSequencer::InsertNote(std::size_t trackIndex, std::size_t patternIndex, std::size_t stepIndex, std::uint8_t microstep,
+                                std::uint8_t note, std::uint8_t velocity, std::uint16_t lengthPulses)
+{
+  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerStepCount || note > 127) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  TrackData& track = tracks_[trackIndex];
+  if (patternIndex >= std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount)) return false;
+  StepData& step = track.patterns[patternIndex].steps[stepIndex];
+  NoteEvent* target = nullptr;
+  for (NoteEvent& event : step.notes)
+    if (event.active && event.note == note) { target = &event; break; }
+  if (target == nullptr)
+    for (NoteEvent& event : step.notes)
+      if (!event.active) { target = &event; break; }
+  if (target == nullptr) return false;
+  target->active = true;
+  target->note = note;
+  target->velocity = std::clamp<std::uint8_t>(velocity, 1, 127);
+  target->microstep = std::min<std::uint8_t>(microstep, kSequencerMicrostepCount - 1);
+  target->lengthPulses = ClampLengthForStepMicrostep(stepIndex, target->microstep, std::max<std::uint16_t>(1, lengthPulses));
+  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  return true;
+}
+
+std::uint64_t SynthSequencer::PlayPulse() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return playing_ ? absolutePulse_ : 0;
 }
 
 bool SynthSequencer::StepHasEvents(std::size_t stepIndex) const
@@ -1124,6 +1215,13 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     }
     if (state.editValueMixed) state.valueLabel = std::string(SequencerEditLaneLabel(editLane_)) + " MIXED";
   }
+  state.arpActive = ArpActiveLocked();
+  state.arpTrack = static_cast<std::uint8_t>(arpTrack_);
+  state.arpNoteCount = static_cast<std::uint8_t>(arpKeyCount_);
+  for (std::size_t index = 0; index < arpKeyCount_; ++index) state.arpNotes[index] = arpKeys_[index].note;
+  state.arpSounding = arpSoundingNote_;
+  state.arpTick = arpTick_;
+  state.arpLastNote = arpLastPlayed_;
   return state;
 }
 
@@ -1153,7 +1251,12 @@ void SynthSequencer::RecordNoteOn(std::size_t trackIndex, std::uint8_t note, std
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!playing_ || !recordArmed_)
+  RecordNoteOnLocked(trackIndex, note, velocity);
+}
+
+void SynthSequencer::RecordNoteOnLocked(std::size_t trackIndex, std::uint8_t note, std::uint8_t velocity)
+{
+  if (!playing_ || !recordArmed_ || trackIndex >= kSynthTrackCount || note > 127 || velocity == 0)
   {
     return;
   }
@@ -1263,10 +1366,181 @@ void SynthSequencer::RecordNoteOff(std::size_t trackIndex, std::uint8_t note)
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
+  RecordNoteOffLocked(trackIndex, note);
+}
+
+void SynthSequencer::RecordNoteOffLocked(std::size_t trackIndex, std::uint8_t note)
+{
   const std::uint64_t now = RecordPulseLocked(trackIndex);
   for (HeldRecording& recording : heldRecordings_)
     if (recording.active && recording.trackIndex == trackIndex && recording.note == note) FinalizeHeldRecordingLocked(recording, now);
 }
+
+void SynthSequencer::SetArpSettings(const ArpSettings& settings)
+{
+  ArpSettings next = settings;
+  if (static_cast<std::size_t>(next.mode) >= kArpModeCount) next.mode = ArpMode::Off;
+  next.rate = std::min<std::uint8_t>(next.rate, kArpRateCount - 1);
+  next.octaves = std::clamp<std::uint8_t>(next.octaves, 1, kArpMaxOctaves);
+  next.gate = std::clamp(next.gate, kArpMinGate, kArpMaxGate);
+
+  std::lock_guard<std::mutex> outputLock(outputMutex_);
+  std::array<PendingMidiEvent, kMaxPendingMidiEvents> events{};
+  std::size_t eventCount = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const ArpSettings previous = arpSettings_;
+    arpSettings_ = next;
+    if (next.mode == ArpMode::Off)
+    {
+      ReleaseArpLocked(events, eventCount);
+    }
+    else
+    {
+      if (previous.latch && !next.latch)
+      {
+        // Unlatching keeps only the keys still held.
+        for (std::size_t index = arpKeyCount_; index > 0; --index)
+          if (!arpKeys_[index - 1].down) RemoveArpKeyLocked(index - 1);
+        if (arpKeyCount_ == 0) ReleaseArpLocked(events, eventCount);
+      }
+      // A new rate applies from the next note, which moves onto the new grid.
+      if (next.rate != previous.rate) RescheduleArpLocked();
+    }
+  }
+  EmitPendingMidi(events, eventCount);
+}
+
+ArpSettings SynthSequencer::GetArpSettings() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return arpSettings_;
+}
+
+void SynthSequencer::ArpNoteOn(std::size_t trackIndex, std::uint8_t note, std::uint8_t velocity)
+{
+  if (velocity == 0)
+  {
+    ArpNoteOff(trackIndex, note);
+    return;
+  }
+  if (trackIndex >= kSynthTrackCount || note > 127)
+  {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (arpSettings_.mode == ArpMode::Off) return;
+  }
+
+  // While stopped the arp runs on the clock worker's free clock.
+  EnsureClockWorkerStarted();
+  std::lock_guard<std::mutex> outputLock(outputMutex_);
+  std::array<PendingMidiEvent, kMaxPendingMidiEvents> events{};
+  std::size_t eventCount = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (arpSettings_.mode == ArpMode::Off)
+    {
+      return;
+    }
+    if (trackIndex != arpTrack_) ReleaseArpLocked(events, eventCount);
+    arpTrack_ = trackIndex;
+
+    const bool running = ArpActiveLocked();
+    // A press after every key let go of a latched set starts a new set; the arp keeps its timing.
+    if (running && arpSettings_.latch &&
+        std::none_of(arpKeys_.begin(), arpKeys_.begin() + static_cast<std::ptrdiff_t>(arpKeyCount_), [](const ArpKey& key) { return key.down; }))
+    {
+      arpKeyCount_ = 0;
+      ResetArpOrderLocked();
+    }
+
+    ArpKey* key = nullptr;
+    for (std::size_t index = 0; index < arpKeyCount_; ++index)
+      if (arpKeys_[index].note == note) key = &arpKeys_[index];
+    if (key == nullptr && arpKeyCount_ < arpKeys_.size()) key = &arpKeys_[arpKeyCount_++];
+    if (key == nullptr)
+    {
+      return;  // Sixteen notes are held already.
+    }
+    *key = ArpKey{note, std::min<std::uint8_t>(velocity, 127), true};
+
+    if (!running)
+    {
+      // The first note sounds now; the clock worker counts the arp's first pulse from here.
+      if (!playing_) clockStartMicros_ = NowMicros();
+      FireArpNoteLocked(events, eventCount);
+      if (playing_) AlignArpToTransportLocked(absolutePulse_);
+      else arpNextPulse_ = arpPulse_ + ArpPeriodLocked();
+    }
+  }
+  EmitPendingMidi(events, eventCount);
+}
+
+void SynthSequencer::ArpNoteOff(std::size_t trackIndex, std::uint8_t note)
+{
+  if (trackIndex >= kSynthTrackCount)
+  {
+    return;
+  }
+
+  std::lock_guard<std::mutex> outputLock(outputMutex_);
+  std::array<PendingMidiEvent, kMaxPendingMidiEvents> events{};
+  std::size_t eventCount = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (trackIndex != arpTrack_)
+    {
+      return;
+    }
+    for (std::size_t index = 0; index < arpKeyCount_; ++index)
+    {
+      if (arpKeys_[index].note != note) continue;
+      if (arpSettings_.latch) arpKeys_[index].down = false;
+      else RemoveArpKeyLocked(index);
+      break;
+    }
+    // Letting go of the last key stops the arp and its note.
+    if (arpKeyCount_ == 0) ReleaseArpLocked(events, eventCount);
+  }
+  EmitPendingMidi(events, eventCount);
+}
+
+void SynthSequencer::ArpReleaseAll()
+{
+  std::lock_guard<std::mutex> outputLock(outputMutex_);
+  std::array<PendingMidiEvent, kMaxPendingMidiEvents> events{};
+  std::size_t eventCount = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ReleaseArpLocked(events, eventCount);
+  }
+  EmitPendingMidi(events, eventCount);
+}
+
+bool SynthSequencer::ArpActive() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return ArpActiveLocked();
+}
+
+#if defined(CARDENZA_SEQUENCER_TEST_HOOKS)
+void SynthSequencer::UseManualClockForTest()
+{
+  // A running flag without a worker: Play() works and EnsureClockWorkerStarted() starts nothing.
+  clockWorkerRunning_.store(true);
+}
+
+void SynthSequencer::AdvancePulsesForTest(std::size_t pulses)
+{
+  for (std::size_t index = 0; index < pulses; ++index)
+  {
+    std::uint64_t startMicros = 0;
+    if (ClockNeeded(startMicros)) ProcessPulse();
+  }
+}
+#endif
 
 bool SynthSequencer::QueuePattern(std::size_t trackIndex, std::size_t patternIndex)
 {
@@ -1809,10 +2083,42 @@ void SynthSequencer::EnsureClockWorkerStarted()
     clockWorkerExited_.store(true);
     return;
   }
+#elif defined(__EMSCRIPTEN__)
+  // No thread: the host drives the clock through PumpClock().
 #else
   clockThread_ = std::thread([this]() { ClockLoop(); });
 #endif
 }
+
+#if defined(__EMSCRIPTEN__)
+void SynthSequencer::PumpClock(std::uint64_t nowMicros)
+{
+  // ClockLoop for a host without threads: wherever it would sleep, return to the host instead.
+  // The arp's press time is on the wall clock, not the host's audio clock, so an arp that starts
+  // from idle simply counts from this call.
+  std::uint64_t startMicros = 0;
+  if (!clockWorkerRunning_.load() || !ClockNeeded(startMicros))
+  {
+    pumpIdle_ = true;
+    pumpNextPulseMicros_ = nowMicros;
+    return;
+  }
+  if (pumpIdle_)
+  {
+    pumpIdle_ = false;
+    pumpNextPulseMicros_ = nowMicros;
+  }
+  while (nowMicros >= pumpNextPulseMicros_ && ClockNeeded(startMicros))
+  {
+    ProcessPulse();
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      pumpNextPulseMicros_ += PulsePeriodMicrosLocked();
+    }
+    if (nowMicros > pumpNextPulseMicros_ + kClockMaxLagMicros) pumpNextPulseMicros_ = nowMicros;
+  }
+}
+#endif
 
 void SynthSequencer::StopClockWorker()
 {
@@ -1852,10 +2158,13 @@ void SynthSequencer::ClockLoop()
   clockTimer_ = timer;
 #endif
   std::uint64_t nextPulseMicros = NowMicros();
+  bool idle = true;
   while (clockWorkerRunning_.load())
   {
-    if (!Playing())
+    std::uint64_t startMicros = 0;
+    if (!ClockNeeded(startMicros))
     {
+      idle = true;
 #if defined(ESP_PLATFORM)
       vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(kClockIdleSleepMs)));
 #else
@@ -1863,6 +2172,13 @@ void SynthSequencer::ClockLoop()
 #endif
       nextPulseMicros = NowMicros();
       continue;
+    }
+    if (idle)
+    {
+      idle = false;
+      // An arp started from idle counts from its key press, not from this (up to a tick late) wake-up.
+      const std::uint64_t wake = NowMicros();
+      if (startMicros != 0 && startMicros <= wake && wake - startMicros < kClockMaxLagMicros) nextPulseMicros = startMicros;
     }
 
     const std::uint64_t now = NowMicros();
@@ -1879,7 +2195,7 @@ void SynthSequencer::ClockLoop()
     }
 
     const std::uint64_t after = NowMicros();
-    if (after > nextPulseMicros + 50000)
+    if (after > nextPulseMicros + kClockMaxLagMicros)
     {
       nextPulseMicros = after;
     }
@@ -1892,6 +2208,14 @@ void SynthSequencer::ClockLoop()
   clockWorkerExited_.store(true);
 }
 
+bool SynthSequencer::ClockNeeded(std::uint64_t& startMicros)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  startMicros = clockStartMicros_;
+  clockStartMicros_ = 0;
+  return playing_ || ArpClockLocked();
+}
+
 void SynthSequencer::ProcessPulse()
 {
   std::lock_guard<std::mutex> outputLock(outputMutex_);
@@ -1899,62 +2223,71 @@ void SynthSequencer::ProcessPulse()
   std::size_t eventCount = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!playing_)
+    const bool arpClock = ArpClockLocked();
+    if (!playing_ && !arpClock)
     {
       return;
     }
 
     const std::uint64_t pulse = absolutePulse_;
-    playbackStep_ = static_cast<std::size_t>((pulse / kSequencerPulsesPerStep) % kSequencerStepCount);
-
-    CollectDueNoteOffsLocked(pulse, events, eventCount);
-    for (SuppressedNote& suppressed : suppressedNotes_)
-      if (suppressed.active && suppressed.pulse < pulse) suppressed = SuppressedNote{};
-
-    // Song rows change on bar lines of the global clock; the end of a song can stop playback here.
-    const bool running = pulse % kSongBarPulses != 0 || HandleSongBarLocked(pulse, events, eventCount);
-    for (std::size_t trackIndex = 0; running && trackIndex < tracks_.size(); ++trackIndex)
-    {
-      const TrackData& track = tracks_[trackIndex];
-      const std::size_t stepCount = TrackStepCountOf(track);
-      const std::uint16_t loopPulses = static_cast<std::uint16_t>(stepCount * kSequencerPulsesPerStep);
-      std::uint16_t position = trackNextPulse_[trackIndex];
-      if (position >= loopPulses) position = 0;
-      // Muted and disabled tracks keep their position so they re-enter in time.
-      if (position == 0 && trackStarted_[trackIndex]) HandleLoopBoundaryLocked(trackIndex, pulse);
-      trackStarted_[trackIndex] = true;
-      trackCurrentPulse_[trackIndex] = position;
-      trackNextPulse_[trackIndex] = static_cast<std::uint16_t>((position + 1u) % loopPulses);
-
-      if (!track.enabled || track.muted)
-      {
-        continue;
-      }
-
-      const PatternData& pattern = ActivePatternLocked(track);
-      const std::size_t stepIndex = position / kSequencerPulsesPerStep;
-      // A track the playing song row leaves out keeps its position but plays nothing of its own.
-      if (!songSilent_[trackIndex])
-      {
-        FireStepNotesLocked(trackIndex, pattern.steps[stepIndex], stepIndex, position, pulse, events, eventCount);
-        // Microstep and swing offsets can carry a step's notes into the following step...
-        if (stepIndex > 0)
-          FireStepNotesLocked(trackIndex, pattern.steps[stepIndex - 1], stepIndex - 1, position, pulse, events, eventCount);
-      }
-      // ...and the last step of the previous pass past the loop wrap (or past a song row line).
-      const std::size_t previousPattern = previousPassPattern_[trackIndex];
-      const std::uint16_t previousPulses = previousPassPulses_[trackIndex];
-      if (previousPattern < kSequencerMaxPatternCount && previousPulses >= kSequencerPulsesPerStep && position < 2u * kSequencerPulsesPerStep)
-      {
-        const std::size_t lastStep = std::min<std::size_t>(previousPulses / kSequencerPulsesPerStep, kSequencerStepCount) - 1;
-        FireStepNotesLocked(trackIndex, track.patterns[previousPattern].steps[lastStep], lastStep,
-                            static_cast<std::uint32_t>(position) + previousPulses, pulse, events, eventCount);
-      }
-    }
-
-    if (running) ++absolutePulse_;
+    if (playing_) ProcessTransportPulseLocked(pulse, events, eventCount);
+    if (arpClock) ProcessArpPulseLocked(pulse, events, eventCount);
   }
   EmitPendingMidi(events, eventCount);
+}
+
+void SynthSequencer::ProcessTransportPulseLocked(std::uint64_t pulse,
+                                                 std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
+                                                 std::size_t& eventCount)
+{
+  playbackStep_ = static_cast<std::size_t>((pulse / kSequencerPulsesPerStep) % kSequencerStepCount);
+
+  CollectDueNoteOffsLocked(pulse, events, eventCount);
+  for (SuppressedNote& suppressed : suppressedNotes_)
+    if (suppressed.active && suppressed.pulse < pulse) suppressed = SuppressedNote{};
+
+  // Song rows change on bar lines of the global clock; the end of a song can stop playback here.
+  const bool running = pulse % kSongBarPulses != 0 || HandleSongBarLocked(pulse, events, eventCount);
+  for (std::size_t trackIndex = 0; running && trackIndex < tracks_.size(); ++trackIndex)
+  {
+    const TrackData& track = tracks_[trackIndex];
+    const std::size_t stepCount = TrackStepCountOf(track);
+    const std::uint16_t loopPulses = static_cast<std::uint16_t>(stepCount * kSequencerPulsesPerStep);
+    std::uint16_t position = trackNextPulse_[trackIndex];
+    if (position >= loopPulses) position = 0;
+    // Muted and disabled tracks keep their position so they re-enter in time.
+    if (position == 0 && trackStarted_[trackIndex]) HandleLoopBoundaryLocked(trackIndex, pulse);
+    trackStarted_[trackIndex] = true;
+    trackCurrentPulse_[trackIndex] = position;
+    trackNextPulse_[trackIndex] = static_cast<std::uint16_t>((position + 1u) % loopPulses);
+
+    if (!track.enabled || track.muted)
+    {
+      continue;
+    }
+
+    const PatternData& pattern = ActivePatternLocked(track);
+    const std::size_t stepIndex = position / kSequencerPulsesPerStep;
+    // A track the playing song row leaves out keeps its position but plays nothing of its own.
+    if (!songSilent_[trackIndex])
+    {
+      FireStepNotesLocked(trackIndex, pattern.steps[stepIndex], stepIndex, position, pulse, events, eventCount);
+      // Microstep and swing offsets can carry a step's notes into the following step...
+      if (stepIndex > 0)
+        FireStepNotesLocked(trackIndex, pattern.steps[stepIndex - 1], stepIndex - 1, position, pulse, events, eventCount);
+    }
+    // ...and the last step of the previous pass past the loop wrap (or past a song row line).
+    const std::size_t previousPattern = previousPassPattern_[trackIndex];
+    const std::uint16_t previousPulses = previousPassPulses_[trackIndex];
+    if (previousPattern < kSequencerMaxPatternCount && previousPulses >= kSequencerPulsesPerStep && position < 2u * kSequencerPulsesPerStep)
+    {
+      const std::size_t lastStep = std::min<std::size_t>(previousPulses / kSequencerPulsesPerStep, kSequencerStepCount) - 1;
+      FireStepNotesLocked(trackIndex, track.patterns[previousPattern].steps[lastStep], lastStep,
+                          static_cast<std::uint32_t>(position) + previousPulses, pulse, events, eventCount);
+    }
+  }
+
+  if (running) ++absolutePulse_;
 }
 
 std::uint64_t SynthSequencer::NowMicros() const
@@ -2846,6 +3179,259 @@ void SynthSequencer::ClearSelectionLocked(std::array<PendingMidiEvent, kMaxPendi
   heldEditLanes_.fill(false);
   editLane_ = SequencerEditLane::Note;
   noteScopeIndex_ = -1;
+}
+
+bool SynthSequencer::ArpActiveLocked() const
+{
+  return arpSettings_.mode != ArpMode::Off && arpKeyCount_ > 0;
+}
+
+bool SynthSequencer::ArpClockLocked() const
+{
+  return ArpActiveLocked() || arpSoundingNote_ >= 0;
+}
+
+std::uint16_t SynthSequencer::ArpPeriodLocked() const
+{
+  return kArpRatePulses[std::min<std::size_t>(arpSettings_.rate, kArpRateCount - 1)];
+}
+
+std::uint16_t SynthSequencer::ArpSwingLocked(std::uint64_t gridPulse, std::uint16_t period) const
+{
+  // Only a sixteenth grid has notes on odd sixteenths; swing delays them like sequenced steps.
+  if (period % kSequencerPulsesPerStep != 0 || (gridPulse / kSequencerPulsesPerStep) % 2 == 0) return 0;
+  return SwingDelayPulsesLocked();
+}
+
+bool SynthSequencer::ArpCandidateLocked(std::size_t index, std::uint8_t& note, std::uint8_t& velocity) const
+{
+  if (arpKeyCount_ == 0) return false;
+  const ArpKey& key = arpKeys_[index % arpKeyCount_];
+  const std::size_t pitch = key.note + 12u * (index / arpKeyCount_);
+  if (pitch > 127) return false;
+  note = static_cast<std::uint8_t>(pitch);
+  velocity = key.velocity;
+  return true;
+}
+
+bool SynthSequencer::NextArpNoteLocked(std::uint8_t& note, std::uint8_t& velocity)
+{
+  const std::size_t total = arpKeyCount_ * std::clamp<std::size_t>(arpSettings_.octaves, 1, kArpMaxOctaves);
+  if (total == 0) return false;
+  const int last = arpLastNote_;
+
+  // Bit set of the pitches the pattern holds, for RANDOM: a pitch two keys reach counts once.
+  std::array<std::uint32_t, 4> present{};
+  auto mark = [&present](std::uint8_t pitch) {
+    std::uint32_t& word = present[pitch / 32u];
+    const std::uint32_t bit = 1u << (pitch % 32u);
+    const bool fresh = (word & bit) == 0;
+    word |= bit;
+    return fresh;
+  };
+
+  int chosen = -1;
+  std::uint8_t chosenVelocity = 0;
+  switch (arpSettings_.mode)
+  {
+    case ArpMode::Up:
+    case ArpMode::Down:
+    case ArpMode::UpDown:
+    {
+      // Neighbours of the last pitch and the ends of the range; the first key reaching a pitch wins.
+      int lowest = -1, highest = -1, above = -1, below = -1;
+      std::uint8_t lowestVelocity = 0, highestVelocity = 0, aboveVelocity = 0, belowVelocity = 0;
+      for (std::size_t index = 0; index < total; ++index)
+      {
+        std::uint8_t pitch = 0;
+        std::uint8_t level = 0;
+        if (!ArpCandidateLocked(index, pitch, level)) continue;
+        const int value = pitch;
+        if (lowest < 0 || value < lowest) { lowest = value; lowestVelocity = level; }
+        if (value > highest) { highest = value; highestVelocity = level; }
+        if (value > last && (above < 0 || value < above)) { above = value; aboveVelocity = level; }
+        if (value < last && value > below) { below = value; belowVelocity = level; }
+      }
+      if (lowest < 0) return false;
+      const bool hasLast = last >= 0;
+      if (arpSettings_.mode == ArpMode::Up)
+      {
+        chosen = hasLast && above >= 0 ? above : lowest;
+        chosenVelocity = hasLast && above >= 0 ? aboveVelocity : lowestVelocity;
+      }
+      else if (arpSettings_.mode == ArpMode::Down)
+      {
+        chosen = hasLast && below >= 0 ? below : highest;
+        chosenVelocity = hasLast && below >= 0 ? belowVelocity : highestVelocity;
+      }
+      else
+      {
+        // Turns at either end without playing the end note twice; a single pitch just repeats.
+        if (!hasLast) arpDescending_ = false;
+        else if (!arpDescending_ && above < 0 && below >= 0) arpDescending_ = true;
+        else if (arpDescending_ && below < 0 && above >= 0) arpDescending_ = false;
+        if (!hasLast) { chosen = lowest; chosenVelocity = lowestVelocity; }
+        else if (!arpDescending_) { chosen = above >= 0 ? above : lowest; chosenVelocity = above >= 0 ? aboveVelocity : lowestVelocity; }
+        else { chosen = below >= 0 ? below : highest; chosenVelocity = below >= 0 ? belowVelocity : highestVelocity; }
+      }
+      break;
+    }
+    case ArpMode::Random:
+    {
+      std::size_t distinct = 0;
+      bool lastPresent = false;
+      for (std::size_t index = 0; index < total; ++index)
+      {
+        std::uint8_t pitch = 0;
+        std::uint8_t level = 0;
+        if (!ArpCandidateLocked(index, pitch, level) || !mark(pitch)) continue;
+        ++distinct;
+        if (pitch == last) lastPresent = true;
+      }
+      if (distinct == 0) return false;
+      // Never the same pitch twice in a row while there is a choice.
+      const bool skipLast = distinct > 1 && lastPresent;
+      arpRandom_ ^= arpRandom_ << 13;
+      arpRandom_ ^= arpRandom_ >> 17;
+      arpRandom_ ^= arpRandom_ << 5;
+      std::size_t pick = arpRandom_ % (distinct - (skipLast ? 1u : 0u));
+      present.fill(0);
+      for (std::size_t index = 0; index < total && chosen < 0; ++index)
+      {
+        std::uint8_t pitch = 0;
+        std::uint8_t level = 0;
+        if (!ArpCandidateLocked(index, pitch, level) || !mark(pitch) || (skipLast && pitch == last)) continue;
+        if (pick-- == 0) { chosen = pitch; chosenVelocity = level; }
+      }
+      break;
+    }
+    case ArpMode::Played:
+    {
+      for (std::size_t step = 0; step < total && chosen < 0; ++step)
+      {
+        const std::size_t index = (arpOrderIndex_ + step) % total;
+        std::uint8_t pitch = 0;
+        std::uint8_t level = 0;
+        if (!ArpCandidateLocked(index, pitch, level)) continue;
+        chosen = pitch;
+        chosenVelocity = level;
+        arpOrderIndex_ = index + 1;
+      }
+      break;
+    }
+    case ArpMode::Off:
+    default:
+      return false;
+  }
+  if (chosen < 0) return false;
+  note = static_cast<std::uint8_t>(chosen);
+  velocity = chosenVelocity;
+  arpLastNote_ = chosen;
+  return true;
+}
+
+void SynthSequencer::ResetArpOrderLocked()
+{
+  arpLastNote_ = -1;
+  arpDescending_ = false;
+  arpOrderIndex_ = 0;
+}
+
+void SynthSequencer::RemoveArpKeyLocked(std::size_t index)
+{
+  if (index >= arpKeyCount_) return;
+  // ORDER keeps its place: the key after the removed one comes next.
+  const std::size_t octave = arpOrderIndex_ / arpKeyCount_;
+  std::size_t within = arpOrderIndex_ % arpKeyCount_;
+  if (within > index) --within;
+  for (std::size_t next = index; next + 1 < arpKeyCount_; ++next) arpKeys_[next] = arpKeys_[next + 1];
+  arpKeys_[--arpKeyCount_] = ArpKey{};
+  arpOrderIndex_ = octave * arpKeyCount_ + within;
+}
+
+void SynthSequencer::FireArpNoteLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count)
+{
+  std::uint8_t note = 0;
+  std::uint8_t velocity = 0;
+  if (!NextArpNoteLocked(note, velocity)) return;
+  CutArpNoteLocked(events, count);
+  AddPendingMidi(events, count, arpTrack_, midi::MidiPacket::NoteOn(0, note, velocity));
+  const std::uint32_t gate = static_cast<std::uint32_t>(ArpPeriodLocked()) * std::clamp(arpSettings_.gate, kArpMinGate, kArpMaxGate) / 100u;
+  arpSoundingNote_ = note;
+  arpSoundingTrack_ = arpTrack_;
+  arpOffPulse_ = arpPulse_ + std::max<std::uint32_t>(1, gate);
+  arpLastOnPulse_ = arpPulse_;
+  arpHasLastOn_ = true;
+  arpLastPlayed_ = note;
+  ++arpTick_;
+  // Overdub: the arp's own note-off ends the take.
+  RecordNoteOnLocked(arpTrack_, note, velocity);
+}
+
+void SynthSequencer::CutArpNoteLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count)
+{
+  if (arpSoundingNote_ < 0) return;
+  const auto note = static_cast<std::uint8_t>(arpSoundingNote_);
+  AddPendingMidi(events, count, arpSoundingTrack_, midi::MidiPacket::NoteOff(0, note, 0));
+  RecordNoteOffLocked(arpSoundingTrack_, note);
+  arpSoundingNote_ = -1;
+}
+
+void SynthSequencer::ReleaseArpLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count)
+{
+  CutArpNoteLocked(events, count);
+  arpKeys_.fill(ArpKey{});
+  arpKeyCount_ = 0;
+  arpHasLastOn_ = false;
+  clockStartMicros_ = 0;
+  ResetArpOrderLocked();
+}
+
+void SynthSequencer::AlignArpToTransportLocked(std::uint64_t transportPulse)
+{
+  const std::uint16_t period = ArpPeriodLocked();
+  const std::uint64_t sinceLast = arpHasLastOn_ ? arpPulse_ - arpLastOnPulse_ : period;
+  // Three grid lines always reach one far enough ahead: the third starts a period after now.
+  std::uint64_t grid = transportPulse - transportPulse % period;
+  for (int attempt = 0; attempt < 3; ++attempt, grid += period)
+  {
+    const std::uint64_t fire = grid + ArpSwingLocked(grid, period);
+    if (fire < transportPulse) continue;
+    const std::uint64_t ahead = fire - transportPulse;
+    if (sinceLast + ahead < period / 2u) continue;
+    arpNextPulse_ = arpPulse_ + ahead;
+    return;
+  }
+  arpNextPulse_ = arpPulse_ + period;
+}
+
+void SynthSequencer::RescheduleArpLocked()
+{
+  if (!ArpActiveLocked()) return;
+  if (playing_)
+  {
+    AlignArpToTransportLocked(absolutePulse_);
+    return;
+  }
+  const std::uint64_t due = arpHasLastOn_ ? arpLastOnPulse_ + ArpPeriodLocked() : arpPulse_;
+  arpNextPulse_ = std::max(due, arpPulse_);
+}
+
+void SynthSequencer::ProcessArpPulseLocked(std::uint64_t transportPulse,
+                                           std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
+                                           std::size_t& count)
+{
+  const std::uint64_t now = arpPulse_;
+  // A gate of a whole period ends the old note just before the next one starts.
+  if (arpSoundingNote_ >= 0 && arpOffPulse_ <= now) CutArpNoteLocked(events, count);
+  if (ArpActiveLocked() && arpNextPulse_ <= now)
+  {
+    FireArpNoteLocked(events, count);
+    // While playing, the next note waits for the next grid line (the song may just have ended).
+    if (playing_) AlignArpToTransportLocked(transportPulse);
+    else arpNextPulse_ = now + ArpPeriodLocked();
+  }
+  ++arpPulse_;
 }
 
 }  // namespace synth

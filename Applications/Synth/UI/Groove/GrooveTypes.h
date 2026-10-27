@@ -30,14 +30,16 @@ inline constexpr std::size_t kSceneCount = 3;
 
 inline constexpr std::array<const char*, kSceneCount> kSceneNames{{"INSTR", "SEQ", "TAPE"}};
 
-// TAPE sub-pages. PROJECT, FILES and SYSTEM stay consecutive (one renderer draws them).
-inline constexpr std::uint8_t kTapeSong = 0;
-inline constexpr std::uint8_t kTapeMix = 1;
-inline constexpr std::uint8_t kTapeSends = 2;
-inline constexpr std::uint8_t kTapeFx = 3;
-inline constexpr std::uint8_t kTapeProject = 4;
-inline constexpr std::uint8_t kTapeFiles = 5;
-inline constexpr std::uint8_t kTapeSystem = 6;
+// TAPE sub-pages: SESSION (launch patterns per track, like a clip grid), SONG (the arrangement),
+// then mix, effects and project. PROJECT and FILES stay consecutive (one renderer draws them).
+// System settings live in FN SETUP.
+inline constexpr std::uint8_t kTapeSession = 0;
+inline constexpr std::uint8_t kTapeSong = 1;
+inline constexpr std::uint8_t kTapeMix = 2;
+inline constexpr std::uint8_t kTapeSends = 3;
+inline constexpr std::uint8_t kTapeFx = 4;
+inline constexpr std::uint8_t kTapeProject = 5;
+inline constexpr std::uint8_t kTapeFiles = 6;
 inline constexpr std::size_t kTapePageCount = 7;
 
 // TAPE SENDS rows: the per-track effect each GRID row edits (columns are the tracks).
@@ -109,7 +111,8 @@ struct ScaleDefinition {
   std::uint16_t mask;  // bit n = semitone n
 };
 
-inline constexpr std::array<ScaleDefinition, 8> kScales{{
+// Projects store the index: append new scales, never reorder.
+inline constexpr std::array<ScaleDefinition, 14> kScales{{
     {"MAJOR", 0b101010110101},
     {"MINOR", 0b010110101101},
     {"DORIAN", 0b011010101101},
@@ -118,6 +121,12 @@ inline constexpr std::array<ScaleDefinition, 8> kScales{{
     {"MAJ PENT", 0b001010010101},
     {"BLUES", 0b010011101001},
     {"HARM MIN", 0b100110101101},
+    {"PHRYGIAN", 0b010110101011},
+    {"LYDIAN", 0b101011010101},
+    {"LOCRIAN", 0b010101101011},
+    {"MEL MIN", 0b101010101101},
+    {"WHOLE", 0b010101010101},
+    {"IN SEN", 0b010010100011},
 }};
 
 inline constexpr std::array<const char*, 12> kNoteNames{{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}};
@@ -125,15 +134,37 @@ inline constexpr std::array<const char*, 3> kLayoutNames{{"PIANO", "SCALE", "CHR
 inline constexpr std::array<std::uint8_t, 8> kDrumNotes{{36, 38, 42, 46, 39, 43, 56, 70}};
 inline constexpr std::array<const char*, 8> kDrumNames{{"BD", "SD", "CH", "OH", "CP", "TM", "CB", "MA"}};
 
+// What one pad press plays. TRIAD and 7TH stack thirds inside the scale (a key outside the scale
+// borrows a major / dominant chord); the rest are fixed shapes.
+enum class ChordType : std::uint8_t { Off, Triad, Seventh, Major, Minor, Sus4, Major7, Minor7, Dominant7, Power, Octave };
+inline constexpr std::size_t kChordTypeCount = 11;
+inline constexpr std::array<const char*, kChordTypeCount> kChordNames{{
+    "OFF", "TRIAD", "7TH", "MAJ", "MIN", "SUS4", "MAJ7", "MIN7", "DOM7", "POWER", "OCTAVE"}};
+inline constexpr std::array<const char*, 4> kVoicingNames{{"ROOT", "INV1", "INV2", "SPREAD"}};
+// Keys outside the scale (PIANO / CHROMA layouts): play them, mute them, or snap down to the scale.
+enum class ScaleLock : std::uint8_t { Off, Mute, Snap };
+inline constexpr std::array<const char*, 3> kScaleLockNames{{"OFF", "MUTE", "SNAP"}};
+inline constexpr std::size_t kMaxPadNotes = 5;
+
+// Global play settings (FN SETUP, stored with the project). The default layout is the piano
+// keyboard: white keys on the lower row of each pair, black keys above.
 struct KeyboardSettings {
   int octave = 0;           // -3..+3
   int root = 0;             // 0..11
-  std::size_t scale = 1;    // index into kScales
-  KeyboardLayout layout = KeyboardLayout::Scale;
+  std::size_t scale = 0;    // index into kScales
+  KeyboardLayout layout = KeyboardLayout::Piano;
+  ChordType chord = ChordType::Off;
+  std::uint8_t voicing = 0;  // index into kVoicingNames
+  ScaleLock lock = ScaleLock::Off;
+  std::uint8_t velocity = 110;  // 1..127
 };
 
 // Maps a pad (row, column) to a MIDI note for the given engine. Returns false for gaps (Piano layout).
 bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std::size_t row, std::size_t column, int& note);
+bool InScale(const KeyboardSettings& settings, int note);
+// The notes one pad press plays: the scale lock, then the chord and its voicing. Drums always play
+// the single drum. Returns the count (0 = the key is muted by the scale lock).
+std::size_t PadNotes(const KeyboardSettings& settings, synth::SynthEngineKind kind, int note, std::array<std::uint8_t, kMaxPadNotes>& notes);
 
 std::string_view EngineShortName(synth::SynthEngineKind kind);
 // Three-letter engine code for narrow columns.

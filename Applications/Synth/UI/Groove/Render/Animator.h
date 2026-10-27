@@ -15,6 +15,10 @@ inline constexpr std::uint32_t kTrackWipeMs = 280;
 inline constexpr std::uint32_t kModalOpenMs = 170;
 inline constexpr std::uint32_t kOverlayGrowMs = 150;
 inline constexpr std::uint32_t kBootMs = 1700;
+// Every kEdgeSweepPeriodMs, once no key has been pressed for kEdgeSweepIdleMs, a light runs down
+// both edge columns: the eight edge keys and their strips on screen together.
+inline constexpr std::uint32_t kEdgeSweepPeriodMs = 10000;
+inline constexpr std::uint32_t kEdgeSweepIdleMs = 4000;
 inline constexpr std::uint32_t kOverlayCloseMs = 130;
 inline constexpr std::uint32_t kModalCloseMs = 150;
 inline constexpr std::uint32_t kToastExitMs = 220;
@@ -44,6 +48,10 @@ public:
   void DecorateLeds(const Controller& controller, const LedFrame& frame, std::array<std::uint8_t, kKeyCount>& levels) const;
   // Fades each key toward its new level: quick rise, slower fall.
   void SmoothLeds(std::array<std::uint8_t, kKeyCount>& levels);
+
+  // The level each key LED shows after effects and fading (0..15). The edge strips on screen
+  // mirror their keys with it.
+  float LedShown(std::size_t index) const { return index < kKeyCount ? ledShown_[index] : 0.0f; }
 
   std::uint32_t Now() const { return now_; }
   std::uint32_t BootAt() const { return bootAt_; }
@@ -123,6 +131,7 @@ private:
   std::uint32_t slotPageKey_ = 0;
   std::array<bool, kTrackCount * 3> mixFlags_{};
   bool playing_ = false;
+  std::uint32_t arpTick_ = 0;
   std::size_t step_ = 0;
   std::size_t textLength_ = 0;
 

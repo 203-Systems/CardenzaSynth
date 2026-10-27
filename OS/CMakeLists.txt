@@ -1,5 +1,6 @@
 add_subdirectory(Framework)
 add_subdirectory(MIDI)
+add_subdirectory(Storage)
 add_subdirectory(System)
 add_subdirectory(UI)
 
@@ -10,5 +11,6 @@ target_include_directories(CardenzaSynthCore INTERFACE
 target_link_libraries(CardenzaSynthCore INTERFACE
     CardenzaMidiFramework
     CardenzaMIDI
+    CardenzaStorage
     CardenzaUI
 )

@@ -35,6 +35,9 @@ enum class UiModifier {
 };
 
 constexpr std::size_t kSynthTrackCount = 4;
+// The track a fresh start and a new project open on: T2, the first melodic track, so the pads show
+// the piano layout (white keys, black keys, dark gaps) from the start.
+constexpr std::size_t kDefaultActiveTrack = 1;
 constexpr std::size_t kKeyboardMatrixRows = 4;
 constexpr std::size_t kKeyboardMatrixColumns = 14;
 constexpr std::size_t kHomeLeftBarColumn = 0;

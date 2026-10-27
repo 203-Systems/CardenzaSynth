@@ -15,18 +15,20 @@ Allowed high-level direction:
 
 Concrete rules:
 
-- Hardware HAL code under `Devices/Cardenza/cardenza` is ESP-IDF-only. Do not add non-ESP fallback bodies there.
+- `Devices/Cardenza/cardenza` is the read-only CardenzaHAL submodule (see the hard rule at the top of `AGENT.md`): never edit, commit or push it; pull with `make hal-update`.
 - Host simulation should go through `Devices/CardenzaSim` and mutate/query the public device facade.
 - Application input should flow through `Device::Keyboard::State()` and `os::system::RunFrame()` dispatch, not through app-specific key-handler calls from simulator code.
 - Synth engines expose synth concepts. Device audio transport is connected by provider/callback registration rather than engine public interfaces.
 - App-specific synth UI/model/renderer code lives under `Applications/Synth/UI`, not under `Library/Synth`.
-- Board pins live in `Devices/Cardenza/cardenza/board/pins.h`.
+- Board pins live in the HAL's `board/pins.h` (read-only).
 - Vendored AMY sources live under `Library/third_party/amy`.
+- Files on the card follow the app storage protocol (`docs/app-storage-protocol.md`): apps use `OS/Storage` and their own `Cardenza/Apps/<Author>/<Name>/` folder; `Device::Storage` only provides the card root, mounting and internal-flash records. The synth library reaches its folders through `synth::storage` (`Library/Synth/Core/SynthStorage.h`), which the hosting app defines.
 
 ## Build Entrypoints
 
 - Cardenza firmware: open an exported ESP-IDF shell, then run `make DEVICE=Cardenza build`. The Makefile changes into `Devices/Cardenza` and invokes `idf.py` directly.
 - Desktop simulator: `make DEVICE=CardenzaSim build`. On Linux, `CardenzaSimShot` replays key scripts headlessly and writes PNG screenshots (`tests/groove/tour.script`).
+- Browser simulator: `make web` (`DEVICE=CardenzaWeb`, Emscripten from `~/emsdk`), then `make web-serve`. `Devices/CardenzaWeb` hosts the CardenzaSim facade in a page; the build has no threads, so its one coupling to the app is pumping the groove sequencer clock (`SynthSequencer::PumpClock`, `__EMSCRIPTEN__` only).
 - Architecture guardrail check: `make validate-architecture`.
 
 The root CMake project is for desktop-style targets such as `CardenzaSim`. The Cardenza hardware target is firmware-only and should be configured through ESP-IDF.
@@ -35,10 +37,11 @@ The root CMake project is for desktop-style targets such as `CardenzaSim`. The C
 
 - `Applications/Synth/Runtime`: app-owned synth rack and track wiring.
 - `Applications/Synth/UI/Groove`: the groovebox UI. `GrooveController` (input, navigation, scenes, modals, LEDs) talks to the runtime only through `groove::Host`; `Render/` draws straight into the framebuffer. The previous UI (`Applications/Synth/UI/*` outside `Groove`, `SynthApp`) remains buildable with `-DCARDENZA_GROOVE_UI=OFF` until it is removed.
+- `OS/Storage`: the app storage protocol (paths, settings files, device settings, migration of the pre-protocol layout). `OS/System`: app lifecycle and switching. The firmware has no launcher of its own; do not add one (the device has its own Launcher).
 - `Library/Synth/Core`: engine interfaces, engine implementations, and factory.
 - `Library/Synth/Audio`: runtime audio bridge, with AMY-specific code under `Audio/Amy`.
 - `Library/third_party/amy`: vendored AMY sources consumed by the shared synth audio runtime.
-- `Devices/Cardenza/cardenza`: ESP-IDF HAL modules for system, display, audio, keyboard, storage, mic, and IR.
+- `Devices/Cardenza/cardenza`: the CardenzaHAL submodule (read-only): ESP-IDF modules for system, display, audio, keyboard, storage, mic and IR.
 - `Devices/CardenzaSim/DesktopHost`: Win32 simulator layout, drawing, window lifecycle, input, and rendering modules.
 
 `cmake/CardenzaSynthSourceLists.cmake` is still the compatibility source registry for ESP-IDF and root CMake collection. Prefer adding owned CMake targets or local source lists as modules mature instead of growing unrelated flat lists.
@@ -47,8 +50,8 @@ The root CMake project is for desktop-style targets such as `CardenzaSim`. The C
 ## Cardenza HAL
 
 - `Devices/Cardenza` sources are ESP-IDF-only. Do not add `ESP_PLATFORM` preprocessor guards or fallback typedefs in that tree.
-- Keep `CardenzaHAL` lightweight and generic. Expose native ESP-IDF handles rather than app-level wrappers. This is suppose to be a portable HAL for this device
+- CardenzaHAL (`Devices/Cardenza/cardenza`) is an upstream submodule we only consume: never edit, commit or push it, reuse its API instead of re-implementing drivers, and pull updates with `make hal-update` (hard rule at the top of `AGENT.md`).
 
 ## Agent Workflow
 
-- Prefer static validation (`get_errors`, targeted searches, diff inspection) when changing the Cardenza HAL layer.
+- Prefer static validation (`get_errors`, targeted searches, diff inspection) when changing the Cardenza device layer.

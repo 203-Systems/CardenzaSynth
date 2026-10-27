@@ -42,7 +42,7 @@ constexpr const char* kUsage =
     "  --script <file>  key script (.script/.simdebug format: wait/tap/down/up/screenshot/quit)\n"
     "  --out <dir>      directory for <name>.png and <name>.leds.txt (created if missing)\n"
     "  --scale N        nearest-neighbour upscale factor 1..4 (default 1)\n"
-    "  --root <dir>     chdir here before boot; storage is <dir>/sdcard/CardenzaSynth\n"
+    "  --root <dir>     chdir here before boot; the card is <dir>/sdcard (docs/app-storage-protocol.md)\n"
     "                   (default: the caller's working directory)\n";
 
 struct Options {

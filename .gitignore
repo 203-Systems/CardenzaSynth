@@ -1,5 +1,9 @@
 .*/
 !.github/
+# Shared Claude Code project settings (they keep the CardenzaHAL submodule read-only); the rest of .claude stays local.
+!.claude/
+.claude/*
+!.claude/settings.json
 
 # JavaScript/Web build outputs
 **/node_modules/
@@ -44,3 +48,6 @@ logs/
 
 # UI review publication copy with its own Git history
 /sites/cardenza-ui-review/
+
+# Local simulator SD card contents and personal runtime settings
+/sdcard/

@@ -42,8 +42,12 @@ enum class PageGraphic : std::uint8_t {
   Lfo,               // LFO shape, rate and delay
   Waveform,
   DrumPads,
-  KeyMap,
   FxChain,           // track insert chain and sends
+  SetupKeys,         // FN KEYS: the scale on a keyboard
+  SetupChord,        // FN CHORD: the chord one key plays, on a keyboard
+  SetupArp,          // FN ARP: the order the arpeggiator plays a chord in
+  SetupProject,      // FN PROJECT: name, saved state, patterns and song
+  SetupSystem,       // FN SYSTEM: storage, memory and audio status
 };
 
 struct GraphicArea {
@@ -67,8 +71,11 @@ struct InstrumentPageList {
   std::size_t count = 0;
 };
 
-// VOICE, the engine's parameter pages, FX, then KEYS (no KEYS for drums). At most 16 pages, so
-// the CTRL page map fits the GRID.
+// VOICE, the engine's parameter pages, then FX. At most 16 pages, so the CTRL page map fits the GRID.
 InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind);
+
+// The FN panel: 0 KEYS, 1 CHORD, 2 ARP, 3 PROJECT, 4 SYSTEM (FN + 1..5 picks one).
+inline constexpr std::size_t kSetupPageCount = 5;
+const InstrumentPage& SetupPage(std::size_t page);
 
 }  // namespace groove

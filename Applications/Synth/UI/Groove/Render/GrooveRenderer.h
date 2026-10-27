@@ -15,6 +15,8 @@ namespace render {
 
 // Scene content for an explicit page, so transitions can draw the outgoing page too (SceneRender.cpp).
 void SceneContent(Gfx& g, const Controller& controller, Animator& animator, Scene scene, std::uint8_t page);
+// The FN panel page (held FN or SETUP), drawn like an INSTR page (SceneRender.cpp).
+void SetupContent(Gfx& g, const Controller& controller, Animator& animator);
 // Modal content replaces the content area (ModalRender.cpp).
 void ModalContent(Gfx& g, const Controller& controller, Animator& animator, const Modal& modal);
 const char* ModalHint(const Controller& controller, const Modal& modal);

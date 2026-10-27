@@ -46,43 +46,7 @@ bool Controller::SlotHasValue(const Slot& slot) const
 bool Controller::SlotValue(const Slot& slot, synth::SynthParameterInfo& info, std::string& text) const
 {
   if (!slot.IsParameter()) return false;
-  if (StartsWith(slot.id, "keys."))
-  {
-    const KeyboardSettings& keys = state_.keyboard;
-    info = synth::SynthParameterInfo{};
-    info.id = slot.id;
-    info.kind = synth::SynthParameterKind::Choice;
-    if (std::strcmp(slot.id, "keys.layout") == 0)
-    {
-      info.minValue = 0;
-      info.maxValue = 2;
-      info.value = static_cast<int>(keys.layout);
-      text = kLayoutNames[static_cast<std::size_t>(keys.layout)];
-    }
-    else if (std::strcmp(slot.id, "keys.scale") == 0)
-    {
-      info.minValue = 0;
-      info.maxValue = static_cast<int>(kScales.size()) - 1;
-      info.value = static_cast<int>(keys.scale);
-      text = kScales[std::min(keys.scale, kScales.size() - 1)].label;
-    }
-    else if (std::strcmp(slot.id, "keys.root") == 0)
-    {
-      info.minValue = 0;
-      info.maxValue = 11;
-      info.value = keys.root;
-      text = kNoteNames[static_cast<std::size_t>(std::clamp(keys.root, 0, 11))];
-    }
-    else
-    {
-      info.minValue = -3;
-      info.maxValue = 3;
-      info.value = keys.octave;
-      info.kind = synth::SynthParameterKind::Continuous;
-      text = (keys.octave > 0 ? "+" : "") + std::to_string(keys.octave);
-    }
-    return true;
-  }
+  if (SettingValue(slot.id, info, text)) return true;
   const synth::ISynthEngine* engine = ActiveEngine();
   if (engine == nullptr || !engine->GetParameterInfo(slot.id, info)) return false;
   text = engine->DescribeParameterValue(slot.id);
@@ -90,6 +54,225 @@ bool Controller::SlotValue(const Slot& slot, synth::SynthParameterInfo& info, st
 }
 
 // ---------------------------------------------------------------------------------------------
+// Global settings (FN SETUP): keyboard, chord and arpeggiator for every track, plus the system.
+
+namespace {
+
+bool IsSetting(const char* id)
+{
+  return StartsWith(id, "keys.") || StartsWith(id, "arp.") || StartsWith(id, "proj.") || StartsWith(id, "sys.");
+}
+
+bool Is(const char* id, const char* name)
+{
+  return std::strcmp(id, name) == 0;
+}
+
+}  // namespace
+
+bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, std::string& text) const
+{
+  if (id == nullptr || !IsSetting(id)) return false;
+  const KeyboardSettings& keys = state_.keyboard;
+  const synth::ArpSettings arp = host_.Sequencer().GetArpSettings();
+  info = synth::SynthParameterInfo{};
+  info.id = id;
+  info.kind = synth::SynthParameterKind::Choice;
+  info.minValue = 0;
+  auto choice = [&](int value, int count, int fallback, const char* name) {
+    info.maxValue = count - 1;
+    info.value = std::clamp(value, 0, count - 1);
+    info.defaultValue = fallback;
+    text = name;
+  };
+  auto number = [&](int value, int minimum, int maximum, int fallback, const std::string& shown) {
+    info.kind = synth::SynthParameterKind::Continuous;
+    info.minValue = minimum;
+    info.maxValue = maximum;
+    info.value = value;
+    info.defaultValue = fallback;
+    text = shown;
+  };
+  if (Is(id, "keys.layout")) choice(static_cast<int>(keys.layout), 3, 0, kLayoutNames[static_cast<std::size_t>(keys.layout)]);
+  else if (Is(id, "keys.scale")) choice(static_cast<int>(keys.scale), static_cast<int>(kScales.size()), 0, kScales[std::min(keys.scale, kScales.size() - 1)].label);
+  else if (Is(id, "keys.root")) choice(keys.root, 12, 0, kNoteNames[static_cast<std::size_t>(std::clamp(keys.root, 0, 11))]);
+  else if (Is(id, "keys.octave")) number(keys.octave, -3, 3, 0, (keys.octave > 0 ? "+" : "") + std::to_string(keys.octave));
+  else if (Is(id, "keys.chord")) choice(static_cast<int>(keys.chord), static_cast<int>(kChordTypeCount), 0, kChordNames[static_cast<std::size_t>(keys.chord)]);
+  else if (Is(id, "keys.voicing")) choice(keys.voicing, static_cast<int>(kVoicingNames.size()), 0, kVoicingNames[std::min<std::size_t>(keys.voicing, 3)]);
+  else if (Is(id, "keys.lock")) choice(static_cast<int>(keys.lock), 3, 0, kScaleLockNames[static_cast<std::size_t>(keys.lock)]);
+  else if (Is(id, "keys.velocity")) number(keys.velocity, 1, 127, 110, std::to_string(keys.velocity));
+  else if (Is(id, "arp.mode")) choice(static_cast<int>(arp.mode), static_cast<int>(synth::kArpModeCount), 0, synth::kArpModeNames[static_cast<std::size_t>(arp.mode)]);
+  else if (Is(id, "arp.rate")) choice(arp.rate, static_cast<int>(synth::kArpRateCount), 3, synth::kArpRateNames[std::min<std::size_t>(arp.rate, synth::kArpRateCount - 1)]);
+  else if (Is(id, "arp.octaves")) number(arp.octaves, 1, 4, 1, std::to_string(arp.octaves) + " OCT");
+  else if (Is(id, "arp.gate")) number(arp.gate, 10, 100, 50, std::to_string(arp.gate) + "%");
+  else if (Is(id, "arp.latch"))
+  {
+    choice(arp.latch ? 1 : 0, 2, 0, arp.latch ? "ON" : "OFF");
+    info.kind = synth::SynthParameterKind::Toggle;
+  }
+  else if (StartsWith(id, "proj."))
+  {
+    // Project settings live in the sequencer and are saved with the project.
+    const auto& sequencer = host_.Sequencer();
+    if (Is(id, "proj.bpm")) number(sequencer.Tempo(), 30, 300, 120, std::to_string(sequencer.Tempo()));
+    else if (Is(id, "proj.swing")) number(sequencer.Swing(), 50, 75, 50, std::to_string(sequencer.Swing()) + "%");
+    else if (Is(id, "proj.mode")) choice(sequencer.SongMode() ? 1 : 0, 2, 0, sequencer.SongMode() ? "SONG" : "LOOP");
+    else if (Is(id, "proj.steps"))
+      number(static_cast<int>(sequencer.TrackStepCount(state_.track)), 1, 16, 16, "T" + std::to_string(state_.track + 1) + " " + std::to_string(sequencer.TrackStepCount(state_.track)));
+    else if (Is(id, "proj.rec"))
+    {
+      choice(sequencer.RecordArmed() ? 1 : 0, 2, 0, sequencer.RecordArmed() ? "ARMED" : "OFF");
+      info.kind = synth::SynthParameterKind::Toggle;
+    }
+    else return false;
+  }
+  else if (Is(id, "sys.volume")) number(host_.MasterVolume(), 0, 100, 85, std::to_string(host_.MasterVolume()));
+  else if (Is(id, "sys.led")) number(host_.LedBrightness(), 0, 15, 15, std::to_string(host_.LedBrightness()));
+  else if (Is(id, "sys.screen")) number(host_.Backlight(), 10, 255, 180, std::to_string(host_.Backlight() * 100 / 255) + "%");
+  else return false;
+  return true;
+}
+
+void Controller::AdjustSetting(const char* id, int delta)
+{
+  synth::SynthParameterInfo info;
+  std::string text;
+  if (delta == 0 || !SettingValue(id, info, text)) return;
+  // Wide ranges move in useful steps: the screen in 5s (of 255), the volume in 2s.
+  if (Is(id, "sys.screen")) delta *= 5;
+  else if (Is(id, "sys.volume")) delta *= 2;
+  const int value = Is(id, "keys.root") ? ((info.value + delta) % 12 + 12) % 12 : std::clamp(info.value + delta, info.minValue, info.maxValue);
+  if (value == info.value) return;
+  KeyboardSettings& keys = state_.keyboard;
+  auto& sequencer = host_.Sequencer();
+  synth::ArpSettings arp = sequencer.GetArpSettings();
+  if (Is(id, "keys.layout")) keys.layout = static_cast<KeyboardLayout>(value);
+  else if (Is(id, "keys.scale")) keys.scale = static_cast<std::size_t>(value);
+  else if (Is(id, "keys.root")) keys.root = value;
+  else if (Is(id, "keys.octave")) keys.octave = value;
+  else if (Is(id, "keys.chord")) keys.chord = static_cast<ChordType>(value);
+  else if (Is(id, "keys.voicing")) keys.voicing = static_cast<std::uint8_t>(value);
+  else if (Is(id, "keys.lock")) keys.lock = static_cast<ScaleLock>(value);
+  else if (Is(id, "keys.velocity")) keys.velocity = static_cast<std::uint8_t>(value);
+  else if (StartsWith(id, "arp."))
+  {
+    if (Is(id, "arp.mode")) arp.mode = static_cast<synth::ArpMode>(value);
+    else if (Is(id, "arp.rate")) arp.rate = static_cast<std::uint8_t>(value);
+    else if (Is(id, "arp.octaves")) arp.octaves = static_cast<std::uint8_t>(value);
+    else if (Is(id, "arp.gate")) arp.gate = static_cast<std::uint8_t>(value);
+    else if (Is(id, "arp.latch")) arp.latch = value != 0;
+    sequencer.SetArpSettings(arp);
+  }
+  else if (Is(id, "proj.bpm")) sequencer.SetTempo(static_cast<std::uint16_t>(value));
+  else if (Is(id, "proj.swing")) sequencer.SetSwing(static_cast<std::uint8_t>(value));
+  else if (Is(id, "proj.mode")) sequencer.SetSongMode(value != 0);
+  else if (Is(id, "proj.steps")) sequencer.SetTrackStepCount(state_.track, static_cast<std::size_t>(value));
+  else if (Is(id, "proj.rec")) sequencer.SetRecordArmed(value != 0);
+  else if (Is(id, "sys.volume")) host_.SetMasterVolume(static_cast<std::uint8_t>(value));
+  else if (Is(id, "sys.led")) host_.SetLedBrightness(static_cast<std::uint8_t>(value));
+  else if (Is(id, "sys.screen")) host_.SetBacklight(static_cast<std::uint8_t>(value));
+  // The key range moves under held pads: let them go before they map to other notes.
+  if (Is(id, "keys.layout") || Is(id, "keys.octave")) ReleaseAllPads();
+  // Only project data makes the project unsaved; the rest are app and device settings.
+  if (Is(id, "proj.bpm") || Is(id, "proj.swing") || Is(id, "proj.steps")) MarkDirty();
+}
+
+void Controller::StepSetting(const char* id)
+{
+  synth::SynthParameterInfo info;
+  std::string text;
+  if (!SettingValue(id, info, text) || info.kind == synth::SynthParameterKind::Continuous) return;
+  AdjustSetting(id, info.value >= info.maxValue ? info.minValue - info.value : 1);
+}
+
+void Controller::ResetSetting(const char* id)
+{
+  synth::SynthParameterInfo info;
+  std::string text;
+  if (!SettingValue(id, info, text)) return;
+  AdjustSetting(id, info.defaultValue - info.value);
+}
+
+void Controller::ShowHud(const std::string& label, const std::string& value, float fraction, bool bipolar)
+{
+  state_.hud.label = label;
+  state_.hud.value = value;
+  state_.hud.fraction = fraction;
+  state_.hud.bipolar = bipolar;
+  state_.hud.at = state_.now == 0 ? 1 : state_.now;
+}
+
+void Controller::ShowSettingHud(const char* id, const char* label)
+{
+  synth::SynthParameterInfo info;
+  std::string text;
+  if (!SettingValue(id, info, text)) return;
+  const float span = static_cast<float>(std::max(1, info.maxValue - info.minValue));
+  const bool bipolar = info.minValue < 0;
+  const float fraction = bipolar ? static_cast<float>(info.value) / static_cast<float>(info.maxValue)
+                                 : static_cast<float>(info.value - info.minValue) / span;
+  ShowHud(label, text, fraction, bipolar);
+}
+
+// ---------------------------------------------------------------------------------------------
+// FN panel. Held FN shows it for as long as FN is down; a tap on FN keeps it open as SETUP (a
+// modal). Both show the same five pages and remember the page and each page's focused setting:
+// FN + 1..5 or CTRL picks the page, the GRID picks a setting, ADD / SUB change it, ENTER steps a
+// choice (SETUP), Fn + ENTER restores the default (SETUP). Pads keep playing, so every change can be
+// heard at once.
+
+void Controller::SetFnPage(std::size_t page)
+{
+  if (page >= kSetupPageCount) return;
+  state_.fnPage = static_cast<std::uint8_t>(page);
+}
+
+void Controller::OpenSetup()
+{
+  Modal modal;
+  modal.kind = ModalKind::Setup;
+  modal.title = "SETUP";
+  OpenModal(std::move(modal));
+}
+
+const InstrumentPage& Controller::SetupPageShown() const
+{
+  return SetupPage(state_.fnPage);
+}
+
+void Controller::SetupGrid(std::size_t index)
+{
+  if (index >= kGridCount) return;
+  const Slot& slot = SetupPageShown().slots[index];
+  if (!slot.IsParameter()) return;
+  auto& focus = state_.fnFocus[state_.fnPage % kSetupPageCount];
+  // A second press steps a choice or flips a switch, like ENTER.
+  if (focus == index) StepSetting(slot.id);
+  focus = static_cast<std::uint8_t>(index);
+}
+
+void Controller::SetupAdjust(int delta)
+{
+  const Slot& slot = SetupPageShown().slots[FnFocus()];
+  if (slot.IsParameter()) AdjustSetting(slot.id, delta);
+}
+
+void Controller::SetupEnter()
+{
+  const Slot& slot = SetupPageShown().slots[FnFocus()];
+  if (slot.IsParameter()) StepSetting(slot.id);
+}
+
+void Controller::SetupReset()
+{
+  const Slot& slot = SetupPageShown().slots[FnFocus()];
+  if (!slot.IsParameter()) return;
+  ResetSetting(slot.id);
+  ShowSettingHud(slot.id, slot.label);
+}
+
+// ---------------------------------------------------------------------------------------------
+// PROJECT// ---------------------------------------------------------------------------------------------
 // PROJECT
 
 void Controller::ProjectGrid(std::size_t index)
@@ -116,10 +299,6 @@ void Controller::ProjectGrid(std::size_t index)
         break;
       default: break;
     }
-  }
-  else if (page == kTapeSystem && index < 3)
-  {
-    state_.systemFocus = static_cast<std::uint8_t>(index);
   }
 }
 
@@ -149,17 +328,6 @@ void Controller::ProjectAdjust(int delta, bool coarse)
       const int count = static_cast<int>(state_.projects.size());
       const int next = std::clamp(static_cast<int>(state_.fileCursor) + delta * (coarse ? 8 : 1), 0, count - 1);
       state_.fileCursor = static_cast<std::size_t>(next);
-      break;
-    }
-    case kTapeSystem:
-    {
-      const int scale = coarse ? 5 : 1;
-      if (state_.systemFocus == 0)
-        host_.SetLedBrightness(static_cast<std::uint8_t>(std::clamp(static_cast<int>(host_.LedBrightness()) + delta * scale, 0, 15)));
-      else if (state_.systemFocus == 1)
-        host_.SetBacklight(static_cast<std::uint8_t>(std::clamp(static_cast<int>(host_.Backlight()) + delta * 5 * scale, 10, 255)));
-      else
-        host_.SetMasterVolume(static_cast<std::uint8_t>(std::clamp(static_cast<int>(host_.MasterVolume()) + delta * 2 * scale, 0, 100)));
       break;
     }
     default: break;
@@ -281,9 +449,9 @@ void Controller::InstrumentAdjust(int delta, bool coarse)
   }
   const Slot& slot = page->slots[InstrumentFocus()];
   if (!slot.IsParameter()) return;
-  if (StartsWith(slot.id, "keys."))
+  if (IsSetting(slot.id))
   {
-    AdjustKeysSetting(slot.id, delta * (coarse ? 3 : 1));
+    AdjustSetting(slot.id, delta * (coarse ? 3 : 1));
     return;
   }
   synth::ISynthEngine* engine = ActiveEngine();
@@ -312,7 +480,7 @@ void Controller::InstrumentEnter()
   {
     if (info.value >= info.maxValue)
     {
-      if (StartsWith(slot.id, "keys.")) AdjustKeysSetting(slot.id, info.minValue - info.value);
+      if (IsSetting(slot.id)) StepSetting(slot.id);
       else if (synth::ISynthEngine* engine = ActiveEngine(); engine != nullptr && engine->SetParameterValue(slot.id, info.minValue)) MarkDirty();
     }
     else InstrumentAdjust(1, false);
@@ -324,11 +492,9 @@ void Controller::InstrumentReset()
   const InstrumentPage* page = CurrentInstrumentPage();
   const Slot& slot = page->slots[InstrumentFocus()];
   if (!slot.IsParameter()) return;
-  if (StartsWith(slot.id, "keys."))
+  if (IsSetting(slot.id))
   {
-    if (std::strcmp(slot.id, "keys.octave") == 0) state_.keyboard.octave = 0;
-    else if (std::strcmp(slot.id, "keys.root") == 0) state_.keyboard.root = 0;
-    MarkDirty();
+    ResetSetting(slot.id);
     return;
   }
   synth::ISynthEngine* engine = ActiveEngine();
@@ -338,20 +504,6 @@ void Controller::InstrumentReset()
     MarkDirty();
     ShowToast(std::string(slot.label) + " DEFAULT");
   }
-}
-
-void Controller::AdjustKeysSetting(const char* id, int delta)
-{
-  KeyboardSettings& keys = state_.keyboard;
-  if (std::strcmp(id, "keys.layout") == 0)
-    keys.layout = static_cast<KeyboardLayout>(std::clamp(static_cast<int>(keys.layout) + delta, 0, 2));
-  else if (std::strcmp(id, "keys.scale") == 0)
-    keys.scale = static_cast<std::size_t>(std::clamp(static_cast<int>(keys.scale) + delta, 0, static_cast<int>(kScales.size()) - 1));
-  else if (std::strcmp(id, "keys.root") == 0)
-    keys.root = (keys.root + delta % 12 + 12) % 12;
-  else
-    keys.octave = std::clamp(keys.octave + delta, -3, 3);
-  MarkDirty();
 }
 
 void Controller::StepPreset(int delta)
@@ -438,6 +590,18 @@ void Controller::SequenceGrid(std::size_t index)
       const auto ui = sequencer.BuildUiState(state_.track);
       std::array<std::uint8_t, kRows * kPadColumns> notes{};
       const std::size_t count = CollectHeldNotes(notes);
+      if (state_.record.view == SeqView::Step)
+      {
+        // STEP REC: a step key moves the write cursor; with pads held it writes them there.
+        if (index >= sequencer.TrackStepCount(state_.track)) return;
+        state_.record.cursor = static_cast<std::uint8_t>(index);
+        if (count > 0)
+        {
+          (void)StepRecordPress();
+          StepRecordRelease();
+        }
+        return;
+      }
       if (!ui.hasHeldSteps && count > 0)
       {
         // Hold pads, tap steps: step input without selecting.
@@ -489,6 +653,11 @@ void Controller::SequenceAdjust(int delta, bool coarse)
       if (ui.hasHeldSteps)
       {
         if (sequencer.AdjustSelectedSteps(delta, coarse)) MarkDirty();
+        return;
+      }
+      if (state_.record.view == SeqView::Step)
+      {
+        StepCursorMove(delta * (coarse ? 4 : 1));
         return;
       }
       [[fallthrough]];
@@ -569,6 +738,12 @@ void Controller::SongGrid(std::size_t index)
     MarkDirty();
     ShowToast("ROW " + std::to_string(row + 1) + " ADDED");
   }
+  // A second tap on the focused cell switches between editing its pattern and the row length.
+  if (row == state_.songRow && track == state_.songTrack && row < length)
+  {
+    state_.songLane = static_cast<std::uint8_t>(state_.songLane ^ 1u);
+    ShowHud("EDIT", state_.songLane == 0 ? "PATTERN" : "BARS");
+  }
   state_.songRow = row;
   state_.songTrack = track;
 }
@@ -578,9 +753,9 @@ void Controller::SongAdjust(int delta, bool coarse)
   auto& sequencer = host_.Sequencer();
   if (state_.songRow >= sequencer.SongLength()) return;
   const auto row = sequencer.SongRowAt(state_.songRow);
-  if (coarse)
+  if (coarse || state_.songLane == 1)
   {
-    // Fn + SUB / ADD changes how many bars the row lasts.
+    // The BARS lane changes how many bars the row lasts.
     const int repeats = std::clamp(static_cast<int>(row.repeats) + (delta > 0 ? 1 : -1), 1, 16);
     if (sequencer.SetSongRepeats(state_.songRow, static_cast<std::uint8_t>(repeats))) MarkDirty();
     return;
@@ -627,6 +802,76 @@ void Controller::SongArrow(int horizontal, int vertical)
   // Keep the cursor inside the four visible columns.
   if (state_.songRow < state_.songScroll) state_.songScroll = state_.songRow;
   if (state_.songRow >= state_.songScroll + kGridColumns) state_.songScroll = state_.songRow - kGridColumns + 1;
+}
+
+// ---------------------------------------------------------------------------------------------
+// SESSION: a clip grid. GRID columns are the tracks (as on MIX), rows are pattern slots from the
+// scroll position down. A tap launches that pattern on that track: at once when stopped, at the
+// track's loop end while playing. ENTER launches the whole row (a scene), Fn + ENTER captures what
+// plays now as a new SONG row, ADD / SUB move through the patterns.
+
+void Controller::SessionGrid(std::size_t index)
+{
+  if (index >= kGridCount) return;
+  auto& sequencer = host_.Sequencer();
+  const std::size_t track = index % kGridColumns;
+  const std::size_t pattern = state_.sessionScroll + index / kGridColumns;
+  state_.sessionTrack = track;
+  state_.sessionPattern = std::min(pattern, synth::kSequencerMaxPatternCount - 1);
+  const std::size_t count = sequencer.PatternCount(track);
+  if (pattern > count || pattern >= synth::kSequencerMaxPatternCount) return;
+  // Launching takes the track out of the arrangement, like playing a clip in a session.
+  if (sequencer.SongMode())
+  {
+    sequencer.SetSongMode(false);
+    ShowHud("SESSION", "LOOP MODE");
+  }
+  const bool creating = pattern == count;
+  if (!sequencer.QueuePattern(track, pattern)) return;
+  if (creating) MarkDirty();
+  SelectTrack(track);
+  ShowHud("T" + std::to_string(track + 1) + (creating ? " NEW" : sequencer.Playing() ? " NEXT" : ""), PatternLabel(pattern));
+}
+
+void Controller::SessionAdjust(int delta)
+{
+  const int last = static_cast<int>(synth::kSequencerMaxPatternCount) - 1;
+  state_.sessionPattern = static_cast<std::size_t>(std::clamp(static_cast<int>(state_.sessionPattern) + delta, 0, last));
+  // Keep the cursor row on screen.
+  if (state_.sessionPattern < state_.sessionScroll) state_.sessionScroll = state_.sessionPattern;
+  if (state_.sessionPattern >= state_.sessionScroll + kRows) state_.sessionScroll = state_.sessionPattern - (kRows - 1);
+}
+
+void Controller::SessionLaunchRow()
+{
+  auto& sequencer = host_.Sequencer();
+  if (sequencer.SongMode()) sequencer.SetSongMode(false);
+  std::size_t launched = 0;
+  for (std::size_t track = 0; track < kTrackCount; ++track)
+    if (state_.sessionPattern < sequencer.PatternCount(track) && sequencer.QueuePattern(track, state_.sessionPattern)) ++launched;
+  ShowHud(sequencer.Playing() ? "NEXT ROW" : "ROW", PatternLabel(state_.sessionPattern) + "  " + std::to_string(launched) + "/4 TRACKS");
+}
+
+void Controller::SessionCapture()
+{
+  // What every track plays right now (or has queued) becomes the next SONG row.
+  auto& sequencer = host_.Sequencer();
+  const auto ui = sequencer.BuildUiState(state_.track);
+  synth::SongRow row{};
+  for (std::size_t track = 0; track < kTrackCount; ++track)
+  {
+    const auto& summary = ui.tracks[track];
+    const std::size_t pattern = summary.queuedPattern < summary.patternCount ? summary.queuedPattern : summary.activePattern;
+    row.patterns[track] = static_cast<std::int8_t>(pattern);
+  }
+  const std::size_t at = sequencer.SongLength();
+  if (!sequencer.InsertSongRow(at, row))
+  {
+    ShowHud("SONG", "FULL", 1.0f);
+    return;
+  }
+  MarkDirty();
+  ShowHud("CAPTURED", "SONG ROW " + std::to_string(at + 1));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -939,25 +1184,6 @@ void Controller::Duplicate()
   }
 }
 
-void Controller::NudgeTempo(int delta)
-{
-  auto& sequencer = host_.Sequencer();
-  const int bpm = std::clamp(static_cast<int>(sequencer.Tempo()) + delta, 30, 300);
-  sequencer.SetTempo(static_cast<std::uint16_t>(bpm));
-  MarkDirty();
-  ShowToast("BPM " + std::to_string(bpm));
-}
-
-void Controller::StepTrackPattern(int delta)
-{
-  auto& sequencer = host_.Sequencer();
-  const int count = static_cast<int>(sequencer.PatternCount(state_.track));
-  if (count <= 1) return;
-  const int next = (static_cast<int>(sequencer.ActivePattern(state_.track)) + delta % count + count) % count;
-  if (!sequencer.QueuePattern(state_.track, static_cast<std::size_t>(next))) return;
-  ShowToast((sequencer.Playing() ? "NEXT " : "") + PatternLabel(static_cast<std::size_t>(next)));
-}
-
 void Controller::TapTempo()
 {
   const std::uint32_t now = state_.now;
@@ -976,7 +1202,7 @@ void Controller::TapTempo()
   const int bpm = std::clamp(static_cast<int>((60000 + interval / 2) / interval), 30, 300);
   host_.Sequencer().SetTempo(static_cast<std::uint16_t>(bpm));
   MarkDirty();
-  ShowToast("TEMPO " + std::to_string(bpm));
+  ShowHud("TAP TEMPO", std::to_string(bpm), static_cast<float>(bpm - 30) / 270.0f);
 }
 
 void Controller::QuickSave()
@@ -984,41 +1210,30 @@ void Controller::QuickSave()
   SaveProject(false);
 }
 
-void Controller::CycleLayout()
-{
-  if (ActiveKind() == synth::SynthEngineKind::Drums) return;
-  ReleaseAllPads();
-  state_.keyboard.layout = static_cast<KeyboardLayout>((static_cast<int>(state_.keyboard.layout) + 1) % 3);
-  MarkDirty();
-  ShowToast(std::string("KEYS ") + kLayoutNames[static_cast<std::size_t>(state_.keyboard.layout)]);
-}
-
-void Controller::AdjustOctave(int delta)
-{
-  ReleaseAllPads();
-  state_.keyboard.octave = std::clamp(state_.keyboard.octave + delta, -3, 3);
-  MarkDirty();
-  ShowToast("OCTAVE " + std::string(state_.keyboard.octave > 0 ? "+" : "") + std::to_string(state_.keyboard.octave));
-}
-
-void Controller::ToggleMute(std::size_t track)
+void Controller::ToggleMute(std::size_t track, bool announce)
 {
   if (track >= kTrackCount) return;
   const bool muted = !host_.TrackMuted(track);
   host_.SetTrackMuted(track, muted);
   MarkDirty();
-  ShowToast("T" + std::to_string(track + 1) + (muted ? " MUTED" : " ON"));
+  if (announce) ShowHud("T" + std::to_string(track + 1), muted ? "MUTED" : "ON");
 }
 
-// The letter shortcuts on the pads and the right column. The GRID functions are FnGridEntries().
+// What FN does besides the panel: the letter shortcuts on the pads and the keys around them.
 std::vector<Controller::FnEntry> Controller::FnEntries() const
 {
   const bool seq = state_.scene == Scene::Sequence;
   const bool instr = state_.scene == Scene::Instrument;
   const bool song = SongPage();
   const bool tapeEdit = state_.scene == Scene::Tape && (CurrentPage() == kTapeSends || CurrentPage() == kTapeFx);
-  // In priority order: the Fn map shows as many as fit on its two text lines.
+  const bool session = state_.scene == Scene::Tape && CurrentPage() == kTapeSession;
+  // In priority order: the FN panel shows as many as fit on its text line.
   return {
+      {"6/Y", "BPM+-", true},
+      {"7/U", "VOL+-", true},
+      {"8/I", "OCT+-", true},
+      {"1-5", "PAGE", true},
+      {"+-", "ADJUST", true},
       {"C", song ? "COPY ROW" : "COPY", seq || song},
       {"V", "PASTE", seq || song},
       {"X", song ? "DEL ROW" : "CLEAR", seq || song},
@@ -1026,23 +1241,11 @@ std::vector<Controller::FnEntry> Controller::FnEntries() const
       {"Q", "QUANT", seq},
       {"S", "SAVE", true},
       {"T", "TAP", true},
-      {"1-4", "MUTE", true},
       {"PLAY", "REC", true},
-      {"ENT", instr || tapeEdit ? "DEFAULT" : seq ? "SCOPE" : song ? "SONG/LOOP" : "OPTIONS", instr || seq || song || tapeEdit},
-      {"+-", song ? "BARS" : "x10", true},
+      {"ESC", "STOP", true},
+      {"TAB", "PREV", true},
+      {"ENT", instr || tapeEdit ? "DEFAULT" : seq ? "SCOPE" : song ? "SONG/LOOP" : session ? "CAPTURE" : "OPTIONS", instr || seq || song || tapeEdit || session},
   };
-}
-
-std::array<Controller::FnGridEntry, kGridCount> Controller::FnGridEntries() const
-{
-  const bool keys = ActiveKind() != synth::SynthEngineKind::Drums;
-  const bool patterns = host_.Sequencer().PatternCount(state_.track) > 1;
-  return {{
-      {"BPM-", true}, {"BPM+", true}, {"OCT-", keys}, {"OCT+", keys},
-      {"SND<", true}, {"SND>", true}, {"PAT<", patterns}, {"PAT>", patterns},
-      {"KEYS", keys}, {"SONG", true}, {"UP", true}, {nullptr, false},
-      {"MUTE", true}, {"LEFT", true}, {"DOWN", true}, {"RIGHT", true},
-  }};
 }
 
 }  // namespace groove

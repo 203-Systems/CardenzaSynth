@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "OS/UI/Canvas.h"
@@ -25,6 +26,16 @@ inline constexpr Color kCtrl = Rgb565(160, 112, 255);  // pages
 inline constexpr Color kPlay = Rgb565(72, 255, 120);
 inline constexpr Color kRec = Rgb565(255, 52, 68);
 
+// One color per track, everywhere a track is named or drawn (header, TAB strip, maps, MIX, SENDS,
+// TAPE rows). Kept apart from the four left-key colors and from play green / record red.
+inline constexpr Color kTrackColors[4] = {
+    Rgb565(255, 92, 176),   // T1 pink
+    Rgb565(72, 152, 255),   // T2 blue
+    Rgb565(176, 236, 56),   // T3 lime
+    Rgb565(255, 164, 40),   // T4 amber
+};
+inline constexpr Color TrackColor(std::size_t track) { return kTrackColors[track & 3u]; }
+
 // Ordered dither densities (0..16 of a 4x4 Bayer cell).
 inline constexpr int kDitherIdle = 3;
 inline constexpr int kDitherLatched = 8;
@@ -48,6 +59,11 @@ inline constexpr int kContentY = 14;
 inline constexpr int kContentBottom = 122;
 inline constexpr int kContentHeight = kContentBottom - kContentY;
 inline constexpr int kFooterY = 125;
+// Footer items and their highlight blocks (2 pixels around the text) stay 2 pixels clear of the
+// edge caps on both sides.
+inline constexpr int kFooterX = kContentX + 2;
+inline constexpr int kFooterRight = kContentRight - 2;
+inline constexpr int kFooterWidth = kFooterRight - kFooterX;
 
 // The 4x4 cell grid mirrors the GRID keys (matrix columns 9..12).
 inline constexpr int kCellGap = 3;

@@ -56,6 +56,7 @@ void Controller::OpenTextEntry(TextPurpose purpose, const std::string& title, co
   for (const char c : Upper(initial))
     if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '-') text.push_back(c);
   modal.text = text.substr(0, maxLength);
+  modal.textCursor = modal.text.size();
   OpenModal(std::move(modal));
 }
 
@@ -160,6 +161,12 @@ void Controller::ModalAdjust(int delta, bool coarse)
   if (modal == nullptr) return;
   switch (modal->kind)
   {
+    case ModalKind::Setup:
+      SetupAdjust(delta);
+      return;
+    case ModalKind::Record:
+      RecordAdjust(delta);
+      return;
     case ModalKind::PresetBrowser:
     case ModalKind::EnginePicker:
     case ModalKind::SampleBrowser:
@@ -191,6 +198,12 @@ void Controller::ModalEnter()
   if (modal == nullptr) return;
   switch (modal->kind)
   {
+    case ModalKind::Setup:
+      SetupEnter();
+      return;
+    case ModalKind::Record:
+      RecordEnter();
+      return;
     case ModalKind::Confirm:
       Confirmed();
       return;
@@ -266,6 +279,16 @@ void Controller::ModalEnter()
 void Controller::ModalFnEnter()
 {
   Modal* modal = Top();
+  if (modal != nullptr && modal->kind == ModalKind::Setup)
+  {
+    SetupReset();
+    return;
+  }
+  if (modal != nullptr && modal->kind == ModalKind::Record)
+  {
+    RecordFnEnter();
+    return;
+  }
   if (modal == nullptr || modal->kind != ModalKind::SampleBrowser || modal->items.empty()) return;
   Modal options;
   options.kind = ModalKind::SampleOptions;
@@ -282,6 +305,16 @@ void Controller::ModalGrid(std::size_t index)
   if (modal->kind == ModalKind::SampleRecord)
   {
     SampleRecordGrid(index);
+    return;
+  }
+  if (modal->kind == ModalKind::Setup)
+  {
+    SetupGrid(index);
+    return;
+  }
+  if (modal->kind == ModalKind::Record)
+  {
+    RecordGrid(index);
     return;
   }
   if (modal->kind == ModalKind::EnginePicker && index < modal->items.size())

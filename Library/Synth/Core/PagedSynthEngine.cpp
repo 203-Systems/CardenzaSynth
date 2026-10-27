@@ -9,10 +9,10 @@
 #include <iomanip>
 #include <sstream>
 
-#include "Devices/Device.h"
 #include "Devices/DeviceAudio.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "Library/Synth/Audio/SynthFx.h"
+#include "Library/Synth/Core/SynthStorage.h"
 #include "OS/Framework/Midi/MidiPort.h"
 
 namespace synth {
@@ -30,7 +30,7 @@ bool IsUserPresetId(const std::string& id)
 
 std::string PresetBankPath(const SynthDescriptor& descriptor)
 {
-  return Device::Storage::PresetDirectoryPath(descriptor.displayName) + "/user.ccpreset";
+  return storage::PresetDirectory(descriptor.displayName) + "/user.ccpreset";
 }
 
 bool ReadQuoted(std::istream& file, std::string& value, std::size_t limit)
@@ -327,7 +327,7 @@ bool PagedSynthEngine::LoadPreset(const std::string& presetId)
 
 bool PagedSynthEngine::SavePreset(const std::string& presetId, const std::string& presetName)
 {
-  if ((!presetId.empty() && !IsUserPresetId(presetId)) || !Device::Storage::EnsureDirectoryLayout())
+  if ((!presetId.empty() && !IsUserPresetId(presetId)) || !storage::EnsureLayout())
   {
     return false;
   }

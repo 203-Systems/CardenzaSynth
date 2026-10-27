@@ -1231,9 +1231,9 @@ void TestSongCueAndToggle() {
   sequencer.reset();
 }
 }  // namespace
-namespace Device::Storage {
-std::string ProjectDirectoryPath() { return projectDirectory.string(); }
-bool EnsureDirectoryLayout() { return std::filesystem::is_directory(projectDirectory); }
+namespace synth::storage {
+std::string ProjectDirectory() { return projectDirectory.string(); }
+bool EnsureLayout() { return std::filesystem::is_directory(projectDirectory); }
 }
 
 namespace {
@@ -1274,7 +1274,7 @@ void TestProjectVersion2() {
   const auto path = projectDirectory / "v2 trip.ccproj";
   const std::string valid = ReadText(path);
   assert(valid.find("CARDENZA_PROJECT 4\nBUILD CardenzaSynth 1\nUI ") == 0);
-  assert(valid.find("\nSYSTEM 7\nFX 12 11 56 72 100 76 52 36 0 0 64 64 127\n") != std::string::npos);
+  assert(valid.find("\nSYSTEM 7\nFX 12 11 56 72 100 76 52 36 0 0 64 64 127\nTRACK 0 ") != std::string::npos);
   assert(valid.find("\nMIX 0 10 1 0\n") != std::string::npos && valid.find("\nSEQ 120 66\n") != std::string::npos);
 
   ProjectData loaded;
@@ -1297,7 +1297,24 @@ void TestProjectVersion2() {
     assert(LoadProjectFile("v2 trip", loaded) == ProjectResult::Invalid);
     assert(loaded.sequence.get() == old && loaded.backlight == 7);
   };
-  reject("CARDENZA_PROJECT 4", "CARDENZA_PROJECT 5");
+  reject("CARDENZA_PROJECT 4", "CARDENZA_PROJECT 6");
+  // Version 5 (unreleased development builds) had a PLAY line after FX: it loads, the line is
+  // skipped, and the next save writes version 4 again.
+  {
+    std::string v5 = valid;
+    v5.replace(0, std::string("CARDENZA_PROJECT 4").size(), "CARDENZA_PROJECT 5");
+    const auto track = v5.find("\nTRACK 0 ");
+    reject("CARDENZA_PROJECT 4", "CARDENZA_PROJECT 5");  // a version 5 file needs its PLAY line
+    v5.insert(track + 1, "PLAY 4 2 1 96 3 5 2 75 1\n");
+    WriteText(path, v5);
+    ProjectData fromV5;
+    assert(LoadProjectFile("v2 trip", fromV5) == ProjectResult::Ok);
+    assert(fromV5.masterFx == project.masterFx && fromV5.mixer.level == project.mixer.level && fromV5.engines[2].values.at("vcf.cutoff") == 40);
+    assert(SaveProjectFile("v2 trip", fromV5, true) == ProjectResult::Ok);
+    const std::string resaved = ReadText(path);
+    assert(resaved.find("CARDENZA_PROJECT 4\n") == 0 && resaved.find("PLAY") == std::string::npos);
+    WriteText(path, valid);
+  }
   reject("\nFX 12 11 ", "\nFX 12 12 ");  // Delay time past the last division.
   reject("\nFX 12 11 ", "\nFX 13 11 ");  // One value missing before TRACK.
   reject(" 64 64 127\n", " 64 64 128\n");

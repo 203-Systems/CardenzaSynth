@@ -1,0 +1,25 @@
+{
+  "version": "1.1.4",
+  "title": {
+    "zh": "Cardenza Groovebox 说明书",
+    "en": "Cardenza Groovebox manual"
+  },
+  "chapters": [
+    "start",
+    "keys",
+    "navigate",
+    "play",
+    "fn",
+    "instr",
+    "sampler",
+    "seq",
+    "tape",
+    "effects",
+    "lights",
+    "projects",
+    "web",
+    "faq",
+    "reference",
+    "changelog"
+  ]
+}

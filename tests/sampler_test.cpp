@@ -1,4 +1,5 @@
 #include "Applications/Synth/Runtime/Sampler/SamplerManager.h"
+#include "Library/Synth/Core/SynthStorage.h"
 #include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
 #include "Devices/Device.h"
 #include <cassert>
@@ -33,9 +34,9 @@ void SetSamplerFrames(std::size_t track, SharedSampleBuffer frames, std::uint32_
 void NoteOn(std::size_t, std::uint8_t, std::uint8_t) {}
 void NoteOff(std::size_t, std::uint8_t) {}
 }
-namespace Device::Storage {
-std::string SampleDirectoryPath() { return testDirectory.string(); }
-bool EnsureDirectoryLayout() { return true; }
+namespace synth::storage {
+std::string SampleDirectory() { return testDirectory.string(); }
+bool EnsureLayout() { return true; }
 }
 namespace Device::Audio {
 InputStreamInfo InputInfo() { return {}; }

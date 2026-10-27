@@ -8,10 +8,19 @@
 
 namespace app {
 
+// One app at a time runs on the device (os::system). Lifecycle:
+//   construct -> Setup -> frames (key events, Tick, UpdateLeds, RenderFrame) -> Suspend -> destroy.
+// The system destroys the app before it creates the next one, so an app never runs in the
+// background and gets the whole heap. Setup is also the resume point: an app that saved a session
+// in Suspend restores it there. Apps store data only through the OS storage API (OS/Storage, see
+// docs/app-storage-protocol.md), in their own folder.
 class Application {
 public:
   virtual ~Application() = default;
   virtual void Setup(const std::vector<std::string>& args) = 0;
+  // Called before the app is destroyed (switch to another app, shutdown): persist the working
+  // session and settings here. The system flushes every settings store right after it returns.
+  virtual void Suspend() {}
   virtual void Tick() = 0;
   virtual void UpdateLeds() {}
   virtual void RenderFrame() = 0;

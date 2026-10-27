@@ -4,6 +4,7 @@
 #include "Applications/Synth/UI/SynthUiRenderer.h"
 #include "Devices/DeviceAudio.h"
 #include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
+#include "Library/Synth/Core/SynthStorage.h"
 
 #include <algorithm>
 #include <array>
@@ -38,24 +39,24 @@ std::uint8_t outputVolume = Device::Audio::kDefaultOutputVolume;
 }
 
 // Use the production app, engines, MIDI routing, serializers and UI model. Only
-// device IO, audio rendering and pixels are replaced: this is a state/flow test.
-namespace Device {
-std::string BackendName() { return "project-test"; }
-namespace Storage {
-std::string RootPath() { return storageRoot.string(); }
-std::string SampleDirectoryPath() { return (storageRoot / "Sample").string(); }
-std::string ProjectDirectoryPath() { return (storageRoot / "Project").string(); }
-std::string PresetDirectoryPath() { return (storageRoot / "Preset").string(); }
-std::string PresetDirectoryPath(std::string_view instrument) { return (storageRoot / "Preset" / std::string(instrument)).string(); }
-bool EnsureDirectoryLayout() {
+// device IO, audio rendering, pixels and the synth's storage folders are replaced: this is a
+// state/flow test.
+namespace synth::storage {
+std::string SampleDirectory() { return (storageRoot / "Sample").string(); }
+std::string ProjectDirectory() { return (storageRoot / "Project").string(); }
+std::string PresetDirectory(std::string_view instrument) { return (storageRoot / "Preset" / std::string(instrument)).string(); }
+std::string SessionDirectory() { return (storageRoot / "Session").string(); }
+bool EnsureLayout() {
   std::error_code error;
-  for (const char* directory : {"Sample", "Project", "Preset/DX7", "Preset/Juno", "Preset/Sampler", "Preset/Drums"}) {
+  for (const char* directory : {"Sample", "Project", "Session", "Preset/DX7", "Preset/Juno", "Preset/Sampler", "Preset/Drums"}) {
     std::filesystem::create_directories(storageRoot / directory, error);
     if (error) return false;
   }
   return true;
 }
 }
+namespace Device {
+std::string BackendName() { return "project-test"; }
 namespace LED {
 void Clear() {}
 void SetKey(std::size_t, std::size_t, std::uint8_t) {}
@@ -1130,7 +1131,7 @@ int main()
 #endif
   storageRoot = std::filesystem::temp_directory_path() /
       ("cardenza-project-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-  assert(Device::Storage::EnsureDirectoryLayout());
+  assert(synth::storage::EnsureLayout());
   TestSequencerWorkflow();
   TestSequencerDestructiveActions();
   TestSequencerHomeViews();

@@ -36,6 +36,16 @@ void DrawKeyCap(Gfx& g, const Rect& cap, Color color, int level, bool edgeOnRigh
   g.Pixel(cap.x + cap.width - 1, cap.y + cap.height - 1, kBlack);
 }
 
+// Edge strips mirror their key's LED: off faint (2/16), half 30 % (5/16), full solid.
+int StripDither(float led)
+{
+  // Off is a faint dither, half (kLedHalf) about 30 %, full solid.
+  const float level = led <= kLedHalf ? 2.0f + led * (3.0f / kLedHalf) : 5.0f + (led - kLedHalf) * (11.0f / (kLedFull - kLedHalf));
+  return std::clamp(static_cast<int>(std::lround(level)), 2, 16);
+}
+
+bool StripSolid(float led) { return led >= 13.5f; }
+
 // The four left caps stand for the four left keys, row for row. Each shows what its key selects:
 // ESC the scenes, TAB the tracks, FN the record arm (FN + PLAY), CTRL the pages of this screen.
 void DrawStrips(Gfx& g, const Controller& controller, Animator& animator)
@@ -48,7 +58,11 @@ void DrawStrips(Gfx& g, const Controller& controller, Animator& animator)
     const Rect cap = StripRect(row);
     const Color color = kStripColors[row];
     const auto& key = state.left[row];
-    DrawKeyCap(g, cap, color, key.down ? 9 : 3, true);
+    // A plain checker of the key's color, no border, as bright as the key's LED.
+    const float led = animator.LedShown(KeyIndex(row, 0));
+    const bool solid = !key.down && StripSolid(led);
+    if (solid) g.Fill(cap, color);
+    else g.Dither(cap, color, StripDither(led));
     if (key.down)
     {
       // Pressed: the cap fills from the bottom in a quick sweep.
@@ -69,31 +83,48 @@ void DrawStrips(Gfx& g, const Controller& controller, Animator& animator)
         current = std::min<std::size_t>(controller.CurrentPage(), count - 1);
         break;
     }
-    // One solid dot per thing the key selects, in the key's color; the current one is white. Long
-    // page lists pack tighter.
+    // One solid mark per thing the key selects, in the key's color, in a black window cut into the
+    // cap; the current one is white. Long page lists pack tighter.
     const int pitch = count > 9 ? 2 : 3;
     const int top = cap.y + (cap.height - static_cast<int>(count) * pitch + 1) / 2;
+    const bool dark = key.down || solid;
+    if (!dark)
+    {
+      const int windowTop = std::max(cap.y + 1, top - 2);
+      const int windowBottom = std::min(cap.y + cap.height - 1, top + static_cast<int>(count) * pitch + 1);
+      g.Fill(Rect{cap.x + 1, windowTop, cap.width - 2, windowBottom - windowTop}, kBlack);
+    }
+    // TAB's marks are the four track colors, so the current track reads by color too.
+    const bool trackDots = row == 1;
     for (std::size_t dot = 0; dot < count; ++dot)
     {
       const Rect mark{cap.x + 2, top + static_cast<int>(dot) * pitch, 4, pitch - 1};
-      g.Fill(Rect{mark.x - 1, mark.y - 1, mark.width + 2, mark.height + 2}, kBlack);
-      g.Fill(mark, key.down ? kBlack : color);
+      g.Fill(mark, dark ? kBlack : trackDots ? TrackColor(dot) : color);
     }
     if (current < count)
     {
       // The current dot glides when the selection moves.
       const float target = static_cast<float>(top + static_cast<int>(current) * pitch);
       const int y = static_cast<int>(std::lround(animator.Smooth(Animator::Key("cap-dot", static_cast<std::uint32_t>(row)), target, 45.0f)));
-      g.Fill(Rect{cap.x + 1, y - 1, 6, pitch + 1}, kBlack);
-      g.Fill(Rect{cap.x + 2, y, 4, pitch - 1}, row == 2 ? kRec : kInk);
+      if (trackDots)
+      {
+        g.Fill(Rect{cap.x, y - 1, cap.width, pitch + 1}, kInk);
+        g.Fill(Rect{cap.x + 1, y, cap.width - 2, pitch - 1}, TrackColor(current));
+      }
+      else
+      {
+        g.Fill(Rect{cap.x + 1, y - 1, cap.width - 2, pitch + 1}, kBlack);
+        g.Fill(Rect{cap.x + 2, y, 4, pitch - 1}, row == 2 ? kRec : kInk);
+      }
     }
   }
 }
 
 // The four right caps stand for ADD, SUB, ENTER and PLAY, top to bottom.
+// The right caps mirror ADD / SUB / ENTER / PLAY like the left ones: off faint, half 30 %, full
+// solid with a black glyph. PLAY is green while playing and red with recording armed.
 void DrawGlyphColumn(Gfx& g, const Controller& controller, Animator& animator)
 {
-  const UiState& state = controller.State();
   const std::uint32_t now = animator.Now();
   const auto& sequencer = controller.HostView().Sequencer();
   const bool playing = sequencer.Playing();
@@ -103,44 +134,26 @@ void DrawGlyphColumn(Gfx& g, const Controller& controller, Animator& animator)
   {
     const Rect strip = StripRect(row);
     const Rect cap{kGlyphColumnX, strip.y, kScreenWidth - kGlyphColumnX, strip.height};
-    const bool pressed = (row == 0 && state.repeat.down && state.repeat.direction > 0) ||
-                         (row == 1 && state.repeat.down && state.repeat.direction < 0) ||
-                         (state.keyPressedAt[KeyIndex(row, kColumns - 1)] != 0 && now - state.keyPressedAt[KeyIndex(row, kColumns - 1)] < 90);
+    const float led = animator.LedShown(KeyIndex(row, kColumns - 1));
     Color body = kDim;
-    int level = 2;
     Glyph glyph = glyphs[row];
-    Color ink = kDim;
-    if (row == 2 && controller.TopModal() != nullptr)
-    {
-      level = 3 + static_cast<int>(3.0f * (0.5f + 0.5f * std::sin(static_cast<float>(now) / 220.0f)));
-      ink = kInk;
-    }
     if (row == 3)
     {
-      if (playing)
-      {
-        body = recArmed ? kRec : kPlay;
-        level = 4 + static_cast<int>(fx::Decay(now, animator.BeatAt(), 180) * 8.0f);
-        ink = body;
-      }
-      else if (recArmed)
-      {
-        glyph = Glyph::Rec;
-        body = kRec;
-        ink = (now / 300) % 2 ? kRec : kFaint;
-      }
+      if (recArmed) body = kRec;
+      else if (playing) body = kPlay;
+      if (recArmed && !playing) glyph = Glyph::Rec;
     }
-    if (pressed)
+    const int x = cap.x + (cap.width - Gfx::GlyphWidth(glyph)) / 2;
+    const int y = cap.y + (cap.height - 7) / 2 - (row == 3 ? static_cast<int>(fx::Decay(now, animator.PlayToggledAt(), 260) * 3.0f) : 0);
+    if (StripSolid(led))
     {
-      g.Fill(cap, row == 3 && playing ? body : kInk);
-      g.DrawGlyph(cap.x + (cap.width - Gfx::GlyphWidth(glyph)) / 2, cap.y + (cap.height - 7) / 2, glyph, kBlack);
+      g.Fill(cap, body == kDim ? kInk : body);
+      g.DrawGlyph(x, y, glyph, kBlack);
       continue;
     }
-    DrawKeyCap(g, cap, body, level, false);
-    const int y = cap.y + (cap.height - 7) / 2 - (row == 3 ? static_cast<int>(fx::Decay(now, animator.PlayToggledAt(), 260) * 3.0f) : 0);
-    const int x = cap.x + (cap.width - Gfx::GlyphWidth(glyph)) / 2;
+    DrawKeyCap(g, cap, body, StripDither(led), false);
     g.Fill(Rect{x - 1, y - 1, Gfx::GlyphWidth(glyph) + 2, 9}, kBlack);
-    g.DrawGlyph(x, y, glyph, ink);
+    g.DrawGlyph(x, y, glyph, led < 0.5f ? kFaint : body == kDim ? kInk : body);
   }
 }
 
@@ -155,22 +168,28 @@ void DrawHeader(Gfx& g, const Controller& controller, Animator& animator)
   const auto& transition = animator.CurrentTransition();
   const float sceneDecode = transition.kind == Animator::TransitionKind::Scene ? fx::Progress(now, transition.start, 320) : 1.0f;
   int x = kContentX;
-  const char sceneNumber[2] = {static_cast<char>('1' + static_cast<int>(state.scene)), 0};
-  x = g.Text(x, kHeaderY, sceneNumber, kEsc);
-  x = fx::DecodeText(g, x + 3, kHeaderY, kSceneNames[static_cast<std::size_t>(state.scene)], kInk, Font::Micro, sceneDecode, now / 40);
+  if (controller.SetupOpen())
+  {
+    x = g.Text(x, kHeaderY, "FN", kFn);
+    x = fx::DecodeText(g, x + 3, kHeaderY, "SETUP", kInk, Font::Micro, fx::Progress(now, animator.ModalOpenedAt(), 320), now / 40);
+  }
+  else
+  {
+    const char sceneNumber[2] = {static_cast<char>('1' + static_cast<int>(state.scene)), 0};
+    x = g.Text(x, kHeaderY, sceneNumber, kEsc);
+    x = fx::DecodeText(g, x + 3, kHeaderY, kSceneNames[static_cast<std::size_t>(state.scene)], kInk, Font::Micro, sceneDecode, now / 40);
+  }
   x += 6;
 
-  // Track label: inverse flash on a track change, a pulse on every note played.
+  // Track label: a block in the track's own color; it widens on a track change and flashes white
+  // on every note played.
   const std::string track = "T" + std::to_string(state.track + 1);
   const float trackFlash = fx::Decay(now, animator.TrackChangedAt(), 360);
   const float notePulse = fx::Decay(now, animator.LastNoteAt(), 160);
-  if (trackFlash > 0.4f || notePulse > 0.5f)
-  {
-    g.Fill(Rect{x - 1, 0, Gfx::Measure(track) + 2, 9}, kTab);
-    x = g.Text(x, kHeaderY, track, kBlack);
-  }
-  else x = g.Text(x, kHeaderY, track, kTab);
-  x += 4;
+  const int grow = static_cast<int>(trackFlash * 4.0f);
+  g.Fill(Rect{x - 2 - grow, 0, Gfx::Measure(track) + 4 + grow * 2, 10}, notePulse > 0.5f ? kInk : TrackColor(state.track));
+  x = g.Text(x, kHeaderY, track, kBlack);
+  x += 5;
   const auto* engine = host.Engine(state.track);
   x = g.Text(x, kHeaderY, EngineShortName(host.EngineKind(state.track)), kDim);
   x += 4;
@@ -210,8 +229,8 @@ void DrawHeader(Gfx& g, const Controller& controller, Animator& animator)
                    right - x - 6);
   }
 
-  // Rule: dotted; while playing, the loop (or song) progress with a comet head.
-  g.DottedHLine(kContentX, kHeaderRuleY, kContentWidth, kFaint);
+  // Rule: dotted in the track's color; while playing, the loop (or song) progress with a comet head.
+  g.DottedHLine(kContentX, kHeaderRuleY, kContentWidth, TrackColor(state.track), 2);
   if (seq.songPlaying && seq.songLength > 0)
   {
     // Song mode: the rule is the whole tape, one tick per row, the head at the song position.
@@ -258,15 +277,15 @@ void DrawTabs(Gfx& g, const Controller& controller, Animator& animator)
   }
   std::size_t first = 0;
   std::size_t last = count - 1;
-  int left = kContentX;
-  int right = kContentRight;
-  if (total > kContentWidth)
+  int left = kFooterX;
+  int right = kFooterRight;
+  if (total > kFooterWidth)
   {
     char counter[24];
     std::snprintf(counter, sizeof(counter), "%02u/%02u", static_cast<unsigned>(current + 1), static_cast<unsigned>(count));
-    g.Text(kContentRight - Gfx::Measure(counter), kFooterY, counter, kFaint);
-    left = kContentX + 7;
-    right = kContentRight - Gfx::Measure(counter) - 9;
+    g.Text(kFooterRight - Gfx::Measure(counter), kFooterY, counter, kFaint);
+    left = kFooterX + 7;
+    right = kFooterRight - Gfx::Measure(counter) - 9;
     // Grow the window from the current tab, alternating right and left, while it fits.
     first = last = current;
     int used = widths[current];
@@ -276,7 +295,7 @@ void DrawTabs(Gfx& g, const Controller& controller, Animator& animator)
       if (last + 1 < count && used + widths[last + 1] <= right - left) { used += widths[++last]; grew = true; }
       if (first > 0 && used + widths[first - 1] <= right - left) { used += widths[--first]; grew = true; }
     }
-    if (first > 0) g.Text(kContentX, kFooterY, "<", kCtrl);
+    if (first > 0) g.Text(kFooterX, kFooterY, "<", kCtrl);
     if (last + 1 < count) g.Text(right + 2, kFooterY, ">", kCtrl);
   }
   std::vector<int> positions(count, 0);
@@ -307,11 +326,12 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
   g.DottedHLine(kContentX, kFooterY - 3, kContentWidth, kShade, 1);
   auto drawToast = [&](const std::string& text, ToastKind kind, int lift, float typed, int shake) {
     const Color color = kind == ToastKind::Error ? kRec : kind == ToastKind::Ok ? kPlay : kInk;
-    g.SetClip(Rect{kContentX, kFooterY - 2, kContentWidth, 11});
+    const Rect band{kFooterX - 2, kFooterY - 2, kFooterWidth + 4, 11};
+    g.SetClip(band);
     const float pulse = kind == ToastKind::Error ? 0.5f + 0.5f * std::sin(static_cast<float>(now) / 70.0f) : 1.0f;
-    g.Fill(Rect{kContentX, kFooterY - 2 + lift, kContentWidth, 11}, kBlack);
-    g.Dither(Rect{kContentX + shake, kFooterY - 1 + lift, 4, 9}, color, static_cast<int>(6.0f + 6.0f * pulse));
-    fx::TypeText(g, kContentX + 8 + shake, kFooterY + lift, text.substr(0, static_cast<std::size_t>(kContentWidth / 6 - 2)), color, Font::Micro, typed);
+    g.Fill(Rect{band.x, band.y + lift, band.width, band.height}, kBlack);
+    g.Dither(Rect{kFooterX + shake, kFooterY - 1 + lift, 4, 9}, color, static_cast<int>(6.0f + 6.0f * pulse));
+    fx::TypeText(g, kFooterX + 8 + shake, kFooterY + lift, text.substr(0, static_cast<std::size_t>(kFooterWidth / 6 - 2)), color, Font::Micro, typed);
     g.ResetClip();
   };
   if (!state.toast.text.empty())
@@ -329,7 +349,31 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
   const bool exiting = animator.ToastEndedAt() != 0 && toastExit < 1.0f;
   if (const Modal* modal = controller.TopModal())
   {
-    g.TextFit(kContentX, kFooterY, kContentWidth, render::ModalHint(controller, *modal), kDim);
+    if (modal->kind == ModalKind::Setup)
+    {
+      // SETUP: its pages by number key (the current one by name too; CTRL steps them), and how
+      // to leave.
+      int x = kFooterX;
+      for (std::size_t page = 0; page < kSetupPageCount; ++page)
+      {
+        const char number[2] = {static_cast<char>('1' + page), 0};
+        if (page == state.fnPage)
+        {
+          const std::string tab = std::string(number) + " " + SetupPage(page).tab;
+          g.Fill(Rect{x - 2, kFooterY - 1, Gfx::Measure(tab) + 4, 9}, kFn);
+          g.Text(x, kFooterY, tab, kBlack);
+          x += Gfx::Measure(tab) + 8;
+        }
+        else
+        {
+          g.Text(x, kFooterY, number, kDim);
+          x += Gfx::Measure(number) + 8;
+        }
+      }
+      g.Text(kFooterRight - Gfx::Measure("FN / ESC CLOSE"), kFooterY, "FN / ESC CLOSE", kFaint);
+      return;
+    }
+    g.TextFit(kFooterX, kFooterY, kFooterWidth, render::ModalHint(controller, *modal), kDim);
     return;
   }
   const auto& sequencer = controller.HostView().Sequencer();
@@ -341,7 +385,7 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
       // Step inspector: lane chooser (ENTER) with a gliding highlight, scope and value.
       static constexpr std::array<const char*, 4> kLanes{{"NOTE", "LEN", "VEL", "TIME"}};
       std::array<int, 4> laneX{};
-      int x = kContentX;
+      int x = kFooterX;
       for (std::size_t lane = 0; lane < kLanes.size(); ++lane)
       {
         laneX[lane] = x;
@@ -367,7 +411,7 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
       }
       std::string detail = seq.valueLabel.empty() ? notes : seq.valueLabel;
       if (seq.editLane == synth::SequencerEditLane::Note && !scope.empty()) detail = scope + " " + notes;
-      g.TextFit(x + 4, kFooterY, kContentRight - x - 4, detail, kInk);
+      g.TextFit(x + 4, kFooterY, kFooterRight - x - 4, detail, kInk);
       return;
     }
   }
@@ -375,14 +419,14 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
   {
     const Host& host = controller.HostView();
     const bool focused = state.mixFocus >= kTrackCount;
-    g.Text(kContentX, kFooterY, "MASTER", focused ? kInk : kDim);
-    if (focused) fx::MarchingAnts(g, Rect{kContentX - 2, kFooterY - 2, Gfx::Measure("MASTER") + 4, 11}, kInk, now);
+    g.Text(kFooterX, kFooterY, "MASTER", focused ? kInk : kDim);
+    if (focused) fx::MarchingAnts(g, Rect{kFooterX - 2, kFooterY - 2, Gfx::Measure("MASTER") + 4, 11}, kInk, now);
     const float master = animator.Smooth(Animator::Key("master"), static_cast<float>(host.MasterVolume()) / 100.0f);
-    widgets::LevelBar(g, Rect{kContentX + 44, kFooterY + 1, 90, 5}, master, focused ? kInk : kDim, kFaint);
-    g.Text(kContentX + 138, kFooterY, std::to_string(host.MasterVolume()), focused ? kInk : kDim);
-    g.Text(kContentX + 162, kFooterY, "OUT", kFaint);
+    widgets::LevelBar(g, Rect{kFooterX + 44, kFooterY + 1, 88, 5}, master, focused ? kInk : kDim, kFaint);
+    g.Text(kFooterX + 136, kFooterY, std::to_string(host.MasterVolume()), focused ? kInk : kDim);
+    g.Text(kFooterX + 160, kFooterY, "OUT", kFaint);
     const float peak = animator.OutputPeakHold();
-    const Rect meter{kContentX + 182, kFooterY + 1, 36, 5};
+    const Rect meter{kFooterX + 180, kFooterY + 1, kFooterRight - kFooterX - 180, 5};
     widgets::LevelBar(g, meter, host.OutputPeak(), host.OutputPeak() > 0.95f ? kRec : kPlay, kFaint);
     g.VLine(meter.x + static_cast<int>(peak * static_cast<float>(meter.width - 1)), meter.y - 1, meter.height + 2, peak > 0.95f ? kRec : kInk);
     return;
@@ -436,11 +480,11 @@ Rect DropIn(const Rect& rect, float t, std::size_t order)
 
 // One map tile. `current` is drawn inverse with crawling ants in the map's colour; a tile the key
 // cannot use right now stays dotted.
-void MapTile(Gfx& g, const Rect& tile, bool current, bool usable, Color accent, std::uint32_t now)
+void MapTile(Gfx& g, const Rect& tile, bool current, bool usable, Color accent, std::uint32_t now, Color fill = kInk)
 {
   if (current)
   {
-    g.Fill(tile, kInk);
+    g.Fill(tile, fill);
     fx::MarchingAnts(g, Rect{tile.x - 2, tile.y - 2, tile.width + 4, tile.height + 4}, accent, now);
     return;
   }
@@ -461,6 +505,32 @@ void PressRipple(Gfx& g, Animator& animator, std::size_t index, const Rect& tile
 {
   const std::uint32_t pressed = animator.GridPressedAt(index);
   if (pressed != 0 && animator.Now() - pressed < 300) fx::Ripple(g, tile, fx::Progress(animator.Now(), pressed, 300), accent);
+}
+
+// Parameter feedback: the name, the new value in large type and a bar, popping up over everything
+// for about a second after an FN function or a SETUP reset. It rises in and sinks out.
+void DrawHud(Gfx& g, const Controller& controller, Animator& animator)
+{
+  const Hud& hud = controller.State().hud;
+  const std::uint32_t now = animator.Now();
+  if (hud.at == 0 || now - hud.at >= kHudMs) return;
+  const std::uint32_t age = now - hud.at;
+  const float in = fx::EaseOutBack(fx::Clamp01(static_cast<float>(age) / 140.0f));
+  const float out = fx::Clamp01(static_cast<float>(static_cast<int>(age) - static_cast<int>(kHudMs - 220)) / 220.0f);
+  // A bar over the bottom GRID row: label on the left, the value large beside it, a meter right.
+  const Rect box{kContentX + 4, kContentBottom - 27 + static_cast<int>((1.0f - in) * 8.0f + out * 6.0f), kContentWidth - 8, 26};
+  g.Fill(Rect{box.x - 2, box.y - 2, box.width + 4, box.height + 4}, kBlack);
+  g.Fill(Rect{box.x, box.y, 3, box.height}, kFn);
+  g.Stroke(box, kFn);
+  g.TextFit(box.x + 8, box.y + 3, box.width - 16, hud.label, kFn);  // the meter sits on the value line
+  g.TextFit(box.x + 8, box.y + 11, box.width - 82, hud.value, kInk, Font::Large);
+  if (hud.fraction >= 0.0f || hud.bipolar)
+  {
+    const Rect bar{box.x + box.width - 66, box.y + 15, 58, 6};
+    if (hud.bipolar) widgets::BipolarBar(g, bar, std::max(-1.0f, std::min(1.0f, hud.fraction)), kInk, kFaint);
+    else widgets::LevelBar(g, bar, hud.fraction, kInk, kFaint);
+  }
+  if (out > 0.0f) fx::Fade(g, Rect{box.x - 2, box.y - 2, box.width + 4, box.height + 4}, static_cast<int>(out * 16.0f));
 }
 
 // ESC: three tall tiles, one per GRID column, each listing its scene's pages.
@@ -521,9 +591,10 @@ void DrawTrackOverlay(Gfx& g, const Controller& controller, Animator& animator, 
   {
     const bool current = track == controller.State().track;
     const Rect tile = DropIn(widgets::Cell(0, track), t, track);
-    MapTile(g, tile, current, true, kTab, now);
+    MapTile(g, tile, current, true, kTab, now, TrackColor(track));
+    if (!current) g.Fill(Rect{tile.x, tile.y, tile.width, 2}, TrackColor(track));
     const Color ink = current ? kBlack : kInk;
-    g.Text(tile.x + 3, tile.y + 2, "T" + std::to_string(track + 1), current ? kBlack : kTab);
+    g.Text(tile.x + 3, tile.y + 2, "T" + std::to_string(track + 1), current ? kBlack : TrackColor(track));
     g.Text(tile.x + 18, tile.y + 2, EngineCode(host.EngineKind(track)), current ? kBlack : kDim);
     if (const auto* engine = host.Engine(track)) g.TextFit(tile.x + 3, tile.y + 11, tile.width - 6, engine->CurrentPresetName(), ink);
     const float level = animator.Smooth(Animator::Key("ovl-level", static_cast<std::uint32_t>(track)), static_cast<float>(host.TrackLevel(track)) / 100.0f);
@@ -585,67 +656,63 @@ void DrawPageOverlay(Gfx& g, const Controller& controller, Animator& animator, f
   g.ResetClip();
 }
 
-// FN: the GRID functions on their keys; the letter shortcuts on the pads are listed in the header
-// and footer lines.
+// FN held: the FN panel. The header lists its pages (FN + 1..5 or FN + CTRL picks one), the
+// content is the page's settings on the GRID (FN + GRID focuses one, FN + ADD/SUB sets it) and the
+// footer lists the letter shortcuts on the pads. With SETUP open the panel is already on screen.
 void DrawFnOverlay(Gfx& g, const Controller& controller, Animator& animator, float t)
 {
-  const std::uint32_t now = animator.Now();
-  const auto functions = controller.FnGridEntries();
-  const auto letters = controller.FnEntries();
-  // The letter shortcuts fill the header line, then the footer line, in priority order: key in
-  // yellow, what it does in white. Whatever does not fit is left to the key lights and the docs.
+  if (controller.SetupOpen()) return;
+  const UiState& state = controller.State();
+  const std::uint8_t current = state.fnPage;
+
   g.Fill(Rect{kContentX - 1, 0, kContentWidth + 2, kHeaderRuleY + 1}, kBlack);
-  g.Fill(Rect{kContentX - 1, kFooterY - 2, kContentWidth + 2, 11}, kBlack);
   g.HLine(kContentX, kHeaderRuleY, static_cast<int>(t * static_cast<float>(kContentWidth)), kFn);
-  const std::array<int, 2> lineY{{kHeaderY, kFooterY}};
-  std::array<int, 2> lineX{{g.Text(kContentX, kHeaderY, "FN", kFn) + 8, kContentX}};
+  int x = g.Text(kContentX, kHeaderY, "FN", kFn) + 7;
+  int full = 0;
+  for (std::size_t page = 0; page < kSetupPageCount; ++page) full += Gfx::Measure(SetupPage(page).tab) + 12;
+  // Pages that do not fit by name show their number only; the current one always shows its name.
+  const bool names = x + full <= kContentRight;
+  for (std::size_t page = 0; page < kSetupPageCount; ++page)
+  {
+    const char number[2] = {static_cast<char>('1' + page), 0};
+    const std::string tab = names || page == current ? SetupPage(page).tab : "";
+    const int width = Gfx::Measure(number) + (tab.empty() ? 0 : 3 + Gfx::Measure(tab));
+    if (page == current)
+    {
+      g.Fill(Rect{x - 2, kHeaderY - 1, width + 4, 9}, kFn);
+      g.Text(x, kHeaderY, number, kBlack);
+      g.Text(x + Gfx::Measure(number) + 3, kHeaderY, tab, kBlack);
+    }
+    else
+    {
+      g.Text(x, kHeaderY, number, kFn);
+      if (!tab.empty()) g.Text(x + Gfx::Measure(number) + 3, kHeaderY, tab, kDim);
+    }
+    x += width + 8;
+  }
+
+  // Footer: the letter shortcuts in priority order, key in yellow, what it does in white.
+  g.Fill(Rect{kContentX - 1, kFooterY - 2, kContentWidth + 2, 11}, kBlack);
+  const auto letters = controller.FnEntries();
   const std::size_t shown = static_cast<std::size_t>(fx::Clamp01(t * 1.3f) * static_cast<float>(letters.size()) + 0.5f);
+  int footerX = kFooterX;
   std::size_t drawn = 0;
   for (const auto& entry : letters)
   {
     if (!entry.available) continue;
-    const int width = Gfx::Measure(entry.key) + 6 + Gfx::Measure(entry.label);
-    for (std::size_t line = 0; line < lineX.size(); ++line)
+    const int width = Gfx::Measure(entry.key) + 4 + Gfx::Measure(entry.label);
+    if (footerX + width > kFooterRight) continue;
+    if (drawn++ < shown)
     {
-      if (lineX[line] + width > kContentRight) continue;
-      if (drawn++ < shown)
-      {
-        const int labelX = g.Text(lineX[line], lineY[line], entry.key, kFn) + 6;
-        g.Text(labelX, lineY[line], entry.label, kInk);
-      }
-      lineX[line] += width + 9;
-      break;
+      const int labelX = g.Text(footerX, kFooterY, entry.key, kFn) + 4;
+      g.Text(labelX, kFooterY, entry.label, kInk);
     }
+    footerX += width + 8;
   }
 
   Rect panel = kMapArea;
   BeginOverlay(g, 2, panel, kFn, t);
-  for (std::size_t index = 0; index < kGridCount; ++index)
-  {
-    const std::size_t row = index / kGridColumns;
-    const std::size_t column = index % kGridColumns;
-    const Rect tile = DropIn(widgets::Cell(row, column), t, row + column);
-    const auto& entry = functions[index];
-    if (entry.label == nullptr)
-    {
-      g.Pixel(tile.x + tile.width / 2, tile.y + tile.height / 2, kShade);
-      continue;
-    }
-    MapTile(g, tile, false, entry.available, kFn, now);
-    const char legend[2] = {LegendChar(row, kGridFirstColumn + column), 0};
-    g.Text(tile.x + tile.width - Gfx::Measure(legend) - 2, tile.y + 2, legend, entry.available ? kFn : kShade);
-    const std::string label = entry.label;
-    static constexpr std::array<std::pair<const char*, Glyph>, 4> kArrows{{{"UP", Glyph::Up}, {"DOWN", Glyph::Down}, {"LEFT", Glyph::Left}, {"RIGHT", Glyph::Right}}};
-    bool drawn = false;
-    for (const auto& arrow : kArrows)
-      if (label == arrow.first)
-      {
-        g.DrawGlyph(tile.x + (tile.width - Gfx::GlyphWidth(arrow.second)) / 2, tile.y + 9, arrow.second, entry.available ? kInk : kFaint);
-        drawn = true;
-      }
-    if (!drawn) g.TextFit(tile.x + 3, tile.y + 9, tile.width - 5, label, entry.available ? kInk : kFaint, Font::Small);
-    PressRipple(g, animator, index, tile, kFn);
-  }
+  render::SetupContent(g, controller, animator);
   g.ResetClip();
 }
 
@@ -825,6 +892,8 @@ void RenderFrame(Gfx& g, const Controller& controller, Animator& animator)
     else if (index == 2) DrawFnOverlay(g, controller, animator, t);
     else DrawPageOverlay(g, controller, animator, t);
   }
+
+  DrawHud(g, controller, animator);
 
   // Session replaced (load / new): one bright scan refreshes the whole screen.
   const UiState& state = controller.State();

@@ -10,7 +10,6 @@ namespace groove {
 
 namespace {
 
-constexpr std::uint8_t kNoNote = 0xFF;
 
 // Direction of a page change: CTRL steps forward and wraps, Fn + CTRL steps back.
 int PageDirection(std::size_t from, std::size_t to, std::size_t count)
@@ -174,7 +173,9 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
     const std::uint8_t note = state.padNote[index];
     if (note != kNoNote && note != padNotes_[index] && note < 128)
     {
+      // The key and every note of its chord.
       noteHitAt_[note] = now;
+      for (std::size_t voice = 0; voice < state.padChordCount[index]; ++voice) noteHitAt_[state.padChord[index][voice] & 0x7F] = now;
       lastNoteAt_ = now;
     }
   }
@@ -203,6 +204,12 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
     for (std::size_t index = 0; index < count; ++index) sequencedAt_[notes[index] & 0x7F] = now;
   }
   if (seq.playing) step_ = seq.currentStep;
+  // Every arpeggiator note glows on its pad (and on the on-screen keyboards) when it is on this track.
+  if (seq.arpTick != arpTick_)
+  {
+    arpTick_ = seq.arpTick;
+    if (seq.arpLastNote >= 0 && seq.arpTrack == state.track) sequencedAt_[static_cast<std::size_t>(seq.arpLastNote) & 0x7F] = now;
+  }
   const bool samePattern = fingerprintTrack_ == state.track && fingerprintPattern_ == seq.activePattern;
   for (std::size_t step = 0; step < kGridCount; ++step)
   {
@@ -231,12 +238,15 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
     }
   }
 
-  // INSTR: flash a slot whose value changed (keyed per track and page so switching does not flash).
-  if (state.scene == Scene::Instrument && modal == nullptr)
+  // INSTR and SETUP: flash a slot whose value changed (keyed per track and page so switching does
+  // not flash).
+  const bool setup = controller.FnPanelShown();
+  if ((state.scene == Scene::Instrument && modal == nullptr) || setup)
   {
-    const InstrumentPage* page = controller.CurrentInstrumentPage();
-    const std::uint32_t pageKey = static_cast<std::uint32_t>(state.track * 64 + controller.CurrentPage() + 1) ^
-                                  static_cast<std::uint32_t>(host.EngineKind(state.track)) << 16;
+    const InstrumentPage* page = setup ? &controller.SetupPageShown() : controller.CurrentInstrumentPage();
+    const std::uint32_t pageKey = setup ? 0x5E700000u + state.fnPage
+                                        : static_cast<std::uint32_t>(state.track * 64 + controller.CurrentPage() + 1) ^
+                                              static_cast<std::uint32_t>(host.EngineKind(state.track)) << 16;
     for (std::size_t slot = 0; slot < kGridCount; ++slot)
     {
       synth::SynthParameterInfo info;
@@ -274,23 +284,12 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
     if (value > levels[index]) levels[index] = static_cast<std::uint8_t>(value);
   };
 
-  // Effects: breathe = action, shimmer = focus, blink = waiting. Steady keys keep their level.
-  const float breath = 0.5f + 0.5f * std::sin(static_cast<float>(now) / 260.0f);
-  const float shimmer = std::sin(static_cast<float>(now) / 90.0f);
-  const bool blinkOn = (now / 170) % 2 == 0;
+  // Blink = waiting: on and off. Steady keys keep their level.
+  const bool blinkOn = (now / 250) % 2 == 0;
   for (std::size_t index = 0; index < kKeyCount; ++index)
   {
     const LedCell& cell = frame[index];
-    float level = cell.level;
-    switch (cell.effect)
-    {
-      case LedEffect::Breathe: level *= 0.45f + 0.55f * breath; break;
-      case LedEffect::Shimmer: level = std::min(14.0f, level + 1.5f * shimmer); break;
-      case LedEffect::Blink: level = blinkOn ? level : level * 0.25f; break;
-      case LedEffect::Steady:
-      default: break;
-    }
-    levels[index] = static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(level)), cell.level == 0 ? 0 : 1, 15));
+    levels[index] = cell.effect == LedEffect::Blink && !blinkOn ? 0 : cell.level;
   }
 
   // Boot: two light waves sweep the keyboard, then the working lights fade in.
@@ -332,12 +331,11 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
     }
   }
 
-  // Screen changes introduce the key blocks: the GRID block sweeps corner to corner (it mirrors the
-  // 4x4 on screen), then the pads sweep across, and both side columns flash once.
+  // Screen changes introduce the GRID block (it mirrors the 4x4 on screen): one sweep corner to
+  // corner. The pads keep playing the same keyboard, so they stay as they are.
   if (TransitionActive())
   {
     const float p = fx::Progress(now, transition_.start, transition_.duration);
-    const bool scene = transition_.kind == TransitionKind::Scene;
     const float gridFront = p * 9.0f - 1.0f;
     for (std::size_t row = 0; row < kRows; ++row)
       for (std::size_t column = 0; column < kGridColumns; ++column)
@@ -346,55 +344,30 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
         const float distance = diagonal - gridFront;
         if (distance <= 0.0f && distance > -2.5f) raise(KeyIndex(row, kGridFirstColumn + column), 14.0f * (1.0f + distance / 2.5f));
       }
-    if (scene)
-    {
-      const float padFront = (p - 0.25f) * 12.0f;
-      for (std::size_t column = 0; column < kPadColumns; ++column)
-      {
-        const float distance = static_cast<float>(column) - padFront;
-        if (distance <= 0.0f && distance > -2.0f)
-          for (std::size_t row = 0; row < kRows; ++row) raise(KeyIndex(row, kPadFirstColumn + column), 9.0f * (1.0f + distance / 2.0f));
-      }
-      const float edge = 1.0f - p;
-      for (std::size_t row = 0; row < kRows; ++row)
-      {
-        raise(KeyIndex(row, 0), 12.0f * edge * edge);
-        raise(KeyIndex(row, kColumns - 1), 12.0f * edge * edge);
-      }
-    }
   }
 
-  // Track change: a row wipe through the pads and GRID that follows the cyan scan line.
-  const float wipe = fx::Progress(now, trackChangedAt_, kTrackWipeMs);
-  if (trackChangedAt_ != 0 && wipe < 1.0f)
+  // Track change: the left column says which track is now active, top key = T1 ... bottom = T4.
+  const float trackShown = fx::Decay(now, trackChangedAt_, 800);
+  if (trackShown > 0.0f)
+    for (std::size_t row = 0; row < kRows; ++row)
+      levels[KeyIndex(row, 0)] = row == state.track ? 15 : static_cast<std::uint8_t>(static_cast<float>(levels[KeyIndex(row, 0)]) * (1.0f - trackShown));
+
+  // Edge sweep: while nobody plays, a light now and then runs down both edge columns, row by row,
+  // so the strips on screen (which mirror these keys) read as the keys beside them.
+  std::uint32_t lastPress = 0;
+  for (const std::uint32_t pressed : state.keyPressedAt) lastPress = std::max(lastPress, pressed);
+  bool leftHeld = false;
+  for (const auto& key : state.left) leftHeld = leftHeld || key.down;
+  if (primed_ && now - bootAt_ >= kBootMs && !leftHeld && now - lastPress >= kEdgeSweepIdleMs)
   {
-    const float front = wipe * 4.6f - 0.3f;
+    const std::uint32_t phase = (now - bootAt_) % kEdgeSweepPeriodMs;
     for (std::size_t row = 0; row < kRows; ++row)
     {
-      const float level = 12.0f * std::max(0.0f, 1.0f - std::fabs(static_cast<float>(row) - front));
-      for (std::size_t column = 1; column + 1 < kColumns; ++column) raise(KeyIndex(row, column), level);
-    }
-  }
-
-  // Every key press throws a ring of light, kept inside its own block so blocks stay readable.
-  auto block = [](std::size_t column) { return column == 0 ? 0 : column < kGridFirstColumn ? 1 : column < kColumns - 1 ? 2 : 3; };
-  for (std::size_t source = 0; source < kKeyCount; ++source)
-  {
-    const std::uint32_t pressed = state.keyPressedAt[source];
-    if (pressed == 0 || now - pressed >= 420) continue;
-    const float elapsed = static_cast<float>(now - pressed);
-    const float radius = elapsed / 48.0f;
-    const float fade = 1.0f - elapsed / 420.0f;
-    const int sourceRow = static_cast<int>(source / kColumns);
-    const int sourceColumn = static_cast<int>(source % kColumns);
-    const int sourceBlock = block(source % kColumns);
-    for (std::size_t index = 0; index < kKeyCount; ++index)
-    {
-      if (index == source || block(index % kColumns) != sourceBlock) continue;
-      const float dr = static_cast<float>(static_cast<int>(index / kColumns) - sourceRow);
-      const float dc = static_cast<float>(static_cast<int>(index % kColumns) - sourceColumn);
-      const float band = 1.0f - std::fabs(std::sqrt(dr * dr + dc * dc) - radius);
-      if (band > 0.0f) raise(index, band * fade * 10.0f);
+      const std::uint32_t start = static_cast<std::uint32_t>(row) * 90u;
+      if (phase < start || phase - start >= 260u) continue;
+      const float glow = 15.0f * (1.0f - static_cast<float>(phase - start) / 260.0f);
+      raise(KeyIndex(row, 0), glow);
+      raise(KeyIndex(row, kColumns - 1), glow);
     }
   }
 
@@ -408,15 +381,6 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
         if (age < static_cast<std::uint32_t>(row + column) * 30u) levels[KeyIndex(row, kGridFirstColumn + column)] = 0;
   }
 
-  // Beat: the side columns pulse with the tempo, harder on the bar.
-  const float beat = fx::Decay(now, beatAt_, downbeat_ ? 210 : 130);
-  if (beat > 0.0f)
-    for (std::size_t row = 0; row < kRows; ++row)
-    {
-      raise(KeyIndex(row, 0), static_cast<float>(levels[KeyIndex(row, 0)]) + beat * (downbeat_ ? 7.0f : 4.0f));
-      raise(KeyIndex(row, kColumns - 1), static_cast<float>(levels[KeyIndex(row, kColumns - 1)]) + beat * (downbeat_ ? 7.0f : 4.0f));
-    }
-
   const Modal* modal = controller.TopModal();
   const bool steps = state.scene == Scene::Sequence && controller.CurrentPage() == 0 && modal == nullptr;
   if (steps)
@@ -425,9 +389,7 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
     for (std::size_t step = 0; step < kGridCount; ++step)
     {
       const std::size_t index = KeyIndex(step / kGridColumns, kGridFirstColumn + step % kGridColumns);
-      raise(index, 9.0f * fx::Decay(now, stepPlayedAt_[step], 320));
       raise(index, 15.0f * fx::Decay(now, stepChangedAt_[step], 300));
-      raise(index, 9.0f * fx::Decay(now, deselectedAt_[step], 260));
       if (stopAt_ != 0 && rewind < 1.0f)
       {
         const float head = static_cast<float>(stopStep_) * (1.0f - fx::EaseOutCubic(rewind));
@@ -436,7 +398,7 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
       }
     }
   }
-  if (state.scene == Scene::Instrument && modal == nullptr)
+  if ((state.scene == Scene::Instrument && modal == nullptr) || controller.FnPanelShown())
     for (std::size_t slot = 0; slot < kGridCount; ++slot)
       raise(KeyIndex(slot / kGridColumns, kGridFirstColumn + slot % kGridColumns), 15.0f * fx::Decay(now, valueChangedAt_[slot], 300));
   if (state.scene == Scene::Sequence && controller.CurrentPage() == 1 && modal == nullptr)
@@ -446,19 +408,19 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
     raise(KeyIndex(active / kGridColumns, kGridFirstColumn + active % kGridColumns), 15.0f * fx::Decay(now, patternChangedAt_[state.track], 400));
   }
 
-  // Pads glow after they sound, whether the performer or the sequencer played them.
-  if (modal == nullptr)
+  // A note the sequencer plays on this track lights its pad full for a moment, like a press. Only
+  // pads that are lit at all (keys that can sound), and not while a map or pop-up owns the pads.
+  const bool padsPlay = modal == nullptr && !controller.EscOverlay() && !controller.TabOverlay() && !controller.CtrlOverlay() &&
+                        !state.left[2].down;
+  if (padsPlay)
     for (std::size_t row = 0; row < kRows; ++row)
       for (std::size_t column = kPadFirstColumn; column < kPadFirstColumn + kPadColumns; ++column)
       {
         int note = 0;
-        if (!controller.PadNoteFor(row, column, note)) continue;
-        raise(KeyIndex(row, column), 9.0f * fx::Decay(now, noteHitAt_[static_cast<std::size_t>(note)], 340));
-        raise(KeyIndex(row, column), 7.0f * fx::Decay(now, sequencedAt_[static_cast<std::size_t>(note)], 260));
+        const std::size_t index = KeyIndex(row, column);
+        if (frame[index].level == 0 || !controller.PadNoteFor(row, column, note)) continue;
+        raise(index, 15.0f * fx::Decay(now, sequencedAt_[static_cast<std::size_t>(note)], 200));
       }
-
-  // Recording: PLAY breathes red-hot.
-  if (host.Sequencer().RecordArmed()) raise(KeyIndex(3, kColumns - 1), 4.0f + breath * 10.0f);
 
   // Error: the left column blinks twice.
   if (!toast_.empty() && toastKind_ == ToastKind::Error && now - toastAt_ < 360 && ((now - toastAt_) / 90) % 2 == 0)
@@ -471,7 +433,7 @@ void Animator::SmoothLeds(std::array<std::uint8_t, kKeyCount>& levels)
   const float dt = ledFrame_ == 0 ? 1000.0f : static_cast<float>(std::min<std::uint32_t>(now_ - ledFrame_, 200));
   ledFrame_ = now_ == 0 ? 1 : now_;
   const float rise = 1.0f - std::exp(-dt / 22.0f);
-  const float fall = 1.0f - std::exp(-dt / 110.0f);
+  const float fall = 1.0f - std::exp(-dt / 60.0f);
   for (std::size_t index = 0; index < kKeyCount; ++index)
   {
     const float target = levels[index];

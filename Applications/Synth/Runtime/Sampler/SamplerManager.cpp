@@ -2,6 +2,7 @@
 
 #include "Devices/Device.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Core/SynthStorage.h"
 #include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
 
 #include <algorithm>
@@ -623,7 +624,7 @@ bool SamplerManager::PrepareSample(std::string_view id, PreparedSample& sample)
   PreparedSample prepared;
   prepared.fileName = SampleFileName(id);
   if (prepared.fileName.empty() || !sampler::ReadMono16Wav(
-          JoinPath(Device::Storage::SampleDirectoryPath(), prepared.fileName), prepared.frames, prepared.sampleRate))
+          JoinPath(storage::SampleDirectory(), prepared.fileName), prepared.frames, prepared.sampleRate))
   {
     return false;
   }
@@ -692,7 +693,7 @@ bool SamplerManager::DeleteBrowserSample(std::size_t trackIndex, std::string_vie
     state.ui.statusText = "FILE IN USE";
     return false;
   }
-  if (!RemoveFileIfPresent(JoinPath(Device::Storage::SampleDirectoryPath(), fileName)))
+  if (!RemoveFileIfPresent(JoinPath(storage::SampleDirectory(), fileName)))
   {
     state.ui.statusText = "DEL ERR";
     return false;
@@ -730,8 +731,8 @@ bool SamplerManager::RenameBrowserSample(std::size_t trackIndex, std::string_vie
   const std::string renamedName = SanitizedSampleName(newName);
   // Preserve the extension for a no-op rename, including imported uppercase .WAV.
   const std::string destinationName = renamedName == FileStem(fileName) ? fileName : renamedName + ".wav";
-  const std::string sourcePath = JoinPath(Device::Storage::SampleDirectoryPath(), fileName);
-  const std::string destinationPath = JoinPath(Device::Storage::SampleDirectoryPath(), destinationName);
+  const std::string sourcePath = JoinPath(storage::SampleDirectory(), fileName);
+  const std::string destinationPath = JoinPath(storage::SampleDirectory(), destinationName);
   if (!RenameFileIfPossible(sourcePath, destinationPath))
   {
     state.ui.statusText = "REN ERR";
@@ -793,7 +794,7 @@ bool SamplerManager::ValidateSampleReference(std::string_view id)
   {
     return false;
   }
-  std::ifstream file(JoinPath(Device::Storage::SampleDirectoryPath(), name), std::ios::binary);
+  std::ifstream file(JoinPath(storage::SampleDirectory(), name), std::ios::binary);
   sampler::WavInfo info;
   return file && sampler::InspectMono16Wav(file, info);
 }
@@ -921,7 +922,7 @@ bool SamplerManager::SaveDraftAs(TrackState& state, std::string_view name, bool 
   }
 
   const std::string sanitizedName = SanitizedSampleName(name);
-  const std::string filePath = JoinPath(Device::Storage::SampleDirectoryPath(), sanitizedName + ".wav");
+  const std::string filePath = JoinPath(storage::SampleDirectory(), sanitizedName + ".wav");
   const std::size_t trackIndex = static_cast<std::size_t>(&state - tracks_.data());
   state.ui.draftName = sanitizedName;
   if (!overwrite) state.ui.overwritePending = false;
@@ -959,7 +960,7 @@ bool SamplerManager::SaveDraftAs(TrackState& state, std::string_view name, bool 
     savedFrames = std::move(trimmed);
   }
 
-  if (!Device::Storage::EnsureDirectoryLayout() || !sampler::WriteMono16Wav(
+  if (!storage::EnsureLayout() || !sampler::WriteMono16Wav(
           filePath, savedFrames->frames.get(), savedFrames->frameCount, state.ui.sampleRate))
   {
     state.ui.phase = SamplerTrackPhase::Error;

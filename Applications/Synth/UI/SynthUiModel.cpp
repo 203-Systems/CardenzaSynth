@@ -6,6 +6,7 @@
 #include "Applications/Synth/UI/Sampler/SamplerUiModel.h"
 #include "Devices/Device.h"
 #include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
+#include "Library/Synth/Core/SynthStorage.h"
 
 #include <algorithm>
 #include <cctype>
@@ -180,8 +181,8 @@ bool HasWavExtension(const std::string& name)
 std::vector<std::string> CollectSamplerBrowserEntries()
 {
   std::set<std::string> sortedNames;
-  const std::string sampleDirectory = Device::Storage::SampleDirectoryPath();
-  if (!Device::Storage::EnsureDirectoryLayout() || sampleDirectory.empty())
+  const std::string sampleDirectory = synth::storage::SampleDirectory();
+  if (!synth::storage::EnsureLayout() || sampleDirectory.empty())
   {
     return {};
   }

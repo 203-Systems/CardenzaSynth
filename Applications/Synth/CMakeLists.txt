@@ -11,6 +11,7 @@ target_include_directories(CardenzaSynthApp PUBLIC
 
 target_link_libraries(CardenzaSynthApp PUBLIC
     CardenzaAppInterface
+    CardenzaStorage
     CardenzaSynth
     CardenzaUI
 )

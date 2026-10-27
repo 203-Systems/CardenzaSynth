@@ -32,6 +32,15 @@ public:
   void Stop();
   void TogglePlayback();
   bool Playing() const;
+#if defined(__EMSCRIPTEN__)
+  // The web build has no threads, so no clock worker runs; the host pumps the clock instead.
+  // Processes every pulse due by nowMicros on the host's clock: ClockLoop's steps (transport and
+  // arpeggiator) with its sleeps replaced by returns. The web host passes audio time (frames
+  // rendered so far) before each audio block, so pulses land on exact block positions whatever the
+  // main thread does.
+  void PumpClock(std::uint64_t nowMicros);
+  void PumpClock() { PumpClock(NowMicros()); }
+#endif
   void AdjustTempo(int delta);
   void ToggleTrackMuted();
   void ToggleTrackEnabled();
@@ -42,6 +51,8 @@ public:
   bool DeletePattern(std::size_t patternIndex);
   bool CopyPattern(std::size_t sourcePattern, std::size_t destinationPattern);
   bool PatternHasEvents(std::size_t patternIndex) const;
+  // Bit n set = step n of that track's pattern holds notes (0 for an empty or missing pattern).
+  std::uint16_t PatternStepMask(std::size_t trackIndex, std::size_t patternIndex) const;
 
   void PressStep(std::size_t stepIndex, const std::uint8_t* heldNotes, std::size_t heldNoteCount);
   void ReleaseStep(std::size_t stepIndex);
@@ -53,6 +64,22 @@ public:
   // Pitches of the active notes of `step` in the active track's active pattern, ascending.
   // Returns how many were written; 0 for an empty or out-of-range step.
   std::size_t StepNotes(std::size_t step, std::array<std::uint8_t, 8>& notes) const;
+  // Every note of one step of a track's active pattern, with its timing (the piano roll).
+  struct StepNoteView {
+    std::uint8_t note = 0;
+    std::uint8_t velocity = 0;
+    std::uint16_t lengthPulses = 0;
+    std::uint8_t microstep = 0;
+  };
+  std::size_t StepNoteEvents(std::size_t track, std::size_t step, std::array<StepNoteView, 8>& notes) const;
+  // Step recording: the step's notes become exactly these (one step long, on the grid).
+  bool SetStepNotes(std::size_t track, std::size_t step, const std::uint8_t* notes, std::size_t count, std::uint8_t velocity);
+  // Adds one timed note to a pattern of a track (a note of the same pitch on that step is
+  // replaced). False when the step already holds eight other notes or the pattern does not exist.
+  bool InsertNote(std::size_t track, std::size_t pattern, std::size_t step, std::uint8_t microstep, std::uint8_t note,
+                  std::uint8_t velocity, std::uint16_t lengthPulses);
+  // Pulses processed since playback started (0 while stopped): where a played note sits in time.
+  std::uint64_t PlayPulse() const;
   std::uint8_t SelectedNoteVelocity(std::uint8_t pitch) const;
   void QuantizeStep(std::size_t stepIndex);
   void QuantizeHeldSteps();
@@ -74,6 +101,33 @@ public:
   bool RecordArmed() const;
   void RecordNoteOn(std::size_t track, std::uint8_t note, std::uint8_t velocity);
   void RecordNoteOff(std::size_t track, std::uint8_t note);
+
+  // Live arpeggiator. The caller hands it every note a key press makes (instead of sounding them)
+  // and the arp plays the held set through the MIDI sink, one note per rate period, like sequenced
+  // notes. The first press while the arp is idle sounds at once; later notes follow the transport
+  // grid while playing (swung like sequenced sixteenths at 1/16), else a free clock at the current
+  // tempo. Stop() cuts the sounding note but lets a held or latched arp run on free.
+  // While playing and armed, every arp note is overdubbed into the arp track's active pattern.
+  // Settings are clamped; mode Off, or latch switched off with no key held, releases the arp.
+  void SetArpSettings(const ArpSettings& settings);
+  ArpSettings GetArpSettings() const;
+  // Ignored while the mode is Off. A note for another track than the arp's releases the arp
+  // first and restarts it there. With latch on, the first press after every key was released
+  // replaces the latched set. Velocity 0 is a note-off.
+  void ArpNoteOn(std::size_t track, std::uint8_t note, std::uint8_t velocity);
+  void ArpNoteOff(std::size_t track, std::uint8_t note);
+  // Drops held and latched notes and silences the sounding note. Changing the active track,
+  // RestoreState() and Reset() do this too.
+  void ArpReleaseAll();
+  // Mode on and notes held or latched.
+  bool ArpActive() const;
+
+#if defined(CARDENZA_SEQUENCER_TEST_HOOKS)
+  // Test only. Call first: the clock worker is never started, and AdvancePulsesForTest() runs
+  // the clock by hand, one pulse per step, exactly when the worker would not idle.
+  void UseManualClockForTest();
+  void AdvancePulsesForTest(std::size_t pulses);
+#endif
 
   // Switches immediately while stopped; while playing, at the track's next loop boundary.
   // patternIndex == PatternCount(track) creates a new pattern slot. Queueing the active
@@ -250,7 +304,13 @@ private:
   static void ClockTaskEntry(void* context);
 #endif
   void ClockLoop();
+  // Whether the clock must run pulses (transport playing or arp in use). Also hands over, once,
+  // when an arp started from idle wants its first pulse (0 = none).
+  bool ClockNeeded(std::uint64_t& startMicros);
   void ProcessPulse();
+  void ProcessTransportPulseLocked(std::uint64_t pulse,
+                                   std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
+                                   std::size_t& count);
   std::uint64_t NowMicros() const;
   void SleepUntilMicros(std::uint64_t targetMicros) const;
   std::uint64_t PulsePeriodMicrosLocked() const;
@@ -308,6 +368,8 @@ private:
   void ResetSongLocked();
   void ResetPlaybackPositionsLocked();
   void ApplyQueuedPatternsLocked();
+  void RecordNoteOnLocked(std::size_t trackIndex, std::uint8_t note, std::uint8_t velocity);
+  void RecordNoteOffLocked(std::size_t trackIndex, std::uint8_t note);
   void FinalizeHeldRecordingLocked(HeldRecording& recording, std::uint64_t pulse);
   void FinalizeAllHeldRecordingsLocked();
   std::uint64_t RecordPulseLocked(std::size_t trackIndex) const;
@@ -315,6 +377,29 @@ private:
                                std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
                                std::size_t& count);
   void ClearSelectionLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
+
+  // Arpeggiator.
+  bool ArpActiveLocked() const;
+  // Active, or its last note still sounding: the clock must run.
+  bool ArpClockLocked() const;
+  std::uint16_t ArpPeriodLocked() const;
+  std::uint16_t ArpSwingLocked(std::uint64_t gridPulse, std::uint16_t period) const;
+  // Candidate `index` of the pattern: held note index % count, raised by index / count octaves.
+  bool ArpCandidateLocked(std::size_t index, std::uint8_t& note, std::uint8_t& velocity) const;
+  bool NextArpNoteLocked(std::uint8_t& note, std::uint8_t& velocity);
+  void ResetArpOrderLocked();
+  void RemoveArpKeyLocked(std::size_t index);
+  // Plays the next arp note at arpPulse_; a still sounding arp note ends first.
+  void FireArpNoteLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
+  void CutArpNoteLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
+  void ReleaseArpLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
+  // Schedules the next arp note on the first transport grid line at or after transportPulse
+  // (which arpPulse_ stands for) that lies at least half a period after the last arp note.
+  void AlignArpToTransportLocked(std::uint64_t transportPulse);
+  void RescheduleArpLocked();
+  void ProcessArpPulseLocked(std::uint64_t transportPulse,
+                             std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
+                             std::size_t& count);
 
   mutable std::mutex mutex_;
   // Lock before mutex_: MIDI batches and transport changes must keep generation order.
@@ -360,6 +445,34 @@ private:
   bool auditionActive_ = false;
   std::size_t auditionTrack_ = 0;
   std::uint8_t auditionNote_ = 0;
+  // Arpeggiator state. Keys are the held (or latched) notes in press order, all on arpTrack_.
+  struct ArpKey {
+    std::uint8_t note = 0;
+    std::uint8_t velocity = 0;
+    bool down = false;  // still held; a latched note is kept with down == false
+  };
+  ArpSettings arpSettings_{};
+  std::array<ArpKey, kArpMaxNotes> arpKeys_{};
+  std::size_t arpKeyCount_ = 0;
+  std::size_t arpTrack_ = 0;
+  // Arp clock: counts the pulses processed while the arp is in use; during playback it advances
+  // with absolutePulse_. arpPulse_ is the next pulse to process.
+  std::uint64_t arpPulse_ = 0;
+  std::uint64_t arpNextPulse_ = 0;
+  std::uint64_t arpLastOnPulse_ = 0;
+  bool arpHasLastOn_ = false;
+  int arpSoundingNote_ = -1;
+  std::size_t arpSoundingTrack_ = 0;
+  std::uint64_t arpOffPulse_ = 0;
+  // Pattern position: the last pitch (UP, DOWN, UP-DN, RANDOM) and the next index (ORDER).
+  int arpLastNote_ = -1;
+  bool arpDescending_ = false;
+  std::size_t arpOrderIndex_ = 0;
+  std::uint32_t arpRandom_ = 0x9E3779B9u;
+  std::uint32_t arpTick_ = 0;
+  int arpLastPlayed_ = -1;
+  // When an arp started from idle, the time its first pulse belongs to (0 = none).
+  std::uint64_t clockStartMicros_ = 0;
   MidiSink midiSink_ = nullptr;
   void* midiSinkContext_ = nullptr;
   std::atomic<bool> clockWorkerRunning_{false};
@@ -369,6 +482,11 @@ private:
   void* clockTimer_ = nullptr;
 #else
   std::thread clockThread_;
+#endif
+#if defined(__EMSCRIPTEN__)
+  // ClockLoop's locals, kept between PumpClock() calls.
+  std::uint64_t pumpNextPulseMicros_ = 0;
+  bool pumpIdle_ = true;
 #endif
 };
 

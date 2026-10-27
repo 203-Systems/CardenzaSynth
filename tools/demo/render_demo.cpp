@@ -1,4 +1,5 @@
 #include "Applications/Synth/Runtime/ProjectStorage.h"
+#include "Applications/Synth/Runtime/SynthStorage.h"
 #include "Devices/Device.h"
 #include "Devices/DeviceAudio.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
@@ -161,7 +162,7 @@ int main(int argc, char** argv)
     auto song = Read(argv[1]);
     if (std::string(argv[2]) == "export")
     {
-      Require(Device::Storage::EnsureDirectoryLayout(), "Storage unavailable");
+      Require(synth::storage::EnsureLayout(), "Storage unavailable");
       const std::array<std::string, 4> names{{"NeonCircuit_Drop", "NeonCircuit_Intro", "NeonCircuit_Break", "NeonCircuit_Build"}};
       const std::array<std::size_t, 4> patterns{{0, 5, 6, 7}};
       for (std::size_t version = 0; version < names.size(); ++version)

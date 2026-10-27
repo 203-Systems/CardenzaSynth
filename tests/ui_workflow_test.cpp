@@ -1,4 +1,5 @@
 #include "Applications/Synth/UI/SynthUiModel.h"
+#include "Library/Synth/Core/SynthStorage.h"
 #include "Applications/Synth/UI/Dx7/Dx7UiModel.h"
 #include "Applications/Synth/UI/Juno/JunoUiModel.h"
 #include "Applications/Synth/UI/Render/SynthUiRenderPrimitives.h"
@@ -17,10 +18,10 @@
 
 namespace Device {
 std::string BackendName() { return "test"; }
-namespace Storage {
-std::string SampleDirectoryPath() { return "missing-sample-directory"; }
-bool EnsureDirectoryLayout() { return false; }
 }
+namespace synth::storage {
+std::string SampleDirectory() { return "missing-sample-directory"; }
+bool EnsureLayout() { return false; }
 }
 namespace synth {
 std::string ToString(SynthEngineKind) { return "TEST"; }

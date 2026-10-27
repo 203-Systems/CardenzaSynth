@@ -70,6 +70,81 @@ bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std:
   return note >= 0 && note <= 127;
 }
 
+bool InScale(const KeyboardSettings& settings, int note)
+{
+  const std::uint16_t mask = kScales[std::min(settings.scale, kScales.size() - 1)].mask;
+  const int degree = ((note - settings.root) % 12 + 12) % 12;
+  return ((mask >> degree) & 1u) != 0;
+}
+
+std::size_t PadNotes(const KeyboardSettings& settings, synth::SynthEngineKind kind, int note, std::array<std::uint8_t, kMaxPadNotes>& notes)
+{
+  if (note < 0 || note > 127) return 0;
+  if (kind == synth::SynthEngineKind::Drums)
+  {
+    notes[0] = static_cast<std::uint8_t>(note);
+    return 1;
+  }
+  // The scale lock only acts where keys outside the scale exist.
+  if (settings.layout != KeyboardLayout::Scale && settings.lock != ScaleLock::Off && !InScale(settings, note))
+  {
+    if (settings.lock == ScaleLock::Mute) return 0;
+    while (note > 0 && !InScale(settings, note)) --note;
+  }
+  std::array<int, kMaxPadNotes> chord{};
+  std::size_t count = 0;
+  auto add = [&](int interval) { if (count < chord.size()) chord[count++] = note + interval; };
+  const std::uint16_t mask = kScales[std::min(settings.scale, kScales.size() - 1)].mask;
+  // Stacks thirds inside the scale: every other scale step above the note.
+  auto stack = [&](std::size_t voices) {
+    int pitch = note;
+    add(0);
+    for (std::size_t voice = 1; voice < voices; ++voice)
+      for (int steps = 0; steps < 2; ++steps)
+      {
+        do ++pitch; while (((mask >> (((pitch - settings.root) % 12 + 12) % 12)) & 1u) == 0);
+        if (steps == 1) add(pitch - note);
+      }
+  };
+  const bool inScale = InScale(settings, note);
+  switch (settings.chord)
+  {
+    case ChordType::Triad: if (inScale) stack(3); else { add(0); add(4); add(7); } break;
+    case ChordType::Seventh: if (inScale) stack(4); else { add(0); add(4); add(7); add(10); } break;
+    case ChordType::Major: add(0); add(4); add(7); break;
+    case ChordType::Minor: add(0); add(3); add(7); break;
+    case ChordType::Sus4: add(0); add(5); add(7); break;
+    case ChordType::Major7: add(0); add(4); add(7); add(11); break;
+    case ChordType::Minor7: add(0); add(3); add(7); add(10); break;
+    case ChordType::Dominant7: add(0); add(4); add(7); add(10); break;
+    case ChordType::Power: add(0); add(7); add(12); break;
+    case ChordType::Octave: add(0); add(12); break;
+    case ChordType::Off:
+    default: add(0); break;
+  }
+  // Voicing: inversions lift the lowest notes an octave; SPREAD lifts the second note.
+  if (count > 1)
+  {
+    switch (settings.voicing)
+    {
+      case 1: chord[0] += 12; break;
+      case 2: chord[0] += 12; if (count > 2) chord[1] += 12; break;
+      case 3: chord[1] += 12; break;
+      default: break;
+    }
+  }
+  std::size_t written = 0;
+  for (std::size_t index = 0; index < count; ++index)
+  {
+    if (chord[index] < 0 || chord[index] > 127) continue;
+    const auto pitch = static_cast<std::uint8_t>(chord[index]);
+    if (std::find(notes.begin(), notes.begin() + static_cast<std::ptrdiff_t>(written), pitch) != notes.begin() + static_cast<std::ptrdiff_t>(written)) continue;
+    notes[written++] = pitch;
+  }
+  std::sort(notes.begin(), notes.begin() + static_cast<std::ptrdiff_t>(written));
+  return written;
+}
+
 std::string_view EngineShortName(synth::SynthEngineKind kind)
 {
   switch (kind)

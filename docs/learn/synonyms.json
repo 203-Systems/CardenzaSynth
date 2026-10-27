@@ -1,0 +1,1416 @@
+{
+  "note": "Search synonyms for the Learn manual. Each group lists words that mean the same; a query word from a group also finds every other word of it, in either language. Stopwords are dropped from queries.",
+  "stopwords": [
+    "怎么",
+    "怎样",
+    "如何",
+    "怎么样",
+    "咋",
+    "请问",
+    "我想",
+    "我要",
+    "想要",
+    "可以",
+    "能不能",
+    "能否",
+    "能",
+    "要",
+    "的",
+    "了",
+    "吗",
+    "呢",
+    "吧",
+    "啊",
+    "一下",
+    "一个",
+    "这个",
+    "那个",
+    "什么",
+    "哪里",
+    "在哪",
+    "在哪里",
+    "哪个",
+    "为什么",
+    "是不是",
+    "有没有",
+    "我",
+    "你",
+    "它",
+    "把",
+    "被",
+    "让",
+    "给",
+    "用",
+    "去",
+    "来",
+    "和",
+    "跟",
+    "与",
+    "及",
+    "或",
+    "还是",
+    "就",
+    "都",
+    "也",
+    "很",
+    "太",
+    "再",
+    "how",
+    "to",
+    "do",
+    "does",
+    "i",
+    "can",
+    "the",
+    "a",
+    "an",
+    "of",
+    "in",
+    "on",
+    "for",
+    "with",
+    "my",
+    "is",
+    "are",
+    "what",
+    "where",
+    "why",
+    "which",
+    "it",
+    "this",
+    "that",
+    "and",
+    "or",
+    "me",
+    "you",
+    "please",
+    "want",
+    "make",
+    "get",
+    "use",
+    "using",
+    "be",
+    "调",
+    "改",
+    "弄",
+    "搞",
+    "下",
+    "个",
+    "些"
+  ],
+  "groups": [
+    [
+      "音量",
+      "声音大小",
+      "主音量",
+      "总音量",
+      "响度",
+      "大声",
+      "小声",
+      "调大",
+      "调小",
+      "声音太小",
+      "声音太大",
+      "volume",
+      "master volume",
+      "loudness",
+      "louder",
+      "quieter",
+      "level",
+      "gain",
+      "vol"
+    ],
+    [
+      "没声音",
+      "无声",
+      "听不到",
+      "不响",
+      "哑了",
+      "没有声音",
+      "no sound",
+      "silent",
+      "silence",
+      "cannot hear",
+      "muted"
+    ],
+    [
+      "速度",
+      "节拍速度",
+      "快慢",
+      "拍速",
+      "每分钟拍数",
+      "bpm",
+      "tempo",
+      "speed",
+      "faster",
+      "slower",
+      "beats per minute"
+    ],
+    [
+      "敲击速度",
+      "敲速度",
+      "拍出速度",
+      "tap tempo",
+      "tap",
+      "tap bpm"
+    ],
+    [
+      "摇摆",
+      "律动",
+      "swing",
+      "shuffle",
+      "groove feel"
+    ],
+    [
+      "保存",
+      "存档",
+      "存盘",
+      "储存",
+      "存起来",
+      "save",
+      "store",
+      "write file"
+    ],
+    [
+      "另存",
+      "另存为",
+      "改名保存",
+      "save as",
+      "save copy",
+      "duplicate project"
+    ],
+    [
+      "打开",
+      "载入",
+      "读档",
+      "读取",
+      "加载",
+      "导入",
+      "open",
+      "load",
+      "import",
+      "recall"
+    ],
+    [
+      "新建",
+      "新工程",
+      "新歌",
+      "重新开始",
+      "new",
+      "new project",
+      "new song",
+      "start over",
+      "blank"
+    ],
+    [
+      "工程",
+      "项目",
+      "歌曲文件",
+      "曲子",
+      "作品",
+      "project",
+      "projects",
+      "song file",
+      "file",
+      "files"
+    ],
+    [
+      "录音",
+      "录制",
+      "实时录音",
+      "实时录制",
+      "叠录",
+      "rec",
+      "record",
+      "recording",
+      "live record",
+      "overdub",
+      "arm"
+    ],
+    [
+      "无感录制",
+      "回溯录音",
+      "找回",
+      "刚才弹的",
+      "刚刚弹的",
+      "随便弹",
+      "捕捉",
+      "灵感",
+      "capture",
+      "retrospective",
+      "take",
+      "takes",
+      "what i just played",
+      "recall playing",
+      "jam",
+      "noodle",
+      "lost idea"
+    ],
+    [
+      "步进录制",
+      "步进",
+      "逐步",
+      "一步一步",
+      "步进音序",
+      "step record",
+      "step recording",
+      "step input",
+      "step entry",
+      "step sequencer",
+      "step mode",
+      "x0x"
+    ],
+    [
+      "钢琴卷帘",
+      "卷帘",
+      "卷帘窗",
+      "钢琴窗",
+      "piano roll",
+      "roll",
+      "note view"
+    ],
+    [
+      "视图",
+      "模式",
+      "切换视图",
+      "显示方式",
+      "view",
+      "mode",
+      "switch view",
+      "display mode"
+    ],
+    [
+      "录音设置",
+      "录制设置",
+      "录音面板",
+      "record settings",
+      "recording settings",
+      "record panel",
+      "record menu"
+    ],
+    [
+      "播放",
+      "开始",
+      "运行",
+      "play",
+      "start",
+      "run",
+      "playback"
+    ],
+    [
+      "停止",
+      "停下",
+      "暂停",
+      "stop",
+      "halt",
+      "pause"
+    ],
+    [
+      "全部停止",
+      "急停",
+      "紧急停止",
+      "关掉所有声音",
+      "panic",
+      "stop all",
+      "all notes off",
+      "kill sound"
+    ],
+    [
+      "卡音",
+      "长音",
+      "一直响",
+      "停不下来",
+      "stuck note",
+      "hanging note",
+      "drone",
+      "won't stop"
+    ],
+    [
+      "音序器",
+      "音序",
+      "编曲器",
+      "排序",
+      "sequencer",
+      "sequence",
+      "seq",
+      "step sequencer"
+    ],
+    [
+      "步",
+      "节拍格",
+      "step",
+      "steps",
+      "16th",
+      "sixteenth"
+    ],
+    [
+      "步数",
+      "长度",
+      "循环长度",
+      "多少步",
+      "steps",
+      "length",
+      "loop length",
+      "pattern length"
+    ],
+    [
+      "pattern",
+      "段落",
+      "片段",
+      "乐句",
+      "循环段",
+      "clip",
+      "loop",
+      "phrase",
+      "patterns"
+    ],
+    [
+      "复制",
+      "拷贝",
+      "copy",
+      "duplicate",
+      "clone"
+    ],
+    [
+      "粘贴",
+      "贴上",
+      "paste"
+    ],
+    [
+      "清除",
+      "删除",
+      "删掉",
+      "清空",
+      "去掉",
+      "clear",
+      "delete",
+      "remove",
+      "erase",
+      "wipe"
+    ],
+    [
+      "量化",
+      "对齐",
+      "吸附",
+      "校准节拍",
+      "quantize",
+      "quantise",
+      "snap",
+      "align",
+      "tighten"
+    ],
+    [
+      "撤销",
+      "后悔",
+      "退回",
+      "恢复上一步",
+      "undo",
+      "redo",
+      "revert",
+      "go back"
+    ],
+    [
+      "音符",
+      "note",
+      "notes",
+      "pitch"
+    ],
+    [
+      "音高",
+      "音调",
+      "高低",
+      "pitch",
+      "note",
+      "transpose"
+    ],
+    [
+      "力度",
+      "轻重",
+      "强弱",
+      "velocity",
+      "dynamics",
+      "accent",
+      "how hard"
+    ],
+    [
+      "时值",
+      "音符长度",
+      "长短",
+      "持续",
+      "length",
+      "duration",
+      "gate",
+      "note length"
+    ],
+    [
+      "时间偏移",
+      "微调时间",
+      "推前推后",
+      "微步",
+      "timing",
+      "nudge",
+      "microtiming",
+      "microstep",
+      "offset"
+    ],
+    [
+      "选中",
+      "选择",
+      "选取",
+      "select",
+      "selection",
+      "choose",
+      "pick"
+    ],
+    [
+      "和弦",
+      "和声",
+      "一键和弦",
+      "三和弦",
+      "七和弦",
+      "chord",
+      "chords",
+      "triad",
+      "seventh",
+      "harmony"
+    ],
+    [
+      "转位",
+      "排列方式",
+      "voicing",
+      "inversion",
+      "inv"
+    ],
+    [
+      "琶音",
+      "琶音器",
+      "分解和弦",
+      "自动琶音",
+      "arp",
+      "arpeggiator",
+      "arpeggio"
+    ],
+    [
+      "保持",
+      "锁住",
+      "松手继续",
+      "latch",
+      "hold",
+      "sustain"
+    ],
+    [
+      "音阶",
+      "调式",
+      "scale",
+      "mode",
+      "key"
+    ],
+    [
+      "根音",
+      "主音",
+      "调号",
+      "root",
+      "tonic",
+      "key note"
+    ],
+    [
+      "大调",
+      "major",
+      "ionian"
+    ],
+    [
+      "小调",
+      "minor",
+      "aeolian"
+    ],
+    [
+      "五声音阶",
+      "五声",
+      "pentatonic",
+      "pent"
+    ],
+    [
+      "布鲁斯",
+      "蓝调",
+      "blues"
+    ],
+    [
+      "八度",
+      "升八度",
+      "降八度",
+      "高八度",
+      "低八度",
+      "octave",
+      "octave up",
+      "octave down",
+      "transpose"
+    ],
+    [
+      "音阶锁定",
+      "锁定",
+      "防错音",
+      "不弹错",
+      "lock",
+      "scale lock",
+      "snap to scale",
+      "wrong notes"
+    ],
+    [
+      "键盘排列",
+      "排列",
+      "键位",
+      "布局",
+      "layout",
+      "keyboard layout",
+      "arrangement"
+    ],
+    [
+      "钢琴",
+      "黑白键",
+      "白键",
+      "黑键",
+      "piano",
+      "white keys",
+      "black keys"
+    ],
+    [
+      "半音",
+      "chroma",
+      "chromatic",
+      "semitone"
+    ],
+    [
+      "演奏区",
+      "打击垫",
+      "演奏键",
+      "pads",
+      "pad",
+      "keys",
+      "play keys",
+      "keyboard"
+    ],
+    [
+      "网格",
+      "方阵",
+      "右边4x4",
+      "grid",
+      "4x4",
+      "matrix",
+      "cells"
+    ],
+    [
+      "左边的键",
+      "左侧键",
+      "功能键",
+      "修饰键",
+      "left keys",
+      "modifiers",
+      "function keys"
+    ],
+    [
+      "右边的键",
+      "右侧键",
+      "right keys"
+    ],
+    [
+      "fn",
+      "功能",
+      "第二功能",
+      "shift",
+      "second function",
+      "function"
+    ],
+    [
+      "fn 面板",
+      "设置面板",
+      "设置",
+      "系统设置",
+      "setup",
+      "settings",
+      "fn panel",
+      "preferences",
+      "options"
+    ],
+    [
+      "快捷键",
+      "组合键",
+      "热键",
+      "shortcut",
+      "shortcuts",
+      "hotkey",
+      "hotkeys",
+      "key combination"
+    ],
+    [
+      "快捷调节",
+      "快速调",
+      "直接调",
+      "quick",
+      "quick controls",
+      "quick adjust"
+    ],
+    [
+      "加",
+      "增加",
+      "调高",
+      "加大",
+      "上调",
+      "add",
+      "plus",
+      "increase",
+      "up",
+      "raise"
+    ],
+    [
+      "减",
+      "减少",
+      "调低",
+      "减小",
+      "下调",
+      "sub",
+      "minus",
+      "decrease",
+      "down",
+      "lower"
+    ],
+    [
+      "确认",
+      "确定",
+      "回车",
+      "ok",
+      "enter",
+      "confirm",
+      "accept",
+      "return"
+    ],
+    [
+      "取消",
+      "返回",
+      "退出",
+      "关闭",
+      "esc",
+      "escape",
+      "cancel",
+      "back",
+      "exit",
+      "close"
+    ],
+    [
+      "场景",
+      "主界面",
+      "大页面",
+      "scene",
+      "scenes",
+      "screen",
+      "mode"
+    ],
+    [
+      "页面",
+      "子页面",
+      "翻页",
+      "下一页",
+      "page",
+      "pages",
+      "tab",
+      "tabs",
+      "next page"
+    ],
+    [
+      "地图",
+      "覆盖层",
+      "按住地图",
+      "map",
+      "maps",
+      "overlay",
+      "hold map"
+    ],
+    [
+      "轨道",
+      "音轨",
+      "通道",
+      "第几轨",
+      "track",
+      "tracks",
+      "channel",
+      "part"
+    ],
+    [
+      "切换轨道",
+      "换轨",
+      "切轨",
+      "下一轨",
+      "上一轨",
+      "switch track",
+      "change track",
+      "next track",
+      "previous track"
+    ],
+    [
+      "乐器",
+      "音源",
+      "合成器",
+      "引擎",
+      "instrument",
+      "instr",
+      "synth",
+      "synthesizer",
+      "engine"
+    ],
+    [
+      "音色",
+      "预设",
+      "音色库",
+      "patch",
+      "preset",
+      "presets",
+      "sound",
+      "sounds",
+      "voice"
+    ],
+    [
+      "换音色",
+      "下一个音色",
+      "选音色",
+      "切换音色",
+      "change sound",
+      "next sound",
+      "choose preset",
+      "browse sounds"
+    ],
+    [
+      "参数",
+      "旋钮",
+      "调参",
+      "parameter",
+      "parameters",
+      "knob",
+      "tweak",
+      "control"
+    ],
+    [
+      "默认",
+      "恢复默认",
+      "重置",
+      "复位",
+      "default",
+      "reset",
+      "restore default",
+      "init"
+    ],
+    [
+      "鼓",
+      "鼓机",
+      "鼓组",
+      "打鼓",
+      "节奏",
+      "drums",
+      "drum",
+      "drum machine",
+      "kit",
+      "beat",
+      "rhythm",
+      "percussion"
+    ],
+    [
+      "底鼓",
+      "大鼓",
+      "kick",
+      "bass drum",
+      "bd"
+    ],
+    [
+      "军鼓",
+      "小鼓",
+      "snare",
+      "sd"
+    ],
+    [
+      "镲",
+      "踩镲",
+      "闭镲",
+      "开镲",
+      "hihat",
+      "hi hat",
+      "hat",
+      "cymbal"
+    ],
+    [
+      "juno",
+      "模拟合成",
+      "减法合成",
+      "analog",
+      "subtractive",
+      "roland"
+    ],
+    [
+      "dx7",
+      "fm",
+      "调频合成",
+      "频率调制",
+      "电钢琴",
+      "frequency modulation",
+      "yamaha",
+      "epiano",
+      "electric piano"
+    ],
+    [
+      "算子",
+      "operator",
+      "operators",
+      "op"
+    ],
+    [
+      "算法",
+      "algorithm",
+      "algo"
+    ],
+    [
+      "振荡器",
+      "波形",
+      "锯齿波",
+      "方波",
+      "oscillator",
+      "dco",
+      "waveform",
+      "saw",
+      "pulse",
+      "square"
+    ],
+    [
+      "滤波",
+      "滤波器",
+      "截止频率",
+      "低通",
+      "高通",
+      "filter",
+      "cutoff",
+      "low pass",
+      "high pass",
+      "lpf",
+      "hpf",
+      "vcf"
+    ],
+    [
+      "共振",
+      "reso",
+      "resonance",
+      "q"
+    ],
+    [
+      "包络",
+      "起音",
+      "释音",
+      "衰减",
+      "延音",
+      "envelope",
+      "adsr",
+      "attack",
+      "decay",
+      "sustain",
+      "release",
+      "env"
+    ],
+    [
+      "lfo",
+      "低频振荡",
+      "调制",
+      "颤音",
+      "modulation",
+      "vibrato",
+      "wobble"
+    ],
+    [
+      "采样",
+      "采样器",
+      "取样",
+      "sample",
+      "samples",
+      "sampler",
+      "sampling",
+      "wav",
+      "audio file"
+    ],
+    [
+      "麦克风",
+      "话筒",
+      "录人声",
+      "外部声音",
+      "mic",
+      "microphone",
+      "voice recording",
+      "record audio"
+    ],
+    [
+      "裁剪",
+      "剪切",
+      "截取",
+      "起点",
+      "终点",
+      "trim",
+      "cut",
+      "crop",
+      "start",
+      "end"
+    ],
+    [
+      "循环",
+      "loop",
+      "looping",
+      "repeat"
+    ],
+    [
+      "效果",
+      "效果器",
+      "特效",
+      "fx",
+      "effect",
+      "effects",
+      "processing"
+    ],
+    [
+      "失真",
+      "过载",
+      "饱和",
+      "drive",
+      "distortion",
+      "overdrive",
+      "saturation",
+      "dirt"
+    ],
+    [
+      "降采样",
+      "降位",
+      "低保真",
+      "lofi",
+      "lo-fi",
+      "bitcrush",
+      "crush",
+      "bit crusher"
+    ],
+    [
+      "合唱",
+      "chorus",
+      "ensemble"
+    ],
+    [
+      "延迟",
+      "回声",
+      "延时",
+      "delay",
+      "echo"
+    ],
+    [
+      "混响",
+      "空间感",
+      "回响",
+      "reverb",
+      "space",
+      "room",
+      "hall",
+      "ambience"
+    ],
+    [
+      "发送",
+      "效果发送",
+      "send",
+      "sends",
+      "aux"
+    ],
+    [
+      "总线",
+      "主效果",
+      "母线",
+      "master",
+      "master fx",
+      "bus",
+      "master bus"
+    ],
+    [
+      "压缩",
+      "压缩器",
+      "compressor",
+      "comp",
+      "compression"
+    ],
+    [
+      "均衡",
+      "均衡器",
+      "高低音",
+      "eq",
+      "equalizer",
+      "shelf",
+      "bass",
+      "treble"
+    ],
+    [
+      "磁带",
+      "磁带饱和",
+      "tape",
+      "tape saturation",
+      "warmth"
+    ],
+    [
+      "混音",
+      "调音台",
+      "推子",
+      "mix",
+      "mixer",
+      "fader",
+      "faders",
+      "levels"
+    ],
+    [
+      "静音",
+      "关掉一轨",
+      "mute",
+      "silence track"
+    ],
+    [
+      "独奏",
+      "solo",
+      "only this track"
+    ],
+    [
+      "编排",
+      "歌曲",
+      "整首歌",
+      "结构",
+      "顺序",
+      "song",
+      "arrangement",
+      "structure",
+      "chain",
+      "order"
+    ],
+    [
+      "小节",
+      "bar",
+      "bars",
+      "measure",
+      "measures"
+    ],
+    [
+      "发射",
+      "触发",
+      "session",
+      "launch",
+      "trigger",
+      "ableton",
+      "clip launch"
+    ],
+    [
+      "排队",
+      "下一个",
+      "等待切换",
+      "queue",
+      "queued",
+      "next",
+      "pending"
+    ],
+    [
+      "灯",
+      "灯光",
+      "指示灯",
+      "背光",
+      "亮灯",
+      "按键灯",
+      "light",
+      "lights",
+      "led",
+      "leds",
+      "backlight",
+      "key lights"
+    ],
+    [
+      "半亮",
+      "暗",
+      "微亮",
+      "dim",
+      "half",
+      "half lit",
+      "faint"
+    ],
+    [
+      "全亮",
+      "最亮",
+      "亮起",
+      "bright",
+      "full",
+      "fully lit",
+      "lit"
+    ],
+    [
+      "闪烁",
+      "闪",
+      "blink",
+      "blinking",
+      "flash",
+      "flashing"
+    ],
+    [
+      "灯亮度",
+      "按键灯亮度",
+      "key led",
+      "led brightness",
+      "light brightness"
+    ],
+    [
+      "屏幕",
+      "显示",
+      "画面",
+      "界面",
+      "screen",
+      "display",
+      "ui",
+      "interface"
+    ],
+    [
+      "屏幕亮度",
+      "背光亮度",
+      "亮度",
+      "screen brightness",
+      "backlight",
+      "brightness"
+    ],
+    [
+      "状态行",
+      "顶部",
+      "标题栏",
+      "status line",
+      "header",
+      "top bar"
+    ],
+    [
+      "sd卡",
+      "sd 卡",
+      "存储卡",
+      "内存卡",
+      "卡",
+      "sd",
+      "sd card",
+      "card",
+      "storage",
+      "memory card"
+    ],
+    [
+      "文件夹",
+      "目录",
+      "路径",
+      "存在哪",
+      "folder",
+      "directory",
+      "path",
+      "where saved"
+    ],
+    [
+      "设置文件",
+      "配置文件",
+      "cfg",
+      "settings file",
+      "config"
+    ],
+    [
+      "自动保存",
+      "会话",
+      "恢复",
+      "断电",
+      "autosave",
+      "session",
+      "restore",
+      "resume"
+    ],
+    [
+      "模拟器",
+      "网页版",
+      "浏览器",
+      "在线",
+      "电脑上",
+      "simulator",
+      "emulator",
+      "web",
+      "browser",
+      "online",
+      "website"
+    ],
+    [
+      "电脑键盘",
+      "键位映射",
+      "对应",
+      "computer keyboard",
+      "keyboard mapping",
+      "key bindings",
+      "mapping"
+    ],
+    [
+      "midi",
+      "外接键盘",
+      "同步",
+      "usb",
+      "external keyboard",
+      "sync",
+      "clock"
+    ],
+    [
+      "启动器",
+      "应用",
+      "切换应用",
+      "launcher",
+      "app",
+      "apps",
+      "switch app"
+    ],
+    [
+      "爆音",
+      "破音",
+      "杂音",
+      "卡顿",
+      "crackle",
+      "glitch",
+      "pops",
+      "dropout",
+      "stutter"
+    ],
+    [
+      "内存",
+      "cpu",
+      "性能",
+      "memory",
+      "performance",
+      "no mem"
+    ],
+    [
+      "home",
+      "侧键",
+      "home key",
+      "side key",
+      "home button"
+    ],
+    [
+      "版本",
+      "更新",
+      "更新日志",
+      "版本号",
+      "version",
+      "changelog",
+      "release notes",
+      "update",
+      "what's new"
+    ],
+    [
+      "说明书",
+      "手册",
+      "帮助",
+      "教程",
+      "manual",
+      "help",
+      "guide",
+      "tutorial",
+      "docs"
+    ],
+    [
+      "入门",
+      "上手",
+      "开始使用",
+      "新手",
+      "快速开始",
+      "getting started",
+      "quick start",
+      "beginner",
+      "first steps"
+    ],
+    [
+      "名词",
+      "术语",
+      "解释",
+      "glossary",
+      "terms",
+      "definitions"
+    ],
+    [
+      "打字",
+      "输入文字",
+      "起名",
+      "命名",
+      "改名",
+      "type",
+      "typing",
+      "name",
+      "rename",
+      "text entry"
+    ],
+    [
+      "光标",
+      "插入点",
+      "cursor",
+      "caret"
+    ],
+    [
+      "方向键",
+      "上下左右",
+      "箭头",
+      "arrows",
+      "arrow keys",
+      "cursor keys",
+      "up down left right"
+    ],
+    [
+      "黄色丝印",
+      "黄色",
+      "yellow",
+      "yellow legend",
+      "fn layer"
+    ],
+    [
+      "新 pattern",
+      "新建 pattern",
+      "空 pattern",
+      "new pattern",
+      "empty pattern",
+      "free pattern"
+    ],
+    [
+      "合并",
+      "叠加",
+      "加进去",
+      "merge",
+      "combine",
+      "add into"
+    ],
+    [
+      "播放头",
+      "游标",
+      "进度",
+      "playhead",
+      "position",
+      "progress"
+    ],
+    [
+      "跟着操作",
+      "跟着做",
+      "实机模拟",
+      "试一试",
+      "动手",
+      "在线操作",
+      "try it",
+      "try it live",
+      "follow along",
+      "hands on",
+      "interactive"
+    ],
+    [
+      "usb",
+      "连接设备",
+      "连接真机",
+      "真机",
+      "实体机",
+      "数据线",
+      "串口",
+      "connect device",
+      "real device",
+      "hardware",
+      "cable",
+      "web serial",
+      "serial"
+    ]
+  ]
+}

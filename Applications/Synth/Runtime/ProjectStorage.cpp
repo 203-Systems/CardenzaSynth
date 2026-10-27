@@ -14,7 +14,7 @@
 #include <filesystem>
 #endif
 
-#include "Devices/Device.h"
+#include "Library/Synth/Core/SynthStorage.h"
 
 namespace synth {
 namespace {
@@ -23,12 +23,16 @@ constexpr std::size_t kMaxProjectBytes = 1024 * 1024;
 // Version 2 adds the mixer, the display backlight, swing and per-track step counts.
 // Version 3 adds the song arrangement (SONG and R lines after the sequencer tracks).
 // Version 4 adds the master effects (FX line after SYSTEM: a count, then one value per parameter).
+// Version 5 was only written by unreleased development builds: a PLAY line after FX with the play
+// settings, which are app settings now (docs/app-storage-protocol.md). It still loads (the PLAY line
+// is skipped), files are written as version 4, and the next format change takes version 6.
 constexpr int kProjectVersion = 4;
+constexpr int kMaxReadProjectVersion = 5;
 constexpr int kMinProjectVersion = 1;
 constexpr unsigned kMaxMixerLevel = 100;
 
 std::string ProjectPath(const std::string& name) {
-  return Device::Storage::ProjectDirectoryPath() + "/" + name + ".ccproj";
+  return storage::ProjectDirectory() + "/" + name + ".ccproj";
 }
 
 bool Exists(const std::string& path) {
@@ -54,7 +58,7 @@ bool IsProjectEngineKind(int kind) {
 
 bool ValidMetadata(const ProjectData& project) {
   if (!project.sequence || !SynthSequencer::ValidateState(*project.sequence) || project.activeTrack >= kSynthTrackCount ||
-      project.octave < -3 || project.octave > 3 || project.root < 0 || project.root > 11 || project.scale >= 8 ||
+      project.octave < -3 || project.octave > 3 || project.root < 0 || project.root > 11 || project.scale >= static_cast<std::size_t>(kProjectScaleCount) ||
       project.layout < 0 || project.layout > 2 || project.ledBrightness < 0 || project.ledBrightness > 15 ||
       project.mixer.master > kMaxMixerLevel) return false;
   for (std::size_t index = 0; index < fx::kMasterParamCount; ++index)
@@ -108,7 +112,7 @@ bool IsProjectNameValid(const std::string& name) {
 
 std::vector<std::string> ListProjects() {
   std::vector<std::string> result;
-  const std::string directory = Device::Storage::ProjectDirectoryPath();
+  const std::string directory = storage::ProjectDirectory();
   auto add = [&](const std::string& filename) {
     std::string candidate = filename;
     if (candidate.size() > 11 && candidate.substr(candidate.size() - 11) == ".ccproj.bak") candidate.resize(candidate.size() - 4);
@@ -133,12 +137,10 @@ std::vector<std::string> ListProjects() {
   return result;
 }
 
-ProjectResult SaveProjectFile(const std::string& name, const ProjectData& project, bool overwrite) {
-  if (!IsProjectNameValid(name) || !ValidMetadata(project)) return ProjectResult::Invalid;
-  if (!Device::Storage::EnsureDirectoryLayout()) return ProjectResult::StorageError;
-  const std::string path = ProjectPath(name);
+namespace {
+
+ProjectResult WriteProject(const std::string& path, const ProjectData& project) {
   const bool existing = Exists(path);
-  if ((existing || Exists(path + ".bak")) && !overwrite) return ProjectResult::Exists;
   const std::string temporary = path + ".tmp";
   const std::string backup = path + ".bak";
   std::ofstream file(temporary, std::ios::trunc);
@@ -200,9 +202,7 @@ ProjectResult SaveProjectFile(const std::string& name, const ProjectData& projec
   return ProjectResult::Ok;
 }
 
-ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination) {
-  if (!IsProjectNameValid(name)) return ProjectResult::Invalid;
-  const std::string path = ProjectPath(name);
+ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
   // A backup is recoverable after interruption between the two rename operations.
   const std::string source = Exists(path) ? path : path + ".bak";
   struct stat info{};
@@ -215,7 +215,7 @@ ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination)
   if (!project.sequence) return ProjectResult::StorageError;
   int version = 0;
   int build = 0;
-  if (!ReadExpected(file, "CARDENZA_PROJECT") || !(file >> version) || version < kMinProjectVersion || version > kProjectVersion ||
+  if (!ReadExpected(file, "CARDENZA_PROJECT") || !(file >> version) || version < kMinProjectVersion || version > kMaxReadProjectVersion ||
       !ReadExpected(file, "BUILD") || !ReadExpected(file, "CardenzaSynth") || !(file >> build) || build != 1 || !ReadExpected(file, "UI") ||
       !(file >> project.activeTrack >> project.octave >> project.root >> project.scale >> project.layout >> project.ledBrightness)) return ProjectResult::Invalid;
   if (version >= 2) {
@@ -245,6 +245,11 @@ ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination)
       if (value < fx::kMasterParams[index].minValue || value > fx::kMasterParams[index].maxValue) return ProjectResult::Invalid;
       project.masterFx[index] = static_cast<std::uint8_t>(value);
     }
+  }
+  if (version >= 5) {
+    // Development builds stored the play settings here; they are app settings now.
+    std::string ignored;
+    if (!ReadExpected(file, "PLAY") || !std::getline(file, ignored) || ignored.size() > 128) return ProjectResult::Invalid;
   }
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
     std::size_t index = 0, parameterCount = 0;
@@ -315,6 +320,31 @@ ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination)
   if (!file.eof()) return ProjectResult::Invalid;
   destination = std::move(project);
   return ProjectResult::Ok;
+}
+
+}  // namespace
+
+ProjectResult SaveProjectFile(const std::string& name, const ProjectData& project, bool overwrite) {
+  if (!IsProjectNameValid(name) || !ValidMetadata(project)) return ProjectResult::Invalid;
+  if (!storage::EnsureLayout()) return ProjectResult::StorageError;
+  const std::string path = ProjectPath(name);
+  if ((Exists(path) || Exists(path + ".bak")) && !overwrite) return ProjectResult::Exists;
+  return WriteProject(path, project);
+}
+
+ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination) {
+  if (!IsProjectNameValid(name)) return ProjectResult::Invalid;
+  return ReadProject(ProjectPath(name), destination);
+}
+
+ProjectResult SaveProjectFileAt(const std::string& path, const ProjectData& project) {
+  if (path.empty() || !ValidMetadata(project)) return ProjectResult::Invalid;
+  return WriteProject(path, project);
+}
+
+ProjectResult LoadProjectFileAt(const std::string& path, ProjectData& destination) {
+  if (path.empty()) return ProjectResult::Invalid;
+  return ReadProject(path, destination);
 }
 
 }  // namespace synth
