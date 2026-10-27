@@ -77,6 +77,17 @@ if(DEFINED COMPONENT_DIR)
         ${AMY_C_SOURCES}
     )
     set_source_files_properties(${CARDENZA_AUDIO_HOT_SOURCES} PROPERTIES COMPILE_OPTIONS "-O3")
+
+    if(CONFIG_STDATOMIC_S32C1I_SPIRAM_WORKAROUND)
+        # These audio translation units keep their atomics in internal RAM;
+        # normal new/malloc also stay internal (SPIRAM_USE_CAPS_ALLOC). Preserve
+        # inline hardware atomics for the ISR counters and render-thread state.
+        # Leave the SDK's PSRAM-safe atomic implementation enabled elsewhere.
+        set_property(SOURCE
+            ${CARDENZA_ROOT}/Devices/Cardenza/DeviceAudio.cpp
+            ${CARDENZA_ROOT}/Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp
+            APPEND PROPERTY COMPILE_OPTIONS "-mno-disable-hardware-atomics")
+    endif()
 elseif(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}")
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)

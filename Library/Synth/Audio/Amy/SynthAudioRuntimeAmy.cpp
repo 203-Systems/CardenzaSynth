@@ -577,6 +577,17 @@ void EnsureAmyInitialized()
     config.features.echo = 0;
     config.features.chorus = 0;
   #if defined(ESP_PLATFORM)
+    // heap_caps_malloc(DEFAULT) can use PSRAM even with CAPS_ALLOC mode. Pin
+    // AMY's render state and working blocks explicitly to internal, byte-addressable RAM.
+    constexpr std::uint32_t kAmyRamCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    config.ram_caps_events = kAmyRamCaps;
+    config.ram_caps_synth = kAmyRamCaps;
+    config.ram_caps_oscs = kAmyRamCaps;
+    config.ram_caps_block = kAmyRamCaps;
+    config.ram_caps_fbl = kAmyRamCaps;
+    config.ram_caps_delay = kAmyRamCaps;
+    config.ram_caps_sample = kAmyRamCaps;
+    config.ram_caps_sysex = kAmyRamCaps;
     config.platform.multicore = kAmyUseExperimentalMulticore ? 1 : 0;
     config.platform.multithread = 0;
   #else

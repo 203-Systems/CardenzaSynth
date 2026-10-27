@@ -18,7 +18,8 @@
 
 namespace {
 
-std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
+// Only the CPU draws here. Display DMA reads the internal displayTransfer below.
+EXT_RAM_BSS_ATTR std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
 Device::Keyboard::MatrixKeyState keyboardState{};
 Device::LED::detail::LedFrameBuffer keyboardLedFrames;
 SemaphoreHandle_t framePresentDone = nullptr;

@@ -5,6 +5,7 @@
 #include <memory>
 #include <string_view>
 
+#include "Library/Memory/ExternalRam.h"
 #include "Library/Synth/Audio/SynthFx.h"
 #include "Library/Synth/Core/SynthTypes.h"
 
@@ -15,7 +16,7 @@ inline constexpr std::uint32_t kSampleRate = 44100;
 // A published sample is immutable; replacing it only transfers shared ownership
 // at the audio boundary, without allocating or copying PCM in the render loop.
 struct SampleBuffer {
-  std::unique_ptr<std::int16_t[]> frames;
+  memory::ExternalArray<std::int16_t> frames;
   std::size_t frameCount = 0;
 };
 using SharedSampleBuffer = std::shared_ptr<const SampleBuffer>;

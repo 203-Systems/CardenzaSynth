@@ -226,7 +226,7 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
   std::ifstream file(source);
   if (!file) return ProjectResult::StorageError;
   ProjectData project;
-  project.sequence.reset(new (std::nothrow) SynthSequencer::ProjectState);
+  project.sequence = memory::MakeExternal<SynthSequencer::ProjectState>();
   if (!project.sequence) return ProjectResult::StorageError;
   int version = 0;
   int build = 0;

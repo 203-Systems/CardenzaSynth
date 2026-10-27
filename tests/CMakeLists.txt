@@ -67,6 +67,12 @@ add_executable(CardenzaSamplerTests
 target_include_directories(CardenzaSamplerTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaSamplerTests COMMAND CardenzaSamplerTests)
 
+# Exercise the ESP allocation policy, ownership and PSRAM-exhaustion path on a host.
+add_executable(CardenzaPsramAllocationTests psram_allocation_test.cpp)
+target_include_directories(CardenzaPsramAllocationTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/psram_fakes ${PROJECT_SOURCE_DIR})
+target_compile_definitions(CardenzaPsramAllocationTests PRIVATE ESP_PLATFORM=1)
+add_test(NAME CardenzaPsramAllocationTests COMMAND CardenzaPsramAllocationTests)
+
 set(cardenza_ui_tests)
 if(NOT CARDENZA_GROOVE_UI)
 add_executable(CardenzaUiTests

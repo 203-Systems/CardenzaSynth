@@ -12,10 +12,6 @@
 #include <string>
 #include <string_view>
 
-#if defined(ESP_PLATFORM)
-#include <esp_heap_caps.h>
-#endif
-
 namespace synth::sampler {
 
 inline constexpr std::size_t kMaxSampleFrames = 44100 * 5;
@@ -28,22 +24,13 @@ inline std::shared_ptr<audio::SampleBuffer> AllocateFrames(std::size_t frameCoun
   {
     return {};
   }
-#if defined(ESP_PLATFORM)
-  // Keep room for file IO, event queues and the UI on boards without PSRAM.
-  constexpr std::size_t reserveBytes = 32 * 1024;
-  const std::size_t bytes = frameCount * sizeof(std::int16_t);
-  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < bytes + reserveBytes ||
-      heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < bytes)
-  {
-    return {};
-  }
-#endif
-  std::unique_ptr<std::int16_t[]> frames(new (std::nothrow) std::int16_t[frameCount]);
+  auto frames = memory::MakeExternalArray<std::int16_t>(frameCount);
   if (!frames)
   {
     return {};
   }
-  auto buffer = std::make_shared<audio::SampleBuffer>();
+  std::shared_ptr<audio::SampleBuffer> buffer(new (std::nothrow) audio::SampleBuffer());
+  if (!buffer) return {};
   buffer->frames = std::move(frames);
   buffer->frameCount = frameCount;
   return buffer;
