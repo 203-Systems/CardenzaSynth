@@ -30,8 +30,8 @@ void Display(const std::string& fault)
   Fake::fail.clear();
   Require(CardenzaHAL::Display::Init(), "display could not retry after partial initialization");
   Require(Fake::panelCreates == 1 && Fake::panelInits > previousInits, "display skipped configuration or leaked a panel on retry");
-  Require(!Fake::dmaPending && Fake::lastPixels != nullptr && Fake::drains > 0,
-          "display returned while its clear buffer was still owned by DMA");
+  Require(!Fake::dmaPending && Fake::draws == 0 && Fake::backlightDuty == 0,
+          "display initialization sent pixels or revealed an incomplete first frame");
   Require(CardenzaHAL::Display::GetBrightness() == 140, "display retry lost requested brightness");
   const int draws = Fake::draws;
   Require(CardenzaHAL::Display::Init() && Fake::draws == draws, "healthy display initialization cleared the screen again");

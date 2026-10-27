@@ -2,6 +2,7 @@
 
 // Test-only SDK boundary. The actual HAL sources are linked unchanged; these
 // functions inject driver failures and record ownership, without emulating a board.
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -13,6 +14,7 @@ using esp_err_t = int;
 constexpr int ESP_OK = 0, ESP_FAIL = -1, ESP_ERR_INVALID_STATE = 0x103;
 constexpr int ESP_ERR_INVALID_ARG = 0x102, ESP_ERR_NO_MEM = 0x101, ESP_ERR_TIMEOUT = 0x107;
 #define IRAM_ATTR
+#define DMA_ATTR
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
@@ -24,6 +26,15 @@ inline std::string fail;
 inline std::int64_t now = 1000000;
 inline int mutexes = 0, tasks = 0, timers = 0, taskCreates = 0;
 inline int panelCreates = 0, panelInits = 0, draws = 0, drains = 0;
+inline int panelResets = 0, panelResetPin = -2, resetReason = 1;
+inline bool panelOn = false;
+inline int binarySemaphores = 0, callbackRegistrations = 0;
+inline int backlightConfigurations = 0, backlightWrites = 0, backlightHoldReleases = 0;
+inline unsigned backlightDuty = 0, backlightPendingDuty = 0;
+inline std::size_t transferredPixels = 0, backlightRevealedAt = 0;
+inline std::array<std::uint16_t, 240 * 135> displayPixels{};
+inline std::array<int, 4> lastDraw{};
+inline std::vector<std::uint16_t> pendingPixels;
 inline bool dmaPending = false;
 inline const void* lastPixels = nullptr;
 inline int i2cCalls = 0;
@@ -42,6 +53,8 @@ inline bool Bad(const char* point) { return fail == point; }
 inline int Result(const char* point) { return Bad(point) ? ESP_FAIL : ESP_OK; }
 }
 inline std::int64_t esp_timer_get_time() { return Fake::now; }
+constexpr int ESP_RST_POWERON = 1, ESP_RST_SW = 3;
+inline int esp_reset_reason() { return Fake::resetReason; }
 
 using BaseType_t = int;
 using UBaseType_t = unsigned;
@@ -57,15 +70,31 @@ using portMUX_TYPE = int;
 #define portEXIT_CRITICAL(...) ((void)0)
 #define portENTER_CRITICAL_ISR(...) ((void)0)
 #define portEXIT_CRITICAL_ISR(...) ((void)0)
-using SemaphoreHandle_t = int*;
+struct FakeSemaphore { bool binary; int count; };
+using SemaphoreHandle_t = FakeSemaphore*;
 using TaskHandle_t = int*;
 inline SemaphoreHandle_t xSemaphoreCreateMutex() {
   if (Fake::Bad("mutex")) return nullptr;
-  ++Fake::mutexes; return new int;
+  ++Fake::mutexes; return new FakeSemaphore{false, 1};
 }
-inline void vSemaphoreDelete(SemaphoreHandle_t h) { if (h) { --Fake::mutexes; delete h; } }
-inline int xSemaphoreTake(SemaphoreHandle_t, unsigned) { return pdTRUE; }
-inline void xSemaphoreGive(SemaphoreHandle_t) {}
+inline SemaphoreHandle_t xSemaphoreCreateBinary() {
+  if (Fake::Bad("display_semaphore")) return nullptr;
+  ++Fake::binarySemaphores; return new FakeSemaphore{true, 0};
+}
+inline void vSemaphoreDelete(SemaphoreHandle_t h) {
+  if (!h) return;
+  if (h->binary) --Fake::binarySemaphores; else --Fake::mutexes;
+  delete h;
+}
+inline int xSemaphoreTake(SemaphoreHandle_t h, unsigned) {
+  if (!h || (h->binary && h->count == 0)) return pdFALSE;
+  if (h->binary) h->count = 0;
+  return pdTRUE;
+}
+inline void xSemaphoreGive(SemaphoreHandle_t h) { if (h) h->count = 1; }
+inline int xSemaphoreGiveFromISR(SemaphoreHandle_t h, int* wake) {
+  xSemaphoreGive(h); if (wake) *wake = pdFALSE; return pdTRUE;
+}
 inline int xTaskCreatePinnedToCore(void (*)(void*), const char*, unsigned, void*, unsigned, TaskHandle_t* h, int) {
   ++Fake::taskCreates;
   if (Fake::Bad("task")) { *h = nullptr; return pdFALSE; }
@@ -92,7 +121,10 @@ inline int gpio_reset_pin(int) { return Fake::Result("gpio"); }
 inline int gpio_set_direction(int, int) { return Fake::Result("gpio"); }
 inline int gpio_set_level(int, int) { return Fake::Result("gpio"); }
 inline int gpio_set_pull_mode(int, int) { return Fake::Result("gpio"); }
-inline int gpio_hold_dis(int) { return Fake::Result("gpio"); }
+inline int gpio_hold_dis(int pin) {
+  if (pin == 38) ++Fake::backlightHoldReleases;
+  return Fake::Result("gpio");
+}
 struct FakeGpioRegisters { std::uint32_t in = ~0u; };
 inline FakeGpioRegisters GPIO;
 struct spi_dev_t {};
@@ -206,27 +238,83 @@ using esp_lcd_panel_io_handle_t = void*;
 using esp_lcd_spi_bus_handle_t = int;
 struct esp_lcd_panel_io_spi_config_t { int cs_gpio_num = 0, dc_gpio_num = 0, spi_mode = 0, pclk_hz = 0, trans_queue_depth = 0, lcd_cmd_bits = 0, lcd_param_bits = 0; };
 struct esp_lcd_panel_dev_config_t { int reset_gpio_num = 0, rgb_ele_order = 0, data_endian = 0, bits_per_pixel = 0; };
+struct esp_lcd_panel_io_event_data_t {};
+using esp_lcd_panel_io_color_trans_done_cb_t = bool (*)(void*, esp_lcd_panel_io_event_data_t*, void*);
+struct esp_lcd_panel_io_callbacks_t { esp_lcd_panel_io_color_trans_done_cb_t on_color_trans_done = nullptr; };
+namespace Fake {
+inline esp_lcd_panel_io_color_trans_done_cb_t displayCallback = nullptr;
+inline void* displayContext = nullptr;
+inline void CompleteDisplayTransfer() {
+  if (!dmaPending) return;
+  dmaPending = false;
+  if (displayCallback) displayCallback(reinterpret_cast<void*>(1), nullptr, displayContext);
+}
+}
 constexpr int LCD_RGB_ELEMENT_ORDER_RGB = 0, LCD_RGB_DATA_ENDIAN_LITTLE = 0, LCD_CMD_NOP = 0;
 inline int esp_lcd_new_panel_io_spi(int, const esp_lcd_panel_io_spi_config_t*, void** io) { *io = reinterpret_cast<void*>(1); return ESP_OK; }
-inline int esp_lcd_new_panel_st7789(void*, const esp_lcd_panel_dev_config_t*, void** panel) { ++Fake::panelCreates; *panel = reinterpret_cast<void*>(2); return ESP_OK; }
-inline int esp_lcd_panel_reset(void*) { return Fake::Result("panel_reset"); }
+inline int esp_lcd_new_panel_st7789(void*, const esp_lcd_panel_dev_config_t* config, void** panel) {
+  ++Fake::panelCreates; Fake::panelResetPin = config->reset_gpio_num;
+  *panel = reinterpret_cast<void*>(2); return ESP_OK;
+}
+inline int esp_lcd_panel_reset(void*) { ++Fake::panelResets; return Fake::Result("panel_reset"); }
 inline int esp_lcd_panel_init(void*) { ++Fake::panelInits; return Fake::Result("panel_init"); }
 inline int esp_lcd_panel_invert_color(void*, bool) { return ESP_OK; }
 inline int esp_lcd_panel_swap_xy(void*, bool) { return ESP_OK; }
 inline int esp_lcd_panel_mirror(void*, bool, bool) { return ESP_OK; }
 inline int esp_lcd_panel_set_gap(void*, int, int) { return ESP_OK; }
-inline int esp_lcd_panel_disp_on_off(void*, bool) { return ESP_OK; }
-inline int esp_lcd_panel_draw_bitmap(void*, int, int, int, int, const void* pixels) { ++Fake::draws; Fake::lastPixels = pixels; Fake::dmaPending = true; return Fake::Result("draw"); }
-inline int esp_lcd_panel_io_tx_param(void*, int, const void*, std::size_t) { ++Fake::drains; if (Fake::Bad("drain")) return ESP_FAIL; Fake::dmaPending = false; return ESP_OK; }
+inline int esp_lcd_panel_disp_on_off(void*, bool on) { Fake::panelOn = on; return ESP_OK; }
+inline int esp_lcd_panel_io_register_event_callbacks(void*, const esp_lcd_panel_io_callbacks_t* callbacks, void* context) {
+  ++Fake::callbackRegistrations;
+  if (Fake::Bad("display_callback")) return ESP_FAIL;
+  Fake::displayCallback = callbacks->on_color_trans_done; Fake::displayContext = context;
+  return ESP_OK;
+}
+inline int esp_lcd_panel_draw_bitmap(void*, int x0, int y0, int x1, int y1, const void* pixels) {
+  ++Fake::draws;
+  if (Fake::Bad("draw")) return ESP_FAIL;
+  Fake::lastPixels = pixels; Fake::lastDraw = {x0, y0, x1, y1};
+  const auto* words = static_cast<const std::uint16_t*>(pixels);
+  Fake::pendingPixels.assign(words, words + (x1 - x0) * (y1 - y0));
+  for (int row = y0; row < y1; ++row)
+    std::copy_n(words + (row - y0) * (x1 - x0), x1 - x0, Fake::displayPixels.data() + row * 240 + x0);
+  Fake::transferredPixels += Fake::pendingPixels.size();
+  Fake::dmaPending = true;
+  if (!Fake::Bad("display_timeout") && Fake::displayCallback) Fake::CompleteDisplayTransfer();
+  return ESP_OK;
+}
+inline int esp_lcd_panel_io_tx_param(void*, int, const void*, std::size_t) {
+  ++Fake::drains; if (Fake::Bad("drain")) return ESP_FAIL;
+  Fake::CompleteDisplayTransfer(); return ESP_OK;
+}
 using ledc_mode_t = int; using ledc_timer_t = int; using ledc_channel_t = int; using ledc_timer_bit_t = int;
 constexpr int LEDC_LOW_SPEED_MODE = 0, LEDC_TIMER_0 = 0, LEDC_CHANNEL_7 = 7, LEDC_TIMER_12_BIT = 12;
 constexpr int LEDC_USE_APB_CLK = 0, LEDC_INTR_DISABLE = 0;
 struct ledc_timer_config_t { int speed_mode = 0, duty_resolution = 0, timer_num = 0; unsigned freq_hz = 0; int clk_cfg = 0; };
 struct ledc_channel_config_t { int gpio_num = 0, speed_mode = 0, channel = 0, intr_type = 0, timer_sel = 0, duty = 0, hpoint = 0; };
 inline int ledc_timer_config(const ledc_timer_config_t*) { return ESP_OK; }
-inline int ledc_channel_config(const ledc_channel_config_t*) { return ESP_OK; }
-inline int ledc_set_duty(int, int, unsigned) { return ESP_OK; }
-inline int ledc_update_duty(int, int) { return ESP_OK; }
+inline int ledc_channel_config(const ledc_channel_config_t* config) {
+  if (config->channel == LEDC_CHANNEL_7) {
+    if (Fake::Bad("display_pwm")) return ESP_FAIL;
+    ++Fake::backlightConfigurations; Fake::backlightDuty = Fake::backlightPendingDuty = config->duty;
+    if (config->duty != 0 && Fake::backlightRevealedAt == 0) Fake::backlightRevealedAt = Fake::transferredPixels;
+  }
+  return ESP_OK;
+}
+inline int ledc_set_duty(int, int channel, unsigned duty) {
+  if (channel == LEDC_CHANNEL_7) {
+    if (Fake::Bad("display_brightness")) return ESP_FAIL;
+    ++Fake::backlightWrites; Fake::backlightPendingDuty = duty;
+  }
+  return ESP_OK;
+}
+inline int ledc_update_duty(int, int channel) {
+  if (channel == LEDC_CHANNEL_7) {
+    if (Fake::Bad("display_duty_update")) return ESP_FAIL;
+    Fake::backlightDuty = Fake::backlightPendingDuty;
+    if (Fake::backlightDuty != 0 && Fake::backlightRevealedAt == 0) Fake::backlightRevealedAt = Fake::transferredPixels;
+  }
+  return ESP_OK;
+}
 
 struct sdmmc_host_t {};
 struct sdmmc_slot_config_t { int clk = 0, cmd = 0, d0 = 0, d1 = 0, d2 = 0, d3 = 0, width = 0; };

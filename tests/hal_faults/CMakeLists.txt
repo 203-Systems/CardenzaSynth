@@ -1,7 +1,7 @@
 set(hal_root ${PROJECT_SOURCE_DIR}/Devices/Cardenza/cardenza)
 set(fake_include ${CMAKE_CURRENT_BINARY_DIR}/sdk-headers)
 # Generate include-name shims in the build tree, keeping test SDK definitions in one file.
-foreach(header esp_log.h esp_attr.h esp_check.h esp_timer.h esp_vfs_fat.h sdmmc_cmd.h
+foreach(header esp_log.h esp_attr.h esp_check.h esp_timer.h esp_system.h esp_vfs_fat.h sdmmc_cmd.h
     esp_lcd_panel_io.h esp_lcd_panel_ops.h esp_lcd_panel_commands.h esp_lcd_panel_vendor.h
     driver/gpio.h driver/i2s_std.h driver/i2s_pdm.h driver/i2c_master.h driver/spi_master.h
     driver/gptimer.h driver/ledc.h driver/sdmmc_host.h driver/rmt_encoder.h driver/rmt_tx.h
@@ -26,11 +26,16 @@ add_executable(CardenzaHalFaultTests hal_fault_test.cpp)
 target_link_libraries(CardenzaHalFaultTests PRIVATE CardenzaHalFaultSources)
 add_executable(CardenzaAudioHandoffTests audio_handoff_test.cpp)
 target_link_libraries(CardenzaAudioHandoffTests PRIVATE CardenzaHalFaultSources)
+add_executable(CardenzaDisplayPresentTests display_present_test.cpp)
+target_link_libraries(CardenzaDisplayPresentTests PRIVATE CardenzaHalFaultSources)
 foreach(fault mutex task pwm gpio timer_new timer_callback timer_alarm timer_enable timer_start)
   add_test(NAME HalKeyboard_${fault} COMMAND CardenzaHalFaultTests keyboard ${fault})
 endforeach()
-foreach(fault panel_reset panel_init draw drain)
+foreach(fault panel_reset panel_init spi_bus display_pwm)
   add_test(NAME HalDisplay_${fault} COMMAND CardenzaHalFaultTests display ${fault})
+endforeach()
+foreach(scenario cold warm dirty timeout warm_timeout draw brightness display_duty_update display_callback display_semaphore native invalid)
+  add_test(NAME HalDisplayPresent_${scenario} COMMAND CardenzaDisplayPresentTests ${scenario})
 endforeach()
 foreach(fault i2c state)
   add_test(NAME HalCodec_${fault} COMMAND CardenzaHalFaultTests codec ${fault})

@@ -6,31 +6,21 @@
 #include <array>
 
 #include <esp_attr.h>
-#include <esp_lcd_panel_io.h>
-#include <esp_lcd_panel_ops.h>
-#include <esp_lcd_panel_commands.h>
 #include <esp_timer.h>
 #include <esp_vfs_fat.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
 
 #include "cardenzaHAL.h"
 
 namespace {
 
-// Only the CPU draws here. Display DMA reads the internal displayTransfer below.
+// Only the CPU draws here. The HAL stages transfers through its internal DMA band.
 EXT_RAM_BSS_ATTR std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
 Device::Keyboard::MatrixKeyState keyboardState{};
 Device::LED::detail::LedFrameBuffer keyboardLedFrames;
-SemaphoreHandle_t framePresentDone = nullptr;
-bool displayCallbacksInstalled = false;
 using DisplayDamage = Device::Display::detail::DamageTracker<Device::Display::kWidth, Device::Display::kHeight>;
 DisplayDamage displayDamage;
-constexpr int kDisplayBandRows = 8;
-// The DMA buffer remains owned by the transfer even if a callback is delayed.
-// UI rendering can continue into frameBuffer without touching in-flight pixels.
-alignas(4) std::array<Device::Display::Pixel, Device::Display::kWidth * kDisplayBandRows> displayTransfer{};
-bool displayTransferPending = false;
+static_assert(Device::Display::kWidth == CardenzaHAL::Display::WIDTH &&
+              Device::Display::kHeight == CardenzaHAL::Display::HEIGHT);
 
 // The HAL mounts the card here. The folders below it belong to the OS storage protocol.
 constexpr char kCardRoot[] = "/sdcard";
@@ -70,53 +60,6 @@ void PublishLedFrame(bool changed) {
   halLedsKnown = true;
 }
 
-bool IRAM_ATTR OnFramePresentDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* userContext) {
-  if (userContext == nullptr) {
-    return false;
-  }
-
-  BaseType_t highTaskWoken = pdFALSE;
-  xSemaphoreGiveFromISR(static_cast<SemaphoreHandle_t>(userContext), &highTaskWoken);
-  return highTaskWoken == pdTRUE;
-}
-
-bool EnsureDisplayPresentSync(esp_lcd_panel_io_handle_t panelIo) {
-  if (displayCallbacksInstalled) {
-    return true;
-  }
-
-  if (framePresentDone == nullptr) {
-    framePresentDone = xSemaphoreCreateBinary();
-    if (framePresentDone == nullptr) {
-      return false;
-    }
-  }
-
-  esp_lcd_panel_io_callbacks_t callbacks = {};
-  callbacks.on_color_trans_done = OnFramePresentDone;
-  // A synchronous parameter transaction drains any HAL startup color transfers
-  // before their callback is replaced. Do not mistake those for our own DMA.
-  if (esp_lcd_panel_io_tx_param(panelIo, LCD_CMD_NOP, nullptr, 0) != ESP_OK) return false;
-  if (esp_lcd_panel_io_register_event_callbacks(panelIo, &callbacks, framePresentDone) != ESP_OK) {
-    return false;
-  }
-
-  displayCallbacksInstalled = true;
-  return true;
-}
-
-bool WaitForDisplayTransfer(TickType_t timeout)
-{
-  if (!displayTransferPending) return true;
-  if (xSemaphoreTake(framePresentDone, timeout) != pdTRUE)
-  {
-    displayDamage.Invalidate();
-    return false;
-  }
-  displayTransferPending = false;
-  return true;
-}
-
 }  // namespace
 
 namespace Device {
@@ -136,37 +79,15 @@ void Clear(Pixel color) {
 }
 
 void Present() {
-  if (!CardenzaHAL::Display::Init()) {
-    displayDamage.Invalidate();
-    return;
-  }
-
-  const esp_lcd_panel_handle_t panel = CardenzaHAL::Display::GetPanel();
-  const esp_lcd_panel_io_handle_t panelIo = CardenzaHAL::Display::GetPanelIO();
-  if (panel == nullptr || panelIo == nullptr || !EnsureDisplayPresentSync(panelIo)) {
-    displayDamage.Invalidate();
-    return;
-  }
-
-  // A previously timed-out DMA still owns displayTransfer. Poll it without
-  // stalling every UI frame; once it completes, resynchronize the full screen.
-  if (!WaitForDisplayTransfer(0)) return;
   const auto plan = displayDamage.Prepare(frameBuffer.data());
+  std::array<CardenzaHAL::Display::Region, std::tuple_size_v<decltype(plan.rectangles)>> regions{};
   for (std::size_t index = 0; index < plan.count; ++index) {
     const auto& rect = plan.rectangles[index];
-    for (int y = rect.y; y < rect.y + rect.height; y += kDisplayBandRows) {
-      const detail::DamageRect band{rect.x, y, rect.width,
-        std::min(kDisplayBandRows, rect.y + rect.height - y)};
-      DisplayDamage::CopyBand(frameBuffer.data(), band, displayTransfer.data());
-      while (xSemaphoreTake(framePresentDone, 0) == pdTRUE) {}
-      if (esp_lcd_panel_draw_bitmap(panel, band.x, band.y, band.x + band.width,
-                                   band.y + band.height, displayTransfer.data()) != ESP_OK) {
-        displayDamage.Invalidate();
-        return;
-      }
-      displayTransferPending = true;
-      if (!WaitForDisplayTransfer(pdMS_TO_TICKS(20))) return;
-    }
+    regions[index] = {rect.x, rect.y, rect.width, rect.height};
+  }
+  if (!CardenzaHAL::Display::Present(frameBuffer.data(), regions.data(), plan.count)) {
+    displayDamage.Invalidate();
+    return;
   }
   displayDamage.Commit(frameBuffer.data(), plan);
 }
