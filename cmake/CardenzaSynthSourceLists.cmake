@@ -325,7 +325,9 @@ function(cardenza_collect_amy_c_sources root_dir out_var)
         ${amy_src_dir}/algorithms.c
         ${amy_core_source}
         ${amy_src_dir}/api.c
+        ${amy_src_dir}/amy_midi.c
         ${amy_src_dir}/custom.c
+        ${amy_src_dir}/cv_trigger.c
         ${amy_src_dir}/delay.c
         ${amy_src_dir}/envelope.c
         ${amy_src_dir}/examples.c
@@ -334,6 +336,7 @@ function(cardenza_collect_amy_c_sources root_dir out_var)
         ${amy_src_dir}/interp_partials.c
         ${amy_src_dir}/log2_exp2.c
         ${amy_src_dir}/midi_mappings.c
+        ${amy_src_dir}/note_output.c
         ${amy_src_dir}/oscillators.c
         ${amy_src_dir}/parse.c
         ${amy_src_dir}/patches.c
@@ -342,5 +345,9 @@ function(cardenza_collect_amy_c_sources root_dir out_var)
         ${amy_src_dir}/transfer.c
         ${root_dir}/Library/Synth/Audio/Amy/AmyEmbeddedStubs.c
     )
+    if(NOT CMAKE_SCRIPT_MODE_FILE)
+        # Compile MIDI message/clock logic, while Cardenza owns device I/O.
+        set_source_files_properties(${amy_src_dir}/amy_midi.c PROPERTIES COMPILE_DEFINITIONS AMY_HOST_MIDI=1)
+    endif()
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()

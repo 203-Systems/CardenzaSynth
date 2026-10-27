@@ -17,7 +17,7 @@ add_executable(SynthAudioHotpathTests audio_hotpath_test.cpp ${synth_sources} ${
 target_link_libraries(SynthAudioHotpathTests PRIVATE RegressionAmy)
 add_executable(SynthDx7RenderProbe dx7_render_probe.cpp ${synth_sources} ${midi_sources} ${fx_sources})
 target_link_libraries(SynthDx7RenderProbe PRIVATE RegressionAmy)
-add_executable(SynthAmyControlTests amy_control_test.c)
+add_executable(SynthAmyControlTests "${CARDENZA_ROOT}/Library/third_party/amy/tests/test_dsp_control.c")
 target_link_libraries(SynthAmyControlTests PRIVATE RegressionAmy)
 if(MSVC)
   target_compile_options(RegressionAmy PRIVATE $<$<COMPILE_LANGUAGE:C>:/std:c11>)

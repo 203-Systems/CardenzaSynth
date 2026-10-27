@@ -588,6 +588,8 @@ void EnsureAmyInitialized()
     config.max_synths = kAmyMaxSynths;
     config.max_voices = kAmyMaxVoices;
     config.max_oscs = kAmyMaxOscs;
+    // Cardenza owns its track effects and mixes AMY into one shared stereo bus.
+    config.max_buses = 1;
     config.amy_external_render_hook = ApplyTrackGainToAmyVoice;
     amy_start(config);
     g_amyInitialized = true;
@@ -605,6 +607,18 @@ void SendAmyNoteEventNoLock(const EngineState& engine, std::uint8_t note, float 
   event.synth = static_cast<uint16_t>(engine.synthId);
   event.midi_note = static_cast<uint16_t>(std::clamp(static_cast<int>(note) + engine.noteOffset, 0, 127));
   event.velocity = velocity;
+  if (engine.kind == SynthEngineKind::Drums && note != 0)
+  {
+    const auto pad = std::find(kDrumNotes.begin(), kDrumNotes.end(), note);
+    if (pad == kDrumNotes.end()) return;
+    // AMY no longer has its fixed GM-to-tiny-PCM drum flag. Preserve this
+    // kit's eight sounds explicitly without depending on MIDI-channel mappings.
+    constexpr std::array<std::uint16_t, 8> presets{{1, 2, 6, 7, 9, 8, 10, 0}};
+    event.preset = presets[pad - kDrumNotes.begin()];
+    event.midi_note = amy_embed::pcm_map[event.preset].midinote;
+    event.wave = PCM;
+    event.feedback = 0;
+  }
   amy_add_event(&event);
 }
 
@@ -724,7 +738,7 @@ void ApplyJunoParameterNoLock(EngineState& engine, std::string_view id, int valu
   if (id == "vca.level" || group == "env." || vcaMode)
   {
     auto event = SynthEvent(engine, 0);
-    event.amp_coefs[amy_embed::COEF_CONST] = normalized(10);
+    event.amp_coefs[amy_embed::COEF_CONST] = normalized(10) * factory::kJunoGain[std::clamp(engine.patchNumber, 0, 127)];
     // Gate mode (amy/juno.py update_env): the VCA follows a gate on envelope 0 and the ADSR moves
     // to envelope 1, where only the VCF reads it.
     const bool gate = (p[17] & 4) != 0;
@@ -941,7 +955,7 @@ void ConfigureAmySynthNoLock(EngineState& engine)
     event.oscs_per_voice = 1;
     event.wave = PCM;
     // Do not use AMY's IGNORE_NOTE_OFFS flag: it also suppresses explicit stop.
-    event.synth_flags = _SYNTH_FLAGS_MIDI_DRUMS;
+    event.synth_flags = 0;
     event.amp_coefs[amy_embed::COEF_CONST] = 5.0f * Normalize(engine.drumMaster, 0, 127);
   }
   else
@@ -1648,7 +1662,7 @@ float AmyVoiceToMixScale()
 {
   constexpr float kOne = 8388608.0f;  // 1.0 in S8.23
   const auto toSample = [](float value) { return static_cast<std::int32_t>(value * kOne); };
-  const std::int32_t volume = ((toSample(0.1f) >> 10) * (toSample(amy_embed::amy_global.volume) >> 9)) >> 4;
+  const std::int32_t volume = ((toSample(0.1f) >> 10) * (toSample(amy_embed::amy_global.volume[0]) >> 9)) >> 4;
   const std::int32_t pan = toSample(amy_embed::dsps_sqrtf_f32_ansi(0.5f));
   return static_cast<float>(volume >> 12) / 2048.0f * static_cast<float>(pan >> 12) / 2048.0f / kOne * kAmyOutputShift;
 }

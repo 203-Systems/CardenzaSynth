@@ -18,7 +18,7 @@
 
 namespace amy_embed { extern "C" {
 extern std::uint16_t* voice_to_base_osc;
-extern std::uint8_t* osc_to_voice;
+extern std::uint16_t* osc_to_voice;
 } }
 
 namespace { std::filesystem::path storageRoot; }
@@ -185,6 +185,19 @@ int main()
     assert(juno.LoadPreset(std::string(preset.id)));
     assert(juno.RestoreState(juno.CaptureState()));
     RenderFrames(pcm.data(), pcm.size());
+    const float expectedLevel = factory::kJuno[preset.patchNumber][10] / 127.0f * factory::kJunoGain[preset.patchNumber];
+    const auto readLevel = [&]() {
+      const float value = oscillator(4, 0).amp_coefs[amy_embed::COEF_CONST];
+      // AMY omits an unchanged default coefficient from its state dump.
+      return std::isnan(value) ? 1.0f : value;
+    };
+    const float romLevel = readLevel();
+    if (std::abs(romLevel - expectedLevel) >= 0.001f)
+      std::cerr << "Juno ROM level mismatch: " << preset.id << " actual=" << romLevel << " expected=" << expectedLevel << '\n';
+    assert(std::abs(romLevel - expectedLevel) < 0.001f);
+    SetEngineParameter(3, "vca.level", factory::kJuno[preset.patchNumber][10]);
+    RenderFrames(pcm.data(), pcm.size());
+    assert(std::abs(readLevel() - romLevel) < 0.001f);
   }
   assert(juno.LoadPreset("juno.a51"));
   assert(juno.GetParameterInfo("vcf.cutoff", parameter) && parameter.value == factory::kJuno[32][5]);
@@ -206,7 +219,7 @@ int main()
   // Juno A12 carries +7/-3/-3 dB EQ and A13 carries -8/0/0 dB in AMY's ROM.
   // Loading either track must leave the shared master flat, independent of order.
   const auto assertFlatMaster = []() {
-    for (const auto gain : amy_embed::amy_global.eq) assert(std::abs(S2F(gain) - 1.0f) < 0.000001f);
+    for (const auto gain : amy_embed::amy_global.bus[0]->eq.eq) assert(std::abs(S2F(gain) - 1.0f) < 0.000001f);
   };
   EnsureEngine(0, SynthEngineKind::Juno);
   SetEnginePreset(0, "juno.a12");
