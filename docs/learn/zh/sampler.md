@@ -29,6 +29,8 @@ OK > sampler-rec @8,40,222,30 | {{key:OK}} 开始录，再按 {{key:OK}} 停止�
 
 > [!warn] 如果有一段还没保存的录音（草稿），会先问是否替换，避免误删。
 
+实机用麦克风录音时，扬声器会暂时静音；停止录音后自动恢复。内部合成与音序继续走时。
+
 <!-- keywords: 录采样, 录麦克风, 录人声, record sample, microphone, mic, record audio -->
 
 ## 裁剪与试听 {#sampler-trim}

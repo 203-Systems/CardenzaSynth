@@ -29,6 +29,8 @@ OK > sampler-rec @8,40,222,30 | {{key:OK}} starts, {{key:OK}} again stops. The l
 
 > [!warn] If an unsaved take (a draft) exists, it asks before replacing it, so nothing is lost by accident.
 
+On the hardware, microphone recording temporarily mutes the speaker. Output resumes automatically when recording stops; synthesis and the sequencer keep advancing.
+
 <!-- keywords: record sample, microphone, mic, record audio, vocals, 录采样 -->
 
 ## Trimming and previewing {#sampler-trim}

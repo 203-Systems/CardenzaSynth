@@ -37,6 +37,11 @@ void LogFailedAllocation(size_t size, uint32_t caps, const char* functionName)
 void CardenzaRuntimeTask(void*)
 {
     LogInternalHeap("before boot");
+    while (!Device::Init())
+    {
+        ESP_LOGE(kLogTag, "Hardware initialization failed; retrying in one second");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
     if (!os::system::Begin())
     {
         ESP_LOGE(kLogTag, "Failed to boot Cardenza runtime");
@@ -56,6 +61,7 @@ void CardenzaRuntimeTask(void*)
     for (;;)
     {
         os::system::RunFrame();
+        device::PollAudioRecovery();
         device::PollAudioDiagnostics();
         vTaskDelayUntil(&lastWakeTime, kFrameTick);
     }

@@ -11,6 +11,10 @@ locally, with the Synth integration and submodule reference updated here. Use
 `make DEVICE=Cardenza HAL_LOCAL=1 build`. Other HAL edits and upstream pushes still require an
 explicit user request; default builds retain the pristine/upstream checks and no-push setting.
 
+The user also authorized release fixes for half-duplex microphone/speaker clock handoff, codec
+retry/readiness, display and keyboard initialization recovery, SD checks after failed saves and
+native NEC infrared encoding/carrier. Keep these local; no upstream push was authorized.
+
 - **Never change it.** Do not edit, add, delete, format or generate anything under `Devices/Cardenza/cardenza`, do not commit inside it, and never push to `github.com/203-Systems/CardenzaHAL` (no fixes, branches, tags, force pushes or pull requests), even when the account has the rights. Do not copy HAL code into this repository either.
 - **Pulling is fine.** `make hal-update` moves the submodule to upstream `main`; then commit only the new submodule pointer here. Never pin it to a commit that is not on upstream `main`.
 - **Reuse it.** Use what the HAL provides through its public headers, included from the HAL root (`"cardenzaHAL.h"`, `"keyboard/keyboard.h"`, `"audio/audio.h"`, `"mic/mic.h"`): keyboard scan and key LEDs (`setLED`, `setLEDGlobalBrightness`, `enableLED`), audio TX with mono / stereo `Init` and codec volume, mic RX channel, display panel handles and backlight, SD card mount, Func button, IR. Do not re-implement a driver or a HAL feature in this repository.

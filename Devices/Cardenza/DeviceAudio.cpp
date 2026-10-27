@@ -27,13 +27,18 @@ device::SynthAudioRenderProvider g_audioProvider{};
 std::atomic<device::SynthAudioRenderCallback> g_audioRenderCallback{nullptr};
 std::mutex g_audioProviderMutex;
 std::mutex g_audioOutputMutex;
+// Only native I2S writes and clock handoff take this lock. Codec I2C must not.
+std::mutex g_audioTransportMutex;
 std::mutex g_audioInputMutex;
 std::mutex g_audioInputDataMutex;
 std::atomic<bool> g_audioInputEnabled{false};
 std::atomic<bool> g_audioInputOverflow{false};
+std::atomic<bool> g_microphoneOwnsClock{false};
 constexpr std::size_t kInputRingFrames = 16384;
 device::audio::PcmInputRing<kInputRingFrames> g_audioInputRing;
 TaskHandle_t g_audioInputTask = nullptr;
+i2s_chan_handle_t g_nativeInputChannel = nullptr;
+bool g_nativeInputRunning = false; // Protected by g_audioInputMutex.
 
 std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
 {
@@ -108,15 +113,8 @@ bool IRAM_ATTR OutputQueueOverflow(i2s_chan_handle_t, i2s_event_data_t*, void*)
 bool PrepareOutputChannel(i2s_chan_handle_t channel)
 {
   std::lock_guard<std::mutex> lock(g_audioOutputMutex);
-  // The codec needs clocks during initialization. Run zeroed DMA while setting it
-  // up, then stop before preloading real PCM. I2C must never delay the writer.
-  if (i2s_channel_enable(channel) != ESP_OK)
-    return false;
-  const bool volumeReady = CardenzaHAL::Audio::SetVolume(CardenzaHAL::Audio::GetVolume());
-  const esp_err_t disabled = i2s_channel_disable(channel);
-  if (!volumeReady || disabled != ESP_OK)
-    return false;
-
+  // HAL initialization already prepared the codec. TX stays disabled until
+  // the writer preloads PCM; consumers only connect native transport here.
   i2s_chan_info_t info{};
   if (i2s_channel_get_info(channel, &info) != ESP_OK || info.total_dma_buf_size == 0)
     return false;
@@ -166,6 +164,7 @@ void WriteOutputFrames(i2s_chan_handle_t channel, const std::int16_t* samples, s
     const std::size_t chunkFrames = (std::min)(frames - offset, kWriteChunkFrames);
     const auto result = device::audio::WriteAllPcm(samples + offset, chunkFrames,
       [&](const void* data, std::size_t bytes) -> device::audio::WriteAttempt {
+        std::lock_guard<std::mutex> transport(g_audioTransportMutex);
         const int64_t remainingUs = deadlineUs - esp_timer_get_time();
         if (remainingUs <= 0)
         {
@@ -338,6 +337,31 @@ void AudioInputTask(void*)
   }
 }
 
+bool RestoreSpeakerOutput()
+{
+  if (g_nativeInputRunning)
+  {
+    if (i2s_channel_disable(g_nativeInputChannel) != ESP_OK) return false;
+    g_nativeInputRunning = false;
+  }
+  const auto channel = CardenzaHAL::Audio::GetTxChannel();
+  if (channel == nullptr) return false;
+  {
+    std::lock_guard<std::mutex> transport(g_audioTransportMutex);
+    const esp_err_t stopped = i2s_channel_disable(channel);
+    if (stopped != ESP_OK && stopped != ESP_ERR_INVALID_STATE) return false;
+    g_audioCounters.running.store(0, std::memory_order_relaxed);
+    if (!CardenzaHAL::Audio::RestoreOutputPins() || i2s_channel_enable(channel) != ESP_OK) return false;
+    g_audioCounters.running.store(1, std::memory_order_relaxed);
+    g_microphoneOwnsClock.store(false, std::memory_order_release);
+  }
+  // I2S is already running, with a muted codec, while its control sequence runs.
+  // This also lets the writer replace any samples retained by the native DMA.
+  if (!CardenzaHAL::Audio::Init())
+    ESP_LOGW(kLogTag, "speaker clocks restored; codec recovery pending");
+  return true;
+}
+
 }  // namespace
 
 namespace Device::Audio {
@@ -361,17 +385,38 @@ InputStreamInfo InputInfo()
 
 InputStatus StartInput()
 {
-  const i2s_chan_handle_t inputChannel = CardenzaHAL::Mic::InputChannel();
-  if (inputChannel == nullptr)
-  {
-    return InputStatus::NotReady;
-  }
-
   std::lock_guard<std::mutex> lock(g_audioInputMutex);
   if (g_audioInputEnabled)
   {
     return InputStatus::Ready;
   }
+
+  if (!g_audioCounters.running.load(std::memory_order_relaxed)) return InputStatus::NotReady;
+  g_microphoneOwnsClock.store(true, std::memory_order_release);
+  const auto failed = [] {
+    if (!RestoreSpeakerOutput()) ESP_LOGE(kLogTag, "speaker clock restoration failed");
+    return InputStatus::NotReady;
+  };
+  // GPIO43 is physically shared, as on Cardputer v1.1. Standby the DAC before
+  // switching it to the PDM clock. Keep TX draining at its normal rate while
+  // recording so the synth and sequencer continue to advance without a burst.
+  if (!CardenzaHAL::Audio::StandbyCodec()) return failed();
+  i2s_chan_handle_t inputChannel = nullptr;
+  {
+    std::lock_guard<std::mutex> transport(g_audioTransportMutex);
+    const auto output = CardenzaHAL::Audio::GetTxChannel();
+    if (i2s_channel_disable(output) == ESP_OK)
+    {
+      g_audioCounters.running.store(0, std::memory_order_relaxed);
+      inputChannel = CardenzaHAL::Mic::InputChannel();
+      if (inputChannel != nullptr && !CardenzaHAL::Mic::RestoreInputPins()) inputChannel = nullptr;
+      if (i2s_channel_enable(output) == ESP_OK)
+        g_audioCounters.running.store(1, std::memory_order_relaxed);
+      else inputChannel = nullptr;
+    }
+  }
+  if (inputChannel == nullptr) return failed();
+  g_nativeInputChannel = inputChannel;
 
   if (g_audioInputTask == nullptr)
   {
@@ -380,7 +425,7 @@ InputStatus StartInput()
     if (i2s_channel_register_event_callback(inputChannel, &callbacks, nullptr) != ESP_OK ||
         xTaskCreate(AudioInputTask, "sample_input", 4096, nullptr, 7, &g_audioInputTask) != pdPASS)
     {
-      return InputStatus::NotReady;
+      return failed();
     }
   }
   {
@@ -390,8 +435,9 @@ InputStatus StartInput()
   }
   if (i2s_channel_enable(inputChannel) != ESP_OK)
   {
-    return InputStatus::NotReady;
+    return failed();
   }
+  g_nativeInputRunning = true;
 
   g_audioInputEnabled.store(true, std::memory_order_release);
   xTaskNotifyGive(g_audioInputTask);
@@ -401,16 +447,10 @@ InputStatus StartInput()
 void StopInput()
 {
   // Clear before waiting on the read mutex, so the higher-priority reader exits.
-  if (!g_audioInputEnabled.exchange(false, std::memory_order_acq_rel))
-  {
-    return;
-  }
+  g_audioInputEnabled.store(false, std::memory_order_release);
   std::lock_guard<std::mutex> lock(g_audioInputMutex);
-
-  if (const i2s_chan_handle_t inputChannel = CardenzaHAL::Mic::InputChannel(); inputChannel != nullptr)
-  {
-    (void)i2s_channel_disable(inputChannel);
-  }
+  if (g_microphoneOwnsClock.load(std::memory_order_acquire) && !RestoreSpeakerOutput())
+    ESP_LOGE(kLogTag, "speaker clock restoration failed");
 }
 
 InputStatus ReadInputFrames(std::int16_t* destination,
@@ -457,6 +497,25 @@ InputStatus ReadInputFrames(std::int16_t* destination,
 
 namespace device {
 
+void PollAudioRecovery()
+{
+  if (g_audioInputEnabled.load(std::memory_order_acquire) ||
+      g_audioRenderCallback.load(std::memory_order_acquire) == nullptr) return;
+  if (CardenzaHAL::Audio::IsCodecReady() && !g_microphoneOwnsClock.load(std::memory_order_acquire)) return;
+  static int64_t nextAttemptUs = 0;
+  const int64_t now = esp_timer_get_time();
+  if (now < nextAttemptUs) return;
+  nextAttemptUs = now + 1000000;
+  std::unique_lock<std::mutex> input(g_audioInputMutex, std::try_to_lock);
+  if (!input.owns_lock() || g_audioInputEnabled.load(std::memory_order_acquire)) return;
+  if (g_microphoneOwnsClock.load(std::memory_order_acquire))
+    (void)RestoreSpeakerOutput();
+  else if (!g_audioPumpStarted.load(std::memory_order_acquire))
+    (void)EnsureAudioPumpStarted();
+  else if (g_audioCounters.running.load(std::memory_order_relaxed))
+    (void)CardenzaHAL::Audio::Init();
+}
+
 void PollAudioDiagnostics()
 {
   static int64_t lastLogUs = 0;
@@ -469,7 +528,7 @@ void PollAudioDiagnostics()
     "us misses=%" PRIu32 " write_max=%" PRIu32 "us producer_waits=%" PRIu32
     " short_render=%" PRIu32 " short_write=%" PRIu32 " write_fail=%" PRIu32
     " tx_q_overflow=%" PRIu32 " last_error=0x%" PRIx32 " running=%" PRIu32
-    " ready=%u dma_bytes=%" PRIu32,
+    " ready=%u dma_bytes=%" PRIu32 " codec=%u mic_clock=%u",
     g_audioCounters.renderedBlocks.load(std::memory_order_relaxed),
     g_audioCounters.maxRenderUs.load(std::memory_order_relaxed), kRenderBudgetUs,
     g_audioCounters.renderDeadlineMisses.load(std::memory_order_relaxed),
@@ -481,7 +540,9 @@ void PollAudioDiagnostics()
     g_audioCounters.txQueueOverflows.load(std::memory_order_relaxed),
     g_audioCounters.lastI2sError.load(std::memory_order_relaxed),
     g_audioCounters.running.load(std::memory_order_relaxed),
-    static_cast<unsigned>(uxQueueMessagesWaiting(g_filledQueue)), g_dmaBytes);
+    static_cast<unsigned>(uxQueueMessagesWaiting(g_filledQueue)), g_dmaBytes,
+    static_cast<unsigned>(CardenzaHAL::Audio::IsCodecReady()),
+    static_cast<unsigned>(g_microphoneOwnsClock.load(std::memory_order_relaxed)));
 }
 
 void SetSynthAudioRenderProvider(SynthAudioRenderProvider provider)
