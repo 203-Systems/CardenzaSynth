@@ -1,6 +1,6 @@
 [submodule "third_party/amy"]
 	path = Library/third_party/amy
-	url = https://github.com/shorepine/amy.git
+	url = https://github.com/203-Systems/amy.git
 [submodule "Devices/Cardenza/cardenza"]
 	path = Devices/Cardenza/cardenza
 	url = https://github.com/203-Systems/CardenzaHAL.git
