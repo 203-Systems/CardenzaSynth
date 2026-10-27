@@ -5,6 +5,11 @@
 
 namespace synth::storage {
 
+void NotifyWriteFailure()
+{
+  os::storage::NotifyWriteFailure();
+}
+
 const os::storage::AppFolder& AppFolder()
 {
   static const os::storage::AppFolder folder(kAppId);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Core/SynthStorage.h"
 
 #include <algorithm>
 #include <array>
@@ -206,6 +207,7 @@ inline bool WriteMono16Wav(const std::string& path, const std::int16_t* frames,
   {
     return false;
   }
+  const auto failed = [] { storage::NotifyWriteFailure(); return false; };
   std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
   const auto bytes = static_cast<std::uint32_t>(frameCount * sizeof(std::int16_t));
   file.write("RIFF", 4);
@@ -226,14 +228,14 @@ inline bool WriteMono16Wav(const std::string& path, const std::int16_t* frames,
   if (!file)
   {
     std::remove(temporary.c_str());
-    return false;
+    return failed();
   }
 
   const bool hadOriginal = std::ifstream(path, std::ios::binary).good();
   if (hadOriginal && std::rename(path.c_str(), backup.c_str()) != 0)
   {
     std::remove(temporary.c_str());
-    return false;
+    return failed();
   }
   if (std::rename(temporary.c_str(), path.c_str()) != 0)
   {
@@ -243,7 +245,7 @@ inline bool WriteMono16Wav(const std::string& path, const std::int16_t* frames,
       (void)std::rename(backup.c_str(), path.c_str());
     }
     std::remove(temporary.c_str());
-    return false;
+    return failed();
   }
   if (hadOriginal)
   {

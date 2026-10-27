@@ -1232,6 +1232,7 @@ void TestSongCueAndToggle() {
 }
 }  // namespace
 namespace synth::storage {
+void NotifyWriteFailure() {}
 std::string ProjectDirectory() { return projectDirectory.string(); }
 bool EnsureLayout() { return std::filesystem::is_directory(projectDirectory); }
 }

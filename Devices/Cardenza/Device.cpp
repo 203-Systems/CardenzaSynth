@@ -279,6 +279,13 @@ bool IsMounted() {
   return CardenzaHAL::Storage::IsMounted();
 }
 
+void NotifyWriteFailure() {
+  if (CardenzaHAL::Storage::IsMounted() && !CardenzaHAL::Storage::CheckAfterIoError()) {
+    mountAttempted = true;
+    lastMountAttemptUs = esp_timer_get_time();
+  }
+}
+
 std::uint64_t CapacityBytes() {
   return IsMounted() ? CardenzaHAL::Storage::GetCapacity() : 0;
 }

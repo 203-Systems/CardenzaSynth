@@ -299,7 +299,11 @@ bool Settings::Flush()
 {
   if (!dirty_) return true;
   std::vector<SettingsEntry> merged;
-  if (!ReadCardSettings(path_, merged)) return false;
+  if (!ReadCardSettings(path_, merged))
+  {
+    NotifyWriteFailure(); // A failed pre-save read may be the first sign of removal.
+    return false;
+  }
   ApplyEdits(merged);
   const std::string text = FormatSettings(merged, FileHeader());
   if (text.size() > kMaxSettingsFileBytes || !CreateDirectories(ParentPath(path_)) || !WriteFileAtomic(path_, text)) return false;

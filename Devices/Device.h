@@ -151,6 +151,9 @@ std::string RootPath();
 // may limit how often a missing card is probed.
 bool Mount();
 bool IsMounted();
+// Notify after a failed filesystem write and after closing its file handles.
+// The device may probe the card; ordinary file errors do not imply removal.
+void NotifyWriteFailure();
 // Size and free space of the mounted card in bytes (0 when unknown).
 std::uint64_t CapacityBytes();
 std::uint64_t FreeBytes();

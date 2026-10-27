@@ -23,6 +23,7 @@ void Require(bool passed, const char* message)
 }
 
 namespace synth::storage {
+void NotifyWriteFailure() {}
 std::string PresetDirectory(std::string_view instrument) { return (storageRoot / std::string(instrument)).string(); }
 bool EnsureLayout() { return true; }  // No user banks or filesystem writes are needed by this test.
 }

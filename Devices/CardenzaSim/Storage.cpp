@@ -56,6 +56,8 @@ void SetCardInserted(bool inserted) {
 
 namespace Device::Storage {
 
+void NotifyWriteFailure() {} // Host filesystem failures do not unmount its volume.
+
 std::string RootPath() {
   return CardDirectory().generic_string();
 }

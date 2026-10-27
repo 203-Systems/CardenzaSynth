@@ -218,7 +218,11 @@ bool CreateDirectories(const std::string& path)
     const std::string prefix = path.substr(0, next);
     position = next;
     if (prefix.empty() || prefix == "/" || IsDirectory(prefix)) continue;
-    if (mkdir(prefix.c_str(), 0775) != 0 && !IsDirectory(prefix)) return false;
+    if (mkdir(prefix.c_str(), 0775) != 0 && !IsDirectory(prefix))
+    {
+      NotifyWriteFailure();
+      return false;
+    }
   }
   return IsDirectory(path);
 }
@@ -305,13 +309,20 @@ std::vector<DirectoryEntry> ListDirectory(const std::string& path)
 
 #endif
 
+void NotifyWriteFailure()
+{
+  Device::Storage::NotifyWriteFailure();
+}
+
 bool WriteFileAtomic(const std::string& path, std::string_view contents)
 {
-  if (path.empty() || !IsDirectory(ParentPath(path))) return false;
+  if (path.empty()) return false;
+  const auto failed = [] { NotifyWriteFailure(); return false; };
+  if (!IsDirectory(ParentPath(path))) return failed();
   const std::string temporary = path + ".tmp";
   const std::string backup = path + ".bak";
   std::FILE* file = std::fopen(temporary.c_str(), "wb");
-  if (file == nullptr) return false;
+  if (file == nullptr) return failed();
   bool written = contents.empty() || std::fwrite(contents.data(), 1, contents.size(), file) == contents.size();
   written = std::fflush(file) == 0 && written;
 #if defined(ESP_PLATFORM)
@@ -321,7 +332,7 @@ bool WriteFileAtomic(const std::string& path, std::string_view contents)
   if (!written)
   {
     std::remove(temporary.c_str());
-    return false;
+    return failed();
   }
   // FAT and Windows cannot rename over a file: keep the old one as the backup until the new one
   // is in place, so an interruption leaves either the old file, the backup or the new file.
@@ -331,19 +342,19 @@ bool WriteFileAtomic(const std::string& path, std::string_view contents)
     if (IsFile(backup) && std::remove(backup.c_str()) != 0)
     {
       std::remove(temporary.c_str());
-      return false;
+      return failed();
     }
     if (std::rename(path.c_str(), backup.c_str()) != 0)
     {
       std::remove(temporary.c_str());
-      return false;
+      return failed();
     }
   }
   if (std::rename(temporary.c_str(), path.c_str()) != 0)
   {
     if (existing) std::rename(backup.c_str(), path.c_str());
     std::remove(temporary.c_str());
-    return false;
+    return failed();
   }
   // The new file replaces both the old one and a backup left by an earlier interruption.
   if (IsFile(backup)) std::remove(backup.c_str());

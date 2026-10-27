@@ -35,6 +35,7 @@ void NoteOn(std::size_t, std::uint8_t, std::uint8_t) {}
 void NoteOff(std::size_t, std::uint8_t) {}
 }
 namespace synth::storage {
+void NotifyWriteFailure() {}
 std::string SampleDirectory() { return testDirectory.string(); }
 bool EnsureLayout() { return true; }
 }

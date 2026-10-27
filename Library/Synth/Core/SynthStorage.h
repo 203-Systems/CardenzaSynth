@@ -19,5 +19,7 @@ std::string SessionDirectory();
 // Creates every folder above, the preset folder of each engine included. False without a
 // writable card.
 bool EnsureLayout();
+// The host checks removable media after a serializer closes a failed write.
+void NotifyWriteFailure();
 
 }  // namespace synth::storage

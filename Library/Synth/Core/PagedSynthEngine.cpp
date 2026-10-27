@@ -332,7 +332,11 @@ bool PagedSynthEngine::SavePreset(const std::string& presetId, const std::string
     return false;
   }
   // Refresh the shared bank before selecting an ID; other tracks can save the same engine kind.
-  if (!ReadUserPresets()) return false;
+  if (!ReadUserPresets())
+  {
+    storage::NotifyWriteFailure();
+    return false;
+  }
   const std::string resolvedId = presetId.empty() ? NextUserPresetId() : presetId;
   auto iterator = std::find_if(presets_.begin(), presets_.end(), [&](const PresetState& preset) {
     return preset.info.id == resolvedId;
@@ -354,8 +358,9 @@ bool PagedSynthEngine::SavePreset(const std::string& presetId, const std::string
   const std::string path = PresetBankPath(descriptor_);
   const std::string temporary = path + ".tmp";
   const std::string backup = path + ".bak";
+  const auto failed = [] { storage::NotifyWriteFailure(); return false; };
   std::ofstream file(temporary, std::ios::trunc | std::ios::binary);
-  if (!file) return false;
+  if (!file) return failed();
   file << "CARDENZA_PRESETS 1 " << std::quoted(descriptor_.id) << '\n';
   const auto write = [&](const SynthEngineState& state) {
     file << std::quoted(state.presetId) << ' ' << std::quoted(state.presetName) << ' '
@@ -371,19 +376,19 @@ bool PagedSynthEngine::SavePreset(const std::string& presetId, const std::string
   file.flush();
   const bool written = file.good();
   file.close();
-  if (!written || file.fail()) { std::remove(temporary.c_str()); return false; }
+  if (!written || file.fail()) { std::remove(temporary.c_str()); return failed(); }
 
   const bool exists = std::ifstream(path, std::ios::binary).good();
   if (exists)
   {
     std::remove(backup.c_str());
-    if (std::rename(path.c_str(), backup.c_str()) != 0) { std::remove(temporary.c_str()); return false; }
+    if (std::rename(path.c_str(), backup.c_str()) != 0) { std::remove(temporary.c_str()); return failed(); }
   }
   if (std::rename(temporary.c_str(), path.c_str()) != 0)
   {
     if (exists) std::rename(backup.c_str(), path.c_str());
     std::remove(temporary.c_str());
-    return false;
+    return failed();
   }
   if (exists) std::remove(backup.c_str());
   (void)ReadUserPresets();

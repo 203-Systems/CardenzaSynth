@@ -79,5 +79,6 @@ mark cells:1,1-1,3 = VOLUME · KEY LED · SCREEN
 
 - Without a writable SD card, changed device and app settings stay only in RAM. The system retries saving them when the card becomes available; they are lost if you power off first.
 - Projects, sounds and samples need the SD card; saving without one reports an error.
+- The hardware checks card connectivity after a failed save and retries a lost card after about five seconds. A full card still counts as present; it needs free space before saving can succeed.
 
 <!-- keywords: no sd card, card missing, storage error, cannot save, sd card not found, 没有卡 -->

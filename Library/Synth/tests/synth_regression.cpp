@@ -37,6 +37,7 @@ void* operator new[](std::size_t size, const std::nothrow_t&) noexcept
   try { return ::operator new[](size); } catch (...) { return nullptr; }
 }
 namespace synth::storage {
+void NotifyWriteFailure() {}
 std::string PresetDirectory(std::string_view instrument) { return (storageRoot / std::string(instrument)).string(); }
 bool EnsureLayout()
 {

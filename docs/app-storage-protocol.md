@@ -99,6 +99,13 @@ and untouched card keys are preserved. This preparation also runs before an app 
 A card inserted after boot can therefore supply settings from the current layout without being
 replaced by startup defaults. Older storage locations are not searched or imported.
 
+On hardware, a failed save (including its prerequisite file reads) checks whether the SD card still
+responds. File-level failures such as a full card keep a responding card mounted. A nonresponding
+card clears the known mount state and capacity; the next delayed mount attempt tears down the old
+driver context before mounting again. Writers notify only after closing files and completing any
+rollback. Successful writes and normal frames do not add card-status commands; removal is therefore
+noticed on a failed save rather than by continuous polling.
+
 After successful card recovery, the OS applies device volume, key LED brightness and screen
 backlight immediately. The Synth settings cache is also refreshed, but app preferences take effect the next time the app runs `Setup()`; inserting a card does not
 replace the live project or its play controls.

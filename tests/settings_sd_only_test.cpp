@@ -18,6 +18,7 @@ namespace {
 
 fs::path cardRoot;
 bool cardInserted = true;
+unsigned writeFailureChecks = 0;
 
 void Require(bool condition, const char* message)
 {
@@ -189,9 +190,32 @@ void TolerantFormatAndRegistryRefresh()
           "registry refresh/flush failed to merge disk keys");
 }
 
+void FailedSaveNotifications()
+{
+  const std::string path = Path("write-notification.cfg");
+  const auto before = writeFailureChecks;
+  Require(os::storage::WriteFileAtomic(path, "value=1\n") && writeFailureChecks == before,
+          "a successful write added a card-status check");
+  fs::create_directory(path + ".tmp");
+  Require(!os::storage::WriteFileAtomic(path, "value=2\n") && writeFailureChecks == before + 1,
+          "failed atomic write did not notify the device");
+  fs::remove(path + ".tmp");
+  os::storage::Settings settings("test", path);
+  settings.Load();
+  settings.SetInt("value", 3);
+  fs::remove(path);
+  fs::create_directory(path); // prerequisite read fails before any write can open
+  Require(!settings.Flush() && settings.Dirty() && writeFailureChecks == before + 2,
+          "a failed pre-save read bypassed card recovery");
+  fs::remove(path);
+  Require(settings.Flush() && !settings.Dirty(), "save did not recover after an I/O failure");
+}
+
 }  // namespace
 
 namespace Device::Storage {
+
+void NotifyWriteFailure() { ++writeFailureChecks; }
 
 std::string RootPath() { return cardRoot.generic_string(); }
 bool Mount() { return cardInserted && fs::is_directory(cardRoot); }
@@ -211,6 +235,7 @@ int main()
     ReadFailureAndWriteFailureKeepEdits();
     SizeLimitAndRecovery();
     TolerantFormatAndRegistryRefresh();
+    FailedSaveNotifications();
     std::cout << "SD-only settings tests passed\n";
     return 0;
   }

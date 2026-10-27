@@ -42,6 +42,7 @@ std::uint8_t outputVolume = Device::Audio::kDefaultOutputVolume;
 // device IO, audio rendering, pixels and the synth's storage folders are replaced: this is a
 // state/flow test.
 namespace synth::storage {
+void NotifyWriteFailure() {}
 std::string SampleDirectory() { return (storageRoot / "Sample").string(); }
 std::string ProjectDirectory() { return (storageRoot / "Project").string(); }
 std::string PresetDirectory(std::string_view instrument) { return (storageRoot / "Preset" / std::string(instrument)).string(); }

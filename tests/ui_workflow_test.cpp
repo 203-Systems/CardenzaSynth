@@ -20,6 +20,7 @@ namespace Device {
 std::string BackendName() { return "test"; }
 }
 namespace synth::storage {
+void NotifyWriteFailure() {}
 std::string SampleDirectory() { return "missing-sample-directory"; }
 bool EnsureLayout() { return false; }
 }

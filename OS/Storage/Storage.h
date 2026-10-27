@@ -94,6 +94,8 @@ std::vector<DirectoryEntry> ListDirectory(const std::string& path);
 // closed first; an existing file stays as <path>.bak until the new one is in place, because FAT and
 // Windows cannot rename over a file. The parent folder must exist.
 bool WriteFileAtomic(const std::string& path, std::string_view contents);
+// For streaming serializers: notify only after failed file I/O and close/rollback.
+void NotifyWriteFailure();
 // Reads `path`, or <path>.bak when an interrupted write left only the backup. Fails for files over
 // `maxBytes`.
 bool ReadFileWithBackup(const std::string& path, std::string& contents, std::size_t maxBytes);
