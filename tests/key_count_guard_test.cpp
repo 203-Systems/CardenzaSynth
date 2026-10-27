@@ -34,19 +34,19 @@ struct Keyboard {
 void LegitimateChordsAndLimit()
 {
   Keyboard keyboard;
-  for (int x = 1; x <= 9; ++x) keyboard.Physical(x, 3, true);
-  keyboard.Physical(0, 2, true); // FN plus nine notes.
+  for (int x = 1; x <= 3; ++x) keyboard.Physical(x, 3, true);
+  keyboard.Physical(0, 2, true); // FN plus three notes.
   keyboard.Settle();
-  Require(Count(keyboard.keys.Rows()) == 10 && !keyboard.keys.InterferenceActive(),
+  Require(Count(keyboard.keys.Rows()) == 4 && !keyboard.keys.InterferenceActive(),
           "normal chord plus modifier was restricted");
   const auto held = keyboard.keys.Rows();
-  keyboard.Physical(0, 1, true); // TAB would be key eleven.
+  keyboard.Physical(0, 1, true); // TAB would be key five.
   keyboard.Settle();
   Require(keyboard.keys.Rows() == held && keyboard.keys.InterferenceActive() && !keyboard.keys.Pending(),
           "excess keys leaked through or caused perpetual task work");
   keyboard.Physical(0, 2, false);
   keyboard.Settle();
-  Require(Count(keyboard.keys.Rows()) == 9 && !(keyboard.keys.Rows()[6] & 1),
+  Require(Count(keyboard.keys.Rows()) == 3 && !(keyboard.keys.Rows()[6] & 1),
           "release was lost or rejected TAB appeared after the count fell");
   Keyboard rectangle;
   rectangle.raw[0] = rectangle.raw[4] = 3;
@@ -69,15 +69,15 @@ void NoiseBurstPreservesReleases()
           "confirmed note-off was blocked during interference");
   std::fill(std::begin(keyboard.raw), std::end(keyboard.raw), 0);
   keyboard.raw[0] = 2;
-  keyboard.raw[3] = 0x1f; // Five previously blocked keys stay held.
+  keyboard.raw[3] = 0x07; // Three previously blocked keys stay held.
   keyboard.Settle();
   Require(Count(keyboard.keys.Rows()) == 1 && !keyboard.keys.Pending(),
           "noise clearing injected delayed notes or kept waking the task");
   keyboard.raw[3] = 0;
   keyboard.Settle();
-  keyboard.raw[3] = 0x1f;
+  keyboard.raw[3] = 0x07;
   keyboard.Settle();
-  Require(Count(keyboard.keys.Rows()) == 6 && !keyboard.keys.InterferenceActive(),
+  Require(Count(keyboard.keys.Rows()) == 4 && !keyboard.keys.InterferenceActive(),
           "fresh presses did not recover after a stable release");
 }
 
@@ -115,13 +115,13 @@ void IndependentRowPublication()
 {
   CardenzaHAL::Keyboard::detail::KeyCountGuard guard;
   Rows debounced{};
-  debounced[0] = 0x7f; debounced[1] = 7;
+  debounced[0] = 3; debounced[1] = 3;
   Require(guard.Publish(debounced), "initial confirmed keys were lost");
   debounced[2] = 1;
-  Require(!guard.Publish(debounced) && Count(guard.Accepted()) == 10,
-          "independent row timing published more than ten keys");
-  debounced[0] = 0x1f;
-  Require(guard.Publish(debounced) && Count(guard.Accepted()) == 8,
+  Require(!guard.Publish(debounced) && Count(guard.Accepted()) == 4,
+          "independent row timing published more than four keys");
+  debounced[0] = 1;
+  Require(guard.Publish(debounced) && Count(guard.Accepted()) == 3,
           "publication lost old releases or admitted a quarantined key");
 }
 
@@ -142,8 +142,8 @@ void RandomScans()
       for (unsigned column = 0; column < 7; ++column) rawCount += (row >> column) & 1;
     keyboard.Poll(random() % 5000);
     const auto& reported = keyboard.keys.Rows();
-    Require(Count(reported) <= 10, "random scan exceeded the published limit");
-    if (rawCount > 10)
+    Require(Count(reported) <= 4, "random scan exceeded the published limit");
+    if (rawCount > 4)
       for (unsigned row = 0; row < 8; ++row)
         Require(!(reported[row] & ~previous[row]), "excess count injected a new press");
   }

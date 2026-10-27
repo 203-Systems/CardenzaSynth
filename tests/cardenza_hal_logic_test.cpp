@@ -59,11 +59,11 @@ void TestDebounceIndependentRowsAndClockWrap()
 
   KeyDebouncer wrap;
   uint8_t nearWrap[8]{};
-  nearWrap[3] = 0x7f;
+  nearWrap[3] = 0x0f;
   const uint32_t start = (std::numeric_limits<uint32_t>::max)() - 999;
   Require(!wrap.Update(nearWrap, start) && wrap.Pending(), "wrap fixture bypassed debounce");
   Require(!wrap.Update(nearWrap, start + uint32_t{2999}), "clock wrap shortened debounce");
-  Require(wrap.Update(nearWrap, start + uint32_t{3000}) && wrap.Rows()[3] == 0x7f && !wrap.Pending(),
+  Require(wrap.Update(nearWrap, start + uint32_t{3000}) && wrap.Rows()[3] == 0x0f && !wrap.Pending(),
           "clock wrap lost held keys");
 }
 
