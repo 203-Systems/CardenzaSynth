@@ -501,11 +501,23 @@ SYNTH_FX_HOT std::uint8_t ApplyTrackGainToAmyVoice(std::uint16_t osc, std::int32
 
   if (startQ16 != kTrackGainUnityQ16 || endQ16 != kTrackGainUnityQ16)
   {
-    const std::int32_t deltaQ16 = endQ16 - startQ16;
-    for (std::uint16_t index = 0; index < length; ++index)
+    if (startQ16 == endQ16)
     {
-      const std::int64_t gainQ16 = startQ16 + (deltaQ16 * static_cast<std::int32_t>(index)) / static_cast<std::int32_t>(length);
-      buffer[index] = static_cast<std::int32_t>((static_cast<std::int64_t>(buffer[index]) * gainQ16) >> 16);
+      // A settled fader needs only the Q16 multiply. Keep the signed multiply/shift identical
+      // to the ramp path, without doing a division by the block length for every sample.
+      for (std::uint16_t index = 0; index < length; ++index)
+      {
+        buffer[index] = static_cast<std::int32_t>((static_cast<std::int64_t>(buffer[index]) * startQ16) >> 16);
+      }
+    }
+    else
+    {
+      const std::int32_t deltaQ16 = endQ16 - startQ16;
+      for (std::uint16_t index = 0; index < length; ++index)
+      {
+        const std::int64_t gainQ16 = startQ16 + (deltaQ16 * static_cast<std::int32_t>(index)) / static_cast<std::int32_t>(length);
+        buffer[index] = static_cast<std::int32_t>((static_cast<std::int64_t>(buffer[index]) * gainQ16) >> 16);
+      }
     }
   }
   // Sends only: the (post-fader) voice also feeds the delay and reverb sends.
@@ -2249,9 +2261,10 @@ bool FxBusAvailable(std::size_t bus)
 
 void WarmUp()
 {
-  std::array<std::int16_t, kAmyFramesPerBlock> scratch{};
   std::lock_guard<std::mutex> lock(g_renderMutex);
-  (void)RenderFramesNoLock(scratch.data(), scratch.size());
+  // Allocate the backend before the device starts requesting audio. Engine changes remain
+  // queued for the render thread; rendering scratch audio here would skip live voices and tails.
+  EnsureAmyInitialized();
 }
 
 std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
