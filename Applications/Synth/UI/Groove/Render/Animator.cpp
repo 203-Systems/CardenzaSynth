@@ -276,6 +276,13 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
 
 void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame, std::array<std::uint8_t, kKeyCount>& levels) const
 {
+  // Begin() publishes LEDs before the first Tick() starts the boot timeline.
+  // Keep that frame dark instead of briefly showing the working keyboard.
+  if (!primed_)
+  {
+    levels.fill(0);
+    return;
+  }
   const UiState& state = controller.State();
   const Host& host = controller.HostView();
   const std::uint32_t now = now_;

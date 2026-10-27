@@ -1292,6 +1292,15 @@ int main()
   assert(os::system::Begin());
   auto* app = dynamic_cast<apps::GrooveApp*>(os::system::ActiveApplication());
   assert(app != nullptr);
+  // Before the first Tick starts the boot animation, no working-keyboard frame
+  // may flash onto the LEDs. Repeated publication must also remain dark.
+  for (int frame = 0; frame < 3; ++frame)
+  {
+    app->UpdateLeds();
+    for (std::size_t row = 0; row < groove::kRows; ++row)
+      for (std::size_t column = 0; column < groove::kColumns; ++column)
+        assert(Device::LED::Brightness(row, column) == 0);
+  }
   app->UseClock(&FakeClock);
   Harness h(*app);
   h.Frames(4);
