@@ -36,6 +36,7 @@ public:
   std::string CurrentPresetId() const override;
   std::string CurrentPresetName() const override;
   SynthEngineState CaptureState() const override;
+  SynthEngineState CaptureChanges() const override;
   bool RestoreState(const SynthEngineState& state) override;
   bool RefreshPresetCatalog() override;
   bool CanReplace(const ISynthEngine& previous) const override;

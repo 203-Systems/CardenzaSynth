@@ -147,6 +147,12 @@ inline constexpr std::array<ScaleDefinition, 14> kScales{{
 inline constexpr std::array<const char*, 12> kNoteNames{{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}};
 inline constexpr std::array<const char*, 3> kLayoutNames{{"PIANO", "SCALE", "CHROMA"}};
 inline constexpr std::array<std::uint8_t, 8> kDrumNotes{{36, 38, 42, 46, 39, 43, 56, 70}};
+// On a drum track a column of pads is one drum and its rows are how hard: top row hardest.
+inline constexpr std::array<std::uint8_t, 4> kDrumRowVelocity{{127, 100, 70, 40}};
+constexpr std::size_t DrumRowForVelocity(std::uint8_t velocity)
+{
+  return velocity >= 114 ? 0 : velocity >= 85 ? 1 : velocity >= 55 ? 2 : 3;
+}
 inline constexpr std::array<const char*, 8> kDrumNames{{"BD", "SD", "CH", "OH", "CP", "TM", "CB", "MA"}};
 
 // What one pad press plays. TRIAD and 7TH stack thirds inside the scale (a key outside the scale

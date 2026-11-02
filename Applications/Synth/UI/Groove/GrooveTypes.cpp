@@ -48,9 +48,13 @@ bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std:
     {
       static constexpr std::array<int, 7> kWhite{{0, 2, 4, 5, 7, 9, 11}};
       static constexpr std::array<int, 7> kBlack{{-1, 1, 3, -1, 6, 8, 10}};
+      // C sits in the middle of the keys, as on an OP-1, not in a corner. From the top: the next
+      // octave's white keys, this octave's black keys, its white keys starting on C, and at the
+      // bottom the black keys of the octave below.
+      static constexpr std::array<int, kRows> kRowOctave{{1, 0, 0, -1}};
       const std::size_t key = x % kWhite.size();
-      const int octave = static_cast<int>(y / 2 + x / kWhite.size()) * 12;
-      const int offset = (y % 2) == 0 ? kWhite[key] : kBlack[key];
+      const int octave = (kRowOctave[row] + static_cast<int>(x / kWhite.size())) * 12;
+      const int offset = row % 2 == 0 ? kWhite[key] : kBlack[key];
       if (offset < 0) return false;
       note = base + octave + offset;
       break;

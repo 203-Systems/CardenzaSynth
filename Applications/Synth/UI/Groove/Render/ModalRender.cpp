@@ -18,7 +18,6 @@ using widgets::Cell;
 using widgets::CellSpan;
 using widgets::CellStyle;
 
-constexpr std::size_t kVisibleRows = 9;
 
 void Title(Gfx& g, const std::string& title, Color color)
 {
@@ -37,24 +36,25 @@ void DrawList(Gfx& g, const Controller& controller, Animator& animator, const Mo
     if (modal.search.empty()) g.Text(x + 10, kContentY, "FN+F SEARCH", kFaint);
   }
   char count[16];
-  std::snprintf(count, sizeof(count), "%u/%u", static_cast<unsigned>(modal.items.empty() ? 0 : modal.cursor + 1), static_cast<unsigned>(modal.items.size()));
+  std::snprintf(count, sizeof(count), "%u/%u", static_cast<unsigned>(modal.Count() == 0 ? 0 : modal.cursor + 1), static_cast<unsigned>(modal.Count()));
   g.Text(kContentRight - Gfx::Measure(count), kContentY, count, kDim);
   g.DottedHLine(kContentX, listTop - 2, kContentWidth, kFaint);
-  if (modal.items.empty())
+  if (modal.Count() == 0)
   {
     g.TextAligned(Rect{kContentX, listTop, kContentWidth, 60}, searchable && !modal.search.empty() ? "NO MATCH" : "EMPTY", kDim, Font::Micro, Align::Center);
     return;
   }
-  const std::size_t first = modal.cursor >= kVisibleRows ? modal.cursor - kVisibleRows + 1 : 0;
+  const std::size_t first = ListFirstRow(modal.cursor);
   // The highlight glides between rows; rows type in when the list opens.
   const float barY = animator.Smooth(Animator::Key("list-cursor", static_cast<std::uint32_t>(modal.kind)),
                                      static_cast<float>(listTop + static_cast<int>(modal.cursor - first) * 10), 40.0f);
   g.Fill(Rect{kContentX, static_cast<int>(std::lround(barY)), kContentWidth - 6, 9}, kInk);
   const float opened = fx::Clamp01(static_cast<float>(animator.Now() - animator.ModalOpenedAt()) / 260.0f);
-  for (std::size_t row = 0; row < kVisibleRows && first + row < modal.items.size(); ++row)
+  for (std::size_t row = 0; row < kListVisibleRows && first + row < modal.Count(); ++row)
   {
-    const std::size_t index = first + row;
-    const auto& item = modal.items[index];
+    const ListItem* listed = modal.Row(first + row);
+    if (listed == nullptr) continue;
+    const auto& item = *listed;
     const int y = listTop + 1 + static_cast<int>(row) * 10;
     const bool covered = std::fabs(static_cast<float>(y - 1) - barY) < 5.0f;
     const float reveal = fx::Clamp01(opened * 3.0f - static_cast<float>(row) * 0.25f);
@@ -63,7 +63,7 @@ void DrawList(Gfx& g, const Controller& controller, Animator& animator, const Mo
     label.resize(std::min(label.size(), static_cast<std::size_t>(reveal * static_cast<float>(label.size()) + 0.5f)));
     g.TextFit(kContentX + 10, y, kContentWidth - 18, label, covered ? kBlack : kInk);
   }
-  widgets::ScrollIndicator(g, Rect{kContentRight - 2, listTop, 1, static_cast<int>(kVisibleRows) * 10}, first, kVisibleRows, modal.items.size());
+  widgets::ScrollIndicator(g, Rect{kContentRight - 2, listTop, 1, static_cast<int>(kListVisibleRows) * 10}, first, kListVisibleRows, modal.Count());
 }
 
 void DrawTextEntry(Gfx& g, const Controller& controller, Animator& animator, const Modal& modal)
@@ -189,7 +189,7 @@ void DrawSampleRecord(Gfx& g, const Controller& controller, Animator& animator)
   Title(g, "RECORD SAMPLE  T" + std::to_string(state.track + 1), kTab);
   g.Text(kContentX, kContentY + 22, "READY", kInk, Font::Large);
   char limit[24];
-  std::snprintf(limit, sizeof(limit), "MIC  %.1fS MAX", maxSeconds);
+  std::snprintf(limit, sizeof(limit), "MIC  %uS MAX", static_cast<unsigned>(synth::SamplerManager::kMaxRecordSeconds));
   g.Text(kContentX, kContentY + 44, limit, kDim);
   g.Text(kContentX, kContentY + 62, "INPUT", kDim);
   widgets::LevelBar(g, Rect{kContentX + 36, kContentY + 63, kContentWidth - 36, 5}, sampler.inputLevel, kPlay, kFaint);
@@ -208,7 +208,7 @@ void DrawRecord(Gfx& g, const Controller& controller, Animator& animator)
       {"REC", armed ? "ON" : "OFF"},
       {"SNAP", rec.snap ? "STEPS" : "FREE"},
       {"STEP", "+" + std::to_string(rec.stepLength)},
-      {"VIEW", rec.view == SeqView::Roll ? "ROLL" : "STEP"},
+      {"VIEW", controller.DrumLayout() ? "DRUMS" : rec.view == SeqView::Roll ? "ROLL" : "STEP"},
   }};
   for (std::size_t index = 0; index < settings.size(); ++index)
   {
@@ -242,7 +242,7 @@ void DrawRecord(Gfx& g, const Controller& controller, Animator& animator)
     const std::uint32_t span = std::max<std::uint32_t>(1, take->endedAt - take->startedAt);
     for (std::size_t index = 0; index < take->count; ++index)
     {
-      const auto& note = take->notes[index];
+      const auto& note = rec.TakeNote(*take, index);
       const int x = cell.x + 5 + static_cast<int>(static_cast<std::uint64_t>(note.startMs) * static_cast<std::uint64_t>(cell.width - 8) / span);
       g.Pixel(x, cell.y + cell.height - 3 - (note.note % 12) / 4, focused ? kBlack : color);
     }
@@ -266,8 +266,18 @@ void DrawRecord(Gfx& g, const Controller& controller, Animator& animator)
   }
   const std::size_t bars = controller.TakeBars(*take);
   const std::size_t bar = std::min<std::size_t>(rec.takeBar, bars - 1);
-  std::array<Controller::PlacedNote, kCaptureNotes> notes{};
-  const std::size_t count = controller.TakeBarNotes(*take, bar, notes);
+  // No copy of the notes on the stack: a take can have 400 of them.
+  struct Lane {
+    int low = 127, high = 0;
+    std::size_t count = 0;
+  } range;
+  controller.ForEachTakeBarNote(*take, bar, [](const Controller::PlacedNote& note, void* context) {
+    auto& lane = *static_cast<Lane*>(context);
+    lane.low = std::min<int>(lane.low, note.note);
+    lane.high = std::max<int>(lane.high, note.note);
+    ++lane.count;
+  }, &range);
+  const std::size_t count = range.count;
   const std::size_t steps = std::max<std::size_t>(1, controller.HostView().Sequencer().TrackStepCount(take->track));
   const int labelWidth = 44;
   char barLabel[24];
@@ -277,22 +287,23 @@ void DrawRecord(Gfx& g, const Controller& controller, Animator& animator)
   g.Text(area.x + 2, area.y + 13, age < 60 ? std::to_string(age) + "S AGO" : std::to_string(age / 60) + "M AGO", kFaint, Font::Micro);
   const Rect lane{area.x + labelWidth, area.y + 2, area.width - labelWidth - 2, area.height - 4};
   g.Stroke(lane, kShade);
-  int low = 127, high = 0;
-  for (std::size_t index = 0; index < count; ++index)
-  {
-    low = std::min<int>(low, notes[index].note);
-    high = std::max<int>(high, notes[index].note);
-  }
-  const int span = std::max(1, high - low);
-  for (std::size_t index = 0; index < count; ++index)
-  {
-    const auto& note = notes[index];
-    const int x = lane.x + 1 + static_cast<int>((note.step * synth::kSequencerPulsesPerStep + note.microstep * synth::kSequencerPulsesPerMicrostep) *
-                                                (lane.width - 2) / (steps * synth::kSequencerPulsesPerStep));
-    const int width = std::max(2, static_cast<int>(note.lengthPulses * (lane.width - 2) / (steps * synth::kSequencerPulsesPerStep)));
-    const int y = lane.y + lane.height - 3 - (note.note - low) * (lane.height - 4) / span;
-    g.Fill(Rect{x, y, std::min(width, lane.x + lane.width - 1 - x), 2}, TrackColor(take->track));
-  }
+  struct Drawing {
+    Gfx& g;
+    Rect lane;
+    int low;
+    int span;
+    std::size_t steps;
+    Color color;
+  } drawing{g, lane, range.low, std::max(1, range.high - range.low), steps, TrackColor(take->track)};
+  controller.ForEachTakeBarNote(*take, bar, [](const Controller::PlacedNote& note, void* context) {
+    auto& target = *static_cast<Drawing*>(context);
+    const Rect& area = target.lane;
+    const std::size_t pulses = target.steps * synth::kSequencerPulsesPerStep;
+    const int x = area.x + 1 + static_cast<int>((note.step * synth::kSequencerPulsesPerStep + note.microstep * synth::kSequencerPulsesPerMicrostep) * (area.width - 2) / pulses);
+    const int width = std::max(2, static_cast<int>(note.lengthPulses * (area.width - 2) / pulses));
+    const int y = area.y + area.height - 3 - (note.note - target.low) * (area.height - 4) / target.span;
+    target.g.Fill(Rect{x, y, std::min(width, area.x + area.width - 1 - x), 2}, target.color);
+  }, &drawing);
   if (count == 0) g.TextAligned(lane, "NO NOTES IN THIS BAR", kFaint, Font::Micro, Align::Center);
 }
 

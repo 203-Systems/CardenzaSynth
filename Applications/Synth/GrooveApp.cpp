@@ -31,7 +31,21 @@ namespace {
 
 // Session handover files in Apps/Cardenza/Synth/Session.
 constexpr const char* kSessionProject = "session.ccproj";
-constexpr const char* kSessionState = "session.cfg";
+// After a key: this much quiet, or this long at most while something is playing.
+constexpr std::uint32_t kSessionQuietMs = 1500;
+constexpr std::uint32_t kSessionLongestWaitMs = 60000;
+constexpr std::uint32_t kSessionRetryMs = 2000;
+constexpr std::uint32_t kSessionFailedRetryMs = 30000;
+constexpr std::uint32_t kCardCheckMs = 2000;
+constexpr std::uint32_t kCardProbeMs = 10000;
+constexpr std::uint32_t kOrphanCheckMs = 200;
+constexpr std::uint32_t kOrphanConfirmMs = 50;
+#if defined(ESP_PLATFORM)
+// What the autosave needs at the same time, with a record as one block.
+constexpr std::size_t kSessionHeapBytes = 12 * 1024;
+constexpr std::size_t kSessionBlockBytes = 5 * 1024;
+constexpr std::size_t kProjectSaveHeapBytes = 8 * 1024;
+#endif
 
 os::storage::Settings& AppSettings()
 {
@@ -74,6 +88,7 @@ GrooveApp::GrooveApp() : controller_(*this) {}
 GrooveApp::~GrooveApp()
 {
   // Silence the engines and hand the sample memory back before the next app starts.
+  sampler_.KeepTakesOnCard();
   sequencer_.ArpReleaseAll();
   sequencer_.Stop();
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
@@ -95,6 +110,7 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
   (void)args;
   if (initialized_) return;
   os::midi::Initialize();
+  synth::audio::SetLineInput(&Device::Audio::ReadComputerAudio);
   sequencer_.SetMidiSink(&GrooveApp::SendSequencerMidi, this);
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
@@ -106,13 +122,21 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
   ApplyMasterFx(synth::ProjectData::DefaultMasterFx());
   // Volume, key LEDs and screen are device settings: the system applied them at boot.
   RestorePlaySettings();
+  // The autosave is in internal flash: it comes back with or without a card.
   (void)RestoreSessionState();
+  cardWasMounted_ = os::storage::CardMounted();
+  if (cardWasMounted_)
+  {
+    const int take = sampler_.RestoreTakes();
+    if (take >= 0) controller_.ResumeTake(static_cast<std::size_t>(take));
+  }
   initialized_ = true;
 }
 
 void GrooveApp::Suspend()
 {
   StorePlaySettings();
+  sampler_.KeepTakesOnCard();
   (void)SaveSessionState();
 }
 
@@ -166,63 +190,118 @@ void GrooveApp::ApplyPlaySettings(const synth::ProjectData& project, groove::Pro
   }
 }
 
-bool GrooveApp::SaveSessionState()
+synth::SessionStore::SaveResult GrooveApp::SaveSessionState()
 {
-  // Without a card there is nowhere to put the project; with an unsaved sampler take the project
-  // cannot be saved (same rule as SAVE). The previous session file is then marked as used up so a
-  // stale state never comes back.
-  const std::string directory = synth::storage::SessionDirectory();
-  if (!synth::storage::EnsureLayout() || directory.empty()) return false;
-  const std::string statePath = os::storage::JoinPath(directory, kSessionState);
   synth::ProjectData project;
   std::string message;
-  const groove::ProjectUiSettings ui = controller_.Settings();
-  std::vector<os::storage::SettingsEntry> state;
-  if (!CaptureProject(ui, project, message) ||
-      synth::SaveProjectFileAt(os::storage::JoinPath(directory, kSessionProject), project) != synth::ProjectResult::Ok)
-  {
-    state = {{"pending", "0"}, {"skipped", message.empty() ? "STORAGE" : message}};
-    (void)os::storage::WriteFileAtomic(statePath, os::storage::FormatSettings(state, "Cardenza/Synth session"));
-    return false;
-  }
+  if (!CaptureProject(controller_.Settings(), project, message, true)) return synth::SessionStore::SaveResult::Failed;
   const auto& view = controller_.State();
-  state = {{"pending", "1"}, {"name", view.projectName}, {"dirty", view.dirty ? "1" : "0"}};
-  return os::storage::WriteFileAtomic(statePath, os::storage::FormatSettings(state, "Cardenza/Synth session"));
+  synth::SessionInfo info;
+  info.name = view.projectName;
+  info.dirty = view.dirty;
+  return session_.Save(info, project);
 }
 
 bool GrooveApp::RestoreSessionState()
 {
-  const std::string directory = synth::storage::SessionDirectory();
-  const std::string statePath = os::storage::JoinPath(directory, kSessionState);
-  std::string text;
-  if (directory.empty() || !os::storage::ReadFileWithBackup(statePath, text, os::storage::kMaxSettingsFileBytes)) return false;
-  std::string name;
-  bool pending = false;
-  bool dirty = false;
-  for (const auto& entry : os::storage::ParseSettings(text))
-  {
-    if (entry.first == "pending") pending = entry.second == "1";
-    else if (entry.first == "name") name = entry.second;
-    else if (entry.first == "dirty") dirty = entry.second == "1";
-  }
-  if (!pending) return false;
-  // Used up before it is applied: a session that fails (or crashes) is not retried at every start.
-  (void)os::storage::WriteFileAtomic(statePath, os::storage::FormatSettings({{"pending", "0"}}, "Cardenza/Synth session"));
+  if (!synth::SessionStore::BeginRestore()) return false;
   synth::ProjectData project;
+  synth::SessionInfo info;
   std::string message;
-  if (synth::LoadProjectFileAt(os::storage::JoinPath(directory, kSessionProject), project) != synth::ProjectResult::Ok ||
-      !ReplaceSession(name, project, false, message))
-    return false;
-  groove::ProjectUiSettings ui = controller_.Settings();
-  ui.activeTrack = project.activeTrack;
-  ApplyPlaySettings(project, ui);
-  // The session comes back with its unsaved state, so loading another project still asks first.
-  controller_.Restore(ui, synth::IsProjectNameValid(name) ? name : std::string(), dirty);
-  return true;
+  const bool restored = session_.Load(info, project) && ReplaceSession(info.name, project, false, message, true);
+  if (restored)
+  {
+    groove::ProjectUiSettings ui = controller_.Settings();
+    // Every project opens on the first track, whichever it was left on.
+    ui.activeTrack = synth::kDefaultActiveTrack;
+    ApplyPlaySettings(project, ui);
+    // The session comes back with its unsaved state, so loading another project still asks first.
+    controller_.Restore(ui, synth::IsProjectNameValid(info.name) ? info.name : std::string(), info.dirty);
+  }
+  synth::SessionStore::FinishRestore();
+  return restored;
 }
+
+// Nothing that could be heard, and no finger on a key.
+bool GrooveApp::Quiet(std::uint32_t now) const
+{
+  return now - lastKeyAt_ >= kSessionQuietMs && keysHeld_ == 0 && !sequencer_.Playing() && sampler_.RecordingTrack() < 0;
+}
+
+// The card comes and goes on its own: what waits for it gets it.
+void GrooveApp::CheckCard(std::uint32_t now)
+{
+  if (now - lastCardCheckAt_ < kCardCheckMs) return;
+  lastCardCheckAt_ = now;
+  // Looking for a card that is not there takes a moment: only for something that waits for it, and
+  // only when nobody is playing.
+  const bool waiting = std::any_of(pendingSamples_.begin(), pendingSamples_.end(), [](const std::string& name) { return !name.empty(); });
+  if (!cardWasMounted_ && waiting && Quiet(now) && now - lastCardProbeAt_ >= kCardProbeMs)
+  {
+    lastCardProbeAt_ = now;
+    (void)os::storage::CardPresent();
+  }
+  const bool mounted = os::storage::CardMounted();
+  if (mounted == cardWasMounted_) return;
+  cardWasMounted_ = mounted;
+  if (!mounted || !synth::storage::EnsureLayout()) return;
+  storageReady_ = true;
+  synth::audio::RetrySampleStreams();
+  ApplyPendingSamples();
+  const int take = sampler_.RestoreTakes();
+  if (take >= 0) controller_.ResumeTake(static_cast<std::size_t>(take));
+}
+
+// The samples the autosave names, for when it came back before the card did.
+void GrooveApp::ApplyPendingSamples()
+{
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    if (pendingSamples_[track].empty()) continue;
+    const std::string name = std::move(pendingSamples_[track]);
+    pendingSamples_[track].clear();
+    if (rack_.Slot(track).kind != synth::SynthEngineKind::Sampler || !sampler_.BuildUiState(track).sampleFileName.empty()) continue;
+    synth::SamplerManager::PreparedSample sample;
+    if (!synth::SamplerManager::PrepareSample(name, sample)) continue;
+    (void)sampler_.ApplySample(track, sample);
+    // The engine already carries the saved trim.
+    (void)sampler_.ConsumeTrimReset(track);
+  }
+}
+
+void GrooveApp::KeepSessionCurrent(std::uint32_t now)
+{
+  if (!sessionChanged_ || sampler_.RecordingTrack() >= 0) return;
+  // Writing to flash can stop both cores for a moment, which sound would notice: so when nothing is
+  // heard, or else only when the changes have waited long enough to be worth that risk.
+  if (!Quiet(now) && now - sessionChangedAt_ < kSessionLongestWaitMs) return;
+  if (now - lastSessionTryAt_ < (autosaveFailureShown_ ? kSessionFailedRetryMs : kSessionRetryMs)) return;
+  lastSessionTryAt_ = now;
+#if defined(ESP_PLATFORM)
+  // A plain allocation that fails ends the program. Later is fine.
+  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < kSessionHeapBytes || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < kSessionBlockBytes) return;
+#endif
+  const auto result = SaveSessionState();
+  if (result == synth::SessionStore::SaveResult::Failed)
+  {
+    if (!autosaveFailureShown_) controller_.ReportAutosaveProblem("AUTOSAVE FAILED: FN+S TO CARD");
+    autosaveFailureShown_ = true;
+    return;
+  }
+  autosaveFailureShown_ = false;
+  sessionChanged_ = false;
+  if (result == synth::SessionStore::SaveResult::Partial)
+  {
+    if (!autosavePartialShown_) controller_.ReportAutosaveProblem("TOO LONG TO AUTOSAVE: FN+S TO CARD");
+    autosavePartialShown_ = true;
+  }
+  else autosavePartialShown_ = false;
+}
+
 
 void GrooveApp::Tick()
 {
+  ReadComputerMidi();
   sampler_.Tick();
   rack_.DispatchPendingMessages();
   SyncSamplerTrim();
@@ -237,6 +316,48 @@ void GrooveApp::Tick()
   controller_.Tick(now);
   animator_.Update(controller_, now);
   StorePlaySettings();
+  CheckCard(now);
+  KeepSessionCurrent(now);
+  EndOrphanNotes(now);
+}
+
+// The safety net under every path that starts a note: the audio side's notes against those someone
+// is sounding (pads, steps, arpeggiator, sample preview). A note nobody claims gets a second look once
+// any note-off on its way has arrived, and if it is still there, its note-off from here.
+void GrooveApp::EndOrphanNotes(std::uint32_t now)
+{
+  // Keys going down and up keep the audio side a moment behind; it can wait until they rest.
+  if (now - lastKeyAt_ < kOrphanCheckMs) return;
+  if (now - lastOrphanCheckAt_ < (orphanCandidates_ ? kOrphanConfirmMs : kOrphanCheckMs)) return;
+  lastOrphanCheckAt_ = now;
+  const std::uint32_t shed = synth::audio::ShedVoiceCount();
+  if (shed != loggedShedVoices_) printf("Groove: too much to render: %u voices shed so far\n", static_cast<unsigned>(shed));
+  loggedShedVoices_ = shed;
+  const bool confirming = orphanCandidates_;
+  orphanCandidates_ = false;
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    const synth::audio::NoteSet held = synth::audio::HeldNotes(track);
+    synth::audio::NoteSet owned{};
+    controller_.AddHeldPadNotes(track, owned);
+    sequencer_.AddSoundingNotes(track, owned);
+    for (std::size_t word = 0; word < owned.size(); ++word) owned[word] |= computerNotes_[track][word];
+    // A sample preview plays the sample's root note, whichever that is.
+    const bool preview = sampler_.Previewing(track);
+    for (std::size_t word = 0; word < held.size(); ++word)
+    {
+      const std::uint32_t orphans = preview ? 0u : held[word] & ~owned[word];
+      for (std::size_t bit = 0; confirming && bit < 32; ++bit)
+      {
+        if ((orphans & orphanNotes_[track][word] & (1u << bit)) == 0) continue;
+        synth::audio::NoteOff(track, static_cast<std::uint8_t>(word * 32 + bit));
+        ++endedOrphanNotes_;
+        printf("Groove: ended a note nobody held: track %u note %u\n", static_cast<unsigned>(track), static_cast<unsigned>(word * 32 + bit));
+      }
+      orphanNotes_[track][word] = confirming ? 0u : orphans;
+      orphanCandidates_ = orphanCandidates_ || (!confirming && orphans != 0);
+    }
+  }
 }
 
 void GrooveApp::SyncSamplerTrim()
@@ -316,12 +437,12 @@ void GrooveApp::RenderFrame()
 
 void GrooveApp::HandleMatrixKeyEvent(std::size_t row, std::size_t column, bool pressed)
 {
-  controller_.KeyEvent(row, column, pressed, NowMs());
-}
-
-void GrooveApp::HandleHomeButtonEvent(bool pressed)
-{
-  controller_.HomeButton(pressed, NowMs());
+  const std::uint32_t now = NowMs();
+  controller_.KeyEvent(row, column, pressed, now);
+  if (!sessionChanged_) sessionChangedAt_ = now;
+  sessionChanged_ = true;
+  lastKeyAt_ = now;
+  keysHeld_ = pressed ? keysHeld_ + 1 : std::max(0, keysHeld_ - 1);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -373,12 +494,71 @@ void GrooveApp::NoteOn(std::size_t track, std::uint8_t note, std::uint8_t veloci
 {
   if (track >= synth::kSynthTrackCount) return;
   os::midi::Send(midi::MidiPacket::NoteOn(0, note, velocity), rack_.PortForTrack(track));
+  SendComputerMidi(0x90, track, note, velocity);
 }
 
 void GrooveApp::NoteOff(std::size_t track, std::uint8_t note)
 {
   if (track >= synth::kSynthTrackCount) return;
   os::midi::Send(midi::MidiPacket::NoteOff(0, note, 0), rack_.PortForTrack(track));
+  SendComputerMidi(0x80, track, note, 0);
+}
+
+// What the device plays goes out to a computer on USB too: track n on MIDI channel n.
+void GrooveApp::SendComputerMidi(std::uint8_t status, std::size_t track, std::uint8_t data1, std::uint8_t data2)
+{
+  const std::uint8_t packet[4] = {static_cast<std::uint8_t>(status >> 4), static_cast<std::uint8_t>(status | (track & 0x0F)), data1, data2};
+  (void)Device::USB::WriteMidi(packet);
+}
+
+// A computer plays the device over USB: MIDI channels 1-4 are tracks 1-4, any other channel the current
+// track. Its notes are owned here (EndOrphanNotes) and end when it disconnects.
+void GrooveApp::ReadComputerMidi()
+{
+  const bool connected = Device::USB::Connected();
+  if (!connected && computerConnected_) ReleaseComputerNotes();
+  computerConnected_ = connected;
+  std::uint8_t packet[4];
+  for (int count = 0; count < 64 && Device::USB::ReadMidi(packet); ++count)
+  {
+    const std::uint8_t status = packet[1] & 0xF0;
+    const std::uint8_t channel = packet[1] & 0x0F;
+    const std::size_t track = channel < synth::kSynthTrackCount ? channel : controller_.State().track;
+    const std::uint8_t data1 = packet[2] & 0x7F;
+    const std::uint8_t data2 = packet[3] & 0x7F;
+    auto& held = computerNotes_[track][data1 / 32];
+    const std::uint32_t bit = 1u << (data1 % 32);
+    if (status == 0x90 && data2 != 0)
+    {
+      synth::audio::NoteOn(track, data1, data2);
+      held |= bit;
+    }
+    else if (status == 0x80 || status == 0x90)
+    {
+      synth::audio::NoteOff(track, data1);
+      held &= ~bit;
+    }
+    else if (status == 0xB0 && (data1 == 120 || data1 == 123))
+    {
+      ReleaseComputerNotes(track);
+    }
+    else if (status == 0xB0)
+    {
+      os::midi::Send(midi::MidiPacket::ControlChange(0, data1, data2), rack_.PortForTrack(track));
+    }
+  }
+}
+
+void GrooveApp::ReleaseComputerNotes(std::size_t onlyTrack)
+{
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    if (onlyTrack < synth::kSynthTrackCount && track != onlyTrack) continue;
+    for (std::size_t word = 0; word < computerNotes_[track].size(); ++word)
+      for (std::size_t bit = 0; bit < 32; ++bit)
+        if (computerNotes_[track][word] & (1u << bit)) synth::audio::NoteOff(track, static_cast<std::uint8_t>(word * 32 + bit));
+    computerNotes_[track] = {};
+  }
 }
 
 void GrooveApp::Panic()
@@ -394,9 +574,15 @@ void GrooveApp::SendSequencerMidi(void* context, std::size_t trackIndex, const m
   if (trackIndex >= synth::kSynthTrackCount) return;
   // Bypass the UI queue: the audio runtime synchronizes stable track indices.
   if (packet.status == midi::MidiStatus::NoteOn && packet.data[2] != 0)
+  {
     synth::audio::NoteOn(trackIndex, packet.data[1], packet.data[2]);
+    SendComputerMidi(0x90, trackIndex, packet.data[1], packet.data[2]);
+  }
   else if (packet.status == midi::MidiStatus::NoteOff || packet.status == midi::MidiStatus::NoteOn)
+  {
     synth::audio::NoteOff(trackIndex, packet.data[1]);
+    SendComputerMidi(0x80, trackIndex, packet.data[1], 0);
+  }
   else if (packet.status == midi::MidiStatus::ControlChange && (packet.data[1] == 120 || packet.data[1] == 123))
     synth::audio::AllNotesOff(trackIndex);
 }
@@ -420,23 +606,27 @@ std::vector<std::string> GrooveApp::ListSamples() const
   std::set<std::string> names;
   const std::string directory = synth::storage::SampleDirectory();
   if (!synth::storage::EnsureLayout() || directory.empty()) return {};
-#if defined(ESP_PLATFORM)
-  DIR* handle = opendir(directory.c_str());
-  if (handle == nullptr) return {};
-  while (const dirent* entry = readdir(handle))
-    if (entry->d_name[0] != '\0' && HasWavExtension(entry->d_name)) names.insert(entry->d_name);
-  closedir(handle);
-#else
-  namespace fs = std::filesystem;
-  std::error_code error;
-  for (const fs::directory_entry& entry : fs::directory_iterator(directory, error))
+  // Ours, and what the 0.1.0 release left.
+  for (const std::string& folder : {directory, synth::storage::ReleaseSampleDirectory()})
   {
-    if (error) break;
-    if (!entry.is_regular_file(error)) continue;
-    const std::string name = entry.path().filename().string();
-    if (HasWavExtension(name)) names.insert(name);
-  }
+#if defined(ESP_PLATFORM)
+    DIR* handle = opendir(folder.c_str());
+    if (handle == nullptr) continue;
+    while (const dirent* entry = readdir(handle))
+      if (entry->d_name[0] != '\0' && HasWavExtension(entry->d_name)) names.insert(entry->d_name);
+    closedir(handle);
+#else
+    namespace fs = std::filesystem;
+    std::error_code error;
+    for (const fs::directory_entry& entry : fs::directory_iterator(folder, error))
+    {
+      if (error) break;
+      if (!entry.is_regular_file(error)) continue;
+      const std::string name = entry.path().filename().string();
+      if (HasWavExtension(name)) names.insert(name);
+    }
 #endif
+  }
   return std::vector<std::string>(names.begin(), names.end());
 }
 
@@ -551,12 +741,12 @@ std::vector<std::string> GrooveApp::ListProjects() const
   return synth::ListProjects();
 }
 
-bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth::ProjectData& project, std::string& message) const
+bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth::ProjectData& project, std::string& message, bool forSession) const
 {
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
     const auto sample = sampler_.BuildUiState(track);
-    if (sample.recording || sample.hasDraft)
+    if (!forSession && (sample.recording || sample.hasDraft))
     {
       message = "SAVE SAMPLE FIRST";
       return false;
@@ -568,8 +758,10 @@ bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth:
       return false;
     }
     project.kinds[track] = slot.kind;
-    project.engines[track] = slot.engine->CaptureState();
+    project.engines[track] = forSession ? slot.engine->CaptureChanges() : slot.engine->CaptureState();
     project.samples[track] = sample.sampleFileName;
+    // Still waiting for the card it is on.
+    if (forSession && sample.sampleFileName.empty() && slot.kind == synth::SynthEngineKind::Sampler) project.samples[track] = pendingSamples_[track];
   }
   project.sequence = sequencer_.CaptureState();
   if (!project.sequence)
@@ -611,10 +803,23 @@ groove::SaveResult GrooveApp::SaveProject(const std::string& name, bool overwrit
     message = "INVALID NAME";
     return groove::SaveResult::Failed;
   }
+#if defined(ESP_PLATFORM)
+  // The file gets every parameter of every track, copied first in many small blocks, and a plain
+  // allocation that fails ends the program: about 64 bytes each, and room for the rest.
+  std::size_t needed = kProjectSaveHeapBytes;
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+    if (const synth::ISynthEngine* engine = Engine(track)) needed += engine->ListParameters({0, 0}).totalCount * 64;
+  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < needed)
+  {
+    message = "NO MEMORY";
+    return groove::SaveResult::Failed;
+  }
+#endif
   synth::ProjectData project;
   if (!CaptureProject(settings, project, message)) return groove::SaveResult::Failed;
   const auto result = synth::SaveProjectFile(name, project, overwrite);
   storageReady_ = result != synth::ProjectResult::StorageError;
+  if (!storageReady_) os::storage::ReportCardIoError();
   switch (result)
   {
     case synth::ProjectResult::Ok: return groove::SaveResult::Ok;
@@ -625,7 +830,7 @@ groove::SaveResult GrooveApp::SaveProject(const std::string& name, bool overwrit
   }
 }
 
-bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message)
+bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message, bool workingState)
 {
   (void)name;
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
@@ -645,6 +850,7 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
 
   std::array<std::unique_ptr<synth::ISynthEngine>, synth::kSynthTrackCount> engines;
   std::array<synth::SamplerManager::PreparedSample, synth::kSynthTrackCount> samples;
+  std::array<std::string, synth::kSynthTrackCount> pending;
   // Validate and preload everything while the current session stays intact.
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
@@ -655,7 +861,10 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
       return false;
     }
     (void)engines[track]->RefreshPresetCatalog();
-    if ((!createNew && !engines[track]->RestoreState(project.engines[track])) || !engines[track]->CanReplace(*rack_.Slot(track).engine))
+    // The working state does not fall over a sound this firmware no longer knows: it starts from the
+    // engine's first one.
+    const bool restored = createNew || engines[track]->RestoreState(project.engines[track]) || workingState;
+    if (!restored || !engines[track]->CanReplace(*rack_.Slot(track).engine))
     {
       message = "INVALID SOUND";
       return false;
@@ -671,6 +880,13 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
       }
     if (!shared && !synth::SamplerManager::PrepareSample(project.samples[track], samples[track]))
     {
+      // The working state does not fall over a file that is not there: the card may just not be in.
+      if (workingState)
+      {
+        pending[track] = project.samples[track];
+        project.samples[track].clear();
+        continue;
+      }
       message = "SAMPLE MISSING";
       return false;
     }
@@ -703,20 +919,41 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   soloed_ = project.mixer.soloed;
   ApplyMix();
   ApplyMasterFx(project.masterFx);
+  pendingSamples_ = std::move(pending);
   return true;
 }
 
 bool GrooveApp::LoadProject(const std::string& name, groove::ProjectUiSettings& settings, std::string& message)
 {
   synth::ProjectData project;
-  if (synth::LoadProjectFile(name, project) != synth::ProjectResult::Ok)
+  auto result = synth::LoadProjectFile(name, project);
+  if (result == synth::ProjectResult::NoMemory)
+  {
+    // Two long projects do not fit in RAM side by side. The current one waits in the autosave; if the
+    // new one does not load after all, it comes back from there.
+    project = synth::ProjectData{};
+    if (SaveSessionState() != synth::SessionStore::SaveResult::Ok)
+    {
+      message = "NO MEMORY";
+      return false;
+    }
+    sequencer_.Reset();
+    result = synth::LoadProjectFile(name, project);
+    if (result != synth::ProjectResult::Ok)
+    {
+      (void)RestoreSessionState();
+      message = result == synth::ProjectResult::NoMemory ? "NO MEMORY" : "INVALID PROJECT";
+      return false;
+    }
+  }
+  if (result != synth::ProjectResult::Ok)
   {
     message = "INVALID PROJECT";
     return false;
   }
   if (!ReplaceSession(name, project, false, message)) return false;
   settings = controller_.Settings();
-  settings.activeTrack = project.activeTrack;
+  settings.activeTrack = synth::kDefaultActiveTrack;
   ApplyPlaySettings(project, settings);
   return true;
 }
@@ -732,7 +969,7 @@ bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& mes
   }
   project.kinds = kDefaultKinds;
   if (!ReplaceSession("", project, true, message)) return false;
-  // A new project starts on the default track (T2, the piano layout) with the default play settings:
+  // A new project starts on the first track with the default play settings:
   // C major, no chords, every arpeggiator off. SELECT is a preference and stays.
   const bool multiSelect = controller_.Settings().keyboard.multiSelect;
   settings = groove::ProjectUiSettings{};

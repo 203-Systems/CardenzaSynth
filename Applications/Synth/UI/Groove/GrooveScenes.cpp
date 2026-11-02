@@ -9,9 +9,8 @@ namespace groove {
 namespace {
 
 constexpr std::size_t kProjectSave = 0;
-constexpr std::size_t kProjectSaveAs = 1;
-constexpr std::size_t kProjectLoad = 2;
-constexpr std::size_t kProjectNew = 3;
+constexpr std::size_t kProjectLoad = 1;
+constexpr std::size_t kProjectNew = 2;
 constexpr std::size_t kProjectBpm = 4;
 constexpr std::size_t kProjectSwing = 5;
 constexpr std::size_t kProjectTap = 6;
@@ -32,6 +31,26 @@ std::string PatternLabel(std::size_t index)
   char text[8];
   std::snprintf(text, sizeof(text), "P%02u", static_cast<unsigned>(index + 1));
   return text;
+}
+
+// The sound's name with the first number no other sound has.
+std::string FreePresetName(const synth::ISynthEngine& engine)
+{
+  std::vector<std::string> taken;
+  constexpr std::size_t kPage = 32;
+  for (std::size_t offset = 0;; offset += kPage)
+  {
+    const auto page = engine.ListPresets({offset, kPage});
+    for (const auto& preset : page.items) taken.push_back(preset.name);
+    if (page.items.empty() || offset + kPage >= page.totalCount) break;
+  }
+  const std::string base = engine.CurrentPresetName();
+  for (int number = 2; number < 100; ++number)
+  {
+    const std::string name = base + " " + std::to_string(number);
+    if (std::find(taken.begin(), taken.end(), name) == taken.end()) return name;
+  }
+  return base;
 }
 
 }  // namespace
@@ -122,7 +141,8 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
     else if (Is(id, "proj.swing")) number(sequencer.Swing(), 50, 75, 50, std::to_string(sequencer.Swing()) + "%");
     else if (Is(id, "proj.mode")) choice(sequencer.SongMode() ? 1 : 0, 2, 0, sequencer.SongMode() ? "SONG" : "LOOP");
     else if (Is(id, "proj.steps"))
-      number(static_cast<int>(sequencer.TrackStepCount(state_.track)), 1, 16, 16, "T" + std::to_string(state_.track + 1) + " " + std::to_string(sequencer.TrackStepCount(state_.track)));
+      number(static_cast<int>(sequencer.TrackStepCount(state_.track)), 1, static_cast<int>(synth::kSequencerMaxSteps), static_cast<int>(synth::kSequencerStepCount),
+             "T" + std::to_string(state_.track + 1) + " " + std::to_string(sequencer.TrackStepCount(state_.track)));
     else if (Is(id, "proj.rec"))
     {
       choice(sequencer.RecordArmed() ? 1 : 0, 2, 0, sequencer.RecordArmed() ? "ARMED" : "OFF");
@@ -247,8 +267,8 @@ void Controller::SettingsGrid(std::size_t index)
   const Slot& slot = page->slots[index];
   if (!slot.IsParameter()) return;
   auto& focus = state_.settingsFocus[(CurrentPage() - kSetupKeys) % kSettingsPageCount];
-  // A second press steps a choice or flips a switch, like ENTER.
-  if (focus == index) StepSetting(slot.id);
+  // A second press steps a choice or flips a switch, like ENTER. When it was a tap: held, the pads pick.
+  if (focus == index) state_.cellPress.stepOnRelease = true;
   focus = static_cast<std::uint8_t>(index);
 }
 
@@ -303,7 +323,6 @@ void Controller::ProjectGrid(std::size_t index)
     switch (index)
     {
       case kProjectSave: SaveProject(false); break;
-      case kProjectSaveAs: SaveProject(true); break;
       case kProjectLoad: SetPage(kSetupFiles); break;
       case kProjectNew:
         if (state_.dirty) OpenConfirm(ConfirmPurpose::NewProject, "NEW PROJECT?", "UNSAVED CHANGES WILL BE LOST", true);
@@ -350,7 +369,7 @@ void Controller::ProjectAdjust(int delta, bool coarse)
     {
       if (state_.projects.empty()) break;
       const int count = static_cast<int>(state_.projects.size());
-      const int next = std::clamp(static_cast<int>(state_.fileCursor) + delta * (coarse ? 8 : 1), 0, count - 1);
+      const int next = std::clamp(static_cast<int>(state_.fileCursor) - delta * (coarse ? 8 : 1), 0, count - 1);
       state_.fileCursor = static_cast<std::size_t>(next);
       break;
     }
@@ -365,10 +384,15 @@ void Controller::ProjectEnter()
   else if (page == kSetupProject) SaveProject(false);
   else if (page == kSetupFiles && state_.fileCursor < state_.projects.size())
   {
-    const std::string& name = state_.projects[state_.fileCursor];
-    if (state_.dirty) OpenConfirm(ConfirmPurpose::LoadProject, "LOAD " + name + "?", "UNSAVED CHANGES WILL BE LOST", true, name);
-    else LoadProjectNamed(name);
+    OpenProject(state_.projects[state_.fileCursor]);
   }
+}
+
+void Controller::OpenProject(std::string name)
+{
+  RefreshProjects();
+  if (state_.dirty) OpenConfirm(ConfirmPurpose::LoadProject, "LOAD " + name + "?", "UNSAVED CHANGES WILL BE LOST", true, name);
+  else LoadProjectNamed(name);
 }
 
 void Controller::SaveProject(bool saveAs)
@@ -467,13 +491,152 @@ void Controller::InstrumentGrid(std::size_t index)
   auto& focus = state_.instrumentFocus[std::min<std::size_t>(CurrentPage(), state_.instrumentFocus.size() - 1)];
   synth::SynthParameterInfo info;
   std::string text;
-  // A second press on a focused switch flips it and steps a choice (wrapping), like ENTER.
-  if (focus == index && SlotValue(slot, info, text) && info.kind != synth::SynthParameterKind::Continuous)
+  // A second press on a focused switch flips it and steps a choice (wrapping), like ENTER; HOLD flips
+  // on the first, it is played rather than set. When the press was a tap: held, the pads pick instead.
+  const bool performanceSwitch = std::strcmp(slot.id, "arp.latch") == 0;
+  if ((focus == index || performanceSwitch) && SlotValue(slot, info, text) && info.kind != synth::SynthParameterKind::Continuous)
+    state_.cellPress.stepOnRelease = true;
+  focus = static_cast<std::uint8_t>(index);
+}
+
+void Controller::StepCell(std::size_t index)
+{
+  if (state_.scene == Scene::Instrument) InstrumentEnter();
+  else if (state_.scene == Scene::Setup)
   {
-    InstrumentEnter();
+    const InstrumentPage* page = SettingsPageShown();
+    if (page != nullptr && index < kGridCount && page->slots[index].IsParameter()) StepSetting(page->slots[index].id);
+  }
+  else if (state_.scene == Scene::Tape && CurrentPage() == kTapeSends) SendsEnter();
+}
+
+bool Controller::CellParameter(std::size_t index, std::string& label, synth::SynthParameterInfo& info, std::string& text) const
+{
+  if (index >= kGridCount) return false;
+  const Slot* slot = nullptr;
+  if (state_.scene == Scene::Instrument) slot = &CurrentInstrumentPage()->slots[index];
+  else if (state_.scene == Scene::Setup)
+  {
+    if (const InstrumentPage* page = SettingsPageShown()) slot = &page->slots[index];
+  }
+  if (slot != nullptr)
+  {
+    if (!slot->IsParameter() || !SlotValue(*slot, info, text)) return false;
+    label = slot->label;
+    return true;
+  }
+  if (state_.scene == Scene::Setup && CurrentPage() == kSetupProject && (index == kProjectBpm || index == kProjectSwing))
+  {
+    label = index == kProjectBpm ? "BPM" : "SWING";
+    return SettingValue(index == kProjectBpm ? "proj.bpm" : "proj.swing", info, text);
+  }
+  if (state_.scene != Scene::Tape) return false;
+  const std::size_t row = index / kGridColumns;
+  const std::size_t track = index % kGridColumns;
+  if (CurrentPage() == kTapeSends)
+  {
+    const synth::ISynthEngine* engine = host_.Engine(track);
+    if (engine == nullptr || !engine->GetParameterInfo(kSendIds[row], info)) return false;
+    text = engine->DescribeParameterValue(kSendIds[row]);
+    label = "T" + std::to_string(track + 1) + " " + info.label;
+    return true;
+  }
+  if (CurrentPage() == kTapeFx)
+  {
+    if (index >= synth::fx::kMasterParamCount) return false;
+    const auto& master = synth::fx::kMasterParams[index];
+    info = synth::SynthParameterInfo{};
+    info.kind = synth::SynthParameterKind::Continuous;
+    info.minValue = master.minValue;
+    info.maxValue = master.maxValue;
+    info.value = host_.MasterFx(index);
+    text = std::to_string(info.value);
+    label = master.label;
+    return true;
+  }
+  if (CurrentPage() == kTapeMix && row == 0)
+  {
+    info = synth::SynthParameterInfo{};
+    info.kind = synth::SynthParameterKind::Continuous;
+    info.minValue = 0;
+    info.maxValue = 100;
+    info.value = host_.TrackLevel(track);
+    text = std::to_string(info.value);
+    label = "T" + std::to_string(track + 1) + " LEVEL";
+    return true;
+  }
+  return false;
+}
+
+void Controller::SetCellParameter(std::size_t index, int value)
+{
+  std::string label, text;
+  synth::SynthParameterInfo info;
+  if (!CellParameter(index, label, info, text) || value == info.value) return;
+  const Slot* slot = nullptr;
+  if (state_.scene == Scene::Instrument) slot = &CurrentInstrumentPage()->slots[index];
+  else if (state_.scene == Scene::Setup)
+  {
+    const InstrumentPage* page = SettingsPageShown();
+    if (page == nullptr)
+    {
+      AdjustSetting(index == kProjectBpm ? "proj.bpm" : "proj.swing", value - info.value);
+      return;
+    }
+    slot = &page->slots[index];
+  }
+  if (slot != nullptr)
+  {
+    if (IsSetting(slot->id)) AdjustSetting(slot->id, value - info.value);
+    else if (synth::ISynthEngine* engine = ActiveEngine(); engine != nullptr && engine->SetParameterValue(slot->id, value)) MarkDirty();
     return;
   }
-  focus = static_cast<std::uint8_t>(index);
+  const std::size_t track = index % kGridColumns;
+  if (CurrentPage() == kTapeSends)
+  {
+    if (synth::ISynthEngine* engine = host_.Engine(track); engine != nullptr && engine->SetParameterValue(kSendIds[index / kGridColumns], value)) MarkDirty();
+  }
+  else if (CurrentPage() == kTapeFx) host_.SetMasterFx(index, value), MarkDirty();
+  else if (CurrentPage() == kTapeMix) host_.SetTrackLevel(track, static_cast<std::uint8_t>(value)), MarkDirty();
+}
+
+bool Controller::CellPickerActive() const
+{
+  const CellPress& press = state_.cellPress;
+  if (!press.down || TopModal() != nullptr) return false;
+  for (const auto& left : state_.left)
+    if (left.down) return false;
+  if (!press.picked && state_.now - press.at < kCellPickMs) return false;
+  std::string label, text;
+  synth::SynthParameterInfo info;
+  return CellParameter(press.index, label, info, text);
+}
+
+void Controller::PickCellValue(std::size_t row, std::size_t column)
+{
+  std::string label, text;
+  synth::SynthParameterInfo info;
+  CellPress& press = state_.cellPress;
+  if (!CellParameter(press.index, label, info, text)) return;
+  const std::size_t pad = row * kPadColumns + (column - kPadFirstColumn);
+  if (pad >= CellPickCount(info)) return;
+  SetCellParameter(press.index, CellPickValue(info, pad));
+  press.picked = true;
+  ShowCellHud();
+}
+
+void Controller::ShowCellHud()
+{
+  std::string label, text;
+  synth::SynthParameterInfo info;
+  if (!CellParameter(state_.cellPress.index, label, info, text)) return;
+  // Up for as long as the cell is held: it pops in once, then stays at this age.
+  constexpr std::uint32_t kSettledMs = 200;
+  const std::uint32_t age = state_.hud.at != 0 && state_.hud.label == label ? state_.now - state_.hud.at : 0;
+  const int range = info.maxValue - info.minValue;
+  ShowHud(label, text, range > 0 ? static_cast<float>(info.value - info.minValue) / static_cast<float>(range) : -1.0f);
+  state_.hud.at = state_.now - std::min(age, kSettledMs);
+  if (state_.hud.at == 0) state_.hud.at = 1;
 }
 
 void Controller::InstrumentAdjust(int delta, bool coarse)
@@ -481,7 +644,8 @@ void Controller::InstrumentAdjust(int delta, bool coarse)
   const InstrumentPage* page = CurrentInstrumentPage();
   if (page->graphic == PageGraphic::Voice)
   {
-    StepPreset(delta * (coarse ? 10 : 1));
+    // ADD is the upper key: up the list, as in the preset browser.
+    StepPreset(-delta * (coarse ? 10 : 1));
     return;
   }
   const Slot& slot = page->slots[InstrumentFocus()];
@@ -547,7 +711,7 @@ void Controller::StepPreset(int delta)
 {
   synth::ISynthEngine* engine = ActiveEngine();
   if (engine == nullptr || delta == 0) return;
-  constexpr std::size_t kPage = 32;
+  constexpr std::size_t kPage = 8;  // Each page is one block of memory.
   std::size_t total = 0;
   std::size_t current = 0;
   bool found = false;
@@ -580,7 +744,11 @@ void Controller::RunSlotAction(SlotAction action)
       const std::string id = engine->CurrentPresetId();
       if (id.rfind("user.", 0) != 0)
       {
-        OpenTextEntry(TextPurpose::PresetSaveAs, "SAVE PRESET AS", engine->CurrentPresetName(), 18);
+        // A factory sound becomes a new user sound without asking for a name: SAVE AS, right next
+        // to it in the menu, is the one that asks.
+        const std::string name = FreePresetName(*engine);
+        if (engine->SavePreset("", name)) ShowToast("SAVED " + name, ToastKind::Ok);
+        else ShowToast("PRESET SAVE FAILED", ToastKind::Error);
         break;
       }
       if (engine->SavePreset(id, engine->CurrentPresetName())) ShowToast("PRESET SAVED", ToastKind::Ok);
@@ -617,9 +785,114 @@ bool Controller::PadForSequence(int note, bool pressed)
   return true;
 }
 
+bool Controller::DrumLayout() const
+{
+  return ActiveKind() == synth::SynthEngineKind::Drums && !pianoRollOnDrums_;
+}
+
+void Controller::DrumStepPress(std::size_t index)
+{
+  auto& sequencer = host_.Sequencer();
+  const auto ui = sequencer.BuildUiState(state_.track);
+  const std::size_t step = ui.firstViewStep + index;
+  if (step >= ui.tracks[state_.track].stepCount) return;
+  const std::uint8_t note = kDrumNotes[DrumLane()];
+  DrumPress& press = state_.drumPress;
+  press = DrumPress{};
+  press.down = true;
+  press.index = index;
+  press.step = step;
+  press.at = state_.now;
+  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+  const std::size_t count = sequencer.StepNoteEvents(state_.track, step, notes);
+  for (std::size_t slot = 0; slot < count; ++slot)
+    if (notes[slot].note == note) return;  // There already: the release decides.
+  const std::uint8_t velocity = state_.drumVelocity[state_.track];
+  if (!sequencer.InsertNote(state_.track, ui.activePattern, step, 0, note, velocity, synth::kSequencerPulsesPerStep)) return;
+  press.added = true;
+  MarkDirty();
+  // Stopped, you hear what you put in.
+  if (!sequencer.Playing())
+  {
+    host_.NoteOn(state_.track, note, velocity);
+    host_.NoteOff(state_.track, note);
+  }
+}
+
+void Controller::DrumStepRelease(std::size_t index)
+{
+  const DrumPress press = state_.drumPress;
+  if (!press.down || press.index != index) return;
+  state_.drumPress = DrumPress{};
+  // A tap on a hit takes it out. Held, or edited while held, it stays.
+  if (press.added || press.edited || state_.now - press.at >= kDrumStepHoldMs) return;
+  auto& sequencer = host_.Sequencer();
+  if (sequencer.RemoveNote(state_.track, sequencer.ActivePattern(state_.track), press.step, kDrumNotes[DrumLane()])) MarkDirty();
+}
+
+// ADD / SUB while a step is held: how hard that hit is.
+bool Controller::DrumStepAdjust(int delta, bool coarse)
+{
+  DrumPress& press = state_.drumPress;
+  if (!press.down) return false;
+  auto& sequencer = host_.Sequencer();
+  const std::uint8_t note = kDrumNotes[DrumLane()];
+  const std::size_t pattern = sequencer.ActivePattern(state_.track);
+  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+  const std::size_t count = sequencer.StepNoteEvents(state_.track, press.step, notes);
+  for (std::size_t slot = 0; slot < count; ++slot)
+  {
+    if (notes[slot].note != note) continue;
+    if (state_.drumEditsMicrostep)
+    {
+      const int last = static_cast<int>(synth::kSequencerMicrostepCount) - 1;
+      const int microstep = std::clamp(static_cast<int>(notes[slot].microstep) + delta * (coarse ? 3 : 1), 0, last);
+      if (sequencer.MoveNote(state_.track, pattern, press.step, note, notes[slot].microstep, static_cast<std::uint8_t>(microstep))) MarkDirty();
+    }
+    else
+    {
+      const int velocity = std::clamp(static_cast<int>(notes[slot].velocity) + delta * (coarse ? 24 : 6), 1, 127);
+      (void)sequencer.InsertNote(state_.track, pattern, press.step, notes[slot].microstep, note,
+                                 static_cast<std::uint8_t>(velocity), notes[slot].lengthPulses);
+      MarkDirty();
+    }
+    press.edited = true;
+    ShowDrumStepHud();
+    break;
+  }
+  return true;
+}
+
+// What ADD / SUB change on the hit being held, and its value now.
+void Controller::ShowDrumStepHud()
+{
+  const DrumPress& press = state_.drumPress;
+  const std::uint8_t note = kDrumNotes[DrumLane()];
+  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+  const std::size_t count = host_.Sequencer().StepNoteEvents(state_.track, press.step, notes);
+  for (std::size_t slot = 0; slot < count; ++slot)
+  {
+    if (notes[slot].note != note) continue;
+    const std::string name = kDrumNames[DrumLane()];
+    if (state_.drumEditsMicrostep)
+    {
+      const int last = static_cast<int>(synth::kSequencerMicrostepCount) - 1;
+      ShowHud(name + " MICRO", notes[slot].microstep == 0 ? std::string("ON GRID") : "+" + std::to_string(notes[slot].microstep) + "/" + std::to_string(last + 1),
+              static_cast<float>(notes[slot].microstep) / static_cast<float>(last));
+    }
+    else ShowHud(name + " VELOCITY", std::to_string(notes[slot].velocity), static_cast<float>(notes[slot].velocity) / 127.0f);
+    return;
+  }
+}
+
 void Controller::SequenceGrid(std::size_t index)
 {
   auto& sequencer = host_.Sequencer();
+  if (CurrentPage() == 0 && DrumLayout())
+  {
+    DrumStepPress(index);
+    return;
+  }
   switch (CurrentPage())
   {
     case 0:
@@ -627,11 +900,13 @@ void Controller::SequenceGrid(std::size_t index)
       const auto ui = sequencer.BuildUiState(state_.track);
       std::array<std::uint8_t, kRows * kPadColumns> notes{};
       const std::size_t count = CollectHeldNotes(notes);
+      // The GRID shows one page of the pattern.
+      const std::size_t step = ui.firstViewStep + index;
       if (state_.record.view == SeqView::Step)
       {
         // STEP REC: a step key moves the write cursor; with pads held it writes them there.
-        if (index >= sequencer.TrackStepCount(state_.track)) return;
-        state_.record.cursor = static_cast<std::uint8_t>(index);
+        if (step >= sequencer.TrackStepCount(state_.track)) return;
+        state_.record.cursor = static_cast<std::uint8_t>(step);
         if (count > 0)
         {
           (void)StepRecordPress();
@@ -642,14 +917,14 @@ void Controller::SequenceGrid(std::size_t index)
       if (!ui.hasHeldSteps && count > 0)
       {
         // Hold pads, tap steps: step input without selecting.
-        sequencer.PressStep(index, notes.data(), count);
-        sequencer.ReleaseStep(index);
+        sequencer.PressStep(step, notes.data(), count);
+        sequencer.ReleaseStep(step);
         MarkDirty();
         return;
       }
       if (state_.keyboard.multiSelect)
       {
-        sequencer.SetStepSelected(index, !ui.steps[index].held);
+        sequencer.SetStepSelected(step, !ui.steps[index].held);
         break;
       }
       // SELECT ONE: the GRID walks to this step; tapping the step it is on again lets go (the pads
@@ -657,7 +932,7 @@ void Controller::SequenceGrid(std::size_t index)
       {
         const bool onlyThis = ui.steps[index].held && ui.heldStepCount == 1;
         sequencer.ClearSelectedSteps();
-        if (!onlyThis) sequencer.SetStepSelected(index, true);
+        if (!onlyThis) sequencer.SetStepSelected(step, true);
       }
       break;
     }
@@ -686,9 +961,39 @@ void Controller::SequenceGrid(std::size_t index)
   }
 }
 
+void Controller::FlipStepPage(int delta)
+{
+  auto& sequencer = host_.Sequencer();
+  const auto ui = sequencer.BuildUiState(state_.track);
+  const int count = static_cast<int>(ui.viewPageCount);
+  const int page = (static_cast<int>(ui.viewPage) + delta % count + count) % count;
+  if (count > 1) sequencer.SetViewPage(state_.track, static_cast<std::size_t>(page));
+  // A selection out of sight would take the pads for nothing visible.
+  if (!state_.keyboard.multiSelect) sequencer.ClearSelectedSteps();
+  ShowHud("PAGE", std::to_string(page + 1) + "/" + std::to_string(count), static_cast<float>(page) / static_cast<float>(std::max(1, count - 1)));
+}
+
+// The length of the current pattern. A big step lands on the page boundaries (and 1, 2, 4, 8).
+void Controller::AdjustPatternLength(int delta, bool coarse)
+{
+  auto& sequencer = host_.Sequencer();
+  const int page = static_cast<int>(kGridCount);
+  const int current = static_cast<int>(sequencer.TrackStepCount(state_.track));
+  int next = current + delta;
+  if (coarse)
+  {
+    if (delta > 0) next = current < page ? std::min(page, current < 4 ? current * 2 : (current < 8 ? 8 : page)) : (current / page + 1) * page;
+    else next = current <= page ? std::max(1, current <= 8 ? (current + 1) / 2 : 8) : (current - 1) / page * page;
+  }
+  next = std::clamp(next, 1, static_cast<int>(synth::kSequencerMaxSteps));
+  sequencer.SetTrackStepCount(state_.track, static_cast<std::size_t>(next));
+  MarkDirty();
+  ShowHud("LENGTH", std::to_string(next) + " STEPS", static_cast<float>(next - 1) / static_cast<float>(synth::kSequencerMaxSteps - 1));
+}
+
 void Controller::SequenceGridRelease(std::size_t index)
 {
-  (void)index;
+  DrumStepRelease(index);
 }
 
 void Controller::SequenceAdjust(int delta, bool coarse)
@@ -703,9 +1008,16 @@ void Controller::SequenceAdjust(int delta, bool coarse)
         if (sequencer.AdjustSelectedSteps(delta, coarse)) MarkDirty();
         return;
       }
-      if (state_.record.view == SeqView::Step)
+      if (DrumLayout() && DrumStepAdjust(delta, coarse)) return;
+      if (state_.record.view == SeqView::Step && !DrumLayout())
       {
-        StepCursorMove(delta * (coarse ? 4 : 1));
+        // FN + ADD / SUB jumps a page once the pattern has more than one.
+        StepCursorMove(delta * (coarse ? (ui.viewPageCount > 1 ? static_cast<int>(kGridCount) : 4) : 1));
+        return;
+      }
+      if (coarse)
+      {
+        FlipStepPage(delta);
         return;
       }
       [[fallthrough]];
@@ -725,8 +1037,7 @@ void Controller::SequenceAdjust(int delta, bool coarse)
           sequencer.SetTrackEnabled(state_.track, delta > 0);
           break;
         case kTrackSteps:
-          sequencer.SetTrackStepCount(state_.track, static_cast<std::size_t>(std::clamp(
-              static_cast<int>(sequencer.TrackStepCount(state_.track)) + delta * (coarse ? 4 : 1), 1, 16)));
+          AdjustPatternLength(delta, coarse);
           break;
         case kTrackSwing:
           sequencer.SetSwing(static_cast<std::uint8_t>(std::clamp(static_cast<int>(ui.swing) + delta * (coarse ? 5 : 1), 50, 75)));
@@ -748,6 +1059,14 @@ void Controller::SequenceEnter()
   switch (CurrentPage())
   {
     case 0:
+      // A held hit on the drum page: ENTER chooses what ADD / SUB change, velocity or timing.
+      if (DrumLayout() && state_.drumPress.down)
+      {
+        state_.drumEditsMicrostep = !state_.drumEditsMicrostep;
+        state_.drumPress.edited = true;
+        ShowDrumStepHud();
+        break;
+      }
       if (sequencer.BuildUiState(state_.track).hasHeldSteps) sequencer.CycleEditLane();
       break;
     case 1:
@@ -911,6 +1230,9 @@ void Controller::SessionCapture()
     const auto& summary = ui.tracks[track];
     const std::size_t pattern = summary.queuedPattern < summary.patternCount ? summary.queuedPattern : summary.activePattern;
     row.patterns[track] = static_cast<std::int8_t>(pattern);
+    // The row lasts as long as its longest pattern (a bar is 16 steps).
+    const std::size_t steps = sequencer.PatternStepCount(track, pattern);
+    row.repeats = std::max(row.repeats, static_cast<std::uint8_t>(std::min<std::size_t>((steps + synth::kSongBarSteps - 1) / synth::kSongBarSteps, synth::kSongMaxRepeats)));
   }
   const std::size_t at = sequencer.SongLength();
   if (!sequencer.InsertSongRow(at, row))
@@ -986,7 +1308,7 @@ void Controller::SendsGrid(std::size_t index)
   // A second press on a focused chorus cell steps its mode, like a switch on an INSTR page.
   if (state_.sendsFocus == index && index / kGridColumns == 1)
   {
-    SendsEnter();
+    state_.cellPress.stepOnRelease = true;
     return;
   }
   state_.sendsFocus = static_cast<std::uint8_t>(index);
@@ -1147,8 +1469,8 @@ void Controller::Paste()
       ShowToast("SELECT STEPS TO PASTE");
       return;
     }
-    for (std::size_t step = 0; step < kGridCount; ++step)
-      if (ui.steps[step].held && step != state_.clipboardIndex) (void)sequencer.CopyStep(state_.clipboardIndex, step);
+    for (std::size_t step = 0; step < synth::kSequencerMaxSteps; ++step)
+      if (step != state_.clipboardIndex && sequencer.StepSelected(step)) (void)sequencer.CopyStep(state_.clipboardIndex, step);
     MarkDirty();
     ShowToast("PASTED", ToastKind::Ok);
     return;
@@ -1275,7 +1597,7 @@ std::vector<Controller::FnEntry> Controller::FnEntries() const
       {"6/Y", "BPM+-", true},
       {"7/U", "VOL+-", true},
       {"8/I", "OCT+-", true},
-      {"+-", "BIG STEP", true},
+      {"+-", state_.scene == Scene::Sequence && CurrentPage() == 0 ? "STEP PAGE" : "BIG STEP", true},
       {"CTRL", "PREV PAGE", PageCount(state_.scene) > 1},
       {"TAB", "PREV TRK", true},
       {"ESC", "STOP", true},
@@ -1337,9 +1659,17 @@ MenuItems Controller::Menu() const
       put(2, MenuAction::Clear, "CLEAR", target, "X");
       put(3, MenuAction::Quantize, "QUANT", target, "Q");
       put(4, MenuAction::Duplicate, "DUP", "PATTERN", "D", ui.tracks[state_.track].patternCount < synth::kSequencerMaxPatternCount);
-      put(5, MenuAction::View, "VIEW", state_.record.view == SeqView::Roll ? "ROLL" : "STEP", nullptr, true, state_.record.view == SeqView::Step);
+      if (DrumLayout()) put(5, MenuAction::View, "VIEW", "DRUMS", nullptr, false);
+      else put(5, MenuAction::View, "VIEW", state_.record.view == SeqView::Roll ? "ROLL" : "STEP", nullptr, true, state_.record.view == SeqView::Step);
       put(6, MenuAction::RecordPanel, "RECORD", "TAKES");
       put(7, MenuAction::Scope, "SCOPE", steps ? ui.scopeLabel : "", "OK", steps);
+      // The pages of a long pattern, and how long it is.
+      const std::string pages = std::to_string(ui.viewPage + 1) + "/" + std::to_string(ui.viewPageCount);
+      const std::string length = std::to_string(ui.tracks[state_.track].stepCount);
+      put(8, MenuAction::PagePrev, "PAGE -", pages, nullptr, page == 0 && ui.viewPageCount > 1);
+      put(9, MenuAction::PageNext, "PAGE +", pages, nullptr, page == 0 && ui.viewPageCount > 1);
+      put(10, MenuAction::LengthDown, "LEN -", length, nullptr, ui.tracks[state_.track].stepCount > 1);
+      put(11, MenuAction::LengthUp, "LEN +", length, nullptr, ui.tracks[state_.track].stepCount < synth::kSequencerMaxSteps);
       break;
     }
     case Scene::Tape:
@@ -1437,6 +1767,10 @@ void Controller::RunMenu(std::size_t index)
     case MenuAction::Quantize: Quantize(); break;
     case MenuAction::Duplicate: Duplicate(); break;
     case MenuAction::View: ToggleSeqView(); break;
+    case MenuAction::PagePrev: FlipStepPage(-1); break;
+    case MenuAction::PageNext: FlipStepPage(1); break;
+    case MenuAction::LengthDown: AdjustPatternLength(-1, true); break;
+    case MenuAction::LengthUp: AdjustPatternLength(1, true); break;
     case MenuAction::RecordPanel:
       if (CurrentPage() != 0) SetPage(0);
       OpenRecord();

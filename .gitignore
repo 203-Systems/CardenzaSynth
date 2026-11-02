@@ -51,3 +51,7 @@ logs/
 
 # Local simulator SD card contents and personal runtime settings
 /sdcard/
+
+# ESP-IDF component manager downloads (dependencies.lock pins them) and Python caches
+Devices/Cardenza/managed_components/
+__pycache__/

@@ -53,7 +53,7 @@ target_link_options(CardenzaWeb PRIVATE
     -sSTACK_SIZE=1048576
     -sFORCE_FILESYSTEM=1
     -lidbfs.js
-    "-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,HEAPU8,HEAPU16,HEAPF32,UTF8ToString,addRunDependency,removeRunDependency"
+    "-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,HEAPU8,HEAPU16,HEAPF32,UTF8ToString,ccall,addRunDependency,removeRunDependency"
 )
 
 # The page itself: plain HTML / CSS / JS next to cardenza.js and cardenza.wasm.

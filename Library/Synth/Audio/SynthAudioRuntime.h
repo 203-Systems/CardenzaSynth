@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Library/Synth/Audio/SampleStream.h"
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -14,9 +15,11 @@ inline constexpr std::uint32_t kSampleRate = 44100;
 
 // A published sample is immutable; replacing it only transfers shared ownership
 // at the audio boundary, without allocating or copying PCM in the render loop.
+// Short samples are kept in RAM (`frames`); longer ones play from the card (`stream`).
 struct SampleBuffer {
   std::unique_ptr<std::int16_t[]> frames;
   std::size_t frameCount = 0;
+  std::shared_ptr<SampleStream> stream;
 };
 using SharedSampleBuffer = std::shared_ptr<const SampleBuffer>;
 
@@ -24,6 +27,21 @@ void EnsureEngine(std::size_t engineIndex, SynthEngineKind kind);
 void SetEnginePreset(std::size_t engineIndex, std::string_view presetId);
 void SetEngineParameter(std::size_t engineIndex, std::string_view parameterId, int value);
 void SetSamplerFrames(std::size_t engineIndex, SharedSampleBuffer frames, std::uint32_t sampleRate);
+// Sound from outside the synth (a computer playing over USB), mixed in before the output stage at
+// unity gain: interleaved stereo int16 frames, the number given back. Null for none.
+using LineInput = std::size_t (*)(std::int16_t* stereoFrames, std::size_t frameCount);
+void SetLineInput(LineInput input);
+// Stops the voice that will be missed least, whole, as rendering does when it cannot keep up (RenderLoad).
+bool ShedVoice();
+// Voices stopped so far because the audio core could not keep up (0 in normal use).
+std::uint32_t ShedVoiceCount();
+// The notes a track holds, one bit per MIDI note, as of the last rendered block: played and not let
+// go, tails not counted. A drum track holds nothing, its hits end by themselves.
+using NoteSet = std::array<std::uint32_t, 4>;
+NoteSet HeldNotes(std::size_t engineIndex);
+// Voices AMY kept sounding although their track held no note (each one is a bug somewhere); they get
+// released, so nothing rings on for ever.
+std::uint32_t ReleasedOrphanVoiceCount();
 void NoteOn(std::size_t engineIndex, std::uint8_t note, std::uint8_t velocity);
 void NoteOff(std::size_t engineIndex, std::uint8_t note);
 void AllNotesOff(std::size_t engineIndex);

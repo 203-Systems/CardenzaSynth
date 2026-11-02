@@ -1,3 +1,4 @@
+#include "Devices/CardenzaSim/SimulatorInput.h"
 #include "Devices/Device.h"
 #include "Devices/DeviceAudio.h"
 
@@ -23,6 +24,9 @@ device::SynthAudioRenderProvider g_audioProvider{};
 std::mutex g_audioProviderMutex;
 bool g_audioInputEnabled = false;
 Device::Audio::InputStreamInfo g_inputStreamInfo{};
+bool g_simulatedMicrophone = false;
+std::size_t g_simulatedMicrophoneFrames = 0;
+std::uint32_t g_simulatedMicrophonePhase = 0;
 std::atomic<std::uint8_t> g_outputVolume{Device::Audio::kDefaultOutputVolume};
 
 device::SynthAudioRenderProvider CurrentAudioProvider()
@@ -513,6 +517,8 @@ void SetOutputVolume(std::uint8_t percent)
   g_outputVolume.store((std::min)(percent, std::uint8_t{100}), std::memory_order_relaxed);
 }
 
+std::size_t ReadComputerAudio(std::int16_t*, std::size_t) { return 0; }
+
 std::uint8_t OutputVolume()
 {
   return g_outputVolume.load(std::memory_order_relaxed);
@@ -520,11 +526,18 @@ std::uint8_t OutputVolume()
 
 InputStreamInfo InputInfo()
 {
+  if (g_simulatedMicrophone) return InputStreamInfo{kDefaultInputSampleRate, kInputChannels, kInputBitsPerSample};
   return g_inputStreamInfo;
 }
 
 InputStatus StartInput()
 {
+  if (g_simulatedMicrophone)
+  {
+    g_audioInputEnabled = true;
+    g_simulatedMicrophoneFrames = 0;
+    return InputStatus::Ready;
+  }
   g_audioInputEnabled = EnsureWaveInCaptureStarted();
   return g_audioInputEnabled ? InputStatus::Ready : InputStatus::NotReady;
 }
@@ -556,6 +569,15 @@ InputStatus ReadInputFrames(std::int16_t* destination,
     return InputStatus::Ready;
   }
 
+  if (g_simulatedMicrophone)
+  {
+    framesRead = std::min(frameCount, g_simulatedMicrophoneFrames);
+    g_simulatedMicrophoneFrames -= framesRead;
+    for (std::size_t frame = 0; frame < framesRead; ++frame)
+      destination[frame] = static_cast<std::int16_t>(static_cast<int>((g_simulatedMicrophonePhase++ % 100) * 300) - 15000);
+    return InputStatus::Ready;
+  }
+
   return ReadWaveInFrames(destination, frameCount, framesRead, timeoutMs);
 }
 
@@ -579,3 +601,10 @@ SynthAudioPipelineBinding ConnectSynthAudioPipeline(std::size_t engineIndex) {
 }
 
 }  // namespace device
+
+namespace CardenzaSim::Input {
+
+void SetMicrophonePresent(bool present) { g_simulatedMicrophone = present; }
+void FeedMicrophone(std::size_t frames) { g_simulatedMicrophoneFrames += frames; }
+
+}  // namespace CardenzaSim::Input

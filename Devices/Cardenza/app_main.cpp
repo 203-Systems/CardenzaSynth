@@ -2,6 +2,7 @@
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <nvs.h>
 
 #include "Devices/Device.h"
 #include "OS/System/System.h"
@@ -27,6 +28,19 @@ void LogInternalHeap(const char* stage)
              static_cast<unsigned>(heap_caps_get_minimum_free_size(kCaps)));
 }
 
+// The settings and the autosave share a small partition with every other firmware on the device.
+void LogFlashRecords()
+{
+    nvs_stats_t stats{};
+    if (nvs_get_stats(nullptr, &stats) != ESP_OK) return;
+    ESP_LOGI(kLogTag,
+             "nvs entries: used=%u free=%u total=%u namespaces=%u",
+             static_cast<unsigned>(stats.used_entries),
+             static_cast<unsigned>(stats.free_entries),
+             static_cast<unsigned>(stats.total_entries),
+             static_cast<unsigned>(stats.namespace_count));
+}
+
 void LogFailedAllocation(size_t size, uint32_t caps, const char* functionName)
 {
     ESP_EARLY_LOGE(kLogTag, "alloc failed: %u bytes caps=0x%x in %s", static_cast<unsigned>(size),
@@ -50,6 +64,7 @@ void CardenzaRuntimeTask(void*)
              Device::Display::kWidth,
              Device::Display::kHeight);
     LogInternalHeap("after boot");
+    LogFlashRecords();
 
     TickType_t lastWakeTime = xTaskGetTickCount();
     for (;;)

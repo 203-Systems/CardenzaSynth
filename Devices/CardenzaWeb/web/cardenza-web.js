@@ -124,6 +124,8 @@
     audioLabel: $('audio-label'),
     audioInfo: $('audio-info'),
     audioHint: $('audio-hint'),
+    projectButton: $('project-button'),
+    projectInput: $('project-input'),
     wavButton: $('wav-button'),
     wavInput: $('wav-input'),
     storageInfo: $('storage-info'),
@@ -564,10 +566,16 @@
     ui.home.addEventListener('contextmenu', (event) => event.preventDefault());
 
     // Buttons must not keep focus: Space / Enter belong to the device.
-    for (const button of [ui.audioButton, ui.wavButton]) {
+    for (const button of [ui.audioButton, ui.projectButton, ui.wavButton]) {
       button.addEventListener('mouseup', () => button.blur());
     }
     ui.audioButton.addEventListener('click', () => audio.toggle());
+    ui.projectButton.addEventListener('click', () => ui.projectInput.click());
+    ui.projectInput.addEventListener('change', () => {
+      const files = Array.from(ui.projectInput.files || []);
+      ui.projectInput.value = '';
+      importProjectFiles(files);
+    });
     ui.wavButton.addEventListener('click', () => ui.wavInput.click());
     ui.wavInput.addEventListener('change', () => {
       const files = Array.from(ui.wavInput.files || []);
@@ -912,6 +920,50 @@
     }
     persistNow();
     showStatus('Samples: ' + escapeHtml(done.join(' · ')) + '  →  INSTR on the SAMPLER track, SAMPLE page, FILE');
+  }
+
+  // A name the device lists (IsProjectNameValid in ProjectStorage.cpp): "DEMO-2(1).ccproj" is not one.
+  function projectBaseName(fileName) {
+    let base = fileName.replace(/\.ccproj(\.bak)?$/i, '').replace(/[^A-Za-z0-9 _\-]+/g, '_').slice(0, 24).trim() || 'PROJECT';
+    if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(base)) base = base + '_';
+    return base;
+  }
+
+  // Never over another project: the same file is already there, anything else gets a free name.
+  function freeProjectName(directory, base, bytes) {
+    for (let number = 1; ; number++) {
+      const suffix = number === 1 ? '' : ' ' + number;
+      const name = base.slice(0, 24 - suffix.length).trim() + suffix;
+      const path = directory + '/' + name + '.ccproj';
+      if (!mod.FS.analyzePath(path).exists) return name;
+      const existing = mod.FS.readFile(path);
+      if (existing.length === bytes.length && existing.every((value, index) => value === bytes[index])) return name;
+    }
+  }
+
+  async function importProjectFiles(files) {
+    if (!booted || files.length === 0) return;
+    const directory = mod.UTF8ToString(mod._cardenza_web_project_directory());
+    const done = [];
+    let opening = null;
+    for (const file of files) {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (new TextDecoder().decode(bytes.subarray(0, 17)) !== 'CARDENZA_PROJECT ') {
+          done.push(file.name + ': not a Cardenza project');
+          continue;
+        }
+        const name = freeProjectName(directory, projectBaseName(file.name), bytes);
+        mod.FS.writeFile(directory + '/' + name + '.ccproj', bytes);
+        done.push(name);
+        opening = opening || name;
+      } catch (error) {
+        done.push(file.name + ': ' + (error && error.message || 'could not be read'));
+      }
+    }
+    if (opening) mod.ccall('cardenza_web_open_project', 'number', ['string'], [opening]);
+    persistNow();
+    showStatus('Projects: ' + escapeHtml(done.join(' · ')) + (opening ? '  →  all in SETUP, FILES' : ''));
   }
 
   // ---------------------------------------------------------------------------------------

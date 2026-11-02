@@ -106,7 +106,7 @@ struct SequencerTrackUiState {
   std::size_t activePattern = 0;
   std::size_t patternCount = 1;
   std::size_t populatedStepCount = 0;
-  // Step of this track's last processed pulse; each track loops at its own length.
+  // Step of this track's last processed pulse; each track loops at the length of its pattern.
   std::size_t currentStep = 0;
   std::size_t stepCount = kSequencerStepCount;
   // Pattern that becomes active at this track's next loop boundary;
@@ -131,7 +131,7 @@ struct SequencerUiState {
   std::size_t populatedStepCount = 0;
   std::array<bool, kSequencerMaxPatternCount> patternHasEvents{};
   // Steps holding at least one note, per pattern of the shown track (0 past its pattern count).
-  std::array<std::uint8_t, kSequencerMaxPatternCount> patternStepCounts{};
+  std::array<std::uint16_t, kSequencerMaxPatternCount> patternStepCounts{};
   std::array<SequencerTrackUiState, kSynthTrackCount> tracks{};
   // Song mode. songMode is the switch; songPlaying is true while playback follows the song
   // (a switch flipped while playing takes over at the next bar line).
@@ -172,7 +172,14 @@ struct SequencerUiState {
   bool hasCopySource = false;
   bool copySourceIsPattern = false;
   std::size_t copySourceIndex = 0;
+  // One GRID page of the pattern (SetViewPage): steps[i] is step firstViewStep + i of
+  // viewPageCount pages. currentStep and primaryHeldStep count from the start of the pattern.
   std::array<SequencerStepUiState, kSequencerStepCount> steps{};
+  std::size_t firstViewStep = 0;
+  std::size_t viewPage = 0;
+  std::size_t viewPageCount = 1;
+  int primaryLowestNote = -1;
+  bool viewFollow = true;
   // Arpeggiator of the track the state was built for (arpTrack): mode on and notes held or
   // latched. arpNotes lists the first
   // arpNoteCount notes in press order; arpSounding is the playing arp note (-1 = none) and

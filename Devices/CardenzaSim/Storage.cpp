@@ -13,6 +13,7 @@
 #include <string>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 #if defined(_WIN32)
 #define NOMINMAX
@@ -83,6 +84,8 @@ bool Mount() {
   return fs::is_directory(CardDirectory(), error);
 }
 
+void CheckAfterIoError() {}
+
 bool IsMounted() {
   std::error_code error;
   return cardInserted.load() && fs::is_directory(CardDirectory(), error);
@@ -133,6 +136,17 @@ bool WriteInternal(std::string_view key, std::string_view value) {
   // Host file systems replace atomically on rename (Windows included, via std::filesystem).
   fs::rename(temporary, InternalPath(key), error);
   return !error;
+}
+
+std::vector<std::string> ListInternal() {
+  std::vector<std::string> keys;
+  std::error_code error;
+  for (const fs::directory_entry& entry : fs::directory_iterator(Base() / "internal", error)) {
+    if (entry.path().extension() == ".rec") {
+      keys.push_back(entry.path().stem().string());
+    }
+  }
+  return keys;
 }
 
 bool EraseInternal(std::string_view key) {

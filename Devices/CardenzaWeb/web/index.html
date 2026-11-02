@@ -30,7 +30,7 @@ If this stays, the wasm build is missing: run make web and serve build/web/site.
           </div>
         </div>
         <div class="side">
-          <button class="home" id="home" type="button" title="HOME side button: all stop (PC key: Home)">
+          <button class="home" id="home" type="button" title="HOME side button: not assigned yet (PC key: Home)">
             <span class="home-dot" aria-hidden="true"></span>
             <span class="home-label">HOME</span>
             <span class="home-sub">all stop</span>
@@ -55,8 +55,10 @@ If this stays, the wasm build is missing: run make web and serve build/web/site.
       <button type="button" class="tool" id="audio-button" title="Start or stop audio output">
         <span class="tool-dot" id="audio-dot" aria-hidden="true"></span><span id="audio-label">Start audio</span>
       </button>
+      <button type="button" class="tool" id="project-button" title="Copy Cardenza projects (.ccproj) into this browser and open the first one. Nothing is overwritten.">Load project…</button>
       <button type="button" class="tool" id="wav-button" title="Copy WAV files into the sampler's Sample folder (stored in this browser)">Load WAV…</button>
       <a class="tool" href="learn/" title="The manual: every key, page and setting, searchable, 中文 / English">Learn · 说明书</a>
+      <input type="file" id="project-input" accept=".ccproj,.bak" multiple hidden>
       <input type="file" id="wav-input" accept=".wav,audio/wav,audio/x-wav,audio/*" multiple hidden>
       <span class="tool-info" id="storage-info">storage: …</span>
       <span class="tool-info" id="audio-info"></span>
@@ -82,7 +84,7 @@ If this stays, the wasm build is missing: run make web and serve build/web/site.
               <li><b>PADS</b> (columns 1–8) always play notes on the current track; on T1 drums each column is a drum.</li>
               <li><b>GRID</b> (columns 9–12) is the 4×4 cell grid in the middle of the screen: steps on SEQ, parameters and slots elsewhere.</li>
               <li><b>ADD / SUB</b> (+ / −) change values, hold to repeat. <b>ENTER</b> (OK) confirms; on the SEQ note page it is the record key: tap switches PIANO ROLL / STEP REC, hold opens RECORD (live REC and the captured takes). <b>PLAY</b> starts/stops; FN + PLAY arms recording.</li>
-              <li><b>HOME</b> stops everything.</li>
+              <li><b>HOME</b> is not assigned yet; FN + ESC stops everything.</li>
             </ul>
             <h3>First loop</h3>
             <p>Boots on <b>1 INSTR</b> (VOICE) with T2 Juno: ADD/SUB try presets. Tap ESC for <b>2 SEQ</b>, hold TAB and press GRID column 1 for T1 drums. Hold a pad and tap GRID keys to write steps, press PLAY (Space). Save with FN + S, or in SETUP → PROJECT (hold ESC, press GRID column 1). Chord and arpeggiator are per track, on the INSTR pages after VOICE.</p>
@@ -91,7 +93,7 @@ If this stays, the wasm build is missing: run make web and serve build/web/site.
             <h3>Computer keyboard</h3>
             <p>Keys map by position, whatever your layout: the digit row is row 0, Q row is row 1, A row is row 2, Z row is row 3. Esc or <kbd>`</kbd> = ESC, <kbd>Tab</kbd> = TAB, <kbd>Caps</kbd> or <kbd>Shift</kbd> (left) = FN, <kbd>Ctrl</kbd> = CTRL, <kbd>Backspace</kbd> = ADD, <kbd>\</kbd> = SUB, <kbd>Enter</kbd> = ENTER, <kbd>Space</kbd> = PLAY, <kbd>Home</kbd> = HOME. Each key shows its computer key at the bottom. On macOS Caps Lock latches FN (press again to release); hold left Shift for a momentary FN.</p>
             <p>Mouse: press and hold a key. Right-click latches a key down (for holding ESC, FN… while clicking the GRID); right-click again to release. Touch: multi-touch works.</p>
-            <p>Projects and presets are kept in this browser (IndexedDB). <b>Load WAV…</b> copies files into the sampler's Sample folder (converted to mono 16-bit, at most 5 s).</p>
+            <p>Projects and presets are kept in this browser (IndexedDB). <b>Load project…</b> copies <code>.ccproj</code> files from a Cardenza's card in here and opens the first; the rest are in SETUP, FILES. <b>Load WAV…</b> copies files into the sampler's Sample folder (converted to mono 16-bit, at most 5 s).</p>
           </div>
         </div>
       </details>

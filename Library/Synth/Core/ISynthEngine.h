@@ -92,6 +92,9 @@ public:
   virtual std::string CurrentPresetId() const = 0;
   virtual std::string CurrentPresetName() const = 0;
   virtual SynthEngineState CaptureState() const = 0;
+  // The same with only the values that differ from the base preset: RestoreState takes the preset's
+  // value for the others.
+  virtual SynthEngineState CaptureChanges() const { return CaptureState(); }
   virtual bool RestoreState(const SynthEngineState& state) = 0;
   virtual bool RefreshPresetCatalog() = 0;
   virtual bool CanReplace(const ISynthEngine& previous) const = 0;

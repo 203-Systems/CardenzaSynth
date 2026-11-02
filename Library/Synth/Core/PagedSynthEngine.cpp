@@ -400,6 +400,14 @@ SynthEngineState PagedSynthEngine::CaptureState() const
   return state;
 }
 
+SynthEngineState PagedSynthEngine::CaptureChanges() const
+{
+  SynthEngineState state{basePresetId_, currentPresetId_, currentPresetName_, {}};
+  for (const auto& parameter : parameters_)
+    if (parameter.value != FactoryParameterValue(basePresetId_, parameter)) state.values.emplace(parameter.id, parameter.value);
+  return state;
+}
+
 bool PagedSynthEngine::ValidState(const SynthEngineState& state) const
 {
   if (state.presetName.empty() || state.presetName.size() > 48 || state.presetId.size() > 64 ||

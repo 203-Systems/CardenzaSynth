@@ -1,4 +1,5 @@
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Audio/RenderLoad.h"
 #include "Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.h"
 #include "Library/Synth/Core/Engines/Juno/JunoFactoryPresets.h"
 #include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
@@ -8,6 +9,10 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <limits>
+#include <thread>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -39,6 +44,9 @@
 
 #if defined(ESP_PLATFORM)
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #endif
 
 #if defined(ESP_PLATFORM)
@@ -58,6 +66,12 @@ extern "C" {
 #include "amy.h"
 // AMY's voice table (patches.c): the first oscillator of every allocated voice.
 extern uint16_t* voice_to_base_osc;
+// What AMY does to an oscillator that has gone silent (amy.c).
+void reset_modosc(struct mod_synthinfo* pmsynth);
+void reset_osc_state(struct synthinfo* psynth);
+// The block being rendered, per core (amy.c).
+extern SAMPLE* fbl[AMY_MAX_CORES];
+extern SAMPLE core_max[AMY_MAX_CORES];
 }
 }  // namespace amy_embed
 
@@ -82,14 +96,15 @@ constexpr std::size_t kSamplerVoiceCount = 4;
 constexpr int kAmyMaxSynths = 8;
 constexpr int kAmyMaxVoices = 24;
 constexpr int kAmyMaxOscs = 160;
-#if defined(ESP_PLATFORM) && defined(CARDENZA_AMY_EXPERIMENTAL_MULTICORE)
-constexpr bool kAmyUseExperimentalMulticore = true;
-#else
-constexpr bool kAmyUseExperimentalMulticore = false;
-#endif
-constexpr float kOutputGain = 0.75f;
-constexpr std::int32_t kAmyOnlyOutputGainNumerator = 3;
-constexpr std::int32_t kAmyOnlyOutputGainDenominator = 8;
+// The output stage, the same on every path: the mix times kOutputGain, held under the ceiling by a
+// limiter that sees each block before it plays. Mix 1.0 is where AMY's own soft clip sits, so the
+// tracks have about 9 dB above the ceiling before that clip could colour them.
+constexpr float kOutputGain = 3.0f;
+constexpr float kOutputCeiling = 0.97f;
+// Recovers about 30 dB per second, slow enough not to follow the waveform of a bass note.
+constexpr float kLimiterReleasePerFrame = 0.00008f;
+constexpr std::size_t kLimiterShortestAttackFrames = 4;
+constexpr float kSamplerVoiceGain = 0.3f;
 constexpr float kDx7MaxAmyVelocity = 88.0f / 127.0f;
 constexpr float kTwoPi = 6.28318530717958647692f;
 
@@ -108,6 +123,16 @@ struct SamplerParams {
   int level = 96;
   float filterG = 0.5f;
   float filterDamping = 1.0f;
+  float filterInverse = 1.0f / 1.5f;
+  // Worked out when something changes, not per sample (UpdateSamplerDerived).
+  std::uint32_t revision = 1;
+  std::uint32_t derivedRevision = 0;
+  float attackStep = 0.0f;
+  float releaseStep = 0.0f;
+  float outputGain = 0.0f;
+  float driveGain = 1.0f;
+  std::uint64_t startCursor = 0;
+  std::uint64_t endCursor = 0;
   SharedSampleBuffer sampleFrames;
   std::uint32_t sampleRate = kSampleRate;
 };
@@ -118,7 +143,11 @@ struct SamplerVoice {
   std::uint8_t note = 0;
   float velocity = 0.0f;
   float envelope = 0.0f;
-  double sampleCursor = 0.0;
+  // Frames in 32.32 fixed point: this core has no double-precision unit.
+  std::uint64_t sampleCursor = 0;
+  std::uint64_t cursorStep = 0;
+  std::uint32_t revision = 0;
+  StreamCursor stream{};
   float filterLow = 0.0f;
   float filterBand = 0.0f;
   std::uint64_t serial = 0;
@@ -129,6 +158,8 @@ struct EngineState {
   bool configured = false;
   int synthId = 0;
   int patchNumber = -1;
+  float presetGain = 1.0f;  // Evens out the factory presets (PresetLevels.inc).
+  bool orphanVoiceSeen = false;
   int noteOffset = 0;
   std::array<std::uint8_t, 156> dx7{};
   std::array<std::uint8_t, 18> juno{};
@@ -214,6 +245,9 @@ std::array<TrackMixState, kSynthTrackCount> g_trackMix{};
 // Owning track + 1 of every AMY oscillator (0: none), rebuilt whenever AMY allocates or
 // releases voices.
 std::array<std::uint8_t, kAmyMaxOscs> g_amyOscTrack{};
+// The first oscillator of each voice. It holds the voice's filter and envelope and renders the others
+// through them: any of those rendered on its own plays raw, whatever the patch says.
+std::array<bool, kAmyMaxOscs> g_amyVoiceStart{};
 std::array<PublishedTrackMix, kSynthTrackCount> g_publishedMix;
 float g_outputPeakState = 0.0f;
 std::atomic<float> g_outputPeak{0.0f};
@@ -236,6 +270,8 @@ constexpr float kAmyOutputShift = 0.5f;  // amy_fill_buffer drops one bit on ESP
 #else
 constexpr float kAmyOutputShift = 1.0f;
 #endif
+// AMY's interleaved output to the float mix, the same level on every platform.
+constexpr float kAmyBlockToMix = 1.0f / 65536.0f / kAmyOutputShift;
 static_assert(kAmyFramesPerBlock <= fx::dsp::kMaxBlockFrames, "effects process whole AMY blocks");
 
 struct TrackFxParams {
@@ -253,7 +289,6 @@ struct FxCore {
   std::array<float, kSynthTrackCount> reverbGain{};
   fx::dsp::SendBuses buses;
   fx::dsp::MasterChain master;
-  fx::dsp::TanhTable tanh;
 };
 
 // What the render hook does with one track's AMY voices during the block being rendered.
@@ -284,16 +319,16 @@ struct FxState {
   // Output stage of the effects path: 0 = the AMY-only path's linear 0.75 gain, 1 = the soft clipper
   // of the sampler mix. It crossfades over one AMY block when the path starts or ends next to the
   // AMY-only path, so switching paths does not click.
-  float outputBlend = 1.0f;
-  bool lastPathLinear = false;  // The plain path last used was the AMY-only (linear) one.
   bool blockPrepared = false;   // core->mix holds the AMY block at g_amyBlockCursor.
   bool dirty = false;          // Settings changed: allocations may be due.
+  float memoryTempo = 0.0f;    // The tempo the allocations were last checked for.
   std::array<float, fx::kBusCount> returnMeter{};
 };
 
 FxState g_fx;
 // Render hook plan for the AMY block being rendered (all null outside the effects path).
 std::array<FxHookTrack, kSynthTrackCount> g_fxHook{};
+float g_outputGain = kOutputGain;  // The limiter's current gain.
 float g_fxVoiceScale = 0.0f;  // AMY voice sample (S8.23) to mix units, for the block being rendered.
 
 template <std::size_t... Index>
@@ -323,11 +358,6 @@ AmyShutdown g_amyShutdown;
 float Clamp01(float value)
 {
   return std::clamp(value, 0.0f, 1.0f);
-}
-
-std::int16_t ClampToInt16(std::int32_t value)
-{
-  return static_cast<std::int16_t>(std::clamp<std::int32_t>(value, INT16_MIN, INT16_MAX));
 }
 
 std::int16_t FloatToInt16(float sample)
@@ -370,19 +400,20 @@ std::size_t SamplerEndFrame(const SamplerParams& params, std::size_t startFrame)
   return std::clamp(endFrame, startFrame + 1, frameCount);
 }
 
-float ReadSamplerFrame(const SamplerParams& params, double frameCursor, std::size_t endFrame)
+bool SamplerHasSample(const SamplerParams& params)
 {
-  if (!params.sampleFrames || params.sampleFrames->frameCount == 0)
-  {
-    return 0.0f;
-  }
+  return params.sampleFrames && params.sampleFrames->frameCount != 0 && (params.sampleFrames->frames || params.sampleFrames->stream);
+}
 
-  const std::size_t clampedEnd = std::clamp<std::size_t>(endFrame, 1, params.sampleFrames->frameCount);
-  const std::size_t index0 = (std::min)(clampedEnd - 1, static_cast<std::size_t>((std::max)(0.0, std::floor(frameCursor))));
-  const std::size_t index1 = (std::min)(clampedEnd - 1, index0 + 1);
-  const float fraction = static_cast<float>(std::clamp(frameCursor - static_cast<double>(index0), 0.0, 1.0));
-  const float sample0 = static_cast<float>(params.sampleFrames->frames[index0]) / 32768.0f;
-  const float sample1 = static_cast<float>(params.sampleFrames->frames[index1]) / 32768.0f;
+float ReadSamplerFrame(const SamplerParams& params, StreamCursor& stream, std::uint64_t cursor)
+{
+  const std::size_t last = static_cast<std::size_t>(params.endCursor >> 32) - 1;
+  const std::size_t index0 = (std::min)(last, static_cast<std::size_t>(cursor >> 32));
+  const std::size_t index1 = (std::min)(last, index0 + 1);
+  const float fraction = static_cast<float>(static_cast<std::uint32_t>(cursor)) * (1.0f / 4294967296.0f);
+  const SampleBuffer& buffer = *params.sampleFrames;
+  const float sample0 = static_cast<float>(buffer.stream ? buffer.stream->Read(stream, index0) : buffer.frames[index0]) / 32768.0f;
+  const float sample1 = static_cast<float>(buffer.stream ? buffer.stream->Read(stream, index1) : buffer.frames[index1]) / 32768.0f;
   return sample0 + (sample1 - sample0) * fraction;
 }
 
@@ -391,7 +422,8 @@ float SamplerLowpass(float input, const SamplerParams& params, SamplerVoice& voi
   // Two-integrator state-variable lowpass, with bounded Q for predictable headroom.
   const float g = params.filterG;
   const float damping = params.filterDamping;
-  const float band = (voice.filterBand + g * (input - voice.filterLow)) / (1.0f + g * (g + damping));
+  (void)damping;
+  const float band = (voice.filterBand + g * (input - voice.filterLow)) * params.filterInverse;
   const float low = voice.filterLow + g * band;
   voice.filterBand = 2.0f * band - voice.filterBand;
   voice.filterLow = 2.0f * low - voice.filterLow;
@@ -403,6 +435,7 @@ void UpdateSamplerFilter(SamplerParams& params)
   const float cutoff = 80.0f + std::pow(Normalize(params.cutoff, 0, 127), 2.2f) * 12000.0f;
   params.filterG = std::tan(0.5f * kTwoPi * cutoff / static_cast<float>(kSampleRate));
   params.filterDamping = 1.0f / (0.7071f + Normalize(params.resonance, 0, 127) * 7.0f);
+  params.filterInverse = 1.0f / (1.0f + params.filterG * (params.filterG + params.filterDamping));
 }
 
 bool UsesAmy(SynthEngineKind kind)
@@ -462,6 +495,15 @@ int MapJunoPreset(std::string_view presetId)
 }
 
 // Called by AMY (on the rendering core) for each sounding voice block, before it is mixed.
+// The buses and sends are shared by the voices of both cores. Each voice adds to them for microseconds;
+// the other core never holds this while waiting for anything.
+std::atomic_flag g_fxBusLock = ATOMIC_FLAG_INIT;
+class FxBusLock {
+public:
+  FxBusLock() { while (g_fxBusLock.test_and_set(std::memory_order_acquire)) {} }
+  ~FxBusLock() { g_fxBusLock.clear(std::memory_order_release); }
+};
+
 SYNTH_FX_HOT std::uint8_t ApplyTrackGainToAmyVoice(std::uint16_t osc, std::int32_t* buffer, std::uint16_t length)
 {
   if (osc >= g_amyOscTrack.size() || g_amyOscTrack[osc] == 0)
@@ -485,6 +527,7 @@ SYNTH_FX_HOT std::uint8_t ApplyTrackGainToAmyVoice(std::uint16_t osc, std::int32
     const float inverseLength = length == kAmyFramesPerBlock ? 1.0f / static_cast<float>(kAmyFramesPerBlock) : 1.0f / static_cast<float>(length);
     const float scale = g_fxVoiceScale * (1.0f / static_cast<float>(kTrackGainUnityQ16));
     float gain = static_cast<float>(startQ16) * scale;
+    const FxBusLock lock;
     if (startQ16 == endQ16)
     {
       for (std::uint16_t index = 0; index < length; ++index) bus[index] += static_cast<float>(buffer[index]) * gain;
@@ -499,7 +542,17 @@ SYNTH_FX_HOT std::uint8_t ApplyTrackGainToAmyVoice(std::uint16_t osc, std::int32
     return 1;
   }
 
-  if (startQ16 != kTrackGainUnityQ16 || endQ16 != kTrackGainUnityQ16)
+  if (startQ16 == endQ16)
+  {
+    if (startQ16 != kTrackGainUnityQ16)
+    {
+      for (std::uint16_t index = 0; index < length; ++index)
+      {
+        buffer[index] = static_cast<std::int32_t>((static_cast<std::int64_t>(buffer[index]) * startQ16) >> 16);
+      }
+    }
+  }
+  else
   {
     const std::int32_t deltaQ16 = endQ16 - startQ16;
     for (std::uint16_t index = 0; index < length; ++index)
@@ -511,6 +564,7 @@ SYNTH_FX_HOT std::uint8_t ApplyTrackGainToAmyVoice(std::uint16_t osc, std::int32
   // Sends only: the (post-fader) voice also feeds the delay and reverb sends.
   if (fx.delaySend != nullptr && fx.reverbSend != nullptr)
   {
+    const FxBusLock lock;
     float delayGain = fx.delayGain, reverbGain = fx.reverbGain;
     if (fx.delayStep == 0.0f && fx.reverbStep == 0.0f)
     {
@@ -533,6 +587,7 @@ SYNTH_FX_HOT std::uint8_t ApplyTrackGainToAmyVoice(std::uint16_t osc, std::int32
   }
   else if (float* send = fx.delaySend != nullptr ? fx.delaySend : fx.reverbSend)
   {
+    const FxBusLock lock;
     const bool delay = fx.delaySend != nullptr;
     float gain = delay ? fx.delayGain : fx.reverbGain;
     const float step = delay ? fx.delayStep : fx.reverbStep;
@@ -565,7 +620,8 @@ void EnsureAmyInitialized()
     config.features.echo = 0;
     config.features.chorus = 0;
   #if defined(ESP_PLATFORM)
-    config.platform.multicore = kAmyUseExperimentalMulticore ? 1 : 0;
+    // Not AMY's own tasks: RenderAmyVoicesNoLock shares the voices between the cores.
+    config.platform.multicore = 0;
     config.platform.multithread = 0;
   #else
     config.platform.multicore = 0;
@@ -589,9 +645,17 @@ void SendAmyNoteEventNoLock(const EngineState& engine, std::uint8_t note, float 
     return;
   }
 
+  // AMY has no note 0: its note-on is ignored, and its note-off wipes the voice table without releasing
+  // a voice, which leaves everything sounding on the track stuck for ever.
+  const int amyNote = (std::min)(static_cast<int>(note) + engine.noteOffset, 127);
+  if (amyNote <= 0)
+  {
+    return;
+  }
+
   amy_event event = amy_default_event();
   event.synth = static_cast<uint16_t>(engine.synthId);
-  event.midi_note = static_cast<uint16_t>(std::clamp(static_cast<int>(note) + engine.noteOffset, 0, 127));
+  event.midi_note = static_cast<uint16_t>(amyNote);
   event.velocity = velocity;
   amy_add_event(&event);
 }
@@ -700,7 +764,10 @@ void ApplyJunoParameterNoLock(EngineState& engine, std::string_view id, int valu
   if (group == "vcf." || vcaMode)
   {
     auto event = SynthEvent(engine, 0);
-    event.resonance = 0.7f * std::exp2(4.0f * normalized(6));
+    // AMY runs one biquad twice for 24 dB, which squares its peak: at the ROM's 0.7 * 2^(4 x) a full
+    // resonance is +42 dB (it overflows to silence, and a lead at 3/4 whistles 30 dB over its own
+    // note). This law peaks at +20 dB, a Juno's ladder more than the ROM's arithmetic.
+    event.resonance = 0.7f * std::exp2(2.2f * normalized(6));
     event.filter_freq_coefs[amy_embed::COEF_CONST] = 13.0f * std::exp2(0.0938f * p[5] + 0.75f * normalized(9));
     event.filter_freq_coefs[amy_embed::COEF_NOTE] = normalized(9);
     const float amount = 11.0f * ((p[17] & 2) ? -1.0f : 1.0f) * normalized(7);
@@ -729,6 +796,17 @@ void ApplyJunoParameterNoLock(EngineState& engine, std::string_view id, int valu
     }
     amy_add_event(&event);
   }
+}
+
+// A Juno patch from our own bytes, over AMY's ROM string: the same mapping except the resonance law
+// above, and it lets a factory patch differ from the ROM.
+void VoiceJunoPatchNoLock(EngineState& engine)
+{
+  const auto& p = engine.juno;
+  ApplyJunoParameterNoLock(engine, "lfo.rate", p[0]);
+  ApplyJunoParameterNoLock(engine, "dco.lfo", p[2]);
+  ApplyJunoParameterNoLock(engine, "vcf.resonance", p[6]);
+  ApplyJunoParameterNoLock(engine, "vca.level", p[10]);
 }
 
 float Dx7Level(int value)
@@ -854,7 +932,7 @@ float ApproachGain(float current, float target, float step)
 
 std::int32_t GainToQ16(float gain)
 {
-  return static_cast<std::int32_t>(std::lround(Clamp01(gain) * static_cast<float>(kTrackGainUnityQ16)));
+  return static_cast<std::int32_t>(std::lround(gain * static_cast<float>(kTrackGainUnityQ16)));
 }
 
 // Runs before every AMY block: ramps each AMY track one step towards its effective gain.
@@ -867,13 +945,14 @@ void StepAmyTrackGainsNoLock()
     const float target = EffectiveTrackGain(mix);
     mix.amyGain = engine.configured && UsesAmy(engine.kind) ? ApproachGain(mix.amyGain, target, kTrackGainStepPerBlock) : target;
     mix.amyBlockStartQ16 = mix.amyBlockEndQ16;
-    mix.amyBlockEndQ16 = GainToQ16(mix.amyGain);
+    mix.amyBlockEndQ16 = GainToQ16(Clamp01(mix.amyGain) * engine.presetGain);
   }
 }
 
 void RebuildAmyOscTrackMapNoLock()
 {
   g_amyOscTrack.fill(0);
+  g_amyVoiceStart.fill(false);
   if (!g_amyInitialized)
   {
     return;
@@ -896,6 +975,7 @@ void RebuildAmyOscTrackMapNoLock()
     for (int voice = 0; voice < voiceCount; ++voice)
     {
       const int base = amy_embed::voice_to_base_osc[voices[voice]];
+      if (base < static_cast<int>(g_amyVoiceStart.size())) g_amyVoiceStart[static_cast<std::size_t>(base)] = true;
       for (int osc = base; osc < base + oscsPerVoice && osc < static_cast<int>(g_amyOscTrack.size()); ++osc)
       {
         g_amyOscTrack[static_cast<std::size_t>(osc)] = static_cast<std::uint8_t>(track + 1);
@@ -911,6 +991,19 @@ void BumpTrackActivityNoLock(std::size_t engineIndex, float level)
   mix.activity = (std::max)(mix.activity, mix.heldLevel * EffectiveTrackGain(mix));
 }
 
+// In dB, by AMY patch number: Juno 0..127, DX7 128..255. The patches are decades apart in level (a
+// resonant Juno lead against a soft DX7 pad is 40 dB), which no single output gain can even out.
+constexpr std::int8_t kPresetLevels[256] = {
+#include "Library/Synth/Audio/Amy/PresetLevels.inc"
+};
+
+float PresetGainFor(const EngineState& engine)
+{
+  if (engine.kind != SynthEngineKind::Juno && engine.kind != SynthEngineKind::Dx7) return 1.0f;
+  const int patch = engine.patchNumber < 0 ? DefaultPatchFor(engine.kind) : engine.patchNumber;
+  return std::pow(10.0f, static_cast<float>(kPresetLevels[std::clamp(patch, 0, 255)]) / 20.0f);
+}
+
 void ConfigureAmySynthNoLock(EngineState& engine)
 {
   if (!UsesAmy(engine.kind))
@@ -920,6 +1013,7 @@ void ConfigureAmySynthNoLock(EngineState& engine)
 
   EnsureAmyInitialized();
   ReleaseAllAmyNotesNoLock(engine);
+  engine.presetGain = PresetGainFor(engine);
 
   amy_event event = amy_default_event();
   event.synth = static_cast<uint16_t>(engine.synthId);
@@ -937,6 +1031,7 @@ void ConfigureAmySynthNoLock(EngineState& engine)
     event.patch_number = static_cast<uint16_t>(engine.patchNumber < 0 ? DefaultPatchFor(engine.kind) : engine.patchNumber);
   }
   amy_add_event(&event);
+  if (engine.kind == SynthEngineKind::Juno) VoiceJunoPatchNoLock(engine);
 
   // AMY's Juno ROM models its HPF with global EQ. In this four-track rack that
   // would recolor every track and make project sound depend on preset load order.
@@ -948,7 +1043,7 @@ void ConfigureAmySynthNoLock(EngineState& engine)
   // Fresh voices are silent: start them at the track gain without a ramp.
   TrackMixState& mix = TrackMixFor(engine);
   mix.amyGain = EffectiveTrackGain(mix);
-  mix.amyBlockStartQ16 = mix.amyBlockEndQ16 = GainToQ16(mix.amyGain);
+  mix.amyBlockStartQ16 = mix.amyBlockEndQ16 = GainToQ16(Clamp01(mix.amyGain) * engine.presetGain);
   RebuildAmyOscTrackMapNoLock();
 }
 
@@ -977,20 +1072,37 @@ SamplerVoice& AllocateSamplerVoice(EngineState& engine)
   return *iterator;
 }
 
-float RenderSamplerVoice(const SamplerParams& params, SamplerVoice& voice)
+void UpdateSamplerDerived(SamplerParams& params)
 {
-  if (!voice.active || !params.sampleFrames || !params.sampleFrames->frames || params.sampleFrames->frameCount == 0)
+  params.derivedRevision = params.revision;
+  params.attackStep = 1.0f / (std::max)(16.0f, (0.002f + Normalize(params.attack, 0, 127) * 0.25f) * static_cast<float>(kSampleRate));
+  params.releaseStep = 1.0f / (std::max)(16.0f, (0.01f + Normalize(params.release, 0, 127) * 1.2f) * static_cast<float>(kSampleRate));
+  params.outputGain = Normalize(params.sampleGain, 0, 127) * Normalize(params.level, 0, 127);
+  params.driveGain = 1.0f + Normalize(params.drive, 0, 127) * 4.0f;
+  const std::size_t start = SamplerStartFrame(params);
+  params.startCursor = static_cast<std::uint64_t>(start) << 32;
+  params.endCursor = static_cast<std::uint64_t>(SamplerEndFrame(params, start)) << 32;
+}
+
+float RenderSamplerVoice(SamplerParams& params, SamplerVoice& voice)
+{
+  if (!voice.active || !SamplerHasSample(params))
   {
     voice.active = false;
     return 0.0f;
   }
-
-  const float attackStep = 1.0f / (std::max)(16.0f, (0.002f + Normalize(params.attack, 0, 127) * 0.25f) * static_cast<float>(kSampleRate));
-  const float releaseStep = 1.0f / (std::max)(16.0f, (0.01f + Normalize(params.release, 0, 127) * 1.2f) * static_cast<float>(kSampleRate));
+  if (params.derivedRevision != params.revision) UpdateSamplerDerived(params);
+  if (voice.revision != params.revision)
+  {
+    voice.revision = params.revision;
+    const double sourceRate = static_cast<double>(params.sampleRate == 0 ? kSampleRate : params.sampleRate);
+    const double pitchRatio = std::pow(2.0, static_cast<double>(static_cast<int>(voice.note) - params.sampleRoot + params.sampleTune) / 12.0);
+    voice.cursorStep = static_cast<std::uint64_t>((std::max)(0.0001, (sourceRate / static_cast<double>(kSampleRate)) * pitchRatio) * 4294967296.0);
+  }
 
   if (voice.releasing)
   {
-    voice.envelope -= releaseStep;
+    voice.envelope -= params.releaseStep;
     if (voice.envelope <= 0.0f)
     {
       voice = SamplerVoice{};
@@ -999,44 +1111,31 @@ float RenderSamplerVoice(const SamplerParams& params, SamplerVoice& voice)
   }
   else
   {
-    voice.envelope = (std::min)(1.0f, voice.envelope + attackStep);
+    voice.envelope = (std::min)(1.0f, voice.envelope + params.attackStep);
   }
 
+  if (voice.sampleCursor < params.startCursor) voice.sampleCursor = params.startCursor;
+  if (voice.sampleCursor >= params.endCursor && params.sampleLoop == 0)
   {
-    const std::size_t startFrame = SamplerStartFrame(params);
-    const std::size_t endFrame = SamplerEndFrame(params, startFrame);
-    if (voice.sampleCursor < static_cast<double>(startFrame))
-    {
-      voice.sampleCursor = static_cast<double>(startFrame);
-    }
-    if (voice.sampleCursor >= static_cast<double>(endFrame) && params.sampleLoop == 0)
-    {
-      voice = SamplerVoice{};
-      return 0.0f;
-    }
-
-    const double sourceRate = static_cast<double>(params.sampleRate == 0 ? kSampleRate : params.sampleRate);
-    const double pitchRatio = std::pow(2.0,
-                                       static_cast<double>(static_cast<int>(voice.note) - params.sampleRoot + params.sampleTune) /
-                                           12.0);
-    const double step = (std::max)(0.0001, (sourceRate / static_cast<double>(kSampleRate)) * pitchRatio);
-    float sample = ReadSamplerFrame(params, voice.sampleCursor, endFrame);
-    sample = SamplerLowpass(sample, params, voice);
-    sample = std::tanh(sample * (1.0f + Normalize(params.drive, 0, 127) * 4.0f));
-    sample *= voice.envelope * (0.2f + 0.8f * voice.velocity) * Normalize(params.sampleGain, 0, 127) * Normalize(params.level, 0, 127);
-
-    voice.sampleCursor += step;
-    if (params.sampleLoop != 0)
-    {
-      const double loopStart = static_cast<double>(startFrame);
-      const double loopSpan = static_cast<double>((std::max)(std::size_t{1}, endFrame - startFrame));
-      while (voice.sampleCursor >= static_cast<double>(endFrame))
-      {
-        voice.sampleCursor = loopStart + std::fmod(voice.sampleCursor - loopStart, loopSpan);
-      }
-    }
-    return sample;
+    voice = SamplerVoice{};
+    return 0.0f;
   }
+
+  float sample = ReadSamplerFrame(params, voice.stream, voice.sampleCursor);
+  sample = SamplerLowpass(sample, params, voice);
+  // A soft clip that costs a division, not a tanh per sample.
+  sample = (std::clamp)(sample * params.driveGain, -3.0f, 3.0f);
+  const float squared = sample * sample;
+  sample = sample * (27.0f + squared) / (27.0f + 9.0f * squared);
+  sample *= voice.envelope * (0.2f + 0.8f * voice.velocity) * params.outputGain;
+
+  voice.sampleCursor += voice.cursorStep;
+  if (params.sampleLoop != 0 && voice.sampleCursor >= params.endCursor)
+  {
+    const std::uint64_t span = (std::max)(std::uint64_t{1} << 32, params.endCursor - params.startCursor);
+    voice.sampleCursor = params.startCursor + (voice.sampleCursor - params.startCursor) % span;
+  }
+  return sample;
 }
 
 void ResetEngineNoLock(EngineState& engine, std::size_t engineIndex, SynthEngineKind kind)
@@ -1107,6 +1206,13 @@ void SetTrackFxParameterNoLock(std::size_t track, std::string_view id, int value
 // tries again.
 void UpdateFxNoLock()
 {
+  // A slower tempo can ask for a delay time only the long line holds.
+  const float tempo = g_fxTempo.load(std::memory_order_relaxed);
+  if (tempo != g_fx.memoryTempo)
+  {
+    g_fx.memoryTempo = tempo;
+    g_fx.dirty = true;
+  }
   if (!g_fx.dirty)
   {
     return;
@@ -1141,9 +1247,12 @@ void UpdateFxNoLock()
   }
 
   FxCore& core = *g_fx.core;
-  if (delayWanted && !core.buses.DelayAllocated())
+  if (delayWanted)
   {
-    g_fxBusFailed[fx::kBusDelay].store(!core.buses.AllocateDelay(), std::memory_order_relaxed);
+    // The long line only when the delay time needs it: it costs twice the memory.
+    const bool longLine = fx::dsp::DelaySeconds(MasterFxValue(fx::MasterParam::DelayTime), g_fxTempo.load(std::memory_order_relaxed)) >
+                          static_cast<float>(fx::dsp::kDelayLineFrames - 8) / fx::dsp::kBusRate;
+    if (!core.buses.DelayAllocated() || longLine) g_fxBusFailed[fx::kBusDelay].store(!core.buses.AllocateDelay(longLine), std::memory_order_relaxed);
   }
   if (reverbWanted && !core.buses.ReverbAllocated())
   {
@@ -1393,6 +1502,7 @@ void ApplyPendingEvent(const PendingEvent& event)
           else if (event.text == "filter.cutoff") { engine.sampler.cutoff = event.value; UpdateSamplerFilter(engine.sampler); }
           else if (event.text == "filter.resonance") { engine.sampler.resonance = event.value; UpdateSamplerFilter(engine.sampler); }
           else if (event.text == "amp.level") engine.sampler.level = event.value;
+          ++engine.sampler.revision;
           break;
         case SynthEngineKind::None:
         default:
@@ -1402,6 +1512,7 @@ void ApplyPendingEvent(const PendingEvent& event)
     case PendingEventType::SetSamplerFrames:
       engine.sampler.sampleFrames = event.frames;
       engine.sampler.sampleRate = event.sampleRate == 0 ? kSampleRate : event.sampleRate;
+      ++engine.sampler.revision;
       for (SamplerVoice& voice : engine.samplerVoices)
       {
         voice = SamplerVoice{};
@@ -1452,12 +1563,12 @@ void ApplyPendingEvent(const PendingEvent& event)
       }
 
       {
-        if (!engine.sampler.sampleFrames || !engine.sampler.sampleFrames->frames || engine.sampler.sampleFrames->frameCount == 0) return;
+        if (!SamplerHasSample(engine.sampler)) return;
         ReleaseSamplerNoteNoLock(engine, event.note);
         SamplerVoice& voice = AllocateSamplerVoice(engine);
         voice.note = event.note;
         voice.velocity = std::clamp(static_cast<float>(event.velocity) / 127.0f, 0.0f, 1.0f);
-        voice.sampleCursor = static_cast<double>(SamplerStartFrame(engine.sampler));
+        voice.sampleCursor = static_cast<std::uint64_t>(SamplerStartFrame(engine.sampler)) << 32;
         BumpTrackActivityNoLock(event.engineIndex, voice.velocity);
       }
       break;
@@ -1503,14 +1614,21 @@ void ApplyPendingEvent(const PendingEvent& event)
 
 void DrainPendingEvents()
 {
-  std::deque<PendingEvent> pending;
+  // One at a time, those that are there now: a deque of its own would allocate, even an empty one, and
+  // a failed allocation here ends the program.
+  std::size_t count = 0;
   {
     std::lock_guard<std::mutex> lock(g_pendingEventMutex);
-    pending.swap(g_pendingEvents);
+    count = g_pendingEvents.size();
   }
-
-  for (const PendingEvent& event : pending)
+  for (; count > 0; --count)
   {
+    PendingEvent event;
+    {
+      std::lock_guard<std::mutex> lock(g_pendingEventMutex);
+      event = std::move(g_pendingEvents.front());
+      g_pendingEvents.pop_front();
+    }
     ApplyPendingEvent(event);
   }
 }
@@ -1532,6 +1650,24 @@ bool HasActiveSamplerVoices(const EngineState& engine)
 {
   return engine.configured && engine.kind == SynthEngineKind::Sampler &&
          std::any_of(engine.samplerVoices.begin(), engine.samplerVoices.end(), [](const SamplerVoice& voice) { return voice.active; });
+}
+
+// Tells the card streams, once per block, where every voice is and where its notes start.
+void PublishSampleStreamsNoLock()
+{
+  static_assert(kSynthTrackCount * kSamplerVoiceCount <= kMaxStreamReaders, "every sampler voice needs a stream reader");
+  for (std::size_t engineIndex = 0; engineIndex < g_engines.size(); ++engineIndex)
+  {
+    const EngineState& engine = g_engines[engineIndex];
+    const SampleStream* stream = engine.sampler.sampleFrames ? engine.sampler.sampleFrames->stream.get() : nullptr;
+    if (stream != nullptr) stream->PublishStart(SamplerStartFrame(engine.sampler));
+    for (std::size_t voiceIndex = 0; voiceIndex < engine.samplerVoices.size(); ++voiceIndex)
+    {
+      const SamplerVoice& voice = engine.samplerVoices[voiceIndex];
+      SampleStream::PublishReader(engineIndex * kSamplerVoiceCount + voiceIndex, voice.active ? stream : nullptr,
+                                  static_cast<std::size_t>(voice.sampleCursor >> 32));
+    }
+  }
 }
 
 bool HasActiveSamplerVoicesNoLock()
@@ -1628,7 +1764,7 @@ void UpdateFxMetersNoLock(std::size_t frameCount, float delayPeak, float reverbP
   }
 }
 
-// Scale from one AMY voice sample (S8.23) to the float mix ((L + R) / 65536), mirroring the gains
+// Scale from one AMY voice sample (S8.23) to the float mix (see kAmyBlockToMix), mirroring the gains
 // a voice gets on its way out of AMY: mix_with_pan multiplies it by the centre pan gain (AMY's
 // approximate sqrt(0.5), 0.7314) and amy_fill_buffer by MUL4_SS(0.1, volume), both through
 // MUL8_SS, which keeps only gain >> 12; the S8.23 result then becomes int16 with 15 fraction bits.
@@ -1638,7 +1774,7 @@ float AmyVoiceToMixScale()
   const auto toSample = [](float value) { return static_cast<std::int32_t>(value * kOne); };
   const std::int32_t volume = ((toSample(0.1f) >> 10) * (toSample(amy_embed::amy_global.volume) >> 9)) >> 4;
   const std::int32_t pan = toSample(amy_embed::dsps_sqrtf_f32_ansi(0.5f));
-  return static_cast<float>(volume >> 12) / 2048.0f * static_cast<float>(pan >> 12) / 2048.0f / kOne * kAmyOutputShift;
+  return static_cast<float>(volume >> 12) / 2048.0f * static_cast<float>(pan >> 12) / 2048.0f / kOne;
 }
 
 // Fills the float mix of the current AMY block from AMY's output plus the AMY tracks with inserts,
@@ -1657,10 +1793,9 @@ SYNTH_FX_HOT void PrepareFxAmyBlockNoLock(const std::array<FxHookTrack, kSynthTr
   if (amyMixUsed)
   {
     const std::int16_t* block = g_amyBlock.data();
-    constexpr float kInverse = 1.0f / 65536.0f;
     for (std::size_t frame = 0; frame < kAmyFramesPerBlock; ++frame)
     {
-      mix[frame] = static_cast<float>(static_cast<std::int32_t>(block[2 * frame]) + static_cast<std::int32_t>(block[2 * frame + 1])) * kInverse;
+      mix[frame] = static_cast<float>(static_cast<std::int32_t>(block[2 * frame]) + static_cast<std::int32_t>(block[2 * frame + 1])) * kAmyBlockToMix;
     }
   }
   else
@@ -1730,6 +1865,161 @@ std::array<FxHookTrack, kSynthTrackCount> PlanFxAmyBlockNoLock()
   return plan;
 }
 
+// The voices share two cores: this thread renders the first part and a helper on the other core the
+// rest, so one core is never asked to carry everything that sounds. Which part goes where is decided per
+// block by what is sounding. AMY renders any range of oscillators on either core, each with its own
+// buffers, as long as a voice stays whole in one part.
+constexpr std::uint32_t kNoSplitBelowWeight = 4;
+
+int VoiceWeight(std::size_t track)
+{
+  // Roughly what a voice of each engine costs.
+  switch (g_engines[track].kind)
+  {
+    case SynthEngineKind::Dx7: return 8;
+    case SynthEngineKind::Juno: return 3;
+    default: return 1;
+  }
+}
+
+bool VoiceSounding(std::uint16_t osc)
+{
+  return g_amyVoiceStart[osc] && amy_embed::synth[osc] != nullptr && amy_embed::synth[osc]->status == SYNTH_AUDIBLE;
+}
+
+// Where the second part starts: always on a sounding voice's first oscillator (g_amyVoiceStart). The
+// other core gets to it first, so a split inside a voice would play the rest of that voice raw, every
+// block. No second part: max_oscs.
+std::uint16_t VoiceSplitNoLock()
+{
+  const auto oscs = static_cast<std::uint16_t>(amy_embed::amy_global.config.max_oscs);
+  const std::uint16_t known = (std::min)(oscs, static_cast<std::uint16_t>(g_amyOscTrack.size()));
+  std::uint32_t total = 0;
+  for (std::uint16_t osc = 0; osc < known; ++osc)
+    if (VoiceSounding(osc)) total += static_cast<std::uint32_t>(VoiceWeight(g_amyOscTrack[osc] - 1u));
+  if (total < kNoSplitBelowWeight) return oscs;
+  std::uint32_t weight = 0;
+  for (std::uint16_t osc = 0; osc < known; ++osc)
+  {
+    if (!VoiceSounding(osc)) continue;
+    if (weight * 2 >= total) return osc;
+    weight += static_cast<std::uint32_t>(VoiceWeight(g_amyOscTrack[osc] - 1u));
+  }
+  return oscs;
+}
+
+#if defined(AMY_DUALCORE) && !defined(__EMSCRIPTEN__)
+std::uint16_t g_helperFrom = 0;
+std::uint16_t g_helperTo = 0;
+#if defined(ESP_PLATFORM)
+constexpr std::uint32_t kHelperStackBytes = 5120;  // Measured: under 2 KB.
+constexpr UBaseType_t kHelperPriority = 6;  // above the UI on that core: sound first
+constexpr BaseType_t kHelperCore = 0;
+TaskHandle_t g_helperTask = nullptr;
+TaskHandle_t g_helperCaller = nullptr;
+
+void AmyHelperTask(void*)
+{
+  for (;;)
+  {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    amy_embed::amy_render(g_helperFrom, g_helperTo, 1);
+    xTaskNotifyGive(g_helperCaller);
+  }
+}
+
+bool StartHelper(std::uint16_t from, std::uint16_t to)
+{
+  if (g_helperTask == nullptr && xTaskCreatePinnedToCore(AmyHelperTask, "synth_audio2", kHelperStackBytes, nullptr, kHelperPriority, &g_helperTask, kHelperCore) != pdPASS)
+  {
+    g_helperTask = nullptr;
+    return false;
+  }
+  g_helperFrom = from;
+  g_helperTo = to;
+  g_helperCaller = xTaskGetCurrentTaskHandle();
+  xTaskNotifyGive(g_helperTask);
+  return true;
+}
+
+void WaitForHelper()
+{
+  ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+}
+#else
+std::mutex g_helperMutex;
+std::condition_variable g_helperWake;
+bool g_helperStarted = false;
+bool g_helperWork = false;
+
+bool StartHelper(std::uint16_t from, std::uint16_t to)
+{
+  {
+    std::lock_guard<std::mutex> lock(g_helperMutex);
+    g_helperFrom = from;
+    g_helperTo = to;
+    g_helperWork = true;
+  }
+  if (!g_helperStarted)
+  {
+    g_helperStarted = true;
+    std::thread([] {
+      for (;;)
+      {
+        std::unique_lock<std::mutex> lock(g_helperMutex);
+        g_helperWake.wait(lock, [] { return g_helperWork; });
+        lock.unlock();
+        amy_embed::amy_render(g_helperFrom, g_helperTo, 1);
+        lock.lock();
+        g_helperWork = false;
+        g_helperWake.notify_all();
+      }
+    }).detach();
+  }
+  g_helperWake.notify_all();
+  return true;
+}
+
+void WaitForHelper()
+{
+  std::unique_lock<std::mutex> lock(g_helperMutex);
+  g_helperWake.wait(lock, [] { return !g_helperWork; });
+}
+#endif
+
+void RenderAmyVoicesNoLock()
+{
+  const auto oscs = static_cast<std::uint16_t>(amy_embed::amy_global.config.max_oscs);
+  const std::uint16_t split = VoiceSplitNoLock();
+  const bool shared = split < oscs && StartHelper(split, oscs);
+  amy_embed::amy_render(0, shared ? split : oscs, 0);
+  if (shared) WaitForHelper();
+  // Whatever the second core left in its buffer last time must not sound again.
+  else amy_embed::amy_render(0, 0, 1);
+}
+#else
+// One core here, and the same two parts, the second one first: that is the order on the board, where
+// the other core gets to its first oscillator long before this one has rendered the voices ahead of it.
+void RenderAmyVoicesNoLock()
+{
+  const auto oscs = static_cast<std::uint16_t>(amy_embed::amy_global.config.max_oscs);
+  const std::uint16_t split = VoiceSplitNoLock();
+  if (split >= oscs)
+  {
+    amy_embed::amy_render(0, oscs, 0);
+    return;
+  }
+  using amy_embed::s8_23;  // What AMY's SAMPLE stands for.
+  amy_embed::amy_render(split, oscs, 0);
+  std::array<SAMPLE, AMY_BLOCK_SIZE * AMY_NCHANS> second;
+  std::copy_n(amy_embed::fbl[0], second.size(), second.begin());
+  const SAMPLE secondMax = amy_embed::core_max[0];
+  amy_embed::amy_render(0, split, 0);
+  for (std::size_t sample = 0; sample < second.size(); ++sample) amy_embed::fbl[0][sample] += second[sample];
+  amy_embed::core_max[0] = (std::max)(amy_embed::core_max[0], secondMax);
+}
+#endif
+
 void FetchAmyBlockNoLock(bool effects = false)
 {
   EnsureAmyInitialized();
@@ -1740,11 +2030,9 @@ void FetchAmyBlockNoLock(bool effects = false)
     plan = PlanFxAmyBlockNoLock();
     g_fxHook = plan;
   }
-#if defined(ESP_PLATFORM) && defined(CARDENZA_AMY_EXPERIMENTAL_MULTICORE)
-  const output_sample_type* block = amy_update();
-#else
-  const output_sample_type* block = amy_simple_fill_buffer();
-#endif
+  amy_embed::amy_execute_deltas();
+  RenderAmyVoicesNoLock();
+  const output_sample_type* block = amy_embed::amy_fill_buffer();
   if (block != nullptr)
   {
     std::memcpy(g_amyBlock.data(), block, sizeof(std::int16_t) * g_amyBlock.size());
@@ -1807,7 +2095,7 @@ void RenderFxSamplerTracksNoLock(float* mix, float* delaySend, float* reverbSend
       {
         if (voice.active)
         {
-          out[frame] += RenderSamplerVoice(engine.sampler, voice) * 0.45f * trackGain;
+          out[frame] += RenderSamplerVoice(engine.sampler, voice) * kSamplerVoiceGain * trackGain;
         }
       }
     }
@@ -1818,28 +2106,75 @@ void RenderFxSamplerTracksNoLock(float* mix, float* delaySend, float* reverbSend
   }
 }
 
-// The effects path's output stage: tanh(0.75 x), crossfaded with the AMY-only path's linear
-// stage while `blend` moves towards `target`.
-SYNTH_FX_HOT void WriteFxOutput(const float* mix, std::int16_t* out, std::size_t frames, const fx::dsp::TanhTable& tanh, float& blend, float target)
+// Every path ends here. The block is already rendered, so the limiter knows in advance the first
+// sample that would go over and the gain the loudest one needs, and is there in time instead of
+// clipping and reacting afterwards: polyphony gets a little quieter rather than distorted, for one
+// pass over the block.
+std::atomic<LineInput> g_lineInput{nullptr};
+
+SYNTH_FX_HOT void LimitOutputNoLock(const float* mix, std::int16_t* out, std::size_t frames)
 {
-  if (blend == 1.0f && target == 1.0f)
-  {
-    for (std::size_t offset = 0; offset < frames; ++offset)
-    {
-      out[offset] = static_cast<std::int16_t>(tanh(mix[offset] * kOutputGain) * 32767.0f);  // |tanh| < 1
-    }
-    return;
-  }
+  float gain = g_outputGain;
+  const float wouldClip = kOutputCeiling / gain;
+  float peak = 0.0f;
+  std::size_t firstOver = frames;
   for (std::size_t offset = 0; offset < frames; ++offset)
   {
-    const float sample = mix[offset] * kOutputGain;
-    const float linear = std::clamp(sample, -1.0f, 1.0f);
-    out[offset] = FloatToInt16(linear + blend * (tanh(sample) - linear));
-    blend = ApproachGain(blend, target, 1.0f / static_cast<float>(kAmyFramesPerBlock));
+    const float level = std::fabs(mix[offset]);
+    if (level > peak)
+    {
+      peak = level;
+      if (level > wouldClip && firstOver == frames) firstOver = offset;
+    }
+  }
+  float next = (std::min)(kOutputGain, gain + gain * kLimiterReleasePerFrame * static_cast<float>(frames));
+  if (peak * next > kOutputCeiling)
+  {
+    next = kOutputCeiling / peak;
+  }
+  const std::size_t ramp = next < gain ? (std::min)(frames, (std::max)(firstOver, kLimiterShortestAttackFrames)) : frames;
+  const float step = ramp > 0 ? (next - gain) / static_cast<float>(ramp) : 0.0f;
+  for (std::size_t offset = 0; offset < ramp; ++offset)
+  {
+    gain += step;
+    out[offset] = FloatToInt16(mix[offset] * gain);
+  }
+  for (std::size_t offset = ramp; offset < frames; ++offset)
+  {
+    out[offset] = FloatToInt16(mix[offset] * next);
+  }
+  g_outputGain = next;
+}
+
+// Every render path ends here: the line input joins the mix (at unity on the output: the output gain is
+// taken out first), then the output gain and the limiter. Nothing after this clips.
+void WriteOutputNoLock(const float* mix, std::int16_t* out, std::size_t frames)
+{
+  const LineInput line = g_lineInput.load(std::memory_order_relaxed);
+  if (line == nullptr)
+  {
+    LimitOutputNoLock(mix, out, frames);
+    return;
+  }
+  constexpr std::size_t kChunk = 256;
+  constexpr float kLineToMix = 0.5f / 32768.0f / kOutputGain;  // both channels, then to mix units
+  std::array<std::int16_t, 2 * kChunk> stereo;
+  std::array<float, kChunk> joined;
+  for (std::size_t done = 0; done < frames;)
+  {
+    const std::size_t count = (std::min)(frames - done, kChunk);
+    const std::size_t got = (std::min)(line(stereo.data(), count), count);
+    for (std::size_t frame = 0; frame < count; ++frame)
+    {
+      const float input = frame < got ? (static_cast<float>(stereo[2 * frame]) + static_cast<float>(stereo[2 * frame + 1])) * kLineToMix : 0.0f;
+      joined[frame] = mix[done + frame] + input;
+    }
+    LimitOutputNoLock(joined.data(), out + done, count);
+    done += count;
   }
 }
 
-void RenderFxFramesNoLock(std::int16_t* destination, std::size_t frameCount, bool hasAmyEngines, float outputTarget)
+void RenderFxFramesNoLock(std::int16_t* destination, std::size_t frameCount, bool hasAmyEngines)
 {
   FxCore& core = *g_fx.core;
   std::array<float, kSynthTrackCount> samplerTargets{};
@@ -1894,7 +2229,7 @@ void RenderFxFramesNoLock(std::int16_t* destination, std::size_t frameCount, boo
     core.buses.Process(delaySend, reverbSend, mix, frames, buses);
     core.master.Process(mix, frames, value(fx::MasterParam::EqLow), value(fx::MasterParam::EqHigh), value(fx::MasterParam::Compressor),
                         value(fx::MasterParam::Tape));
-    WriteFxOutput(mix, destination + frameIndex, frames, core.tanh, g_fx.outputBlend, outputTarget);
+    WriteOutputNoLock(mix, destination + frameIndex, frames);
     UpdateFxMetersNoLock(frames, core.buses.DelayPeak(), core.buses.ReverbPeak());
 
     if (hasAmyEngines)
@@ -1907,6 +2242,7 @@ void RenderFxFramesNoLock(std::int16_t* destination, std::size_t frameCount, boo
 
 void RenderAmyOnlyFramesNoLock(std::int16_t* destination, std::size_t frameCount)
 {
+  std::array<float, kAmyFramesPerBlock> mix;
   std::size_t frameIndex = 0;
   while (frameIndex < frameCount)
   {
@@ -1919,10 +2255,10 @@ void RenderAmyOnlyFramesNoLock(std::int16_t* destination, std::size_t frameCount
     for (std::size_t offset = 0; offset < framesAvailable; ++offset)
     {
       const std::size_t sampleIndex = (g_amyBlockCursor + offset) * kAmyChannelCount;
-      const std::int32_t stereoSum = static_cast<std::int32_t>(g_amyBlock[sampleIndex]) +
-                                     static_cast<std::int32_t>(g_amyBlock[sampleIndex + 1]);
-      destination[frameIndex + offset] = ClampToInt16((stereoSum * kAmyOnlyOutputGainNumerator) / kAmyOnlyOutputGainDenominator);
+      mix[offset] = static_cast<float>(static_cast<std::int32_t>(g_amyBlock[sampleIndex]) +
+                                       static_cast<std::int32_t>(g_amyBlock[sampleIndex + 1])) * kAmyBlockToMix;
     }
+    WriteOutputNoLock(mix.data(), destination + frameIndex, framesAvailable);
 
     g_amyBlockCursor += framesAvailable;
     frameIndex += framesAvailable;
@@ -1942,31 +2278,22 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
 
   const bool hasAmyEngines = HasAmyEnginesNoLock();
   const bool hasActiveSamplerVoices = HasActiveSamplerVoicesNoLock();
+  PublishSampleStreamsNoLock();
   // The effects path starts as soon as anything needs it and ends on an AMY block boundary once
-  // nothing is routed, the master chain is neutral and the delay and reverb tails have died out
-  // (and its output stage has faded back to the plain path's).
+  // nothing is routed, the master chain is neutral and the delay and reverb tails have died out.
   UpdateTrackRoutingNoLock();
-  float outputTarget = 1.0f;
   if (FxFloatPathWantedNoLock())
   {
-    if (!g_fx.floatPath)
-    {
-      g_fx.floatPath = true;
-      g_fx.outputBlend = g_fx.lastPathLinear ? 0.0f : 1.0f;
-    }
+    g_fx.floatPath = true;
   }
-  else if (g_fx.floatPath)
+  else if (g_fx.floatPath && (!hasAmyEngines || g_amyBlockCursor >= kAmyFramesPerBlock))
   {
-    outputTarget = hasAmyEngines && !hasActiveSamplerVoices ? 0.0f : 1.0f;
-    if ((!hasAmyEngines || g_amyBlockCursor >= kAmyFramesPerBlock) && g_fx.outputBlend == outputTarget)
-    {
-      g_fx.floatPath = false;
-      g_fx.blockPrepared = false;
-    }
+    g_fx.floatPath = false;
+    g_fx.blockPrepared = false;
   }
   if (g_fx.floatPath)
   {
-    RenderFxFramesNoLock(destination, frameCount, hasAmyEngines, outputTarget);
+    RenderFxFramesNoLock(destination, frameCount, hasAmyEngines);
     UpdateMetersNoLock(destination, frameCount);
     return frameCount;
   }
@@ -1979,7 +2306,6 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
     return frameCount;
   }
 
-  g_fx.lastPathLinear = hasAmyEngines && !hasActiveSamplerVoices;
   if (hasAmyEngines && !hasActiveSamplerVoices)
   {
     RenderAmyOnlyFramesNoLock(destination, frameCount);
@@ -1993,6 +2319,8 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
     samplerTargets[index] = EffectiveTrackGain(g_trackMix[index]);
   }
 
+  std::array<float, kAmyFramesPerBlock> mixed;
+  std::size_t mixedFrames = 0;
   for (std::size_t frameIndex = 0; frameIndex < frameCount; ++frameIndex)
   {
     float mixedSample = 0.0f;
@@ -2005,7 +2333,7 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
       }
 
       const std::size_t sampleIndex = g_amyBlockCursor * kAmyChannelCount;
-      mixedSample += (static_cast<float>(g_amyBlock[sampleIndex]) + static_cast<float>(g_amyBlock[sampleIndex + 1])) / 65536.0f;
+      mixedSample += (static_cast<float>(g_amyBlock[sampleIndex]) + static_cast<float>(g_amyBlock[sampleIndex + 1])) * kAmyBlockToMix;
       ++g_amyBlockCursor;
     }
 
@@ -2030,12 +2358,16 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
         {
           continue;
         }
-        mixedSample += RenderSamplerVoice(engine.sampler, voice) * 0.45f * trackGain;
+        mixedSample += RenderSamplerVoice(engine.sampler, voice) * kSamplerVoiceGain * trackGain;
       }
     }
 
-    mixedSample = std::tanh(mixedSample * kOutputGain);
-    destination[frameIndex] = FloatToInt16(mixedSample);
+    mixed[mixedFrames++] = mixedSample;
+    if (mixedFrames == mixed.size() || frameIndex + 1 == frameCount)
+    {
+      WriteOutputNoLock(mixed.data(), destination + frameIndex + 1 - mixedFrames, mixedFrames);
+      mixedFrames = 0;
+    }
   }
 
   UpdateMetersNoLock(destination, frameCount);
@@ -2254,10 +2586,165 @@ void WarmUp()
   (void)RenderFramesNoLock(scratch.data(), scratch.size());
 }
 
+namespace {
+
+// If it still does not fit: the sound must never fall behind time, because that is what makes everything
+// slow down and break up. Rendering that keeps taking longer than it lasts sheds a voice (RenderLoad):
+// what has been let go first, then the oldest, and the drums last.
+RenderLoad g_renderLoad;
+std::atomic<std::uint32_t> g_shedVoices{0};
+
+std::int64_t RenderClockMicros()
+{
+#if defined(ESP_PLATFORM)
+  return esp_timer_get_time();
+#else
+  return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+#endif
+}
+
+bool ShedVoiceNoLock()
+{
+  const auto oscs = static_cast<std::uint16_t>((std::min)(static_cast<std::size_t>(amy_embed::amy_global.config.max_oscs), g_amyOscTrack.size()));
+  int victim = -1;
+  int victimRank = -1;
+  std::uint32_t victimClock = 0;
+  for (std::uint16_t osc = 0; osc < oscs; ++osc)
+  {
+    if (!VoiceSounding(osc)) continue;
+    const auto* voice = amy_embed::synth[osc];
+    const bool drums = g_engines[g_amyOscTrack[osc] - 1u].kind == SynthEngineKind::Drums;
+    const bool released = voice->note_off_clock != std::numeric_limits<std::uint32_t>::max() && voice->note_off_clock > voice->note_on_clock;
+    const int rank = drums ? 0 : (released ? 2 : 1);
+    if (rank < victimRank || (rank == victimRank && voice->note_on_clock >= victimClock)) continue;
+    victim = static_cast<int>(osc);
+    victimRank = rank;
+    victimClock = voice->note_on_clock;
+  }
+  if (victim < 0) return false;
+  // All of the voice: what its first oscillator leaves behind would sound raw and never end.
+  for (int osc = victim; osc < oscs && g_amyOscTrack[osc] == g_amyOscTrack[victim] && (osc == victim || !g_amyVoiceStart[osc]); ++osc)
+  {
+    if (amy_embed::synth[osc] == nullptr) continue;
+    amy_embed::synth[osc]->status = SYNTH_OFF;
+    amy_embed::reset_modosc(amy_embed::msynth[osc]);
+    amy_embed::reset_osc_state(amy_embed::synth[osc]);
+  }
+  g_shedVoices.fetch_add(1, std::memory_order_relaxed);
+  return true;
+}
+
+std::array<std::array<std::atomic<std::uint32_t>, 4>, kSynthTrackCount> g_heldNotes{};
+std::atomic<std::uint32_t> g_orphanVoices{0};
+std::uint32_t g_orphanVoiceCheckBlocks = 0;
+
+void PublishHeldNotesNoLock()
+{
+  for (std::size_t track = 0; track < g_engines.size(); ++track)
+  {
+    const EngineState& engine = g_engines[track];
+    std::array<std::uint32_t, 4> held{};
+    if (engine.configured && engine.kind != SynthEngineKind::Drums)
+    {
+      if (UsesAmy(engine.kind))
+      {
+        for (std::size_t note = 0; note < engine.activeNotes.size(); ++note)
+          if (engine.activeNotes[note]) held[note / 32] |= 1u << (note % 32);
+      }
+      else
+      {
+        for (const SamplerVoice& voice : engine.samplerVoices)
+          if (voice.active && !voice.releasing) held[voice.note / 32] |= 1u << (voice.note % 32);
+      }
+    }
+    for (std::size_t word = 0; word < held.size(); ++word) g_heldNotes[track][word].store(held[word], std::memory_order_relaxed);
+  }
+}
+
+// A track that holds no note has no voice in its held part: if AMY has one (its voice table and ours
+// disagree), it gets a note-off from here. About three times a second is plenty for a safety net.
+void ReleaseOrphanVoicesNoLock()
+{
+  if (++g_orphanVoiceCheckBlocks < 64 || !g_amyInitialized) return;
+  g_orphanVoiceCheckBlocks = 0;
+  for (EngineState& engine : g_engines)
+  {
+    if (!engine.configured || !UsesAmy(engine.kind) || engine.kind == SynthEngineKind::Drums) continue;
+    if (std::any_of(engine.activeNotes.begin(), engine.activeNotes.end(), [](bool active) { return active; }))
+    {
+      engine.orphanVoiceSeen = false;
+      continue;
+    }
+    std::array<std::uint16_t, MAX_VOICES_PER_INSTRUMENT> voices{};
+    const int voiceCount = amy_embed::instrument_get_num_voices(engine.synthId, voices.data());
+    const auto held = [](const amy_embed::synthinfo* root) {
+      return root != nullptr && root->status == SYNTH_AUDIBLE && root->note_off_clock == std::numeric_limits<std::uint32_t>::max();
+    };
+    bool orphan = false;
+    for (int voice = 0; voice < voiceCount && !orphan; ++voice) orphan = held(amy_embed::synth[amy_embed::voice_to_base_osc[voices[voice]]]);
+    // Second look: a note-off just sent may still be on its way through AMY's queue.
+    const bool confirmed = orphan && engine.orphanVoiceSeen;
+    engine.orphanVoiceSeen = orphan && !confirmed;
+    if (!confirmed) continue;
+    g_orphanVoices.fetch_add(1, std::memory_order_relaxed);
+    // Through the voice table for the notes it knows, and to the voices themselves for the ones it
+    // has lost: a table that disagrees with the voices is how they got here.
+    amy_event event = amy_default_event();
+    event.synth = static_cast<std::uint8_t>(engine.synthId);
+    event.velocity = 0;
+    amy_add_event(&event);
+    for (int voice = 0; voice < voiceCount; ++voice)
+    {
+      if (!held(amy_embed::synth[amy_embed::voice_to_base_osc[voices[voice]]])) continue;
+      amy_event release = amy_default_event();
+      release.voices[0] = voices[voice];
+      release.velocity = 0;
+      amy_add_event(&release);
+    }
+  }
+}
+
+}  // namespace
+
 std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
 {
   std::lock_guard<std::mutex> lock(g_renderMutex);
-  return RenderFramesNoLock(destination, frameCount);
+  const std::int64_t start = RenderClockMicros();
+  const std::size_t rendered = RenderFramesNoLock(destination, frameCount);
+  const std::int64_t budget = static_cast<std::int64_t>(frameCount) * 1000000 / kSampleRate;
+  if (g_renderLoad.Add(RenderClockMicros() - start, budget)) (void)ShedVoiceNoLock();
+  PublishHeldNotesNoLock();
+  ReleaseOrphanVoicesNoLock();
+  return rendered;
+}
+
+void SetLineInput(LineInput input)
+{
+  g_lineInput.store(input, std::memory_order_relaxed);
+}
+
+bool ShedVoice()
+{
+  std::lock_guard<std::mutex> lock(g_renderMutex);
+  return ShedVoiceNoLock();
+}
+
+std::uint32_t ShedVoiceCount()
+{
+  return g_shedVoices.load(std::memory_order_relaxed);
+}
+
+NoteSet HeldNotes(std::size_t engineIndex)
+{
+  NoteSet held{};
+  if (engineIndex >= g_heldNotes.size()) return held;
+  for (std::size_t word = 0; word < held.size(); ++word) held[word] = g_heldNotes[engineIndex][word].load(std::memory_order_relaxed);
+  return held;
+}
+
+std::uint32_t ReleasedOrphanVoiceCount()
+{
+  return g_orphanVoices.load(std::memory_order_relaxed);
 }
 
 }  // namespace synth::audio

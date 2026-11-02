@@ -189,8 +189,8 @@ void TestOffIsInert()
   // With the arp off the transport plays the pattern exactly as before, and nothing else.
   auto state = rig.seq().CaptureState();
   auto& notes = state->tracks[0].patterns[0].steps;
-  notes[0].notes[0] = {60, 100, 24, 0, true};
-  notes[4].notes[0] = {62, 90, 12, 0, true};
+  notes.Edit(0).notes[0] = {60, 100, 24, 0, true};
+  notes.Edit(4).notes[0] = {62, 90, 12, 0, true};
   CHECK(rig.seq().RestoreState(*state));
   rig.seq().Play();
   const std::uint64_t start = rig.Now();
@@ -632,8 +632,9 @@ void TestRecording()
   };
   auto activeNotes = [](const SynthSequencer::ProjectState& state) {
     std::size_t count = 0;
-    for (const auto& step : state.tracks[0].patterns[0].steps)
-      for (const NoteEvent& note : step.notes) count += note.active ? 1 : 0;
+    const auto& steps = state.tracks[0].patterns[0].steps;
+    for (std::size_t step = steps.NextInUse(0); step < steps.size(); step = steps.NextInUse(step + 1))
+      for (const NoteEvent& note : steps[step].notes) count += note.active ? 1 : 0;
     return count;
   };
 
@@ -752,8 +753,130 @@ void TestClockWorker()
 
 }  // namespace
 
+// Patterns longer than the GRID: pages of steps, a length per pattern, memory on demand.
+void TestLongPatterns()
+{
+  const std::uint8_t pitch = 72;
+  {
+    Rig rig;
+    auto& seq = rig.seq();
+    seq.SetActiveTrack(0);
+    seq.SetTrackStepCount(0, 40);
+    seq.PressStep(33, &pitch, 1);
+    seq.ReleaseStep(33);
+    auto ui = seq.BuildUiState(0);
+    CHECK(ui.viewPageCount == 3 && ui.viewPage == 0 && ui.firstViewStep == 0 && !ui.steps[1].hasEvents);
+    seq.SetViewPage(0, 2);
+    ui = seq.BuildUiState(0);
+    CHECK(ui.viewPage == 2 && ui.firstViewStep == 32 && ui.steps[1].hasEvents && ui.tracks[0].populatedStepCount == 1);
+    // The note plays at its step of the long loop, and again after the wrap at 40 steps.
+    seq.Play();
+    const std::uint64_t start = rig.Now();
+    ui = seq.BuildUiState(0);
+    CHECK(ui.viewFollow && ui.viewPage == 0);  // Play goes back to following the playhead
+    rig.Run(33 * 24 + 1);
+    ui = seq.BuildUiState(0);
+    CHECK(ui.currentStep == 33 && ui.viewPage == 2 && ui.steps[1].playing);
+    rig.Run(40 * 24);
+    auto events = rig.NoteEvents();
+    CHECK(events.size() >= 3 && IsOn(events[0]) && events[0].tick == start + 33 * 24 && IsOn(events[2]) && events[2].tick == start + (33 + 40) * 24);
+    // A page flipped by hand stays until the next Play.
+    seq.SetViewPage(0, 0);
+    rig.Run(24 * 8);
+    ui = seq.BuildUiState(0);
+    CHECK(ui.viewPage == 0 && !ui.viewFollow);
+    seq.Stop();
+    seq.Play();
+    CHECK(seq.BuildUiState(0).viewFollow);
+    seq.Stop();
+    // Every pattern has its own length; a new one starts as long as the current one.
+    CHECK(seq.SelectOrCreatePattern(1) && seq.TrackStepCount(0) == 40);
+    seq.SetTrackStepCount(0, 256);
+    CHECK(seq.SelectOrCreatePattern(0) && seq.TrackStepCount(0) == 40);
+    CHECK(seq.PatternStepMask(0, 0) == (1u << (33 * 16 / 40)));
+    CHECK(seq.CopyPattern(1, 2) && seq.TrackStepCount(0) == 256);
+    CHECK(seq.DeletePattern(0) && seq.PatternCount(0) == 2 && seq.ActivePattern(0) == 1 && seq.TrackStepCount(0) == 256);
+    // Length per pattern and all 256 steps survive a snapshot.
+    seq.PressStep(255, &pitch, 1);
+    seq.ReleaseStep(255);
+    auto state = seq.CaptureState();
+    CHECK(SynthSequencer::ValidateState(*state) && state->tracks[0].patternSteps[1] == 256);
+    CHECK(state->tracks[0].patterns[1].steps[255].notes[0].active);
+    // A snapshot keeps what it saw: later edits copy the page.
+    seq.ClearStep(255);
+    CHECK(!seq.StepHasEvents(255) && state->tracks[0].patterns[1].steps[255].notes[0].active);
+    CHECK(seq.RestoreState(*state) && seq.StepHasEvents(255));
+  }
+  {
+    // A snapshot is read on another thread (the session write) while the sequencer keeps editing the
+    // same pages: the reader sees the snapshot, whole, for as long as it holds it.
+    Rig rig;
+    auto& seq = rig.seq();
+    seq.SetActiveTrack(0);
+    seq.SetTrackStepCount(0, 64);
+    for (std::size_t step = 0; step < 64; step += 4)
+    {
+      seq.PressStep(step, &pitch, 1);
+      seq.ReleaseStep(step);
+    }
+    for (int round = 0; round < 40; ++round)
+    {
+      std::shared_ptr<SynthSequencer::ProjectState> snapshot(seq.CaptureState().release());
+      std::thread reader([snapshot] {
+        const auto& steps = snapshot->tracks[0].patterns[0].steps;
+        for (int pass = 0; pass < 20; ++pass)
+        {
+          std::size_t notes = 0;
+          for (std::size_t step = steps.NextInUse(0); step < steps.size(); step = steps.NextInUse(step + 1))
+            for (const auto& note : steps[step].notes) notes += note.active ? 1 : 0;
+          CHECK(notes == 16);
+        }
+      });
+      for (std::size_t step = 1; step < 64; step += 4)
+      {
+        seq.PressStep(step, &pitch, 1);
+        seq.ReleaseStep(step);
+        seq.ClearStep(step);
+      }
+      reader.join();
+    }
+    CHECK(seq.BuildUiState(0).tracks[0].populatedStepCount == 16);
+  }
+  {
+    // Out of memory: the write is dropped and reported, nothing else changes.
+    Rig rig;
+    auto& seq = rig.seq();
+    seq.SetActiveTrack(0);
+    seq.SetTrackStepCount(0, 64);
+    SynthSequencer::SetPageBudgetForTest(1);
+    seq.PressStep(0, &pitch, 1);
+    seq.ReleaseStep(0);
+    CHECK(seq.StepHasEvents(0) && !SynthSequencer::ConsumePatternMemoryFull());
+    seq.PressStep(1, &pitch, 1);  // the same page costs nothing
+    seq.ReleaseStep(1);
+    CHECK(seq.StepHasEvents(1) && !SynthSequencer::ConsumePatternMemoryFull());
+    seq.PressStep(16, &pitch, 1);
+    seq.ReleaseStep(16);
+    CHECK(!seq.StepHasEvents(16) && SynthSequencer::ConsumePatternMemoryFull() && !SynthSequencer::ConsumePatternMemoryFull());
+    // Reading, clearing and quantizing empty steps never asks for a page.
+    seq.ClearStep(32);
+    seq.QuantizeStep(48);
+    seq.QuantizeActivePattern();
+    CHECK(!SynthSequencer::ConsumePatternMemoryFull());
+    // Emptying a page gives it back.
+    seq.ClearStep(0);
+    seq.ClearStep(1);
+    SynthSequencer::SetPageBudgetForTest(0);
+    seq.PressStep(16, &pitch, 1);
+    seq.ReleaseStep(16);
+    CHECK(!seq.StepHasEvents(16) && SynthSequencer::ConsumePatternMemoryFull());
+    SynthSequencer::SetPageBudgetForTest(-1);
+  }
+}
+
 int main()
 {
+  TestLongPatterns();
   TestOffIsInert();
   TestUpOrderAndTiming();
   TestOrders();

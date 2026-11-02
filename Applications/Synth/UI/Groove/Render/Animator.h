@@ -70,6 +70,12 @@ public:
     if (note < 0 || note >= 128) return 0;
     return std::max(noteHitAt_[static_cast<std::size_t>(note)], sequencedAt_[static_cast<std::size_t>(note)]);
   }
+  // A drum hit runs along its column of key lights from the row it was played on: 0..1 for that lane
+  // and row right now. The harder the hit, the further it goes.
+  float DrumWave(std::size_t lane, std::size_t row) const;
+  bool DrumWaveArrived(std::size_t lane, std::size_t row) const;
+  // How hard the drum was last hit, by a pad or the sequencer.
+  std::uint8_t DrumHitVelocity(std::size_t lane) const { return lane < drumHits_.size() && drumHits_[lane].at != 0 ? drumHits_[lane].velocity : 127; }
   std::uint32_t LastNoteAt() const { return lastNoteAt_; }
   std::uint32_t BeatAt() const { return beatAt_; }
   bool Downbeat() const { return downbeat_; }
@@ -133,6 +139,7 @@ private:
   bool playing_ = false;
   std::uint32_t arpTick_ = 0;
   std::size_t step_ = 0;
+  std::size_t fingerprintPage_ = 0;
   std::size_t textLength_ = 0;
 
   Transition transition_{};
@@ -145,6 +152,8 @@ private:
   std::array<std::uint32_t, kGridCount> gridPressedAt_{};
   std::array<std::uint32_t, 128> noteHitAt_{};
   std::array<std::uint32_t, 128> sequencedAt_{};
+  std::array<DrumHit, kDrumNotes.size()> drumHits_{};
+  mutable std::array<bool, kKeyCount> ledStruck_{};  // Rises at once instead of gliding: an impact.
   std::array<float, kKeyCount> ledShown_{};
   std::uint32_t ledFrame_ = 0;
   std::uint32_t lastNoteAt_ = 0;

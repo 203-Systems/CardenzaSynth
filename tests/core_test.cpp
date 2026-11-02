@@ -68,7 +68,7 @@ void TestSequencerEditing() {
   assert(!copiedGrid.steps[0].held && copiedGrid.steps[0].lowestNote == 60);
   auto state = sequencer->CaptureState();
   assert(state && SynthSequencer::ValidateState(*state));
-  for (const auto& note : state->tracks[0].patterns[0].steps.back().notes) {
+  for (const auto& note : state->tracks[0].patterns[0].steps[kSequencerStepCount - 1].notes) {
     if (note.active) assert(note.microstep == 5 && note.lengthPulses == 4);
   }
   assert(state->tracks[0].patterns[0].steps[0].notes[0].lengthPulses == 364);
@@ -286,7 +286,7 @@ std::size_t CountHits(const std::vector<Hit>& hits, std::uint8_t note, int pass 
 
 void SetNote(synth::SynthSequencer::ProjectState& state, std::size_t track, std::size_t pattern, std::size_t step,
              std::uint8_t pitch, std::uint8_t velocity, std::uint16_t length, std::uint8_t microstep) {
-  auto& notes = state.tracks[track].patterns[pattern].steps[step].notes;
+  auto& notes = state.tracks[track].patterns[pattern].steps.Edit(step).notes;
   for (auto& note : notes) {
     if (!note.active || note.note == pitch) {
       note = {pitch, velocity, length, microstep, true};
@@ -341,7 +341,7 @@ void TestLiveRecording() {
   for (const auto& marker : markers) SetNote(*state, 3, 0, 0, marker.first, 64, marker.second, 0);
   SetNote(*state, 0, 0, 2, 60, 50, 24, 0);  // Overdub replaces this pitch.
   for (std::uint8_t pitch = 40; pitch < 48; ++pitch) SetNote(*state, 0, 0, 5, pitch, 64, 24, 0);  // A full step.
-  state->tracks[1].stepCount = 4;
+  state->tracks[1].patternSteps.fill(4);
   assert(sequencer->RestoreState(*state));
 
   sequencer->SetRecordArmed(true);
@@ -507,7 +507,7 @@ void TestQueuedPatterns() {
 
   auto state = sequencer->CaptureState();
   state->bpm = 300;
-  state->tracks[2].stepCount = 4;  // A 96-pulse loop.
+  state->tracks[2].patternSteps.fill(4);  // A 96-pulse loop.
   state->tracks[2].patternCount = 2;
   SetNote(*state, 2, 0, 0, 80, 100, 6, 0);
   SetNote(*state, 2, 1, 0, 81, 100, 6, 0);
@@ -553,19 +553,19 @@ void TestTrackStepCounts() {
 
   sequencer->SetTrackStepCount(1, 0);
   assert(sequencer->TrackStepCount(1) == 1);
-  sequencer->SetTrackStepCount(1, 40);
-  assert(sequencer->TrackStepCount(1) == 16);
+  sequencer->SetTrackStepCount(1, 400);
+  assert(sequencer->TrackStepCount(1) == kSequencerMaxSteps);
   sequencer->SetTrackStepCount(1, 3);
   assert(sequencer->TrackStepCount(1) == 3 && sequencer->TrackStepCount(0) == 16 && sequencer->TrackStepCount(9) == 16);
   assert(sequencer->BuildUiState(0).tracks[1].stepCount == 3);
 
   auto state = sequencer->CaptureState();
-  assert(state->tracks[1].stepCount == 3 && SynthSequencer::ValidateState(*state));
-  state->tracks[1].stepCount = 0;
+  assert(state->tracks[1].patternSteps[0] == 3 && SynthSequencer::ValidateState(*state));
+  state->tracks[1].patternSteps.fill(0);
   assert(!SynthSequencer::ValidateState(*state));
-  state->tracks[1].stepCount = 17;
+  state->tracks[1].patternSteps.fill(257);
   assert(!SynthSequencer::ValidateState(*state));
-  state->tracks[1].stepCount = 3;
+  state->tracks[1].patternSteps.fill(3);
   state->bpm = 300;
   SetNote(*state, 1, 0, 0, 40, 100, 1, 0);
   SetNote(*state, 1, 0, 5, 41, 100, 1, 0);  // Beyond the loop: kept, never played.
@@ -600,7 +600,7 @@ void TestTrackStepCounts() {
     if (hit.note == 40 && hit.pass == 1) starts.push_back(hit.barPosition);
   assert(starts == (std::vector<int>{0, 72, 144, 216, 288, 360}));
   state = sequencer->CaptureState();
-  assert(state->tracks[1].stepCount == 3 && FindNote(*state, 1, 0, 5, 41) != nullptr);
+  assert(state->tracks[1].patternSteps[0] == 3 && FindNote(*state, 1, 0, 5, 41) != nullptr);
   sequencer->Reset();
   assert(sequencer->TrackStepCount(1) == 16 && sequencer->Swing() == 50);
   sequencer.reset();
@@ -613,7 +613,7 @@ void TestSelectionEditing() {
   sequencer->SetMidiSink(Sink, &output);
   auto restore = [&](auto edit) {
     auto state = sequencer->CaptureState();
-    for (auto& step : state->tracks[0].patterns[0].steps) step = SynthSequencer::StepData{};
+    state->tracks[0].patterns[0].steps.Clear();
     edit(*state);
     assert(sequencer->RestoreState(*state));
   };
@@ -987,7 +987,7 @@ void TestSongEditing() {
   assert(ui.patternStepCounts[0] == 3 && ui.patternStepCounts[1] == 1 && ui.patternStepCounts[2] == 1 && ui.patternStepCounts[3] == 0);
   assert(ui.patternHasEvents[0] && ui.patternHasEvents[1] && ui.patternHasEvents[2] && !ui.patternHasEvents[3]);
   ui = sequencer->BuildUiState(1);
-  assert(ui.patternStepCounts == (std::array<std::uint8_t, kSequencerMaxPatternCount>{}) && ui.steps[0].velocity == 0);
+  assert(ui.patternStepCounts == (std::array<std::uint16_t, kSequencerMaxPatternCount>{}) && ui.steps[0].velocity == 0);
 
   // Step pitches in ascending order, for the active track's active pattern.
   std::array<std::uint8_t, 8> notes{};
@@ -1018,7 +1018,7 @@ void TestSongPlayback() {
   SetNote(*state, 0, 2, 0, 62, 100, 6, 0);
   SetNote(*state, 1, 0, 0, 70, 100, 6, 0);
   SetNote(*state, 1, 0, 15, 71, 100, 24, 0);  // 372..396: still sounding at the row line.
-  state->tracks[2].stepCount = 3;             // A 72-pulse loop inside 384-pulse bars.
+  state->tracks[2].patternSteps.fill(3);             // A 72-pulse loop inside 384-pulse bars.
   SetNote(*state, 2, 0, 0, 80, 100, 6, 0);
   SetNote(*state, 3, 0, 15, 90, 100, 4, 5);   // 360 + 20 + 12 = 392: past the row line.
   state->songLength = 3;
@@ -1233,6 +1233,7 @@ void TestSongCueAndToggle() {
 }  // namespace
 namespace synth::storage {
 std::string ProjectDirectory() { return projectDirectory.string(); }
+std::string ReleaseProjectDirectory() { return (projectDirectory / "release").string(); }
 bool EnsureLayout() { return std::filesystem::is_directory(projectDirectory); }
 }
 
@@ -1245,6 +1246,24 @@ std::string ReadText(const std::filesystem::path& path) {
 void WriteText(const std::filesystem::path& path, const std::string& text) {
   std::ofstream file(path, std::ios::trunc);
   file << text;
+}
+
+// Turns the T lines of a current project file into the old form: one length for the whole track.
+std::string WithOneLengthPerTrack(const std::string& text) {
+  std::string out;
+  std::size_t at = 0;
+  while (at < text.size()) {
+    const std::size_t end = std::min(text.find('\n', at), text.size());
+    std::string line = text.substr(at, end - at);
+    if (line.rfind("T ", 0) == 0) {
+      std::size_t space = 0;
+      for (int fields = 0; fields < 8 && space != std::string::npos; ++fields) space = line.find(' ', space + 1);
+      if (space != std::string::npos) line.resize(space);
+    }
+    out += line + '\n';
+    at = end + 1;
+  }
+  return out;
 }
 
 void TestProjectVersion2() {
@@ -1279,7 +1298,7 @@ void TestProjectVersion2() {
   assert(SaveProjectFile("v2 trip", project, false) == ProjectResult::Ok);
   const auto path = projectDirectory / "v2 trip.ccproj";
   const std::string valid = ReadText(path);
-  assert(valid.find("CARDENZA_PROJECT 6\nBUILD CardenzaSynth 1\nUI ") == 0);
+  assert(valid.find("CARDENZA_PROJECT 7\nBUILD CardenzaSynth 1\nUI ") == 0);
   assert(valid.find("\nSYSTEM 7\nFX 12 11 56 72 100 76 52 36 0 0 64 64 127\nKEYS 2 90\nPLAYFX 0 0 0 0 3 1 50 0\n") != std::string::npos);
   assert(valid.find("\nPLAYFX 3 5 2 5 5 4 100 1\nTRACK 0 ") != std::string::npos);
   assert(valid.find("\nMIX 0 10 1 0\n") != std::string::npos && valid.find("\nSEQ 120 66\n") != std::string::npos);
@@ -1291,7 +1310,7 @@ void TestProjectVersion2() {
   assert(loaded.masterFx == project.masterFx);
   assert(loaded.hasPlay && loaded.lock == 2 && loaded.velocity == 90 && loaded.play[3].chord == 5 && loaded.play[3].voicing == 2 &&
          loaded.play[3].arp == project.play[3].arp && loaded.play[0].arp == ArpSettings{});
-  assert(loaded.sequence->swing == 66 && loaded.sequence->tracks[1].stepCount == 7 && loaded.sequence->tracks[0].stepCount == 16);
+  assert(loaded.sequence->swing == 66 && loaded.sequence->tracks[1].patternSteps[0] == 7 && loaded.sequence->tracks[0].patternSteps[0] == 16);
   assert(loaded.sequence->tracks[0].patterns[0].steps[3].notes[0].active && loaded.sequence->tracks[0].patterns[0].steps[3].notes[0].note == 64);
   assert(loaded.engines[2].values.at("vcf.cutoff") == 40 && loaded.kinds[3] == SynthEngineKind::Juno);
   assert(sequencer->RestoreState(*loaded.sequence) && sequencer->Swing() == 66 && sequencer->TrackStepCount(1) == 7);
@@ -1306,7 +1325,7 @@ void TestProjectVersion2() {
     assert(LoadProjectFile("v2 trip", loaded) == ProjectResult::Invalid);
     assert(loaded.sequence.get() == old && loaded.backlight == 7);
   };
-  reject("CARDENZA_PROJECT 6", "CARDENZA_PROJECT 7");
+  reject("CARDENZA_PROJECT 7", "CARDENZA_PROJECT 8");
   reject("\nKEYS 2 90\n", "\nKEYS 3 90\n");
   reject("\nKEYS 2 90\n", "\nKEYS 2 0\n");
   reject("\nPLAYFX 3 5 2 5 5 4 100 1\n", "\nPLAYFX 3 11 2 5 5 4 100 1\n");
@@ -1315,13 +1334,13 @@ void TestProjectVersion2() {
   reject("\nPLAYFX 3 5 2 5 5 4 100 1\n", "\nPLAYFX 3 5 2 5 5 4 9 1\n");
   reject("\nPLAYFX 3 5 2 5 5 4 100 1\n", "\n");
   // Version 5 (unreleased development builds) had a PLAY line after FX and no play settings of
-  // its own: it loads without them, and the next save writes version 6.
+  // its own: it loads without them, and the next save writes the current version.
   {
     const auto keys = valid.find("\nKEYS ");
     const auto track = valid.find("\nTRACK 0 ");
     std::string v5 = valid.substr(0, keys + 1) + "PLAY 4 2 1 96 3 5 2 75 1\n" + valid.substr(track + 1);
-    v5.replace(0, std::string("CARDENZA_PROJECT 6").size(), "CARDENZA_PROJECT 5");
-    reject("CARDENZA_PROJECT 6", "CARDENZA_PROJECT 5");  // a version 5 file needs its PLAY line
+    v5.replace(0, std::string("CARDENZA_PROJECT 7").size(), "CARDENZA_PROJECT 5");
+    reject("CARDENZA_PROJECT 7", "CARDENZA_PROJECT 5");  // a version 5 file needs its PLAY line
     WriteText(path, v5);
     ProjectData fromV5;
     assert(LoadProjectFile("v2 trip", fromV5) == ProjectResult::Ok);
@@ -1329,7 +1348,7 @@ void TestProjectVersion2() {
     assert(fromV5.masterFx == project.masterFx && fromV5.mixer.level == project.mixer.level && fromV5.engines[2].values.at("vcf.cutoff") == 40);
     assert(SaveProjectFile("v2 trip", fromV5, true) == ProjectResult::Ok);
     const std::string resaved = ReadText(path);
-    assert(resaved.find("CARDENZA_PROJECT 6\n") == 0 && resaved.find("\nPLAY ") == std::string::npos);
+    assert(resaved.find("CARDENZA_PROJECT 7\n") == 0 && resaved.find("\nPLAY ") == std::string::npos);
     WriteText(path, valid);
   }
   reject("\nFX 12 11 ", "\nFX 12 12 ");  // Delay time past the last division.
@@ -1344,7 +1363,7 @@ void TestProjectVersion2() {
   reject("\nSYSTEM 7\n", "\n");
   reject("\nSEQ 120 66\n", "\nSEQ 120 76\n");
   reject("\nSEQ 120 66\n", "\nSEQ 120 49\n");
-  reject("\nT 1 0 110 24 1 0 7\n", "\nT 1 0 110 24 1 0 17\n");
+  reject("\nT 1 0 110 24 1 0 7\n", "\nT 1 0 110 24 1 0 257\n");
   reject("\nT 1 0 110 24 1 0 7\n", "\nT 1 0 110 24 1 0 0\n");
   reject("\nT 1 0 110 24 1 0 7\n", "\nT 1 0 110 24 1 0\n");
   WriteText(path, valid);
@@ -1360,9 +1379,34 @@ void TestProjectVersion2() {
   project.sequence->swing = 80;
   assert(SaveProjectFile("v2 trip", project, true) == ProjectResult::Invalid);
   project.sequence->swing = 66;
-  project.sequence->tracks[2].stepCount = 0;
+  project.sequence->tracks[2].patternSteps.fill(0);
   assert(SaveProjectFile("v2 trip", project, true) == ProjectResult::Invalid);
   assert(ReadText(path) == valid);
+
+  // Version 7: every pattern has its own length, up to 256 steps, and notes anywhere on them.
+  {
+    auto longSequence = std::make_unique<SynthSequencer>();
+    longSequence->SetActiveTrack(1);
+    longSequence->SetTrackStepCount(1, 256);
+    longSequence->SelectOrCreatePattern(1);
+    longSequence->SetTrackStepCount(1, 33);
+    longSequence->SelectOrCreatePattern(0);
+    const std::uint8_t pitch = 61;
+    longSequence->PressStep(255, &pitch, 1);
+    longSequence->ReleaseStep(255);
+    ProjectData longProject;
+    longProject.sequence = longSequence->CaptureState();
+    longProject.kinds = project.kinds;
+    longProject.engines = project.engines;
+    assert(SaveProjectFile("long", longProject, true) == ProjectResult::Ok);
+    assert(ReadText(projectDirectory / "long.ccproj").find("\nT 2 0 110 24 1 0 256 33\nNOTES 1\n0 255 61 ") != std::string::npos);
+    ProjectData loadedLong;
+    assert(LoadProjectFile("long", loadedLong) == ProjectResult::Ok);
+    assert(loadedLong.sequence->tracks[1].patternSteps[0] == 256 && loadedLong.sequence->tracks[1].patternSteps[1] == 33);
+    assert(loadedLong.sequence->tracks[1].patterns[0].steps[255].notes[0].note == 61);
+    assert(longSequence->RestoreState(*loadedLong.sequence) && longSequence->TrackStepCount(1) == 256);
+    std::filesystem::remove(projectDirectory / "long.ccproj");
+  }
 
   // A version 1 file loads with the version 2 defaults.
   WriteText(projectDirectory / "legacy.ccproj",
@@ -1385,7 +1429,7 @@ void TestProjectVersion2() {
   assert(legacy.mixer.master == 80 && legacy.backlight == 180 && legacy.mixer.level[3] == 100);
   assert(legacy.activeTrack == 1 && legacy.octave == -1 && legacy.root == 2 && legacy.scale == 3 && legacy.ledBrightness == 9);
   assert(legacy.sequence->bpm == 128 && legacy.sequence->swing == 50);
-  for (const auto& track : legacy.sequence->tracks) assert(track.stepCount == kSequencerStepCount);
+  for (const auto& track : legacy.sequence->tracks) assert(track.patternSteps[0] == kSequencerStepCount);
   assert(legacy.sequence->tracks[0].activePattern == 1 && legacy.sequence->tracks[1].muted && !legacy.sequence->tracks[2].enabled);
   const auto& legacyNote = legacy.sequence->tracks[0].patterns[1].steps[4].notes[0];
   assert(legacyNote.active && legacyNote.note == 64 && legacyNote.velocity == 90 && legacyNote.lengthPulses == 48 && legacyNote.microstep == 2);
@@ -1393,7 +1437,7 @@ void TestProjectVersion2() {
   assert(legacy.sequence->songLength == 0 && legacy.sequence->songLoop);
   // Re-saving upgrades it to the current version with the same content.
   assert(SaveProjectFile("legacy", legacy, true) == ProjectResult::Ok);
-  assert(ReadText(projectDirectory / "legacy.ccproj").find("CARDENZA_PROJECT 6\n") == 0);
+  assert(ReadText(projectDirectory / "legacy.ccproj").find("CARDENZA_PROJECT 7\n") == 0);
   ProjectData upgraded;
   assert(LoadProjectFile("legacy", upgraded) == ProjectResult::Ok);
   assert(upgraded.masterFx == ProjectData::DefaultMasterFx());
@@ -1426,7 +1470,7 @@ void TestProjectSong() {
   const auto path = projectDirectory / "song trip.ccproj";
   const std::string valid = ReadText(path);
   const std::string section = "SONG 2 0\nR 0 2 -1 0 4\nR -1 0 0 0 16\n";
-  assert(valid.find("CARDENZA_PROJECT 6\n") == 0 && valid.find("\n" + section + "END\n") != std::string::npos);
+  assert(valid.find("CARDENZA_PROJECT 7\n") == 0 && valid.find("\n" + section + "END\n") != std::string::npos);
 
   ProjectData loaded;
   assert(LoadProjectFile("song trip", loaded) == ProjectResult::Ok);
@@ -1469,7 +1513,8 @@ void TestProjectSong() {
   const auto fxLine = valid.find("\nFX ");
   std::string v3 = valid;
   v3.erase(fxLine + 1, valid.find("\nTRACK 0 ") - fxLine);
-  v3.replace(0, std::string("CARDENZA_PROJECT 6").size(), "CARDENZA_PROJECT 3");
+  v3.replace(0, std::string("CARDENZA_PROJECT 7").size(), "CARDENZA_PROJECT 3");
+  v3 = WithOneLengthPerTrack(v3);
   WriteText(path, v3);
   assert(LoadProjectFile("song trip", loaded) == ProjectResult::Ok && loaded.masterFx == ProjectData::DefaultMasterFx());
 
@@ -1613,7 +1658,7 @@ int main() {
   sequencer->ToggleTrackEnabled();
   assert(!sequencer->BuildUiState(0).trackEnabled);
   sequencer->Stop();
-  project.sequence->tracks[0].patterns[0].steps[0].notes[0].microstep = 255;
+  project.sequence->tracks[0].patterns[0].steps.Edit(0).notes[0].microstep = 255;
   assert(!sequencer->RestoreState(*project.sequence));
   sequencer->Reset();
   assert(!sequencer->StepHasEvents(0));

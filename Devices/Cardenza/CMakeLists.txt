@@ -4,10 +4,17 @@ get_filename_component(CARDENZA_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(CARDENZA_FIRMWARE_BUILD_DIR "${CARDENZA_ROOT}/build/Cardenza")
 set(CARDENZA_IDF_PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(CARDENZA_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe")
-option(CARDENZA_AMY_EXPERIMENTAL_MULTICORE "Enable experimental AMY ESP32 multicore rendering" OFF)
 # The effects' per-sample kernels (Library/Synth/Audio/Fx) in IRAM instead of flash: no flash-cache
 # misses while AMY competes for the 16 KB instruction cache, at the cost of internal RAM.
 option(CARDENZA_FX_IRAM "Place the audio effects' per-sample kernels in IRAM" OFF)
+# CardenzaHAL, an ESP-IDF component of its own: the submodule, or a HAL clone for a test build of a HAL
+# change that is not upstream yet (make HAL_DEV=<clone>). The component is named after its directory.
+if(DEFINED ENV{CARDENZA_HAL_DEV})
+    get_filename_component(CARDENZA_HAL_DIR "$ENV{CARDENZA_HAL_DEV}" ABSOLUTE)
+else()
+    set(CARDENZA_HAL_DIR "${CMAKE_CURRENT_LIST_DIR}/cardenza")
+endif()
+get_filename_component(CARDENZA_HAL_COMPONENT "${CARDENZA_HAL_DIR}" NAME)
 
 if(DEFINED COMPONENT_DIR)
     set(AMY_SRC_DIR ${CARDENZA_ROOT}/Library/third_party/amy/src)
@@ -25,9 +32,9 @@ if(DEFINED COMPONENT_DIR)
             ${AMY_C_SOURCES}
         INCLUDE_DIRS
             ${CARDENZA_ROOT}
-            ${CMAKE_CURRENT_LIST_DIR}/cardenza
             ${AMY_SRC_DIR}
         REQUIRES
+            ${CARDENZA_HAL_COMPONENT}
             driver
             esp_lcd
             esp_rom
@@ -49,9 +56,6 @@ if(DEFINED COMPONENT_DIR)
         AMY_WAVETABLE
         AMY_NO_MINIAUDIO
     )
-    if(CARDENZA_AMY_EXPERIMENTAL_MULTICORE)
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE CARDENZA_AMY_EXPERIMENTAL_MULTICORE=1)
-    endif()
     if(CARDENZA_FX_IRAM)
         target_compile_definitions(${COMPONENT_LIB} PRIVATE CARDENZA_FX_IRAM=1)
     endif()
@@ -78,7 +82,7 @@ if(DEFINED COMPONENT_DIR)
     )
     set_source_files_properties(${CARDENZA_AUDIO_HOT_SOURCES} PROPERTIES COMPILE_OPTIONS "-O3")
 elseif(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}")
+    set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}" "${CARDENZA_HAL_DIR}")
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
     project(CardenzaSynthFirmware)
 else()

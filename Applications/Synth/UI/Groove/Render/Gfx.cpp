@@ -71,6 +71,18 @@ constexpr GlyphBitmap BitmapFor(Glyph glyph)
       return {7, {{0, 0b0000100, 0b0000110, 0b1111111, 0b0000110, 0b0000100, 0}}};
     case Glyph::Check:
       return {5, {{0, 0b00001, 0b00010, 0b10100, 0b01000, 0, 0}}};
+    case Glyph::Back:
+      return {7, {{0b0010000, 0b0110000, 0b1111110, 0b0110001, 0b0010001, 0b0000001, 0b0111110}}};
+    case Glyph::Tab:
+      return {7, {{0b0000001, 0b0001001, 0b0001101, 0b1111111, 0b0001101, 0b0001001, 0b0000001}}};
+    case Glyph::Menu:
+      return {7, {{0b1110111, 0b1010101, 0b1110111, 0, 0b1110111, 0b1010101, 0b1110111}}};
+    case Glyph::Pages:
+      return {7, {{0b0011111, 0b0010001, 0b1111101, 0b1000101, 0b1000111, 0b1000100, 0b1111100}}};
+    case Glyph::Delete:
+      return {5, {{0, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0}}};
+    case Glyph::None:
+      return {0, {{0, 0, 0, 0, 0, 0, 0}}};
     case Glyph::Dot:
     default:
       return {3, {{0, 0, 0b010, 0b111, 0b010, 0, 0}}};

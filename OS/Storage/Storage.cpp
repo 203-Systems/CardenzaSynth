@@ -142,6 +142,36 @@ bool CardPresent()
   return Device::Storage::Mount();
 }
 
+bool CardMounted()
+{
+  return Device::Storage::IsMounted();
+}
+
+bool ReadInternalRecord(std::string_view key, std::string& value)
+{
+  return Device::Storage::ReadInternal(key, value);
+}
+
+bool WriteInternalRecord(std::string_view key, std::string_view value)
+{
+  return Device::Storage::WriteInternal(key, value);
+}
+
+bool EraseInternalRecord(std::string_view key)
+{
+  return Device::Storage::EraseInternal(key);
+}
+
+std::vector<std::string> ListInternalRecords()
+{
+  return Device::Storage::ListInternal();
+}
+
+void ReportCardIoError()
+{
+  Device::Storage::CheckAfterIoError();
+}
+
 std::uint64_t CardCapacityBytes()
 {
   return CardPresent() ? Device::Storage::CapacityBytes() : 0;
@@ -301,7 +331,7 @@ std::vector<DirectoryEntry> ListDirectory(const std::string& path)
 
 #endif
 
-bool WriteFileAtomic(const std::string& path, std::string_view contents)
+static bool WriteFileAtomicOnce(const std::string& path, std::string_view contents)
 {
   if (path.empty() || !IsDirectory(ParentPath(path))) return false;
   const std::string temporary = path + ".tmp";
@@ -344,6 +374,13 @@ bool WriteFileAtomic(const std::string& path, std::string_view contents)
   // The new file replaces both the old one and a backup left by an earlier interruption.
   if (IsFile(backup)) std::remove(backup.c_str());
   return true;
+}
+
+bool WriteFileAtomic(const std::string& path, std::string_view contents)
+{
+  const bool written = WriteFileAtomicOnce(path, contents);
+  if (!written) ReportCardIoError();
+  return written;
 }
 
 bool ReadFileWithBackup(const std::string& path, std::string& contents, std::size_t maxBytes)

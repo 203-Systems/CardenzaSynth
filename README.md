@@ -1,6 +1,6 @@
 # CardenzaSynth
 
-Cardenza 是一台四轨 groovebox：DX7、Juno、Sampler、Drums 四种音源，16 步音序器，整首歌的 Pattern 编排（走带），四轨混音，每轨效果（失真、降采样、DJ 滤波、合唱）与总线延迟 / 混响，工程与音色存储。屏幕 240×135，键盘 4×14 并带单色按键灯。
+Cardenza 是一台四轨 groovebox：DX7、Juno、Sampler、Drums 四种音源，音序器（每个 Pattern 1–256 步），整首歌的 Pattern 编排（走带），四轨混音，每轨效果（失真、降采样、DJ 滤波、合唱）与总线延迟 / 混响，工程与音色存储。屏幕 240×135，键盘 4×14 并带单色按键灯。
 
 界面是黑底的终端风格，搭配新极简排版和 dither 填充。屏幕左右两边各有 4 个键帽，和键盘最左、最右两列逐行对应：左侧不写字，用颜色区分（ESC 红橙、TAB 青、FN 黄、CTRL 紫），键帽里的小点表示这个键管的对象（场景、轨道、录音、页），当前项是白点；右侧是 + − ↵ ▶。按键灯有一套语言：亮度表示数值大小，呼吸表示按下会执行动作，细闪表示焦点，闪烁表示等待中；当前画面在用的那一块键最亮。界面和按键灯都带动效，逐帧录像（含键盘灯光）见 [docs/groovebox/motion](docs/groovebox/motion)。完整规格见 [Groovebox 设计](docs/groovebox-design.md)。
 
@@ -17,7 +17,7 @@ Cardenza 是一台四轨 groovebox：DX7、Juno、Sampler、Drums 四种音源�
 | ADD / SUB（右侧上两键） | 加 / 减，列表移动 | 连发并加速；Fn + ADD / SUB 大步调整 |
 | ENTER | 确认、进入、开关 | Fn + ENTER：恢复默认 / 和弦编辑对象 / 记进 SONG / SONG·LOOP / 文件选项 |
 | PLAY | 播放 / 停止 | Fn + PLAY：实时录音开关 |
-| HOME 侧键 | 全部停止 | — |
+| HOME 侧键 | 暂不分配（全部停止用 Fn + ESC） | — |
 
 中间 4×8 是演奏键（PADS），任何场景都演奏当前轨；右侧 4×4（GRID）和屏幕中央的 4×4 格子一一对应。文本输入时，最上面那个右侧键（键帽印 del）是删除。
 
@@ -29,14 +29,14 @@ Cardenza 是一台四轨 groovebox：DX7、Juno、Sampler、Drums 四种音源�
 
 ## 先做一个循环
 
-1. 开机在 **1 INSTR** 的 VOICE 页，当前轨 T2 Juno。按 ESC 到 **2 SEQ**，按住 TAB 点 GRID 第一列换到 T1：808 鼓组，每一列演奏键是一种鼓。
+1. 开机在 **1 INSTR** 的 VOICE 页，当前轨 T1 鼓机（所有工程都这样）。按 ESC 到 **2 SEQ**：鼓轨的音符页自动是鼓机界面，演奏键的每一列是一种鼓，越往上打得越重（也会发声），按下同时选定鼓和力度，GRID 是它的 16 步，点一下加一击，再点去掉，按住再按 ADD / SUB 改力度。
 2. 按住一个演奏键，再点 GRID 上的几个 step：鼓点直接写入。
 3. 点一下 step 会选中它（可多选），演奏区会亮出这一步里的音。选中后按演奏键加 / 删音符；ENTER 在 NOTE / LEN / VEL / TIME 之间切换，ADD / SUB 调整；ESC 取消选择。
 4. PLAY 播放，演奏区会跟着音序器正在弹的音闪烁。按 TAB 换到 T2 Juno，在 STEPS 页写一段旋律。
 5. CTRL 到 PATTERN 页：点空槽新建 Pattern；播放中点别的 Pattern 会在本轮循环结束时切换。Fn + D 把当前 Pattern 复制一份。
 6. Fn + PLAY 打开录音，播放中直接弹演奏键即叠录进当前 Pattern。
 7. 按住 ESC 再按 GRID 第三列进入走带，先到 SESSION：每列一轨，点格子即时切换 Pattern，满意的组合按 Fn + ENTER 记进 SONG。CTRL 翻到 SONG：点 GRID 第一列的 + 追加编排行，选中一格用 ADD / SUB 选 Pattern（`--` 为静音），再点一次同一格后用 ADD / SUB 改小节数，ENTER 从这一行开始播放整首歌。
-8. CTRL 翻到 MIX 调音量、静音、独奏；SENDS 页给每轨开延迟 / 混响发送，FX 页调总线；按住 ESC 点 GRID 第一列进入 SETUP，PROJECT 页 SAVE AS 输入名字保存（或随时 Fn + S）。
+8. CTRL 翻到 MIX 调音量、静音、独奏；SENDS 页给每轨开延迟 / 混响发送，FX 页调总线；按住 ESC 点 GRID 第一列进入 SETUP，PROJECT 页 SAVE 保存（或随时 Fn + S），想自己起名字用 FN 菜单的 SAVE AS。
 
 ## FN 菜单（按住 FN，或单击 FN 让它常驻）
 
@@ -44,12 +44,14 @@ FN 是当前画面的菜单。按住 FN 时屏幕的 4×4 格子变成这个画�
 
 ## 场景
 
-- **0 SETUP 工程与全局设置**（排在最前；按住 ESC + GRID 第一列进入，单击 ESC 回到原来的场景）：PROJECT（保存 / 另存 / 载入 / 新建、BPM、Swing、Tap、LOOP / SONG）、FILES（工程列表）、KEYS（所有轨道共用的键盘布局、14 种音阶、根音、八度、力度、音阶锁定）、SYSTEM（主音量、按键灯、屏幕亮度与设备状态）。键盘、每轨的和弦与 ARP、BPM、Swing 都属于工程（工程文件 v6），SYSTEM 存在设备设置里。
-- **1 INSTR 乐器**：VOICE 页大字显示音色，ADD / SUB 直接切换音色；ENGINE、PRESET（可输入搜索）、SAVE、SAVE AS。接着是这条轨道自己的 MIDI 效果：CHORD（和弦与转位）和 ARP（UP / DOWN / UP-DN / RANDOM / ORDER，1/4–1/32，1–4 个八度，GATE，LATCH），每条轨道一套、可以几条轨道同时琶音（鼓轨没有）。之后是引擎参数页：GRID 选参数，ADD / SUB 调值，空格位置显示包络、滤波、算法、波形等图形。DX7 共 13 页（算法、算子电平、六个算子的音高与 R1–R4 / L1–L4 包络、LFO），Juno 8 页（DCO、VCF、ENV、LFO）。每个音源都有 FX 页（DRIVE、CRUSH、FILTER、RESO、CHORUS、DELAY、REVERB，附信号链图）。Sampler 的 SAMPLE 页可浏览 WAV、录音、裁剪和保存。
+- **0 SETUP 工程与全局设置**（排在最前；按住 ESC + GRID 第一列进入，单击 ESC 回到原来的场景）：PROJECT（保存 / 载入 / 新建、BPM、Swing、Tap、LOOP / SONG；另存在 FN 菜单）、FILES（工程列表）、KEYS（所有轨道共用的键盘布局、14 种音阶、根音、八度、力度、音阶锁定）、SYSTEM（主音量、按键灯、屏幕亮度与设备状态）。键盘、每轨的和弦与 ARP、BPM、Swing 都属于工程（工程文件 v6），SYSTEM 存在设备设置里。
+- **1 INSTR 乐器**：VOICE 页大字显示音色，ADD / SUB 直接切换音色；GRID 上是 ENGINE、PRESET（可输入搜索），存音色和所有要打字的操作都在 FN 菜单。接着是这条轨道自己的 MIDI 效果：CHORD（和弦与转位）和 ARP（UP / DOWN / UP-DN / RANDOM / ORDER，1/4–1/32，1–4 个八度，GATE，HOLD），每条轨道一套、可以几条轨道同时琶音（鼓轨没有）。之后是引擎参数页：GRID 选参数，ADD / SUB 调值，空格位置显示包络、滤波、算法、波形等图形。DX7 共 13 页（算法、算子电平、六个算子的音高与 R1–R4 / L1–L4 包络、LFO），Juno 8 页（DCO、VCF、ENV、LFO）。每个音源都有 FX 页（DRIVE、CRUSH、FILTER、RESO、CHORUS、DELAY、REVERB，附信号链图）。Sampler 的 SAMPLE 页可浏览 WAV、录音、裁剪和保存。
 - **2 SEQ 音序器**：音符页有两种视图，默认 **ROLL 钢琴卷帘**（时间 × 音高，音符画成和时值一样长的条），单击 OK 切到 **STEP 步进录制**（按 PADS 写进光标所在的步，松开后光标前进）。OK 是录音键：按住打开 RECORD 面板，可以开关实时录音，并把「无感录制」记下的最近 8 段弹奏（take）中的一小节放进新 Pattern。之后是 PATTERN、TRACK（序列开关、每轨步数、Swing、BPM）。
 - **3 TAPE 走带**（四轨合在一起）：SESSION（类似 Ableton Live 的 Session 视图：四轨并排，每格一个 Pattern，点格子在本轮循环结束时切换，ENTER 发射整行，Fn + ENTER 把当前组合记录进 SONG）、SONG（整首歌的 Pattern 编排：按顺序播放，每行循环 N 小节，四轨同时显示；SONG / LOOP 模式）、MIX（四轨推子、MUTE / SOLO / SEQ、主音量）、SENDS（四轨的滤波、合唱、延迟与混响发送一屏总览）、FX（总线：按速度同步的磁带延迟、混响、EQ、压缩、TAPE 饱和）。编排格子再点一次在 Pattern 与小节数之间切换。
 
-采样为单声道 PCM16 WAV，支持 8–96 kHz。工程文件为 v6（含编排、总线效果、键盘与每轨的和弦和 ARP），可以读取 v1–v4 以及开发版写的 v5 工程。延迟和混响的缓冲在第一次打开发送时才分配（板子没有 PSRAM）。
+按住任何一个参数格，演奏区就变成它的档位：亮的键是可选的值，当前值全亮，按下直接设置，不用按加减键。
+
+工程会自动保存：工作状态存在内部 Flash（没插卡也一样，很小，只在没声音时写），直接拔电也不丢，开机自动恢复；FN + S 是把它存成卡上有名字的工程文件。采样为单声道 PCM16 WAV，支持 8–96 kHz，最长 5 分钟：短采样放在内存里，长采样从 SD 卡边读边播。录音直接写到卡上，最长 60 秒（录音时喇叭静音，麦克风和喇叭共用一个引脚）。工程文件为 v7（含编排、总线效果、键盘与每轨的和弦和 ARP、每个 Pattern 的长度），可以读取 v1–v4、开发版写的 v5 以及 v6 工程。板子没有 PSRAM：Pattern 的步按页分配（只有写了音符的页占内存），延迟、混响和采样缓存都在用到时才分配。
 
 ## 应用与存储
 
@@ -81,7 +83,7 @@ build/linux/Devices/CardenzaSim/CardenzaSimShot --script tests/groove/tour.scrip
 
 ## 浏览器模拟器
 
-同一套 C++ 代码（GrooveApp、Groove 界面、AMY 音源与运行时、CardenzaSim 设备层）用 Emscripten 编译成 WebAssembly，在网页里显示同样的屏幕和 4×14 键盘（含按键灯），声音来自 `synth::audio::RenderFrames`。电脑键盘按物理位置映射到设备键（数字行 = 第 0 行，Q 行 = 第 1 行，A 行 = 第 2 行，Z 行 = 第 3 行；Esc = ESC，Tab = TAB，Caps / 左 Shift = FN，Ctrl = CTRL，Backspace = ADD，`\` = SUB，Enter = ENTER，空格 = PLAY，Home = HOME）。每个键帽上都标着对应的电脑键。设置、工程和音色保存在浏览器里（IndexedDB，目录结构同 SD 卡），「Load WAV…」可以把 WAV 放进共用采样目录 `Shared/Samples`。
+同一套 C++ 代码（GrooveApp、Groove 界面、AMY 音源与运行时、CardenzaSim 设备层）用 Emscripten 编译成 WebAssembly，在网页里显示同样的屏幕和 4×14 键盘（含按键灯），声音来自 `synth::audio::RenderFrames`。电脑键盘按物理位置映射到设备键（数字行 = 第 0 行，Q 行 = 第 1 行，A 行 = 第 2 行，Z 行 = 第 3 行；Esc = ESC，Tab = TAB，Caps / 左 Shift = FN，Ctrl = CTRL，Backspace = ADD，`\` = SUB，Enter = ENTER，空格 = PLAY，Home = HOME）。每个键帽上都标着对应的电脑键。设置、工程和音色保存在浏览器里（IndexedDB，目录结构同 SD 卡），「Load project…」把卡上的 `.ccproj` 工程复制进来并打开第一个（不覆盖已有工程，其余的在 SETUP 的 FILES 里），「Load WAV…」可以把 WAV 放进共用采样目录 `Shared/Samples`。
 
 ```bash
 git clone https://github.com/emscripten-core/emsdk.git ~/emsdk && ~/emsdk/emsdk install latest && ~/emsdk/emsdk activate latest
