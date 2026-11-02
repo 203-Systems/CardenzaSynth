@@ -84,6 +84,11 @@ if(DEFINED COMPONENT_DIR)
 elseif(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}" "${CARDENZA_HAL_DIR}")
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+    # The component manager's lock (dependencies.lock, tracked) hashes the component names; a HAL
+    # clone's differs from the submodule's, so a HAL_DEV build keeps its lock in the build tree.
+    if(DEFINED ENV{CARDENZA_HAL_DEV})
+        idf_build_set_property(DEPENDENCIES_LOCK "${CMAKE_BINARY_DIR}/dependencies.lock")
+    endif()
     project(CardenzaSynthFirmware)
 else()
     message(FATAL_ERROR "Cardenza is an ESP-IDF firmware target. Use the Devices/Cardenza IDF project or DEVICE=CardenzaSim for desktop builds.")
