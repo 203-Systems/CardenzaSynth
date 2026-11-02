@@ -51,7 +51,8 @@ public:
   bool DeletePattern(std::size_t patternIndex);
   bool CopyPattern(std::size_t sourcePattern, std::size_t destinationPattern);
   bool PatternHasEvents(std::size_t patternIndex) const;
-  // Bit n set = step n of that track's pattern holds notes (0 for an empty or missing pattern).
+  // Bit n set = step n of that track's pattern holds notes (0 for an empty or missing pattern). A
+  // pattern longer than 16 steps is cut in 16 equal slices, a bit for each.
   std::uint16_t PatternStepMask(std::size_t trackIndex, std::size_t patternIndex) const;
 
   void PressStep(std::size_t stepIndex, const std::uint8_t* heldNotes, std::size_t heldNoteCount);
@@ -76,6 +77,10 @@ public:
   bool SetStepNotes(std::size_t track, std::size_t step, const std::uint8_t* notes, std::size_t count, std::uint8_t velocity);
   // Adds one timed note to a pattern of a track (a note of the same pitch on that step is
   // replaced). False when the step already holds eight other notes or the pattern does not exist.
+  bool RemoveNote(std::size_t track, std::size_t pattern, std::size_t step, std::uint8_t note);
+  // Moves one note within its step, to another microstep. False when it is not there, or another of
+  // the same pitch already is.
+  bool MoveNote(std::size_t track, std::size_t pattern, std::size_t step, std::uint8_t note, std::uint8_t fromMicrostep, std::uint8_t toMicrostep);
   bool InsertNote(std::size_t track, std::size_t pattern, std::size_t step, std::uint8_t microstep, std::uint8_t note,
                   std::uint8_t velocity, std::uint16_t lengthPulses);
   // Pulses processed since playback started (0 while stopped): where a played note sits in time.
@@ -120,6 +125,9 @@ public:
   // Reset() do this too), or of one track's arp.
   void ArpReleaseAll();
   void ArpRelease(std::size_t track);
+  // Marks the notes the sequencer is sounding on a track (steps, audition, arpeggiator), one bit per
+  // MIDI note.
+  void AddSoundingNotes(std::size_t track, std::array<std::uint32_t, 4>& notes) const;
   // Mode on and notes held or latched: on any track, or on one.
   bool ArpActive() const;
   bool ArpActive(std::size_t track) const;
@@ -129,6 +137,8 @@ public:
   // the clock by hand, one pulse per step, exactly when the worker would not idle.
   void UseManualClockForTest();
   void AdvancePulsesForTest(std::size_t pulses);
+  // From now on at most this many new pages of steps can be allocated (-1: no limit).
+  static void SetPageBudgetForTest(int pages);
 #endif
 
   // Switches immediately while stopped; while playing, at the track's next loop boundary.
@@ -140,12 +150,23 @@ public:
   void SetSwing(std::uint8_t percent);
   std::uint8_t Swing() const;
 
-  // Each track loops at its own length (1..16 steps); later steps keep their data.
+  // Each pattern has its own length (1..256 steps), and a track loops at the length of the pattern
+  // it plays. These act on the track's current pattern; later steps keep their data.
   void SetTrackStepCount(std::size_t track, std::size_t steps);
   std::size_t TrackStepCount(std::size_t track) const;
+  std::size_t PatternStepCount(std::size_t track, std::size_t pattern) const;
+
+  // The GRID shows one page (16 steps) of the current pattern. While playing it follows the
+  // playhead until the page is flipped by hand; Play goes back to following.
+  void SetViewPage(std::size_t track, std::size_t page);
+  std::size_t ViewFirstStep(std::size_t track) const;
+
+  // True once after a write found no memory for a new page of steps (the write was dropped).
+  static bool ConsumePatternMemoryFull();
 
   // Selection editing without audition. The selection is the held-step set of the active track.
   void SetStepSelected(std::size_t step, bool selected);
+  bool StepSelected(std::size_t step) const;
   void ClearSelectedSteps();
   bool ToggleNoteOnSelectedSteps(std::uint8_t note);
   void SetEditLane(SequencerEditLane lane);
@@ -205,12 +226,48 @@ public:
     std::array<NoteEvent, 8> notes{};
   };
 
-  struct PatternData {
-    std::array<StepData, kSequencerStepCount> steps{};
+  // The steps of a pattern, stored one GRID page at a time. A page costs its 768 bytes only once
+  // something is written on it (256 steps flat would be 12 KB per pattern, and the board has no
+  // PSRAM). Copies share their pages until one of them writes, so a project snapshot costs next to
+  // nothing however long the patterns are. Reading never allocates.
+  class StepStore {
+  public:
+    StepStore() = default;
+    StepStore(const StepStore& other);
+    StepStore& operator=(const StepStore& other);
+    ~StepStore();
+
+    static constexpr std::size_t size() { return kSequencerMaxSteps; }
+    const StepData& operator[](std::size_t step) const;
+    // The step to write. Null when there is no memory for its page.
+    StepData* TryEdit(std::size_t step);
+    // Same, but without memory the write lands in a discarded scratch step and
+    // ConsumePatternMemoryFull() reports it.
+    StepData& Edit(std::size_t step);
+    // The first step at or after `step` on a page that exists, size() when none is left.
+    std::size_t NextInUse(std::size_t step) const;
+    // Steps holding at least one note (cached until the next edit).
+    std::size_t PopulatedSteps() const;
+    // Gives the memory of pages emptied by edits back. Invalidates references into this store.
+    void ReleaseEmptyPages();
+    void Clear();
+
+  private:
+    struct Page;
+    static void ReleasePage(Page* page);
+    static Page* NewPage();
+    std::array<Page*, kSequencerMaxStepPages> pages_{};
+    mutable std::uint16_t populated_ = 0;
+    mutable bool populatedKnown_ = true;
   };
 
-  // Patterns are allocated on first write: inline 16-pattern banks for every track cost about 48 KB
-  // of internal RAM, which the firmware cannot spare. Unallocated patterns read as empty.
+  struct PatternData {
+    StepStore steps;
+  };
+
+  // Patterns are allocated on first write, and their steps page by page (StepStore): inline
+  // banks for every track would cost internal RAM the firmware cannot spare. Unallocated patterns
+  // read as empty.
   class PatternBank {
   public:
     PatternBank() = default;
@@ -245,7 +302,15 @@ public:
     std::uint16_t defaultLengthPulses = kSequencerPulsesPerStep;
     bool enabled = true;
     bool muted = false;
-    std::size_t stepCount = kSequencerStepCount;
+    // Each pattern's own length, 1..kSequencerMaxSteps.
+    std::array<std::uint16_t, kSequencerMaxPatternCount> patternSteps = DefaultPatternSteps();
+
+    static constexpr std::array<std::uint16_t, kSequencerMaxPatternCount> DefaultPatternSteps()
+    {
+      std::array<std::uint16_t, kSequencerMaxPatternCount> steps{};
+      for (auto& count : steps) count = kSequencerStepCount;
+      return steps;
+    }
   };
 
   struct ProjectState {
@@ -345,10 +410,12 @@ private:
   std::size_t ScopedNoteSlot(const StepData& step) const;
   const NoteEvent* ScopedNoteLocked(const StepData& step) const;
   std::uint16_t ClampLengthForStepMicrostep(std::size_t stepIndex, std::uint8_t microstep, std::uint16_t lengthPulses) const;
+  static std::uint16_t ClampLengthInPattern(std::size_t patternSteps, std::size_t stepIndex, std::uint8_t microstep, std::uint16_t lengthPulses);
   std::string ScopeLabelLocked(const StepData* step) const;
   std::string ValueLabelLocked(const StepData* step) const;
 
   static std::size_t TrackStepCountOf(const TrackData& track);
+  std::size_t ViewPageLocked(std::size_t trackIndex) const;
   std::uint16_t SwingDelayPulsesLocked() const;
   std::uint16_t NoteOffsetPulsesLocked(std::size_t stepIndex, std::uint8_t microstep) const;
   void FireStepNotesLocked(std::size_t trackIndex,
@@ -413,7 +480,11 @@ private:
   // Lock before mutex_: MIDI batches and transport changes must keep generation order.
   mutable std::mutex outputMutex_;
   std::array<TrackData, kSynthTrackCount> tracks_{};
-  std::array<bool, kSequencerStepCount> heldSteps_{};
+  std::array<bool, kSequencerMaxSteps> heldSteps_{};
+  // The page of each track's pattern the UI state's steps come from (see ViewPageLocked).
+  mutable std::array<std::uint8_t, kSynthTrackCount> viewPage_{};
+  mutable std::array<std::uint8_t, kSynthTrackCount> viewPattern_{};
+  std::array<bool, kSynthTrackCount> viewFollow_{{true, true, true, true}};
   std::array<bool, kKeyboardMatrixRows> heldEditLanes_{};
   std::array<PlaybackNote, kMaxPlaybackNotes> playbackNotes_{};
   std::size_t activeTrack_ = 0;

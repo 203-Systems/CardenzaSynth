@@ -174,17 +174,9 @@ float ShelfDecibels(int value)
 
 }  // namespace
 
-TanhTable::TanhTable()
-{
-  for (std::size_t index = 0; index < table_.size(); ++index)
-  {
-    table_[index] = std::tanh(static_cast<float>(index) / kStepsPerUnit);
-  }
-}
-
 float MaxDelaySeconds()
 {
-  return (static_cast<float>(kDelayLineFrames) - 8.0f) / kBusRate;
+  return (static_cast<float>(kDelayLongLineFrames) - 8.0f) / kBusRate;
 }
 
 float DelaySeconds(int division, float bpm)
@@ -729,13 +721,30 @@ SendBuses::SendBuses()
   }
 }
 
-bool SendBuses::AllocateDelay()
+bool SendBuses::AllocateDelay(bool longLine)
 {
-  if (!delayLine_)
+  const std::size_t chunks = delayFrames_ / kDelayChunkFrames;
+  const std::size_t wanted = (longLine ? kDelayLongLineFrames : kDelayLineFrames) / kDelayChunkFrames;
+  if (chunks >= wanted) return true;
+  std::size_t got = chunks;
+  for (; got < wanted; ++got)
   {
-    delayLine_.reset(new (std::nothrow) std::int16_t[kDelayLineFrames]());
+    delayChunks_[got].reset(new (std::nothrow) std::int16_t[kDelayChunkFrames]());
+    if (!delayChunks_[got]) break;
   }
-  return delayLine_ != nullptr;
+  if (got == wanted)
+  {
+    // The long line replaces the short one: the ticks fall elsewhere, so the echoes start again.
+    for (std::size_t chunk = 0; chunk < chunks; ++chunk) std::fill_n(delayChunks_[chunk].get(), kDelayChunkFrames, std::int16_t{0});
+    delayFrames_ = static_cast<std::uint32_t>(wanted * kDelayChunkFrames);
+    delayWrite_ = 0;
+    delayQuietFrames_ = DelayIdleFrames();  // nothing in it
+    return true;
+  }
+  // Not all of it: what there was stays, or else the short line if that fits.
+  for (std::size_t chunk = chunks; chunk < got; ++chunk) delayChunks_[chunk].reset();
+  if (chunks == 0 && longLine) return AllocateDelay(false);
+  return delayFrames_ != 0;
 }
 
 bool SendBuses::AllocateReverb()
@@ -769,7 +778,11 @@ void SendBuses::UpdateDelay(const SendBusSettings& settings)
 {
   // A whole number of ticks (within 45 us of the synced time): at rest the read head then sits on
   // a sample and the line interpolation does not dull the repeats.
-  delayTargetTicks_ = std::floor(std::clamp(settings.delaySeconds * kBusRate - kDelayLatencyTicks, 1.0f, static_cast<float>(kDelayLineFrames) - 4.0f) + 0.5f);
+  // A time the line cannot hold (no memory for the long one) halves until it fits, still on the beat.
+  float seconds = settings.delaySeconds;
+  const float capacity = static_cast<float>(delayFrames_ != 0 ? delayFrames_ : kDelayLineFrames) - 8.0f;
+  while (seconds * kBusRate > capacity) seconds *= 0.5f;
+  delayTargetTicks_ = std::floor(std::clamp(seconds * kBusRate - kDelayLatencyTicks, 1.0f, capacity + 4.0f) + 0.5f);
   delayFeedback_ = kDelayMaxFeedback * Normalized127(settings.delayFeedback);
   const float toneHz = 500.0f * std::exp2(4.5f * Normalized127(settings.delayTone));  // 500 Hz .. open
   if (toneHz != delayToneHz_)
@@ -818,22 +831,21 @@ void SendBuses::UpdateReverb(const SendBusSettings& settings)
 // the loop filters work in line units (int16 steps), so reading and writing need no scaling.
 inline __attribute__((always_inline)) float SendBuses::DelayTick(float input)
 {
-  constexpr std::uint32_t kMask = kDelayLineFrames - 1;
   const float error = delayTargetTicks_ - delayTicks_;
   delayTicks_ = std::fabs(error) < 0.001f ? delayTargetTicks_ : delayTicks_ + std::clamp(error * kDelayGlideRate, -kDelayMaxGlide, kDelayMaxGlide);
   const std::int32_t whole = static_cast<std::int32_t>(delayTicks_);  // delayTicks_ >= 1: truncation is floor
   const std::uint32_t distance = static_cast<std::uint32_t>(whole);
   const float fraction = delayTicks_ - static_cast<float>(whole);
   // Between the samples `distance` and `distance + 1` ticks ago.
-  const std::int16_t newer = delayLine_[(delayWrite_ - distance) & kMask];
-  const std::int16_t older = delayLine_[(delayWrite_ - distance - 1) & kMask];
+  const std::int16_t newer = DelaySample(delayWrite_ - distance);
+  const std::int16_t older = DelaySample(delayWrite_ - distance - 1);
   delayActivity_ |= newer | older;
   const float head = static_cast<float>(newer) + fraction * static_cast<float>(older - newer);
   delayTone_ += delayToneCoefficient_ * (head - delayTone_);
   delayHighPassLow_ += kDelayHighPass * (delayTone_ - delayHighPassLow_);
   const float echo = delayTone_ - delayHighPassLow_;
   constexpr float kToLimit = 1.0f / (kDelayLimit * kLineScale);
-  delayLine_[delayWrite_ & kMask] = Saturate(SoftClip((input * kLineScale + delayFeedback_ * echo) * kToLimit) * (kDelayLimit * kLineScale));
+  DelaySample(delayWrite_) = Saturate(SoftClip((input * kLineScale + delayFeedback_ * echo) * kToLimit) * (kDelayLimit * kLineScale));
   ++delayWrite_;
   return echo * kInverseLineScale;
 }
@@ -841,14 +853,13 @@ inline __attribute__((always_inline)) float SendBuses::DelayTick(float input)
 // The same at rest, the head a whole number of ticks behind: one read, no interpolation.
 inline __attribute__((always_inline)) float SendBuses::DelayTickAt(float input, std::uint32_t distance)
 {
-  constexpr std::uint32_t kMask = kDelayLineFrames - 1;
-  const std::int16_t sample = delayLine_[(delayWrite_ - distance) & kMask];
+  const std::int16_t sample = DelaySample(delayWrite_ - distance);
   delayActivity_ |= sample;
   delayTone_ += delayToneCoefficient_ * (static_cast<float>(sample) - delayTone_);
   delayHighPassLow_ += kDelayHighPass * (delayTone_ - delayHighPassLow_);
   const float echo = delayTone_ - delayHighPassLow_;
   constexpr float kToLimit = 1.0f / (kDelayLimit * kLineScale);
-  delayLine_[delayWrite_ & kMask] = Saturate(SoftClip(input * (kLineScale * kToLimit) + echo * (delayFeedback_ * kToLimit)) * (kDelayLimit * kLineScale));
+  DelaySample(delayWrite_) = Saturate(SoftClip(input * (kLineScale * kToLimit) + echo * (delayFeedback_ * kToLimit)) * (kDelayLimit * kLineScale));
   ++delayWrite_;
   return echo * kInverseLineScale;
 }
@@ -952,9 +963,9 @@ SYNTH_FX_HOT void SendBuses::Process(const float* delaySend, const float* reverb
   if (frames == 0) return;
   const float delayLevelTarget = KnobGain(settings.delayLevel);
   const float reverbLevelTarget = KnobGain(settings.reverbLevel);
-  const bool delayInput = delayLine_ && !AllZero(delaySend, frames);
+  const bool delayInput = DelayAllocated() && !AllZero(delaySend, frames);
   const bool reverbInput = reverbMemory_ && !AllZero(reverbSend, frames);
-  const bool runDelay = delayLine_ && (delayInput || !DelayIdle());
+  const bool runDelay = DelayAllocated() && (delayInput || !DelayIdle());
   const bool runReverb = reverbMemory_ && (reverbInput || !ReverbIdle());
   if (!runDelay && !runReverb)
   {
@@ -999,7 +1010,7 @@ SYNTH_FX_HOT void SendBuses::Process(const float* delaySend, const float* reverb
   if (runDelay)
   {
     RunDelay(delayInputs.data(), returns.data(), ticks, delayLevelTarget);
-    delayQuietFrames_ = !delayInput && delayActivity_ == 0 ? std::min(delayQuietFrames_ + frames, kIdleFrames) : 0;
+    delayQuietFrames_ = !delayInput && delayActivity_ == 0 ? std::min(delayQuietFrames_ + frames, DelayIdleFrames()) : 0;
   }
   else
   {

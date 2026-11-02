@@ -129,7 +129,15 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
                                     static_cast<std::uint32_t>(modal->trimMarker) << 31;
     if (!lastModalValid_ || signature != lastModalSignature_ || depth != modalDepth_)
     {
-      lastModal_ = *modal;
+      // What the fold needs: the rows on screen, not a copy of a long list.
+      static_cast<ModalFields&>(lastModal_) = *modal;
+      lastModal_.itemCount = modal->Count();
+      lastModal_.firstItem = ListFirstRow(modal->cursor);
+      lastModal_.items.clear();
+      for (std::size_t index = lastModal_.firstItem; index < lastModal_.firstItem + kListVisibleRows; ++index)
+      {
+        if (const ListItem* row = modal->Row(index)) lastModal_.items.push_back(*row);
+      }
       lastModalSignature_ = signature;
       lastModalValid_ = true;
     }
@@ -180,6 +188,9 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
     }
   }
   padNotes_ = state.padNote;
+  // From the controller, not from the pads being down: a tap can be over within a frame.
+  for (std::size_t lane = 0; lane < drumHits_.size(); ++lane)
+    if (state.drumPadHits[lane].at > drumHits_[lane].at) drumHits_[lane] = state.drumPadHits[lane];
 
   // Sequencer: playhead flash, beats, content stamps, pattern switches.
   if (seq.playing != playing_) playToggledAt_ = now;
@@ -187,7 +198,7 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
   {
     stopAt_ = now;
     stopProgress_ = lastProgress_;
-    stopStep_ = step_;
+    stopStep_ = step_ % kGridCount;
   }
   playing_ = seq.playing;
   if (seq.playing) lastProgress_ = seq.patternProgress;
@@ -202,6 +213,15 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
     std::array<std::uint8_t, 8> notes{};
     const std::size_t count = sequencer.StepNotes(seq.currentStep, notes);
     for (std::size_t index = 0; index < count; ++index) sequencedAt_[notes[index] & 0x7F] = now;
+    if (host.EngineKind(state.track) == synth::SynthEngineKind::Drums)
+    {
+      std::array<synth::SynthSequencer::StepNoteView, 8> hits{};
+      const std::size_t hitCount = sequencer.StepNoteEvents(state.track, seq.currentStep, hits);
+      for (std::size_t slot = 0; slot < hitCount; ++slot)
+        for (std::size_t lane = 0; lane < kDrumNotes.size(); ++lane)
+          if (kDrumNotes[lane] == hits[slot].note)
+            drumHits_[lane] = DrumHit{now == 0 ? 1 : now, static_cast<std::uint8_t>(DrumRowForVelocity(hits[slot].velocity)), hits[slot].velocity};
+    }
   }
   if (seq.playing) step_ = seq.currentStep;
   // Every arpeggiator note glows on its pad (and on the on-screen keyboards) when it is on this track.
@@ -210,19 +230,22 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
     arpTick_ = seq.arpTick;
     if (seq.arpLastNote >= 0 && seq.arpTrack == state.track) sequencedAt_[static_cast<std::size_t>(seq.arpLastNote) & 0x7F] = now;
   }
-  const bool samePattern = fingerprintTrack_ == state.track && fingerprintPattern_ == seq.activePattern;
+  // Flipping the page shows other steps: nothing changed.
+  const bool samePage = fingerprintPage_ == seq.viewPage;
+  const bool samePattern = fingerprintTrack_ == state.track && fingerprintPattern_ == seq.activePattern && samePage;
   for (std::size_t step = 0; step < kGridCount; ++step)
   {
     const auto& cell = seq.steps[step];
     if (cell.playing && !stepPlaying_[step]) stepPlayedAt_[step] = now;
     stepPlaying_[step] = cell.playing;
-    if (!cell.held && stepHeld_[step] && !trackChanged) deselectedAt_[step] = now;
+    if (!cell.held && stepHeld_[step] && !trackChanged && samePage) deselectedAt_[step] = now;
     stepHeld_[step] = cell.held;
     if (samePattern && cell.contentFingerprint != fingerprints_[step]) stepChangedAt_[step] = now;
     fingerprints_[step] = cell.contentFingerprint;
   }
   fingerprintTrack_ = state.track;
   fingerprintPattern_ = seq.activePattern;
+  fingerprintPage_ = seq.viewPage;
   for (std::size_t track = 0; track < kTrackCount; ++track)
   {
     if (seq.tracks[track].activePattern != patterns_[track]) patternChangedAt_[track] = now;
@@ -410,8 +433,10 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
 
   // A note the sequencer plays on this track lights its pad full for a moment, like a press. Only
   // pads that are lit at all (keys that can sound), and not while a map or pop-up owns the pads.
-  const bool padsPlay = modal == nullptr && !controller.EscOverlay() && !controller.TabOverlay() && !controller.CtrlOverlay() &&
+  const bool padsPlay = modal == nullptr && !controller.CellPickerActive() && !controller.EscOverlay() && !controller.TabOverlay() && !controller.CtrlOverlay() &&
                         !state.left[2].down;
+  const bool drums = host.EngineKind(state.track) == synth::SynthEngineKind::Drums;
+  ledStruck_.fill(false);
   if (padsPlay)
     for (std::size_t row = 0; row < kRows; ++row)
       for (std::size_t column = kPadFirstColumn; column < kPadFirstColumn + kPadColumns; ++column)
@@ -419,6 +444,23 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
         int note = 0;
         const std::size_t index = KeyIndex(row, column);
         if (frame[index].level == 0 || !controller.PadNoteFor(row, column, note)) continue;
+        if (drums)
+        {
+          // At rest the columns already say which way is harder: brighter towards the top. A hit runs
+          // along its column and strikes, it does not glide in.
+          static constexpr std::array<std::uint8_t, kRows> kRestLevels{{9, 8, 7, 6}};
+          const std::size_t lane = column - kPadFirstColumn;
+          if (levels[index] == kLedHalf) levels[index] = kRestLevels[row];
+          // The bar of a held drum grows with the wave: a key waits until it arrives.
+          else if (!controller.IsPadDown(row, column) && !DrumWaveArrived(lane, row)) levels[index] = kRestLevels[row];
+          const float wave = DrumWave(lane, row);
+          if (wave > 0.0f)
+          {
+            raise(index, 15.0f * wave);
+            ledStruck_[index] = wave > 0.2f;
+          }
+          continue;
+        }
         raise(index, 15.0f * fx::Decay(now, sequencedAt_[static_cast<std::size_t>(note)], 200));
       }
 
@@ -426,6 +468,33 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
   if (!toast_.empty() && toastKind_ == ToastKind::Error && now - toastAt_ < 360 && ((now - toastAt_) / 90) % 2 == 0)
     for (std::size_t row = 0; row < kRows; ++row) raise(KeyIndex(row, 0), 15.0f);
 
+}
+
+namespace {
+constexpr float kDrumWaveRowMs = 28.0f;  // How fast a hit runs along its column.
+constexpr float kDrumWaveFadeMs = 180.0f;
+}  // namespace
+
+bool Animator::DrumWaveArrived(std::size_t lane, std::size_t row) const
+{
+  if (lane >= drumHits_.size() || drumHits_[lane].at == 0) return true;
+  const DrumHit& hit = drumHits_[lane];
+  return static_cast<float>(now_ - hit.at) >= std::fabs(static_cast<float>(row) - static_cast<float>(hit.row)) * kDrumWaveRowMs;
+}
+
+float Animator::DrumWave(std::size_t lane, std::size_t row) const
+{
+  if (lane >= drumHits_.size() || drumHits_[lane].at == 0) return 0.0f;
+  const DrumHit& hit = drumHits_[lane];
+  const float age = static_cast<float>(now_ - hit.at);
+  const float rows = std::fabs(static_cast<float>(row) - static_cast<float>(hit.row));
+  const float arrival = rows * kDrumWaveRowMs;
+  if (age < arrival || age > 900.0f) return 0.0f;
+  const float power = static_cast<float>(hit.velocity) / 127.0f;
+  const float reach = 1.0f - rows * (0.54f - 0.44f * power);  // Hard: all the way. Soft: a key or two.
+  if (reach <= 0.0f) return 0.0f;
+  // Every hit strikes hard where it lands; how hard it was shows in how far it goes.
+  return reach * std::exp(-(age - arrival) / kDrumWaveFadeMs);
 }
 
 void Animator::SmoothLeds(std::array<std::uint8_t, kKeyCount>& levels)
@@ -438,7 +507,7 @@ void Animator::SmoothLeds(std::array<std::uint8_t, kKeyCount>& levels)
   {
     const float target = levels[index];
     float& shown = ledShown_[index];
-    shown += (target - shown) * (target > shown ? rise : fall);
+    shown += (target - shown) * (target > shown ? (ledStruck_[index] ? 1.0f : rise) : fall);
     if (std::fabs(target - shown) < 0.3f) shown = target;
     levels[index] = static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(shown)), 0, 15));
   }

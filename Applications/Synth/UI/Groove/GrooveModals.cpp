@@ -87,24 +87,38 @@ void Controller::RefreshPresetBrowser()
   Modal* modal = Top();
   const synth::ISynthEngine* engine = ActiveEngine();
   if (modal == nullptr || engine == nullptr) return;
-  const std::string previous = modal->cursor < modal->items.size() ? modal->items[modal->cursor].id : std::string{};
-  modal->items.clear();
-  constexpr std::size_t kPage = 32;
+  const bool reopened = modal->cursor < modal->presets.size();
+  const std::size_t previous = reopened ? modal->presets[modal->cursor] : 0;
+  modal->presets.clear();
+  modal->cursor = 0;
+  constexpr std::size_t kPage = 16;
   for (std::size_t offset = 0;; offset += kPage)
   {
     const auto page = engine->ListPresets({offset, kPage});
-    for (const auto& preset : page.items)
-      if (Matches(preset.name, modal->search)) modal->items.push_back({preset.id, Upper(preset.name), preset.active});
+    modal->presets.reserve(page.totalCount);
+    for (std::size_t index = 0; index < page.items.size(); ++index)
+    {
+      const auto& preset = page.items[index];
+      if (!Matches(preset.name, modal->search)) continue;
+      if (reopened ? offset + index == previous : preset.active) modal->cursor = modal->presets.size();
+      modal->presets.push_back(static_cast<std::uint16_t>(offset + index));
+    }
     if (page.items.empty() || offset + kPage >= page.totalCount) break;
   }
-  modal->cursor = 0;
-  for (std::size_t index = 0; index < modal->items.size(); ++index)
+  FillPresetRows(*modal);
+}
+
+void Controller::FillPresetRows(Modal& modal) const
+{
+  const synth::ISynthEngine* engine = ActiveEngine();
+  modal.items.clear();
+  modal.itemCount = modal.presets.size();
+  modal.firstItem = ListFirstRow(modal.cursor);
+  if (engine == nullptr) return;
+  for (std::size_t index = modal.firstItem; index < modal.firstItem + kListVisibleRows && index < modal.presets.size(); ++index)
   {
-    if ((!previous.empty() && modal->items[index].id == previous) || (previous.empty() && modal->items[index].marked))
-    {
-      modal->cursor = index;
-      break;
-    }
+    const auto page = engine->ListPresets({modal.presets[index], 1});
+    if (!page.items.empty()) modal.items.push_back({page.items.front().id, Upper(page.items.front().name), page.items.front().active});
   }
 }
 
@@ -171,13 +185,14 @@ void Controller::ModalAdjust(int delta, bool coarse)
     case ModalKind::SampleBrowser:
     case ModalKind::SampleOptions:
     {
-      if (modal->items.empty()) return;
-      const int count = static_cast<int>(modal->items.size());
+      if (modal->Count() == 0) return;
+      const int count = static_cast<int>(modal->Count());
       // Vertical lists: ADD (the upper key, drawn as an up arrow) moves up, SUB down. The engine
       // picker is a row: ADD moves right.
       const int direction = modal->kind == ModalKind::EnginePicker ? delta : -delta;
       const int step = direction * (coarse ? 8 : 1);
       modal->cursor = static_cast<std::size_t>(std::clamp(static_cast<int>(modal->cursor) + step, 0, count - 1));
+      if (modal->kind == ModalKind::PresetBrowser) FillPresetRows(*modal);
       return;
     }
     case ModalKind::SampleRecord:
@@ -211,8 +226,9 @@ void Controller::ModalEnter()
     case ModalKind::PresetBrowser:
     {
       synth::ISynthEngine* engine = ActiveEngine();
-      if (engine == nullptr || modal->items.empty()) return;
-      const std::string id = modal->items[modal->cursor].id;
+      const ListItem* row = modal->Row(modal->cursor);
+      if (engine == nullptr || row == nullptr) return;
+      const std::string id = row->id;
       CloseModal();
       ReleaseAllPads();
       if (engine->LoadPreset(id)) MarkDirty();
@@ -358,15 +374,6 @@ void Controller::ModalCancel()
       }
       break;
     }
-    case ModalKind::TextEntry:
-      if (modal->textPurpose == TextPurpose::SampleName)
-      {
-        sampler.CancelNameEntry(state_.track);
-      }
-      break;
-    case ModalKind::Confirm:
-      if (modal->confirmPurpose == ConfirmPurpose::OverwriteSample) sampler.CancelNameEntry(state_.track);
-      break;
     default:
       break;
   }
@@ -411,27 +418,6 @@ void Controller::CommitText()
       synth::ISynthEngine* engine = ActiveEngine();
       if (engine != nullptr && engine->SavePreset("", text)) ShowToast("SAVED " + text, ToastKind::Ok);
       else ShowToast("PRESET SAVE FAILED", ToastKind::Error);
-      return;
-    }
-    case TextPurpose::SampleName:
-    {
-      const bool committed = sampler.CommitDraftName(state_.track, text);
-      const auto state = sampler.BuildUiState(state_.track);
-      if (state.overwritePending)
-      {
-        CloseModal();
-        OpenConfirm(ConfirmPurpose::OverwriteSample, "REPLACE " + text + "?", "A SAMPLE WITH THIS NAME EXISTS", true);
-        return;
-      }
-      if (!committed)
-      {
-        ShowToast(state.statusText, ToastKind::Error);
-        return;
-      }
-      CloseModal();
-      if (Top() != nullptr && Top()->kind == ModalKind::SampleRecord) CloseModal();
-      MarkDirty();
-      ShowToast("SAVED " + text, ToastKind::Ok);
       return;
     }
     case TextPurpose::SampleRename:
@@ -500,15 +486,6 @@ void Controller::Confirmed()
     case ConfirmPurpose::ReplaceTake:
       OpenSampleRecord();
       if (!sampler.BeginRecord(state_.track, true)) ShowToast(sampler.BuildUiState(state_.track).statusText, ToastKind::Error);
-      break;
-    case ConfirmPurpose::OverwriteSample:
-      if (sampler.ConfirmOverwriteDraft(state_.track))
-      {
-        if (Top() != nullptr && Top()->kind == ModalKind::SampleRecord) CloseModal();
-        MarkDirty();
-        ShowToast("SAMPLE REPLACED", ToastKind::Ok);
-      }
-      else ShowToast(sampler.BuildUiState(state_.track).statusText, ToastKind::Error);
       break;
   }
 }

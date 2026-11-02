@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "Applications/Application.h"
+#include "Applications/Synth/Runtime/SessionStore.h"
 #include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Applications/Synth/Runtime/Sampler/SamplerManager.h"
 #include "Applications/Synth/Runtime/Sequencer/SynthSequencer.h"
@@ -35,7 +36,8 @@ public:
   void UpdateLeds() override;
   void RenderFrame() override;
   void HandleMatrixKeyEvent(std::size_t row, std::size_t column, bool pressed) override;
-  void HandleHomeButtonEvent(bool pressed) override;
+  std::uint32_t EndedOrphanNotes() const { return endedOrphanNotes_; }
+  std::uint32_t loggedShedVoices_ = 0;
 
   // Tests replace the wall clock to make hold and repeat timing deterministic.
   void UseClock(std::uint32_t (*clock)()) { clock_ = clock; }
@@ -87,25 +89,54 @@ public:
       synth::SynthEngineKind::Drums, synth::SynthEngineKind::Juno, synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Sampler}};
 
 private:
+  void ReadComputerMidi();
+  void ReleaseComputerNotes(std::size_t onlyTrack = synth::kSynthTrackCount);
+  static void SendComputerMidi(std::uint8_t status, std::size_t track, std::uint8_t data1, std::uint8_t data2);
   std::uint32_t NowMs() const;
   void ApplyMix();
   void ApplyMasterFx(const std::array<std::uint8_t, synth::fx::kMasterParamCount>& values);
   void SyncSamplerTrim();
-  bool ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message);
-  // The current session as project data. False (with a UI message) while a sampler take is unsaved.
-  bool CaptureProject(const groove::ProjectUiSettings& settings, synth::ProjectData& project, std::string& message) const;
+  bool ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message, bool workingState = false);
+  // The current session as project data. False (with a UI message) while a sampler take is unsaved,
+  // except for the session itself: the take has its own file and comes back with it.
+  bool CaptureProject(const groove::ProjectUiSettings& settings, synth::ProjectData& project, std::string& message, bool forSession = false) const;
   // The app settings file: SELECT (a preference), and at boot the keyboard older firmware kept there.
   void RestorePlaySettings();
   void StorePlaySettings();
   // The project's play settings (keyboard, chords, arpeggiators) into `settings` and the sequencer;
   // a project without them (format before 6) keeps the current ones.
   void ApplyPlaySettings(const synth::ProjectData& project, groove::ProjectUiSettings& settings);
-  // Session handover across an app switch (Session/session.ccproj + session.cfg).
-  bool SaveSessionState();
+  // The working state stays in internal flash, so the power can go at any moment (SessionStore): every
+  // key may have changed something, so after a key what changed is written once it is quiet.
+  void KeepSessionCurrent(std::uint32_t now);
+  synth::SessionStore::SaveResult SaveSessionState();
   bool RestoreSessionState();
+  bool Quiet(std::uint32_t now) const;
+  void CheckCard(std::uint32_t now);
+  void ApplyPendingSamples();
   static void SendSequencerMidi(void* context, std::size_t trackIndex, const midi::MidiPacket& packet);
 
   bool initialized_ = false;
+  synth::SessionStore session_;
+  bool sessionChanged_ = false;
+  bool autosavePartialShown_ = false;
+  bool autosaveFailureShown_ = false;
+  bool cardWasMounted_ = false;
+  int keysHeld_ = 0;
+  std::array<std::string, synth::kSynthTrackCount> pendingSamples_;
+  std::uint32_t lastKeyAt_ = 0;
+  void EndOrphanNotes(std::uint32_t now);
+  std::uint32_t lastOrphanCheckAt_ = 0;
+  std::array<synth::audio::NoteSet, synth::kSynthTrackCount> orphanNotes_{};
+  // Notes a computer plays over USB MIDI and has not let go yet.
+  std::array<synth::audio::NoteSet, synth::kSynthTrackCount> computerNotes_{};
+  bool computerConnected_ = false;
+  bool orphanCandidates_ = false;
+  std::uint32_t endedOrphanNotes_ = 0;
+  std::uint32_t sessionChangedAt_ = 0;
+  std::uint32_t lastSessionTryAt_ = 0;
+  std::uint32_t lastCardCheckAt_ = 0;
+  std::uint32_t lastCardProbeAt_ = 0;
   std::uint32_t (*clock_)() = nullptr;
   synth::SynthRack rack_;
   synth::SamplerManager sampler_;

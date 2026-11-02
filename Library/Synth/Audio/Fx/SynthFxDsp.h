@@ -12,13 +12,13 @@
 // no AMY dependency, so every processor can be unit-tested on its own.
 //
 // Signal domain: mono float at 44.1 kHz in the runtime's mix units ((L + R) / 65536 of AMY's
-// output; the output stage is tanh(0.75 x)). Processors take blocks of at most kMaxBlockFrames
+// output; 1.0 is about 10 dB over full scale at the output stage). Processors take blocks of at most kMaxBlockFrames
 // frames and update their coefficients once per block, or every 16..32 frames while a smoothed
 // control moves (DJ filter, chorus taps, master shelves and compressor), interpolating gains
 // within the block so knob moves do not zipper.
 //
 // Written for the ESP32-S3, whose FPU has no fast divide and no double precision: no division,
-// transcendental function or double runs per sample (saturation is a cubic, tanh a table), and
+// transcendental function or double runs per sample (saturation is a cubic), and
 // the delay and reverb share one 11.025 kHz rate behind polyphase FIR decimators and a single
 // interpolator. Memory is allocated only by the explicit Allocate* calls, with new (std::nothrow),
 // and is kept until destruction.
@@ -40,14 +40,18 @@ inline constexpr std::size_t kChorusLineFrames = 512;  // int16, 11.6 ms: 1 KB p
 inline constexpr int kBusDecimation = 4;                // delay and reverb run at 11.025 kHz
 inline constexpr float kBusRate = kSampleRate / static_cast<float>(kBusDecimation);
 inline constexpr std::size_t kDelayLineFrames = 8192;   // int16 at 11.025 kHz, 743 ms: 16 KB
-// Reverb delays at the bus rate (mutually prime, 35..46 ms lines, 5..10 ms diffusers). The lines
-// share one 512-slot ring and the diffusers one 128-slot ring, interleaved, so a single counter
+// Allocated instead only once a delay time needs it: 1.49 s, 32 KB.
+inline constexpr std::size_t kDelayLongLineFrames = 16384;
+// Both are kept in blocks of 4 KB: on the device the heap is too broken up for 16 KB in one piece.
+inline constexpr std::size_t kDelayChunkFrames = 2048;
+// Reverb delays at the bus rate (mutually prime, 69..92 ms lines, 5..10 ms diffusers). The lines
+// share one 1024-slot ring and the diffusers one 128-slot ring, interleaved, so a single counter
 // addresses them all.
-inline constexpr std::array<std::uint32_t, 4> kReverbLineFrames{{389, 433, 467, 503}};
+inline constexpr std::array<std::uint32_t, 4> kReverbLineFrames{{757, 853, 937, 1009}};
 inline constexpr std::array<std::uint32_t, 3> kReverbDiffuserFrames{{59, 89, 113}};
-inline constexpr std::uint32_t kReverbLineRing = 512;
+inline constexpr std::uint32_t kReverbLineRing = 1024;
 inline constexpr std::uint32_t kReverbDiffuserRing = 128;
-inline constexpr std::size_t kReverbMemoryFrames = 4 * kReverbLineRing + 3 * kReverbDiffuserRing;  // 4.75 KB
+inline constexpr std::size_t kReverbMemoryFrames = 4 * kReverbLineRing + 3 * kReverbDiffuserRing;  // 8.75 KB
 
 // Cubic soft clipper: unit slope at 0, reaches +-1 with zero slope at |x| = 1.5.
 inline float SoftClip(float x)
@@ -87,29 +91,6 @@ inline float KnobGain(int value)
   const float normalized = static_cast<float>(value < 0 ? 0 : (value > 127 ? 127 : value)) * (1.0f / 127.0f);
   return normalized * normalized;
 }
-
-// tanh by linear interpolation in a 1/32-step table (within 1e-4, i.e. 3 int16 LSB); no division.
-class TanhTable {
- public:
-  TanhTable();
-  float operator()(float x) const
-  {
-    const float magnitude = (x < 0.0f ? -x : x) * kStepsPerUnit;
-    float y = table_.back();
-    if (magnitude < kLastIndex)
-    {
-      const int index = static_cast<int>(magnitude);
-      const float fraction = magnitude - static_cast<float>(index);
-      y = table_[static_cast<std::size_t>(index)] + fraction * (table_[static_cast<std::size_t>(index) + 1] - table_[static_cast<std::size_t>(index)]);
-    }
-    return x < 0.0f ? -y : y;
-  }
-
- private:
-  static constexpr float kStepsPerUnit = 32.0f;
-  static constexpr float kLastIndex = 160.0f;  // tanh(5) = 0.99991: flat beyond
-  std::array<float, 161> table_{};
-};
 
 // Synced delay time in seconds, halved (one note value at a time) until it fits the delay line.
 float DelaySeconds(int division, float bpm);
@@ -223,15 +204,17 @@ class SendBuses {
   static constexpr std::size_t kReverbMemoryBytes = kReverbMemoryFrames * sizeof(std::int16_t);
 
   SendBuses();
-  bool AllocateDelay();
-  bool DelayAllocated() const { return delayLine_ != nullptr; }
+  // The long line replaces a short one (and restarts the echoes); if it does not fit, the short one stays.
+  bool AllocateDelay(bool longLine);
+  bool DelayAllocated() const { return delayFrames_ != 0; }
   bool AllocateReverb();
   bool ReverbAllocated() const { return reverbMemory_ != nullptr; }
   // Feeds `frames` samples of both sends (all zero for a bus without memory) and adds the summed
   // returns, each times its LEVEL gain, to `mix`.
   void Process(const float* delaySend, const float* reverbSend, float* mix, std::size_t frames, const SendBusSettings& settings);
-  // No input and a tail below -100 dBFS for a second: the bus may stop processing.
-  bool DelayIdle() const { return delayQuietFrames_ >= kIdleFrames; }
+  // No input and a tail below -100 dBFS for a second: the bus may stop processing. The delay also waits
+  // as long as its line holds: an echo longer than a second is silence until it comes out.
+  bool DelayIdle() const { return delayQuietFrames_ >= DelayIdleFrames(); }
   bool ReverbIdle() const { return reverbQuietFrames_ >= kIdleFrames; }
   // Peaks of the two returns (after LEVEL) during the last Process call.
   float DelayPeak() const { return delayPeak_; }
@@ -241,6 +224,7 @@ class SendBuses {
   static constexpr std::size_t kIdleFrames = 44100;
   static constexpr std::size_t kTaps = 5;  // polyphase taps per phase (20-tap prototype)
   static constexpr std::size_t kMaxTicks = kMaxBlockFrames / kBusDecimation + 1;
+  std::size_t DelayIdleFrames() const { return kIdleFrames + static_cast<std::size_t>(delayFrames_) * kBusDecimation; }
   float DelayTick(float input);
   float DelayTickAt(float input, std::uint32_t distance);
   float ReverbTick(float input);
@@ -261,7 +245,15 @@ class SendBuses {
   std::array<float, kTaps> reverbDecimator_{};
   std::array<float, kTaps> returns_{};  // summed returns at the bus rate, newest first
 
-  std::unique_ptr<std::int16_t[]> delayLine_;
+  // Sample `index` ticks after the start of the line, wrapped.
+  std::int16_t& DelaySample(std::uint32_t index)
+  {
+    const std::uint32_t at = index & (delayFrames_ - 1);
+    return delayChunks_[at / kDelayChunkFrames][at % kDelayChunkFrames];
+  }
+
+  std::array<std::unique_ptr<std::int16_t[]>, kDelayLongLineFrames / kDelayChunkFrames> delayChunks_;
+  std::uint32_t delayFrames_ = 0;  // a power of two, whole chunks
   std::uint32_t delayWrite_ = 0;
   float delayTicks_ = 1.0f, delayTargetTicks_ = 1.0f;  // read-head delay in bus ticks
   float delayFeedback_ = 0.0f;

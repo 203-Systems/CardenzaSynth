@@ -10,7 +10,7 @@ constexpr Slot E() { return Slot{}; }
 
 constexpr InstrumentPage kVoicePage{
     "PRESET", "VOICE",
-    {{A(SlotAction::Engine, "ENGINE"), A(SlotAction::Preset, "PRESET"), A(SlotAction::SavePreset, "SAVE"), A(SlotAction::SavePresetAs, "SAVE AS"),
+    {{A(SlotAction::Engine, "ENGINE"), A(SlotAction::Preset, "PRESET"), E(), E(),
       E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
     PageGraphic::Voice, {1, 0, 3, 4}, 0};
 
@@ -39,7 +39,7 @@ constexpr InstrumentPage kChordPage{
 constexpr InstrumentPage kArpPage{
     "MIDI FX", "ARP",
     {{P("arp.mode", "ARP"), P("arp.rate", "RATE"), P("arp.octaves", "RANGE"), P("arp.gate", "GATE"),
-      P("arp.latch", "LATCH"), E(), E(), E(),
+      P("arp.latch", "HOLD"), E(), E(), E(),
       E(), E(), E(), E(), E(), E(), E(), E()}},
     PageGraphic::Arp, {2, 0, 2, 4}, 0};
 

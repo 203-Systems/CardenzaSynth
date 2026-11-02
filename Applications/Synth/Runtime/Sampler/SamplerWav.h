@@ -17,7 +17,10 @@
 
 namespace synth::sampler {
 
-inline constexpr std::size_t kMaxSampleFrames = 44100 * 5;
+// Five minutes. Only samples up to kMaxRamSampleFrames are read into RAM (16 KB, 186 ms at 44.1 kHz:
+// drum hits and the like); the longer ones play from the card.
+inline constexpr std::size_t kMaxSampleFrames = 44100 * 300;
+inline constexpr std::size_t kMaxRamSampleFrames = 8192;
 inline constexpr std::uint32_t kMinSampleRate = 8000;
 inline constexpr std::uint32_t kMaxSampleRate = 96000;
 
@@ -161,10 +164,19 @@ inline bool ReadMono16Wav(const std::string& path, audio::SharedSampleBuffer& fr
   {
     return false;
   }
-  auto loaded = AllocateFrames(info.frameCount);
+  auto loaded = info.frameCount <= kMaxRamSampleFrames ? AllocateFrames(info.frameCount) : nullptr;
   if (!loaded)
   {
-    return false;
+    auto streamed = std::make_shared<audio::SampleBuffer>();
+    streamed->frameCount = info.frameCount;
+    streamed->stream = audio::SampleStream::Open(path, info.dataOffset, info.frameCount);
+    if (!streamed->stream)
+    {
+      return false;
+    }
+    frames = std::move(streamed);
+    sampleRate = info.sampleRate;
+    return true;
   }
   file.seekg(static_cast<std::streamoff>(info.dataOffset));
   const auto byteCount = static_cast<std::streamsize>(info.frameCount * sizeof(std::int16_t));
@@ -191,22 +203,10 @@ inline void WriteU32(std::ostream& file, std::uint32_t value)
   file.write(bytes, sizeof(bytes));
 }
 
-inline bool WriteMono16Wav(const std::string& path, const std::int16_t* frames,
-                           std::size_t frameCount, std::uint32_t sampleRate)
+inline constexpr std::size_t kWavHeaderBytes = 44;
+
+inline void WriteMono16WavHeader(std::ostream& file, std::size_t frameCount, std::uint32_t sampleRate)
 {
-  if (!frames || frameCount == 0 || frameCount > kMaxSampleFrames ||
-      sampleRate < kMinSampleRate || sampleRate > kMaxSampleRate)
-  {
-    return false;
-  }
-  const std::string temporary = path + ".tmp";
-  const std::string backup = path + ".bak";
-  // A previous interrupted replacement must remain recoverable.
-  if (std::ifstream(backup, std::ios::binary).good())
-  {
-    return false;
-  }
-  std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
   const auto bytes = static_cast<std::uint32_t>(frameCount * sizeof(std::int16_t));
   file.write("RIFF", 4);
   WriteU32(file, 36 + bytes);
@@ -220,7 +220,39 @@ inline bool WriteMono16Wav(const std::string& path, const std::int16_t* frames,
   WriteU16(file, 16);
   file.write("data", 4);
   WriteU32(file, bytes);
-  file.write(reinterpret_cast<const char*>(frames), bytes);
+}
+
+// Writes the file atomically; `source(chunk, offset, count)` delivers the frames piece by piece, so a
+// file much longer than RAM can be written.
+template <typename Source>
+inline bool WriteMono16WavFrom(const std::string& path, std::size_t frameCount, std::uint32_t sampleRate, Source&& source)
+{
+  if (frameCount == 0 || frameCount > kMaxSampleFrames ||
+      sampleRate < kMinSampleRate || sampleRate > kMaxSampleRate)
+  {
+    return false;
+  }
+  const std::string temporary = path + ".tmp";
+  const std::string backup = path + ".bak";
+  // A previous interrupted replacement must remain recoverable.
+  if (std::ifstream(backup, std::ios::binary).good())
+  {
+    return false;
+  }
+  std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+  WriteMono16WavHeader(file, frameCount, sampleRate);
+  std::array<std::int16_t, 512> chunk{};
+  for (std::size_t offset = 0; offset < frameCount && file;)
+  {
+    const std::size_t count = std::min(chunk.size(), frameCount - offset);
+    if (!source(chunk.data(), offset, count))
+    {
+      file.setstate(std::ios::failbit);
+      break;
+    }
+    file.write(reinterpret_cast<const char*>(chunk.data()), static_cast<std::streamsize>(count * sizeof(std::int16_t)));
+    offset += count;
+  }
   file.flush();
   file.close();
   if (!file)
@@ -250,6 +282,15 @@ inline bool WriteMono16Wav(const std::string& path, const std::int16_t* frames,
     (void)std::remove(backup.c_str());
   }
   return true;
+}
+
+inline bool WriteMono16Wav(const std::string& path, const std::int16_t* frames,
+                           std::size_t frameCount, std::uint32_t sampleRate)
+{
+  return frames != nullptr && WriteMono16WavFrom(path, frameCount, sampleRate, [frames](std::int16_t* chunk, std::size_t offset, std::size_t count) {
+    std::copy_n(frames + offset, count, chunk);
+    return true;
+  });
 }
 
 }  // namespace synth::sampler

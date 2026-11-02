@@ -73,12 +73,15 @@ struct ProjectData {
   }
 };
 
-enum class ProjectResult { Ok, Exists, Invalid, StorageError };
+enum class ProjectResult { Ok, Exists, Invalid, StorageError, NoMemory };
 
 bool IsProjectNameValid(const std::string& name);
 // Named projects live in storage::ProjectDirectory() as <name>.ccproj.
 std::vector<std::string> ListProjects();
 ProjectResult SaveProjectFile(const std::string& name, const ProjectData& project, bool overwrite);
+// Where a project is read from: storage::ProjectDirectory(), else the 0.1.0 release's folder. Saving
+// always goes to storage::ProjectDirectory().
+std::string ResolveProjectPath(const std::string& name);
 ProjectResult LoadProjectFile(const std::string& name, ProjectData& project);
 // The same format at an explicit path (the session autosave). Saving replaces the file atomically
 // and keeps a backup until the new file is in place; loading falls back to that backup.

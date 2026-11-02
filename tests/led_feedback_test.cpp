@@ -1,3 +1,4 @@
+#include "Devices/KeySettle.h"
 #include "Applications/Synth/UI/SynthLedFeedback.h"
 #include "Devices/LedLight.h"
 #include "Devices/LedFrameBuffer.h"
@@ -6,8 +7,67 @@
 #include <cassert>
 #include <iostream>
 
+namespace key_settle_test {
+
+void Run()
+{
+  using Settle = Device::Keyboard::KeySettle<4>;
+  constexpr std::int64_t kFrame = 16000;
+  // A press and a release each count one frame later, a real tap gets through.
+  {
+    Settle settle;
+    std::int64_t now = 0;
+    assert(!settle.Update(1, true, now));
+    assert(settle.Update(1, true, now += kFrame));
+    assert(settle.Update(1, false, now += kFrame));
+    assert(!settle.Update(1, false, now += kFrame));
+    assert(settle.Glitches() == 0 && settle.Stuck() == 0);
+  }
+  // A one-frame spike never shows, and neither does a dip while held.
+  {
+    Settle settle;
+    std::int64_t now = 0;
+    assert(!settle.Update(1, true, now));
+    assert(!settle.Update(1, false, now += kFrame));
+    assert(settle.Glitches() == 1);
+    assert(!settle.Update(1, true, now += kFrame));
+    assert(settle.Update(1, true, now += kFrame));
+    assert(settle.Update(1, false, now += kFrame));
+    assert(settle.Update(1, true, now += kFrame));
+    assert(settle.Update(1, true, now += kFrame));
+    assert(settle.Glitches() == 2);
+  }
+  // A key that chatters frame by frame: no row of taps, whichever state it started in.
+  {
+    Settle settle;
+    std::int64_t now = 0;
+    for (int frame = 0; frame < 400; ++frame) assert(!settle.Update(2, frame % 2 == 0, now += kFrame));
+    assert(settle.Glitches() > 100);
+  }
+  // Reads as held for ever: released after the longest hold, and it stays so until a real release.
+  {
+    Settle settle;
+    std::int64_t now = 0;
+    bool shown = false;
+    for (std::int64_t elapsed = 0; elapsed < Settle::kLongestHoldUs + kFrame * 4; elapsed += kFrame) shown = settle.Update(3, true, now += kFrame);
+    assert(!shown && settle.Stuck() == 1);
+    for (int frame = 0; frame < 100; ++frame) assert(!settle.Update(3, true, now += kFrame));
+    assert(!settle.Update(3, false, now += kFrame));
+    assert(!settle.Update(3, false, now += kFrame));
+    assert(!settle.Update(3, true, now += kFrame));
+    assert(settle.Update(3, true, now += kFrame));
+    assert(settle.Stuck() == 1);
+    // The other keys are not affected.
+    assert(!settle.Update(0, true, now));
+    assert(settle.Update(0, true, now += kFrame));
+  }
+}
+
+}  // namespace key_settle_test
+
 int main()
 {
+  key_settle_test::Run();
   using namespace Device::LED;
   // Perceived levels go through the gamma table to the HAL's linear duty; a lit level never goes
   // dark, the table only climbs and keeps both ends.

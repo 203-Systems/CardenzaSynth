@@ -19,10 +19,12 @@
 #include <string>
 
 #include "Devices/LedLight.h"
+#include "Applications/Synth/GrooveApp.h"
 #include "Applications/Synth/UI/Groove/GrooveHost.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
 #include "Devices/Device.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Core/SynthStorage.h"
 #include "OS/Storage/Settings.h"
 #include "OS/Storage/Storage.h"
 #include "OS/System/System.h"
@@ -50,6 +52,7 @@ std::array<std::uint8_t, kLedSnapshotSize> g_ledSnapshot{};
 std::array<std::int16_t, kMaxRenderFrames> g_renderPcm{};
 std::array<float, kMaxRenderFrames> g_renderFloat{};
 std::string g_sampleDirectory;
+std::string g_projectDirectory;
 
 // On every other target the sequencer runs on its own clock thread. Here the host drives it, on
 // the audio timeline: the time of the frame about to be rendered. Pulses then land on exact block
@@ -138,6 +141,23 @@ EMSCRIPTEN_KEEPALIVE const char* cardenza_web_sample_directory()
   (void)os::storage::EnsureSystemLayout();
   g_sampleDirectory = os::storage::SharedSamplesDirectory();
   return g_sampleDirectory.c_str();
+}
+
+// The groovebox's Projects folder: "Load project" writes here.
+EMSCRIPTEN_KEEPALIVE const char* cardenza_web_project_directory()
+{
+  (void)synth::storage::EnsureLayout();
+  g_projectDirectory = synth::storage::ProjectDirectory();
+  return g_projectDirectory.c_str();
+}
+
+// Opens a project of that folder the way FILES does.
+EMSCRIPTEN_KEEPALIVE int cardenza_web_open_project(const char* name)
+{
+  auto* groove = dynamic_cast<apps::GrooveApp*>(os::system::ActiveApplication());
+  if (groove == nullptr) return 0;
+  groove->Ui().OpenProject(name);
+  return 1;
 }
 
 // Writes pending settings now instead of a second after the last change. The page calls it when

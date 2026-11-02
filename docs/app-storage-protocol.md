@@ -81,7 +81,8 @@ card is probed at most every five seconds.
 | Key | Meaning |
 |---|---|
 | `protocol` | storage protocol version of the card (1) |
-| `sys.volume` | output volume 0–100 (perceptual: 0 mute, 1–100 ≈ −42–0 dB), default 85 |
+| `sys.volume` | output volume 0–100 (0 mute, 1–100 = about −20–0 dB, 50 = about −10.5 dB), default 50 |
+| `sys.volume.rev` | when this is below 2, `sys.volume` was saved before the output got louder and goes back to the default, once |
 | `sys.led` | key LED master brightness 0–15, default 15 |
 | `sys.screen` | screen backlight 10–255, default 180 |
 | `boot.app` | last non-system app; started at boot when it is still installed |
@@ -98,8 +99,10 @@ never carry them.
   app's `Suspend()` is called, every settings store is flushed, the app is destroyed (so the next app
   gets the whole heap), then the new app is constructed and `Setup()` runs. Keys held during the
   switch are not delivered to the new app (neither press nor release).
-- `Setup()` is the resume point: an app that saved a session in `Suspend()` restores it there and
-  marks it used, so a stale session never returns after a power cut.
+- `Setup()` is the resume point: an app that keeps its working state in its `Session/` folder restores
+  it there. There is no warning before a power cut, so an app that wants to survive one writes that
+  state as it changes, not only in `Suspend()`, and never marks it used: the next start finds it again.
+  Small records in internal flash (`os::storage::WriteInternalRecord`) work without a card.
 - Boot starts `boot.app` when it is registered and not a system app, else the default app
   (`Cardenza/Synth`).
 - The HOME side button belongs to the running app (the groovebox stops everything on it).
@@ -187,6 +190,18 @@ first app starts, `MigrateLegacyLayout(AppFolder("Cardenza/Synth"))` moves what 
 - Running it again only finishes what is left: it is idempotent, and costs one `stat` when the old
   folder is gone. The result is recorded as `migrate.legacy` / `migrate.left`.
 
+The 0.1.0 release (not in this repository's history) kept its files in the same folder under other
+names, `CardenzaSynth/{Presets,Projects,Samples,Session,Settings}`, seen on a user's card. None of that
+moves, so the card keeps working with 0.1.0. The groovebox reads two of those folders directly:
+
+- `CardenzaSynth/Projects/`: listed and loaded next to `Projects/` (`synth::ResolveProjectPath`). A project
+  of the same name in `Projects/` wins. Saving always writes to `Projects/`, so a 0.1.0 project saved here
+  gets a copy there and the original stays as it is. The firmware never deletes or changes anything here.
+- `CardenzaSynth/Samples/`: listed and played next to `Shared/Samples/`
+  (`synth::storage::ResolveSamplePath`), same rule. A new sample never takes a name in use in either.
+
+`CardenzaSynth/Presets`, `Session` and `Settings` are not read.
+
 ## 7. The groovebox (`Cardenza/Synth`)
 
 | What | Where |
@@ -195,7 +210,8 @@ first app starts, `MigrateLegacyLayout(AppFolder("Cardenza/Synth"))` moves what 
 | user preset banks `user.ccpreset` | `Apps/Cardenza/Synth/Presets/{DX7,Juno,Sampler,Drums}/` |
 | samples (WAV) | `Shared/Samples/` |
 | app preferences (SELECT) | `Apps/Cardenza/Synth/settings.cfg` |
-| session | `Apps/Cardenza/Synth/Session/session.ccproj` + `session.cfg` |
+| working state (autosave) | internal flash (NVS records `as_*`), with or without a card |
+| sample take | `Apps/Cardenza/Synth/Session/take-<track>.wav`: a sample recording in progress or not saved yet; removed when it is saved or discarded |
 | volume, key LEDs, screen | `System/settings.cfg` (device settings) |
 
 App settings keys: `keys.select` (0 ONE, 1 MULTI: the ROLL selection mode), a preference restored at
@@ -213,12 +229,26 @@ mode, rate, octaves, gate, latch). Loading a version 6 project applies them; old
 none and leave the current ones in place; NEW starts from the defaults. The UI line's LED brightness,
 `MASTER` and `SYSTEM` (backlight) are device settings: still written, ignored when a project loads.
 Version 5 was only written by unreleased development builds (a `PLAY` line): such files still load,
-the `PLAY` line is skipped. The next format change takes version 7.
+the `PLAY` line is skipped. Version 7 ends each `T` line with the length of every pattern (1–256 steps)
+instead of one length for the track; older files give all patterns of a track their one length. The next
+format change takes version 8.
 
-Session: `Suspend()` saves the working project (format 6, atomic) with its name and unsaved state;
-the next `Setup()` restores it and marks it used. An unsaved sampler take blocks the session save
-exactly as it blocks SAVE: the session is then skipped (`session.cfg` records `pending=0` and the
-reason) and the app starts with an empty project.
+Autosave: the groovebox keeps its working state in internal flash so the power can go at any moment,
+card or no card. There is one autosave, in NVS, the partition every firmware on this device has (the
+partition table stays compatible with the Launcher). It is split into small binary records, each replaced
+as a whole: `as_g` (name, unsaved state, keyboard, tempo, mix, master effects, chords, arps), `as_s` (song),
+`as_e<track>` (engine, preset, sample name, the parameters that differ from the preset), `as_t<track>`
+(pattern count and lengths, track settings), `as_p<track>_<pattern>` (notes, no record when empty). Only a
+record that changed is written. After a key it waits for quiet: 1.5 s without keys, none held, transport
+stopped, not recording (an erase stalls both cores for longer than the audio buffer); while something keeps
+playing, 60 s at most. `Setup()` restores it and leaves it valid. A record outlives a firmware update, so at the start any `as_*` key this firmware does not know is
+erased; other keys are left alone. The NVS partition is never erased as a whole, not even when it cannot be
+opened: under the Launcher it also holds the Launcher's settings, app list and self-update state. Nothing is written while nothing changes. `as_boot` counts starts begun and not
+finished: at 3 the autosave is skipped once, so it cannot keep crashing the start. A sample it names that
+is not there (the card may just be out) is kept as a name and loaded when the card is back. A sound this
+firmware no longer knows starts from the engine's first preset. Past about 12 KB (`kMaxEntries`) the
+patterns not playing stay out and the screen says so. `Suspend()` writes it right away. Named projects are
+only written by SAVE.
 
 ## 8. Device notes
 

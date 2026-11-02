@@ -10,6 +10,10 @@ namespace os::storage {
 namespace {
 
 constexpr const char* kVolumeKey = "sys.volume";
+// The output got louder (limiter, 2026-11), so a volume saved before means something else: it starts
+// again from the default, once. Raise this only when that happens again.
+constexpr const char* kVolumeRevisionKey = "sys.volume.rev";
+constexpr int kVolumeRevision = 2;
 constexpr const char* kLedKey = "sys.led";
 constexpr const char* kScreenKey = "sys.screen";
 
@@ -25,7 +29,12 @@ Cache& Values()
   static Cache cache;
   if (!cache.loaded)
   {
-    const Settings& system = SystemSettings();
+    Settings& system = SystemSettings();
+    if (system.GetInt(kVolumeRevisionKey, 0, 0, 1000) < kVolumeRevision)
+    {
+      system.SetInt(kVolumeKey, kDefaultOutputVolume);
+      system.SetInt(kVolumeRevisionKey, kVolumeRevision);
+    }
     cache.volume = static_cast<std::uint8_t>(system.GetInt(kVolumeKey, kDefaultOutputVolume, 0, 100));
     cache.led = static_cast<std::uint8_t>(system.GetInt(kLedKey, kDefaultKeyLedBrightness, 0, Device::LED::kBrightnessMax));
     cache.screen = static_cast<std::uint8_t>(system.GetInt(kScreenKey, kDefaultScreenBacklight, kMinScreenBacklight, 255));
@@ -36,8 +45,7 @@ Cache& Values()
 
 void ApplyVolume(std::uint8_t percent)
 {
-  // The codec steps about 0.95 dB per device percent, so a linear map would leave the lower half of
-  // the range inaudible. 1..100 spans roughly -42..0 dB; 0 is mute.
+  // The device takes half a dB per percent, so 1..100 ends up about -20..0 dB; 0 is mute.
   const int device = percent == 0 ? 0 : 100 - (100 - percent) * 42 / 100;
   Device::Audio::SetOutputVolume(static_cast<std::uint8_t>(device));
 }

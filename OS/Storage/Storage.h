@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Devices/Device.h"
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -61,6 +62,18 @@ private:
 // Card state. CardPresent() asks the device to mount the card when it is not mounted yet (the
 // device decides how often a missing card is probed).
 bool CardPresent();
+// The same without asking the device to mount it: cheap enough to call often.
+bool CardMounted();
+// Small records in internal flash, there with or without a card. A record is replaced as a whole, so a
+// power cut leaves the old one or the new one. Keys are 1..15 characters of [a-z0-9_]. Writing can stall
+// both cores for a moment now and then: not for use while sound is playing.
+inline constexpr std::size_t kInternalRecordMaxBytes = Device::Storage::kInternalValueMax;
+bool ReadInternalRecord(std::string_view key, std::string& value);
+bool WriteInternalRecord(std::string_view key, std::string_view value);
+bool EraseInternalRecord(std::string_view key);
+std::vector<std::string> ListInternalRecords();
+// After a file operation failed (file closed): lets the device notice a card that stopped responding.
+void ReportCardIoError();
 std::uint64_t CardCapacityBytes();
 std::uint64_t CardFreeBytes();
 

@@ -1,16 +1,23 @@
 #include <cassert>
+#include <cstdlib>
+#include <cstdio>
+#include <cmath>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <new>
 #include <numeric>
+#include <thread>
+#include <vector>
 #if defined(_MSC_VER)
 #include <crtdbg.h>
 #endif
 
 #include "Devices/DeviceAudio.h"
 #include "Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.h"
+#include "Library/Synth/Audio/RenderLoad.h"
+#include "Library/Synth/Audio/Fx/SynthFxDsp.h"
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
 #include "Library/Synth/Core/SynthStorage.h"
 // Include the runtime once to check both rendered PCM and mapping state against AMY.
@@ -49,6 +56,81 @@ void SetSynthAudioRenderProvider(SynthAudioRenderProvider) {}
 SynthAudioPipelineBinding ConnectSynthAudioPipeline(std::size_t index) { return {index, true, false, "regression"}; }
 }
 
+namespace {
+
+using namespace synth;
+using namespace synth::audio;
+
+// Loudest 0.3 s of a held middle C, and the highest sample: what PresetLevels.inc evens out.
+void MeasurePresetNote(std::size_t track, double& peak, double& loudness)
+{
+  constexpr std::size_t kBlock = 256, kWindowBlocks = 50, kWindows = 4;
+  std::array<std::int16_t, kBlock> block{};
+  double peakSample = 0.0, loudest = 0.0;
+  NoteOn(track, 60, 110);
+  for (std::size_t window = 0; window < kWindows; ++window)
+  {
+    double sum = 0.0;
+    for (std::size_t index = 0; index < kWindowBlocks; ++index)
+    {
+      RenderFrames(block.data(), block.size());
+      for (const std::int16_t sample : block)
+      {
+        peakSample = (std::max)(peakSample, std::abs(static_cast<double>(sample)));
+        sum += static_cast<double>(sample) * sample;
+      }
+    }
+    loudest = (std::max)(loudest, sum / (kWindowBlocks * kBlock));
+  }
+  NoteOff(track, 60);
+  for (std::size_t index = 0; index < 40; ++index) RenderFrames(block.data(), block.size());
+  const auto decibels = [](double value) { return 20.0 * std::log10((std::max)(value, 1.0) / 32767.0); };
+  peak = decibels(peakSample);
+  loudness = decibels(std::sqrt(loudest));
+}
+
+// Prints the contents of Library/Synth/Audio/Amy/PresetLevels.inc, then ends the program.
+[[noreturn]] void PrintPresetLevels()
+{
+  constexpr double kTargetLoudness = -18.0, kHighestPeak = -6.0, kSilent = -70.0;
+  std::array<std::int16_t, 256> block{};
+  std::printf("// Generated: PRINT_PRESET_LEVELS=1 SynthRegression > this file.\n");
+  for (std::size_t patch = 0; patch < 256; ++patch)
+  {
+    const bool juno = patch < 128;
+    const std::size_t index = juno ? patch : patch - 128;
+    const std::size_t track = juno ? 1 : 2;
+    char id[32];
+    if (juno) std::snprintf(id, sizeof(id), "juno.%c%zu%zu", index < 64 ? 'a' : 'b', (index % 64) / 8 + 1, index % 8 + 1);
+    else std::snprintf(id, sizeof(id), "dx7.rom%zu%c.%02zu", index / 64 + 1, index % 64 < 32 ? 'a' : 'b', index % 32 + 1);
+    EnsureEngine(track, juno ? SynthEngineKind::Juno : SynthEngineKind::Dx7);
+    SetEnginePreset(track, id);
+    RenderFrames(block.data(), block.size());
+    assert(g_engines[track].patchNumber == static_cast<int>(patch));
+    double level = 0.0;
+    for (int pass = 0; pass < 4; ++pass)
+    {
+      g_engines[track].presetGain = static_cast<float>(std::pow(10.0, level / 20.0));
+      for (std::size_t settle = 0; settle < 6; ++settle) RenderFrames(block.data(), block.size());
+      double peak = 0.0, loudness = 0.0;
+      MeasurePresetNote(track, peak, loudness);
+      if (loudness < kSilent)
+      {
+        std::fprintf(stderr, "silent: %s\n", id);
+        break;
+      }
+      const double change = (std::min)(kTargetLoudness - loudness, kHighestPeak - peak);
+      if (std::abs(change) < 1.0) break;
+      level = std::clamp(level + change, -30.0, 30.0);
+    }
+    std::printf("%d,%s", static_cast<int>(std::lround(level)), patch % 16 == 15 ? "\n" : " ");
+  }
+  std::fflush(stdout);
+  _Exit(0);
+}
+
+}  // namespace
+
 int main()
 {
 #if defined(_MSC_VER)
@@ -74,6 +156,7 @@ int main()
     return event;
   };
 
+  if (std::getenv("PRINT_PRESET_LEVELS") != nullptr) PrintPresetLevels();
   EnsureEngine(0, SynthEngineKind::Sampler);
   NoteOn(0, 60, 127);
   RenderFrames(pcm.data(), pcm.size());
@@ -95,6 +178,46 @@ int main()
   RenderFrames(pcm.data(), pcm.size());
   assert(energy() == 0 && sample.use_count() == 1);
   assert(!g_fx.core && !g_fx.floatPath); // Effects allocate nothing until a setting needs them.
+
+  // A long sample on the card plays exactly as the same sample in RAM, also pitched and past the
+  // first blocks, as long as the card keeps up.
+  {
+    constexpr std::size_t kFrames = 12000;
+    auto inRam = std::make_shared<SampleBuffer>();
+    inRam->frameCount = kFrames;
+    inRam->frames = std::make_unique<std::int16_t[]>(kFrames);
+    for (std::size_t frame = 0; frame < kFrames; ++frame) inRam->frames[frame] = static_cast<std::int16_t>((frame % 200) * 150 - 15000);
+    const auto path = storageRoot / "long.pcm";
+    {
+      std::ofstream file(path, std::ios::binary);
+      file.write(reinterpret_cast<const char*>(inRam->frames.get()), static_cast<std::streamsize>(kFrames * sizeof(std::int16_t)));
+    }
+    auto onCard = std::make_shared<SampleBuffer>();
+    onCard->frameCount = kFrames;
+    onCard->stream = SampleStream::Open(path.string(), 0, kFrames);
+    assert(onCard->stream);
+    SetEngineParameter(0, "sample.loop", 0);
+    const auto play = [&](const SharedSampleBuffer& buffer) {
+      SetSamplerFrames(0, buffer, kSampleRate);
+      RenderFrames(pcm.data(), 256);
+      std::this_thread::sleep_for(std::chrono::milliseconds(40));  // the start blocks arrive
+      NoteOn(0, 72, 127);
+      std::vector<std::int16_t> output;
+      for (int block = 0; block < 40; ++block)
+      {
+        RenderFrames(pcm.data(), 256);
+        output.insert(output.end(), pcm.begin(), pcm.begin() + 256);
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+      }
+      AllNotesOff(0);
+      SetSamplerFrames(0, {}, kSampleRate);
+      RenderFrames(pcm.data(), 256);
+      return output;
+    };
+    const auto fromRam = play(inRam);
+    assert(std::any_of(fromRam.begin(), fromRam.end(), [](auto v) { return v != 0; }));
+    assert(play(onCard) == fromRam);
+  }
 
   Dx7SynthEngine dx7;
   assert(dx7.Init({0, 0x4100, "regression-dx7"}));
@@ -392,7 +515,7 @@ int main()
     {
       if (g_amyOscTrack[amy_embed::voice_to_base_osc[voices[voice]]] != 1) return false; // Track 0.
     }
-    const auto expectedQ16 = GainToQ16(expected);
+    const auto expectedQ16 = GainToQ16(expected * g_engines[0].presetGain);
     return count > 0 && g_trackMix[0].amyBlockStartQ16 == expectedQ16 && g_trackMix[0].amyBlockEndQ16 == expectedQ16;
   };
   const auto sounding = [](std::uint8_t note) {
@@ -624,7 +747,7 @@ int main()
   resetMasterFx();
   assert(FxBusAvailable(fx::kBusDelay) && FxBusAvailable(fx::kBusReverb) && !FxBusAvailable(fx::kBusCount) && FxReturnLevel(fx::kBusCount) == 0.0f);
   assert(near(fx::dsp::DelaySeconds(5, 120.0f), 0.25, 1e-6) && near(fx::dsp::DelaySeconds(7, 120.0f), 0.375, 1e-6));
-  assert(near(fx::dsp::DelaySeconds(11, 30.0f), 0.5, 1e-6)); // A 4 s half note halves until it fits the line.
+  assert(near(fx::dsp::DelaySeconds(11, 30.0f), 1.0, 1e-6)); // A 4 s half note halves until it fits the long line.
 
   // Neutral settings render bit-identically; a flat master EQ is an exact bypass, so a boost
   // changes the kick and returning to flat restores it bit for bit.
@@ -882,6 +1005,233 @@ int main()
   resetMasterFx();
   settle(8);
   assert(finiteFx() && FxReturnLevel(fx::kBusDelay) > 0.0f); // Tails ring on after the sends close.
+
+  // AMY's note 0: its note-off must not wipe the voice table under a note that is sounding.
+  {
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track) AllNotesOff(track);
+    EnsureEngine(1, SynthEngineKind::Juno);
+    SetEnginePreset(1, "juno.a51");
+    std::array<std::int16_t, 256> block{};
+    for (std::size_t index = 0; index < 8; ++index) RenderFrames(block.data(), block.size());
+    const std::uint32_t before = ReleasedOrphanVoiceCount();
+    NoteOn(1, 60, 100);
+    NoteOn(1, 0, 100);
+    NoteOff(1, 0);
+    for (std::size_t index = 0; index < 8; ++index) RenderFrames(block.data(), block.size());
+    NoteOff(1, 60);
+    for (std::size_t index = 0; index < 200; ++index) RenderFrames(block.data(), block.size());
+    assert(ReleasedOrphanVoiceCount() == before);
+    const NoteSet held = HeldNotes(1);
+    assert(std::all_of(held.begin(), held.end(), [](std::uint32_t word) { return word == 0; }));
+    // Whatever goes wrong, a voice with no note behind it gets released: here the note-off gets lost.
+    NoteOn(1, 60, 100);
+    for (std::size_t index = 0; index < 8; ++index) RenderFrames(block.data(), block.size());
+    g_engines[1].activeNotes[60] = false;
+    for (std::size_t index = 0; index < 200; ++index) RenderFrames(block.data(), block.size());
+    assert(ReleasedOrphanVoiceCount() == before + 1);  // Once is enough.
+    // The worst case: AMY's voice table forgets a note that is sounding, as its note-off for note 0 does.
+    const auto heldVoices = [&]() {
+      std::array<std::uint16_t, MAX_VOICES_PER_INSTRUMENT> voices{};
+      const int count = amy_embed::instrument_get_num_voices(g_engines[1].synthId, voices.data());
+      int heldCount = 0;
+      for (int voice = 0; voice < count; ++voice)
+      {
+        const auto* root = amy_embed::synth[amy_embed::voice_to_base_osc[voices[voice]]];
+        if (root != nullptr && root->status == SYNTH_AUDIBLE && root->note_off_clock == std::numeric_limits<std::uint32_t>::max()) ++heldCount;
+      }
+      return heldCount;
+    };
+    NoteOn(1, 60, 100);
+    for (std::size_t index = 0; index < 8; ++index) RenderFrames(block.data(), block.size());
+    assert(heldVoices() == 1);
+    amy_event wipe = amy_default_event();
+    wipe.synth = static_cast<std::uint8_t>(g_engines[1].synthId);
+    wipe.midi_note = 0;
+    wipe.velocity = 0;
+    amy_add_event(&wipe);
+    g_engines[1].activeNotes[60] = false;
+    for (std::size_t index = 0; index < 8; ++index) RenderFrames(block.data(), block.size());
+    assert(heldVoices() == 1);  // AMY has lost it: no note-off could reach it now.
+    for (std::size_t index = 0; index < 200; ++index) RenderFrames(block.data(), block.size());
+    assert(heldVoices() == 0 && ReleasedOrphanVoiceCount() == before + 2);
+    // And the voices are usable again.
+    NoteOn(1, 64, 100);
+    for (std::size_t index = 0; index < 8; ++index) RenderFrames(block.data(), block.size());
+    assert(heldVoices() == 1);
+    NoteOff(1, 64);
+    for (std::size_t index = 0; index < 8; ++index) RenderFrames(block.data(), block.size());
+    assert(heldVoices() == 0);
+  }
+
+  // Output stage: every engine is loud on one note, and everything at once stays clean under the ceiling.
+  {
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track)
+    {
+      SetTrackGain(track, 1.0f);
+      SetTrackMuted(track, false);
+    }
+    EnsureEngine(0, SynthEngineKind::Drums);
+    EnsureEngine(1, SynthEngineKind::Juno);
+    EnsureEngine(2, SynthEngineKind::Dx7);
+    EnsureEngine(3, SynthEngineKind::Juno);
+    SetEnginePreset(0, "drums.808");
+    SetEnginePreset(1, "juno.a51");
+    SetEnginePreset(2, "dx7.rom1a.11");
+    SetEnginePreset(3, "juno.a25");
+    std::array<std::int16_t, 256> block{};
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track) AllNotesOff(track);
+    const auto waitForSilence = [&]() {
+      bool silent = false;
+      for (std::size_t index = 0; index < 8000 && !silent; ++index)
+      {
+        RenderFrames(block.data(), block.size());
+        silent = std::all_of(block.begin(), block.end(), [](std::int16_t sample) { return sample == 0; }) && !g_fx.floatPath;
+      }
+      assert(silent);
+    };
+    waitForSilence();
+    for (const std::size_t track : {std::size_t{1}, std::size_t{2}, std::size_t{3}})
+    {
+      double peak = 0.0, loudness = 0.0;
+      MeasurePresetNote(track, peak, loudness);
+      assert(loudness > -21.0 && loudness < -15.0 && peak < -3.0);
+    }
+    for (const std::size_t track : {std::size_t{1}, std::size_t{2}, std::size_t{3}})
+    {
+      for (const std::uint8_t note : {48, 55, 60, 64, 67, 72}) NoteOn(track, note, 127);
+    }
+    int highest = 0;
+    std::size_t flat = 0;
+    for (std::size_t index = 0; index < 400; ++index)
+    {
+      if (index % 20 == 0) { NoteOn(0, 36, 127); NoteOn(0, 38, 127); NoteOn(0, 42, 127); }
+      RenderFrames(block.data(), block.size());
+      for (const std::int16_t sample : block)
+      {
+        highest = (std::max)(highest, std::abs(static_cast<int>(sample)));
+        flat += std::abs(static_cast<int>(sample)) >= 32767 ? 1 : 0;
+      }
+    }
+    assert(highest > 25000 && flat == 0 && g_outputGain < kOutputGain);
+    for (const std::size_t track : {std::size_t{1}, std::size_t{2}, std::size_t{3}})
+    {
+      for (const std::uint8_t note : {48, 55, 60, 64, 67, 72}) NoteOff(track, note);
+    }
+    waitForSilence();
+    assert(g_outputGain == kOutputGain);  // Recovered once it has gone quiet.
+  }
+
+  // A voice stays whole. Its first oscillator holds the filter and the envelope: with the filter shut
+  // there is next to nothing to hear, however many voices sound and wherever they fall between the cores.
+  {
+    SetTrackMuted(0, true);
+    EnsureEngine(0, SynthEngineKind::Drums);
+    EnsureEngine(1, SynthEngineKind::Juno);
+    SetEnginePreset(1, "juno.a68");
+    for (const char* parameter : {"vcf.env", "vcf.keyboard", "vcf.lfo", "vcf.resonance", "fx.chorus"}) SetEngineParameter(1, parameter, 0);
+    SetEngineParameter(1, "env.sustain", 127);
+    std::array<std::int16_t, 256> block{};
+    const auto level = [&](int cutoff, int voices, int hits) {
+      SetEngineParameter(1, "vcf.cutoff", cutoff);
+      for (int voice = 0; voice < voices; ++voice) NoteOn(1, static_cast<std::uint8_t>(72 + voice * 2), 110);
+      for (int hit = 0; hit < hits; ++hit) NoteOn(0, static_cast<std::uint8_t>(36 + hit * 3), 127);
+      double sum = 0.0;
+      for (int index = 0; index < 24; ++index)
+      {
+        if (index == 8 && hits > 0) for (int hit = 0; hit < hits; ++hit) NoteOn(0, static_cast<std::uint8_t>(36 + hit * 3), 127);
+        RenderFrames(block.data(), block.size());
+        if (index < 8) continue;
+        for (const std::int16_t sample : block) sum += static_cast<double>(sample) * sample;
+      }
+      for (int voice = 0; voice < voices; ++voice) NoteOff(1, static_cast<std::uint8_t>(72 + voice * 2));
+      for (int index = 0; index < 150; ++index) RenderFrames(block.data(), block.size());
+      return std::sqrt(sum / (16.0 * block.size()));
+    };
+    for (int voices = 1; voices <= 6; ++voices)
+    {
+      for (int hits = 0; hits <= 3; ++hits)
+      {
+        const double open = level(127, voices, hits);
+        const double shut = level(0, voices, hits);
+        assert(open > 500.0 && shut < open * 0.15);
+      }
+    }
+
+    // A voice that has to go goes whole: nothing of it sounds on, not during the note and not after it.
+    SetEngineParameter(1, "vcf.cutoff", 127);
+    const auto peak = [&](int blocks) {
+      int highest = 0;
+      for (int index = 0; index < blocks; ++index)
+      {
+        RenderFrames(block.data(), block.size());
+        for (const std::int16_t sample : block) highest = (std::max)(highest, std::abs(static_cast<int>(sample)));
+      }
+      return highest;
+    };
+    const std::uint32_t shedBefore = ShedVoiceCount();
+    for (const std::uint8_t note : {60, 64, 67}) NoteOn(1, note, 110);
+    assert(peak(16) > 1000);
+    while (ShedVoice()) {}
+    assert(ShedVoiceCount() == shedBefore + 3);
+    (void)peak(2);
+    assert(peak(8) == 0);
+    for (const std::uint8_t note : {60, 64, 67}) NoteOff(1, note);
+    assert(peak(50) == 0);
+    // And the voice is there for the next note.
+    NoteOn(1, 60, 110);
+    assert(peak(16) > 1000);
+    NoteOff(1, 60);
+    (void)peak(150);
+    SetTrackMuted(0, false);
+
+    // Rendering keeps up: nothing happens, for as long as it plays. One long render (a preset loading)
+    // does not count; rendering that keeps taking too long does, and when that stops so does the shedding.
+    RenderLoad load;
+    for (int index = 0; index < 2000000; ++index) assert(!load.Add(400, 5804));
+    for (int index = 0; index < 100; ++index)
+    {
+      assert(!load.Add(46000, 5804));
+      for (int settle = 0; settle < 20; ++settle) assert(!load.Add(400, 5804));
+    }
+    int blocks = 0;
+    while (!load.Add(7000, 5804)) assert(++blocks < 20);
+    assert(blocks > 3);
+    for (int index = 0; index < 100; ++index) assert(!load.Add(5000, 5804));
+  }
+
+  // The delay line in 4 KB blocks: an echo comes back when it should, on the short line and on the long
+  // one that replaces it, across the block edges.
+  {
+    namespace dsp = fx::dsp;
+    const auto echoAfter = [](dsp::SendBuses& buses, float seconds) {
+      dsp::SendBusSettings settings;
+      settings.delaySeconds = seconds;
+      settings.delayFeedback = 0;
+      settings.reverbLevel = 0;
+      std::array<float, 256> send{}, none{}, mix{};
+      std::size_t loudest = 0;
+      float peak = 0.0f;
+      for (std::size_t block = 0; block < 400; ++block)
+      {
+        send.fill(0.0f);
+        if (block == 20) send[0] = 1.0f;
+        mix.fill(0.0f);
+        buses.Process(send.data(), none.data(), mix.data(), send.size(), settings);
+        for (std::size_t frame = 0; frame < mix.size(); ++frame)
+          if (block >= 20 && std::fabs(mix[frame]) > peak) { peak = std::fabs(mix[frame]); loudest = (block - 20) * 256 + frame; }
+      }
+      return static_cast<float>(loudest) / 44100.0f;
+    };
+    dsp::SendBuses buses;
+    assert(!buses.DelayAllocated() && buses.AllocateDelay(false) && buses.DelayAllocated());
+    (void)echoAfter(buses, 0.5f);  // settles the head
+    const float shortEcho = echoAfter(buses, 0.5f);
+    assert(std::fabs(shortEcho - 0.5f) < 0.004f);
+    assert(buses.AllocateDelay(true));
+    (void)echoAfter(buses, 1.2f);
+    const float longEcho = echoAfter(buses, 1.2f);
+    assert(std::fabs(longEcho - 1.2f) < 0.004f);
+  }
 
   std::cout << "Synth regression passed: sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters.\n";
 }

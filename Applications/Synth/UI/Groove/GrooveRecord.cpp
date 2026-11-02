@@ -26,37 +26,38 @@ const char* ViewName(SeqView view)
 struct TimedNote {
   std::uint32_t start = 0;  // pulses from the take's origin
   std::uint32_t length = 0;
-  std::uint8_t note = 0;
-  std::uint8_t velocity = 0;
 };
 
-// A take on the sequencer's time line. Synced takes keep their place against the bar; free takes
-// start with their first note, timed at the tempo they were played in.
-std::size_t Timeline(const CaptureTake& take, std::array<TimedNote, kCaptureNotes>& out)
+float MsPerPulse(const CaptureTake& take)
 {
-  const double msPerPulse = 60000.0 / (static_cast<double>(std::max<std::uint16_t>(take.bpm, 1)) * kPulsesPerQuarter);
+  return 60000.0f / (static_cast<float>(std::max<std::uint16_t>(take.bpm, 1)) * kPulsesPerQuarter);
+}
+
+std::uint16_t FirstNoteMs(const RecordState& rec, const CaptureTake& take)
+{
   std::uint16_t firstMs = 0xFFFF;
-  for (std::size_t index = 0; index < take.count; ++index) firstMs = std::min(firstMs, take.notes[index].startMs);
-  for (std::size_t index = 0; index < take.count; ++index)
+  for (std::size_t index = 0; index < take.count; ++index) firstMs = std::min(firstMs, rec.TakeNote(take, index).startMs);
+  return firstMs;
+}
+
+// A note of a take on the sequencer's time line. Synced takes keep their place against the bar; free
+// takes start with their first note, timed at the tempo they were played in.
+TimedNote TimeOf(const CaptureTake& take, const CaptureNote& note, std::uint16_t firstMs, float msPerPulse)
+{
+  TimedNote timed;
+  const std::uint32_t heldMs = note.lengthMs == 0 ? take.endedAt - take.startedAt - note.startMs : note.lengthMs;
+  if (take.synced)
   {
-    const CaptureNote& note = take.notes[index];
-    TimedNote& timed = out[index];
-    timed.note = note.note;
-    timed.velocity = note.velocity;
-    const std::uint32_t heldMs = note.lengthMs == 0 ? take.endedAt - take.startedAt - note.startMs : note.lengthMs;
-    if (take.synced)
-    {
-      timed.start = note.startPulse;
-      timed.length = note.lengthPulses != 0 ? note.lengthPulses : static_cast<std::uint32_t>(std::lround(heldMs / msPerPulse));
-    }
-    else
-    {
-      timed.start = static_cast<std::uint32_t>(std::lround((note.startMs - firstMs) / msPerPulse));
-      timed.length = static_cast<std::uint32_t>(std::lround(heldMs / msPerPulse));
-    }
-    timed.length = std::max<std::uint32_t>(timed.length, kPulsesPerMicrostep);
+    timed.start = note.startPulse;
+    timed.length = note.lengthPulses != 0 ? note.lengthPulses : static_cast<std::uint32_t>(std::lround(static_cast<float>(heldMs) / msPerPulse));
   }
-  return take.count;
+  else
+  {
+    timed.start = static_cast<std::uint32_t>(std::lround(static_cast<float>(note.startMs - firstMs) / msPerPulse));
+    timed.length = static_cast<std::uint32_t>(std::lround(static_cast<float>(heldMs) / msPerPulse));
+  }
+  timed.length = std::max<std::uint32_t>(timed.length, kPulsesPerMicrostep);
+  return timed;
 }
 
 }  // namespace
@@ -72,7 +73,7 @@ void Controller::CaptureNoteOn(std::size_t track, std::uint8_t note, std::uint8_
   const std::uint32_t now = state_.now;
   CaptureTake* take = rec.newest < kCaptureTakes ? &rec.takes[rec.newest] : nullptr;
   bool held = false;
-  for (const std::uint8_t open : rec.openNote) held = held || open != 0;
+  for (const std::uint16_t open : rec.openNote) held = held || open != 0;
   const bool fresh = take == nullptr || take->track != track || take->count >= kCaptureNotes ||
                      (!held && now - rec.lastPadActivity > kCaptureGapMs) || now - take->startedAt > kCaptureMaxMs;
   if (fresh)
@@ -98,7 +99,11 @@ void Controller::CaptureNoteOn(std::size_t track, std::uint8_t note, std::uint8_
   }
   // The transport stopped during a synced take: time the rest of it by the clock.
   if (take->synced && !sequencer.Playing()) take->synced = false;
-  CaptureNote& captured = take->notes[take->count];
+  // The takes share the notes: the oldest ones go when the newest need the room.
+  if (take->count == 0) take->first = rec.nextNote;
+  for (CaptureTake& older : rec.takes)
+    if (&older != take && older.count != 0 && rec.nextNote - older.first >= kCaptureNotes) older = CaptureTake{};
+  CaptureNote& captured = rec.notes[rec.nextNote++ % kCaptureNotes];
   captured = CaptureNote{};
   captured.note = note;
   captured.velocity = velocity;
@@ -115,10 +120,10 @@ void Controller::CaptureNoteOff(std::size_t track, std::uint8_t note)
   RecordState& rec = state_.record;
   if (note > 127 || rec.newest >= kCaptureTakes) return;
   CaptureTake& take = rec.takes[rec.newest];
-  const std::uint8_t open = rec.openNote[note];
+  const std::uint16_t open = rec.openNote[note];
   if (take.track != track || open == 0 || open > take.count) return;
   rec.openNote[note] = 0;
-  CaptureNote& captured = take.notes[open - 1];
+  CaptureNote& captured = rec.notes[(take.first + open - 1) % kCaptureNotes];
   const std::uint32_t now = state_.now;
   captured.lengthMs = static_cast<std::uint16_t>(std::clamp<std::uint32_t>(now - take.startedAt - captured.startMs, 1, 0xFFFF));
   auto& sequencer = host_.Sequencer();
@@ -154,25 +159,27 @@ const CaptureTake* Controller::TakeAt(std::size_t order) const
 
 std::size_t Controller::TakeBars(const CaptureTake& take) const
 {
-  std::array<TimedNote, kCaptureNotes> timed{};
-  const std::size_t count = Timeline(take, timed);
+  const RecordState& rec = state_.record;
+  const std::uint16_t firstMs = FirstNoteMs(rec, take);
+  const float msPerPulse = MsPerPulse(take);
   const std::uint32_t window = static_cast<std::uint32_t>(host_.Sequencer().TrackStepCount(take.track)) * kPulsesPerStep;
   std::uint32_t last = 0;
-  for (std::size_t index = 0; index < count; ++index) last = std::max(last, timed[index].start);
+  for (std::size_t index = 0; index < take.count; ++index) last = std::max(last, TimeOf(take, rec.TakeNote(take, index), firstMs, msPerPulse).start);
   return std::clamp<std::size_t>(window == 0 ? 1 : last / window + 1, 1, synth::kSequencerMaxPatternCount);
 }
 
-std::size_t Controller::TakeBarNotes(const CaptureTake& take, std::size_t bar, std::array<PlacedNote, kCaptureNotes>& notes) const
+void Controller::ForEachTakeBarNote(const CaptureTake& take, std::size_t bar, void (*visit)(const PlacedNote&, void*), void* context) const
 {
-  std::array<TimedNote, kCaptureNotes> timed{};
-  const std::size_t count = Timeline(take, timed);
+  const RecordState& rec = state_.record;
+  const std::uint16_t firstMs = FirstNoteMs(rec, take);
+  const float msPerPulse = MsPerPulse(take);
   const std::uint32_t steps = static_cast<std::uint32_t>(host_.Sequencer().TrackStepCount(take.track));
   const std::uint32_t window = steps * kPulsesPerStep;
   const std::uint32_t from = static_cast<std::uint32_t>(bar) * window;
-  std::size_t placed = 0;
-  for (std::size_t index = 0; index < count; ++index)
+  for (std::size_t index = 0; index < take.count; ++index)
   {
-    const TimedNote& note = timed[index];
+    const CaptureNote& captured = rec.TakeNote(take, index);
+    const TimedNote note = TimeOf(take, captured, firstMs, msPerPulse);
     if (note.start < from || note.start >= from + window) continue;
     const std::uint32_t at = note.start - from;
     std::uint32_t step = at / kPulsesPerStep;
@@ -188,17 +195,17 @@ std::size_t Controller::TakeBarNotes(const CaptureTake& take, std::size_t bar, s
       microstep = 0;
     }
     if (step >= steps) continue;  // rounds into the next bar
-    PlacedNote& out = notes[placed++];
+    PlacedNote out;
     out.step = static_cast<std::uint8_t>(step);
     out.microstep = static_cast<std::uint8_t>(microstep);
-    out.note = note.note;
-    out.velocity = note.velocity;
+    out.note = captured.note;
+    out.velocity = captured.velocity;
     out.lengthPulses = static_cast<std::uint16_t>(std::clamp<std::uint32_t>(
         state_.record.snap ? std::max<std::uint32_t>(kPulsesPerStep, (note.length + kPulsesPerStep / 2) / kPulsesPerStep * kPulsesPerStep)
                            : note.length,
         1, 0xFFFF));
+    visit(out, context);
   }
-  return placed;
 }
 
 bool Controller::PlaceTake(bool merge)
@@ -212,8 +219,8 @@ bool Controller::PlaceTake(bool merge)
   }
   const std::size_t bars = TakeBars(*take);
   const std::size_t bar = std::min<std::size_t>(rec.takeBar, bars - 1);
-  std::array<PlacedNote, kCaptureNotes> notes{};
-  const std::size_t count = TakeBarNotes(*take, bar, notes);
+  std::size_t count = 0;
+  ForEachTakeBarNote(*take, bar, [](const PlacedNote&, void* context) { ++*static_cast<std::size_t*>(context); }, &count);
   if (count == 0)
   {
     ShowToast("NO NOTES IN THIS BAR", ToastKind::Error);
@@ -233,12 +240,17 @@ bool Controller::PlaceTake(bool merge)
     }
     pattern = patterns;
   }
-  std::size_t written = 0;
-  for (std::size_t index = 0; index < count; ++index)
-  {
-    const PlacedNote& note = notes[index];
-    written += sequencer.InsertNote(track, pattern, note.step, note.microstep, note.note, note.velocity, note.lengthPulses) ? 1 : 0;
-  }
+  struct Placing {
+    synth::SynthSequencer& sequencer;
+    std::size_t track;
+    std::size_t pattern;
+    std::size_t written;
+  } placing{sequencer, track, pattern, 0};
+  ForEachTakeBarNote(*take, bar, [](const PlacedNote& note, void* context) {
+    auto& target = *static_cast<Placing*>(context);
+    target.written += target.sequencer.InsertNote(target.track, target.pattern, note.step, note.microstep, note.note, note.velocity, note.lengthPulses) ? 1 : 0;
+  }, &placing);
+  const std::size_t written = placing.written;
   MarkDirty();
   const std::uint32_t id = take->id;
   CloseModal();
@@ -255,7 +267,7 @@ bool Controller::PlaceTake(bool merge)
 
 bool Controller::OkDeferred() const
 {
-  return state_.scene == Scene::Sequence && CurrentPage() == 0 && TopModal() == nullptr &&
+  return state_.scene == Scene::Sequence && CurrentPage() == 0 && TopModal() == nullptr && !DrumLayout() &&
          !host_.Sequencer().BuildUiState(state_.track).hasHeldSteps;
 }
 
@@ -286,12 +298,16 @@ void Controller::OkTick()
 
 void Controller::ToggleSeqView()
 {
+  if (DrumLayout()) return;
   RecordState& rec = state_.record;
   rec.view = rec.view == SeqView::Roll ? SeqView::Step : SeqView::Roll;
   rec.stepWritten = false;
   host_.Sequencer().ClearSelectedSteps();
   const std::size_t steps = host_.Sequencer().TrackStepCount(state_.track);
   if (rec.cursor >= steps) rec.cursor = 0;
+  // The cursor comes to the page on the GRID, never writes out of sight.
+  const std::size_t first = host_.Sequencer().ViewFirstStep(state_.track);
+  if (rec.cursor / kGridCount != first / kGridCount) rec.cursor = static_cast<std::uint8_t>(first);
   ShowHud("VIEW", ViewName(rec.view));
 }
 
@@ -300,6 +316,9 @@ void Controller::StepCursorMove(int delta)
   RecordState& rec = state_.record;
   const int steps = static_cast<int>(std::max<std::size_t>(1, host_.Sequencer().TrackStepCount(state_.track)));
   rec.cursor = static_cast<std::uint8_t>(((static_cast<int>(rec.cursor) + delta) % steps + steps) % steps);
+  // The GRID stays on the page with the cursor.
+  auto& sequencer = host_.Sequencer();
+  if (sequencer.ViewFirstStep(state_.track) / kGridCount != rec.cursor / kGridCount) sequencer.SetViewPage(state_.track, rec.cursor / kGridCount);
 }
 
 bool Controller::StepRecordPress()

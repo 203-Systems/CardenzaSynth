@@ -37,33 +37,33 @@ void DrawKeyCap(Gfx& g, const Rect& cap, Color color, int level, bool edgeOnRigh
   g.Pixel(cap.x + cap.width - 1, cap.y + cap.height - 1, kBlack);
 }
 
-// Edge strips mirror their key's LED: off faint (2/16), half 30 % (5/16), full solid.
-int StripDither(float led)
-{
-  // Off is a faint dither, half (kLedHalf) about 30 %, full solid.
-  const float level = led <= kLedHalf ? 2.0f + led * (3.0f / kLedHalf) : 5.0f + (led - kLedHalf) * (11.0f / (kLedFull - kLedHalf));
-  return std::clamp(static_cast<int>(std::lround(level)), 2, 16);
-}
-
 bool StripSolid(float led) { return led >= 13.5f; }
 
-// The four left caps stand for the four left keys, row for row. Each shows what its key selects:
-// ESC the scenes, TAB the tracks, FN the record arm (FN + PLAY), CTRL the pages of this screen.
+// Light behind the icons on both edges, so that the icons are what you see: off barely there, half
+// a little more, then up to solid with the key's LED.
+int CapDither(float led)
+{
+  const float level = led <= kLedHalf ? 1.0f + led * (2.0f / kLedHalf) : 3.0f + (led - kLedHalf) * (13.0f / (kLedFull - kLedHalf));
+  return std::clamp(static_cast<int>(std::lround(level)), 1, 16);
+}
+
+// The four left caps stand for the four left keys, row for row, each with its icon in its color: ESC
+// scenes and back, TAB tracks, FN the menu, CTRL pages. Where you are is in the header and the page
+// tabs, not here.
 void DrawStrips(Gfx& g, const Controller& controller, Animator& animator)
 {
+  static constexpr std::array<Glyph, 4> kIcons{{Glyph::Back, Glyph::Tab, Glyph::Menu, Glyph::Pages}};
   const UiState& state = controller.State();
   const std::uint32_t now = animator.Now();
-  const bool recArmed = controller.HostView().Sequencer().RecordArmed();
   for (std::size_t row = 0; row < 4; ++row)
   {
     const Rect cap = StripRect(row);
     const Color color = kStripColors[row];
     const auto& key = state.left[row];
-    // A plain checker of the key's color, no border, as bright as the key's LED.
     const float led = animator.LedShown(KeyIndex(row, 0));
     const bool solid = !key.down && StripSolid(led);
     if (solid) g.Fill(cap, color);
-    else g.Dither(cap, color, StripDither(led));
+    else g.Dither(cap, color, CapDither(led));
     if (key.down)
     {
       // Pressed: the cap fills from the bottom in a quick sweep.
@@ -71,53 +71,12 @@ void DrawStrips(Gfx& g, const Controller& controller, Animator& animator)
       const int height = static_cast<int>(fill * static_cast<float>(cap.height));
       g.Fill(Rect{cap.x, cap.y + cap.height - height, cap.width, height}, color);
     }
-    std::size_t count = 0;
-    std::size_t current = 0;
-    switch (row)
-    {
-      case 0: count = kSceneCount; current = static_cast<std::size_t>(state.scene); break;
-      case 1: count = kTrackCount; current = state.track; break;
-      case 2: count = 1; current = recArmed ? 0 : 1; break;
-      case 3:
-      default:
-        count = std::min<std::size_t>(controller.PageCount(state.scene), 14);
-        current = std::min<std::size_t>(controller.CurrentPage(), count - 1);
-        break;
-    }
-    // One solid mark per thing the key selects, in the key's color, in a black window cut into the
-    // cap; the current one is white. Long page lists pack tighter.
-    const int pitch = count > 9 ? 2 : 3;
-    const int top = cap.y + (cap.height - static_cast<int>(count) * pitch + 1) / 2;
-    const bool dark = key.down || solid;
-    if (!dark)
-    {
-      const int windowTop = std::max(cap.y + 1, top - 2);
-      const int windowBottom = std::min(cap.y + cap.height - 1, top + static_cast<int>(count) * pitch + 1);
-      g.Fill(Rect{cap.x + 1, windowTop, cap.width - 2, windowBottom - windowTop}, kBlack);
-    }
-    // TAB's marks are the four track colors, so the current track reads by color too.
-    const bool trackDots = row == 1;
-    for (std::size_t dot = 0; dot < count; ++dot)
-    {
-      const Rect mark{cap.x + 2, top + static_cast<int>(dot) * pitch, 4, pitch - 1};
-      g.Fill(mark, dark ? kBlack : trackDots ? TrackColor(dot) : color);
-    }
-    if (current < count)
-    {
-      // The current dot glides when the selection moves.
-      const float target = static_cast<float>(top + static_cast<int>(current) * pitch);
-      const int y = static_cast<int>(std::lround(animator.Smooth(Animator::Key("cap-dot", static_cast<std::uint32_t>(row)), target, 45.0f)));
-      if (trackDots)
-      {
-        g.Fill(Rect{cap.x, y - 1, cap.width, pitch + 1}, kInk);
-        g.Fill(Rect{cap.x + 1, y, cap.width - 2, pitch - 1}, TrackColor(current));
-      }
-      else
-      {
-        g.Fill(Rect{cap.x + 1, y - 1, cap.width - 2, pitch + 1}, kBlack);
-        g.Fill(Rect{cap.x + 2, y, 4, pitch - 1}, row == 2 ? kRec : kInk);
-      }
-    }
+    const Glyph icon = kIcons[row];
+    const int x = cap.x + (cap.width - Gfx::GlyphWidth(icon)) / 2;
+    const int y = cap.y + (cap.height - 7) / 2;
+    const bool dark = solid || key.down;
+    if (!dark) g.Fill(Rect{cap.x, y - 1, cap.width, 9}, kBlack);
+    g.DrawGlyph(x, y, icon, dark ? kBlack : color);
   }
 }
 
@@ -130,11 +89,19 @@ void DrawGlyphColumn(Gfx& g, const Controller& controller, Animator& animator)
   const auto& sequencer = controller.HostView().Sequencer();
   const bool playing = sequencer.Playing();
   const bool recArmed = sequencer.RecordArmed();
-  // In a vertical list ADD / SUB move up / down: the strips say so.
-  const Modal* modal = controller.TopModal();
-  const bool list = modal != nullptr && (modal->kind == ModalKind::PresetBrowser || modal->kind == ModalKind::SampleBrowser ||
-                                         modal->kind == ModalKind::SampleOptions);
-  const std::array<Glyph, 4> glyphs{{list ? Glyph::Up : Glyph::Plus, list ? Glyph::Down : Glyph::Minus, Glyph::Enter, Glyph::Play}};
+  // The icons on ADD and SUB say what they do here.
+  Glyph add = Glyph::Plus;
+  Glyph sub = Glyph::Minus;
+  switch (controller.AdjustKeysMean())
+  {
+    case AdjustMeaning::List: add = Glyph::Up; sub = Glyph::Down; break;
+    case AdjustMeaning::Sideways: add = Glyph::Right; sub = Glyph::Left; break;
+    case AdjustMeaning::Erase: add = Glyph::Delete; sub = Glyph::None; break;
+    case AdjustMeaning::None: add = Glyph::None; sub = Glyph::None; break;
+    case AdjustMeaning::Value:
+    default: break;
+  }
+  const std::array<Glyph, 4> glyphs{{add, sub, Glyph::Enter, Glyph::Play}};
   for (std::size_t row = 0; row < 4; ++row)
   {
     const Rect strip = StripRect(row);
@@ -156,9 +123,10 @@ void DrawGlyphColumn(Gfx& g, const Controller& controller, Animator& animator)
       g.DrawGlyph(x, y, glyph, kBlack);
       continue;
     }
-    DrawKeyCap(g, cap, body, StripDither(led), false);
-    g.Fill(Rect{x - 1, y - 1, Gfx::GlyphWidth(glyph) + 2, 9}, kBlack);
-    g.DrawGlyph(x, y, glyph, led < 0.5f ? kFaint : body == kDim ? kInk : body);
+    DrawKeyCap(g, cap, body, CapDither(led), false);
+    if (glyph == Glyph::None) continue;
+    g.Fill(Rect{cap.x, y - 1, cap.width, 9}, kBlack);
+    g.DrawGlyph(x, y, glyph, led < 0.5f ? kDim : body == kDim ? kInk : body);
   }
 }
 
@@ -284,13 +252,25 @@ void DrawTabs(Gfx& g, const Controller& controller, Animator& animator)
   std::size_t last = count - 1;
   int left = kFooterX;
   int right = kFooterRight;
-  if (total > kFooterWidth)
+  // A long pattern: which of its pages the GRID shows, yellow once flipped by hand.
+  const bool stepPages = controller.State().scene == Scene::Sequence && current == 0;
+  if (stepPages)
+  {
+    const auto seq = controller.HostView().Sequencer().BuildUiState(controller.State().track);
+    if (seq.viewPageCount > 1)
+    {
+      const std::string pages = std::to_string(seq.viewPage + 1) + "/" + std::to_string(seq.viewPageCount);
+      g.Text(kFooterRight - Gfx::Measure(pages), kFooterY, pages, seq.viewFollow ? kDim : kFn);
+      right -= Gfx::Measure(pages) + 6;
+    }
+  }
+  if (total > right - left)
   {
     char counter[24];
     std::snprintf(counter, sizeof(counter), "%02u/%02u", static_cast<unsigned>(current + 1), static_cast<unsigned>(count));
-    g.Text(kFooterRight - Gfx::Measure(counter), kFooterY, counter, kFaint);
+    g.Text(right - Gfx::Measure(counter), kFooterY, counter, kFaint);
     left = kFooterX + 7;
-    right = kFooterRight - Gfx::Measure(counter) - 9;
+    right -= Gfx::Measure(counter) + 9;
     // Grow the window from the current tab, alternating right and left, while it fits.
     first = last = current;
     int used = widths[current];
@@ -395,8 +375,7 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
       std::string scope = seq.scopeLabel;
       if (controller.HostView().EngineKind(state.track) == synth::SynthEngineKind::Drums)
       {
-        const auto& primary = seq.steps[seq.primaryHeldStep];
-        notes = primary.hasEvents ? std::string(DrumName(primary.lowestNote)) : std::string{};
+        notes = seq.primaryLowestNote >= 0 ? std::string(DrumName(seq.primaryLowestNote)) : std::string{};
         if (seq.noteCount > 1) notes += "+" + std::to_string(seq.noteCount - 1);
         if (scope != "ALL" && seq.scopedNote >= 0 && !DrumName(seq.scopedNote).empty()) scope = std::string(DrumName(seq.scopedNote));
       }

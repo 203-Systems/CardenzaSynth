@@ -21,6 +21,7 @@ std::string BackendName() { return "test"; }
 }
 namespace synth::storage {
 std::string SampleDirectory() { return "missing-sample-directory"; }
+std::string ResolveSamplePath(const std::string& fileName) { return SampleDirectory() + "/" + fileName; }
 bool EnsureLayout() { return false; }
 }
 namespace synth {

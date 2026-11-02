@@ -5,12 +5,21 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
+#include <iterator>
+#include <fstream>
 #include <iostream>
+#include <random>
 #include <string>
+#include <vector>
 
 #include "Applications/Synth/GrooveApp.h"
+#include "Applications/Synth/Runtime/ProjectStorage.h"
+#include "Library/Synth/Core/SynthStorage.h"
+#include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
+#include "Devices/CardenzaSim/SimulatorInput.h"
 #include "Devices/Device.h"
 #include "OS/System/System.h"
 
@@ -35,6 +44,7 @@ constexpr Key kDel{0, 13};
 
 constexpr Key Digit(int digit) { return Key{0, static_cast<std::size_t>(digit == 0 ? 10 : digit)}; }
 constexpr Key Grid(std::size_t index) { return Key{index / 4, 9 + index % 4}; }
+constexpr Key kDrumPadA{3, 2}, kDrumPadB{3, 3};
 
 class Harness {
 public:
@@ -95,30 +105,78 @@ void GoToInstrumentPage(Harness& h, const char* tab)
   assert(std::string(h.App().Ui().CurrentInstrumentPage()->tab) == tab);
 }
 
+// Every engine: the preset list opens, every row draws, and a sound loads.
+void TestPresetBrowsers(Harness& h)
+{
+  GoToScene(h, 1);
+  for (std::size_t track = 0; track < groove::kTrackCount; ++track)
+  {
+    h.Chord(kTab, Grid(track));
+    while (h.App().Ui().CurrentPage() != 0) h.Tap(kCtrl);
+    h.Tap(Grid(1));
+    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::PresetBrowser);
+    const std::size_t count = h.Modal()->Count();
+    assert(count > 0);
+    h.Render();
+    for (std::size_t row = 0; row < count + 2; ++row)
+    {
+      h.Tap(kAdd);
+      h.Render();
+    }
+    h.Tap(kEnter);
+    h.Wait(50);
+    h.Render();
+    if (h.Modal() != nullptr) h.Tap(kEsc);
+    h.Wait(400);
+    assert(h.Modal() == nullptr);
+  }
+  h.Chord(kTab, Grid(synth::kDefaultActiveTrack));
+}
+
 void TestBoot(Harness& h)
 {
   // It boots on the instrument, first page (VOICE).
   assert(h.State().scene == Scene::Instrument);
   assert(h.App().Ui().CurrentPage() == 0 && h.App().Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::Voice);
-  // It starts on T2, the first melodic track: the pads show the piano layout, white keys on the
-  // bottom row, black keys above with the gaps (Shift, D, J) dark; unpressed keys are half lit.
-  assert(h.State().track == synth::kDefaultActiveTrack && h.App().EngineKind(h.State().track) != synth::SynthEngineKind::Drums);
+  // It starts on T1, the drum machine.
+  assert(h.State().track == synth::kDefaultActiveTrack && h.State().track == 0 && h.App().EngineKind(0) == synth::SynthEngineKind::Drums);
+  // A melodic track: the pads show the piano layout with C on the second row from the bottom: white
+  // keys there and on the top row, black keys between and below, with the gaps (columns 1, 4, 8)
+  // dark; unpressed keys are half lit.
+  h.Chord(kTab, Grid(1));
+  assert(h.State().track == 1);
   std::array<std::uint8_t, groove::kKeyCount> leds{};
   h.App().Ui().ComputeLeds(leds);
   for (std::size_t column = 1; column <= 8; ++column)
   {
-    assert(leds[groove::KeyIndex(3, column)] == groove::kLedHalf);  // OPT .. N
-    const bool gap = column == 1 || column == 4 || column == 8;    // Shift, D, J
-    assert(leds[groove::KeyIndex(2, column)] == (gap ? groove::kLedOff : groove::kLedHalf));
+    const bool gap = column == 1 || column == 4 || column == 8;
+    const std::uint8_t blackRow = gap ? groove::kLedOff : groove::kLedHalf;
+    assert(leds[groove::KeyIndex(0, column)] == groove::kLedHalf && leds[groove::KeyIndex(2, column)] == groove::kLedHalf);
+    assert(leds[groove::KeyIndex(1, column)] == blackRow && leds[groove::KeyIndex(3, column)] == blackRow);
   }
-  // The walkthrough below was written for T1 (drums): start it there.
-  h.Chord(kTab, Grid(0));
-  assert(h.State().track == 0);
-  // The note page starts as a piano roll.
-  assert(h.App().Ui().View() == groove::SeqView::Roll && h.App().Ui().PageTab(Scene::Sequence, 0) == "ROLL");
+  // Every pad plays where it should: C under the second row's first key, an octave below it at the
+  // bottom, an octave up on the top row.
+  groove::KeyboardSettings keyboard;
+  int note = 0;
+  const auto kind = synth::SynthEngineKind::Juno;
+  assert(groove::PadNote(keyboard, kind, 2, 1, note) && note == 48);
+  assert(groove::PadNote(keyboard, kind, 2, 8, note) && note == 60);
+  assert(groove::PadNote(keyboard, kind, 1, 2, note) && note == 49);
+  assert(groove::PadNote(keyboard, kind, 0, 1, note) && note == 60);
+  assert(groove::PadNote(keyboard, kind, 0, 8, note) && note == 72);
+  assert(groove::PadNote(keyboard, kind, 3, 2, note) && note == 37);
+  assert(groove::PadNote(keyboard, kind, 3, 7, note) && note == 46);
+  assert(!groove::PadNote(keyboard, kind, 3, 1, note) && !groove::PadNote(keyboard, kind, 1, 4, note));
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
     assert(h.App().EngineKind(track) == apps::GrooveApp::kDefaultKinds[track]);
   assert(h.App().EngineKind(0) == synth::SynthEngineKind::Drums);
+  // A melodic track's note page starts as a piano roll, a drum track's as the drum machine.
+  assert(h.App().Ui().View() == groove::SeqView::Roll && h.App().Ui().PageTab(Scene::Sequence, 0) == "ROLL");
+  h.Chord(kTab, Grid(0));
+  assert(h.App().Ui().PageTab(Scene::Sequence, 0) == "DRUMS");
+  // The walkthrough below edits T1's drum notes with the piano roll (TestDrumMachine: the other way).
+  h.App().Ui().UsePianoRollOnDrums(true);
+  assert(h.App().Ui().PageTab(Scene::Sequence, 0) == "ROLL");
   // The walkthrough continues in SEQ.
   GoToScene(h, 2);
 }
@@ -329,12 +387,15 @@ void TestTransport(Harness& h)
   h.Up(kFn);
   const std::uint32_t interval = second - first;
   assert(h.Seq().bpm == (60000 + interval / 2) / interval);
-  // HOME is a panic stop.
+  // The HOME side key is unassigned; FN + ESC is the panic stop.
   h.Tap(kPlay);
   assert(sequencer.Playing());
+  const std::uint32_t panic = h.State().panicAt;
   h.App().HandleHomeButtonEvent(true);
   h.App().HandleHomeButtonEvent(false);
-  assert(!sequencer.Playing());
+  assert(sequencer.Playing() && h.State().panicAt == panic);
+  h.Chord(kFn, kEsc);
+  assert(!sequencer.Playing() && h.State().panicAt != panic);
 }
 
 void TestInstrument(Harness& h)
@@ -439,9 +500,9 @@ void TestInstrument(Harness& h)
   // (the upper key) moves up, SUB down; ENTER loads.
   h.Tap(Grid(1));
   assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::PresetBrowser);
-  const std::size_t all = h.Modal()->items.size();
+  const std::size_t all = h.Modal()->Count();
   h.Tap(Key{2, 2});  // A: nothing
-  assert(h.Modal()->kind == ModalKind::PresetBrowser && h.Modal()->search.empty() && h.Modal()->items.size() == all);
+  assert(h.Modal()->kind == ModalKind::PresetBrowser && h.Modal()->search.empty() && h.Modal()->Count() == all);
   const std::size_t start = h.Modal()->cursor;
   h.Tap(kSub);
   assert(h.Modal()->cursor == start + 1);
@@ -451,7 +512,7 @@ void TestInstrument(Harness& h)
   assert(h.Modal()->kind == ModalKind::TextEntry);
   h.Tap(Key{2, 2});  // A
   h.Tap(kEnter);
-  assert(h.Modal()->kind == ModalKind::PresetBrowser && h.Modal()->search == "A" && h.Modal()->items.size() < all);
+  assert(h.Modal()->kind == ModalKind::PresetBrowser && h.Modal()->search == "A" && h.Modal()->Count() < all);
   h.Render();
   h.Tap(kEsc);
   assert(h.Modal() != nullptr && h.Modal()->search.empty());
@@ -607,8 +668,9 @@ void TestProject(Harness& h)
 {
   auto& app = h.App();
   GoToSetupPage(h, groove::kSetupProject);
-  // SAVE AS: the name field starts with a suggestion; DEL erases, letters type.
-  h.Tap(Grid(1));
+  // SAVE AS (in the FN menu, like everything that types): the name field starts with a suggestion;
+  // DEL erases, letters type.
+  h.Chord(kFn, Grid(2));
   assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::TextEntry);
   h.Tap(kSub);  // the second key does not erase while typing
   assert(h.Modal()->text == "SONG");
@@ -624,7 +686,7 @@ void TestProject(Harness& h)
   assert(std::find(projects.begin(), projects.end(), "GROOVE 1") != projects.end());
 
   // Keys pressed before the name field opened are released cleanly.
-  assert(!h.State().gridDown[1]);
+  assert(!h.State().gridDown[2]);
 
   // Saving again under the same name overwrites silently.
   h.Tap(Grid(0));
@@ -634,11 +696,11 @@ void TestProject(Harness& h)
   h.Tap(Grid(4));
   h.Tap(kAdd);  // BPM + 1 marks the project dirty
   assert(h.State().dirty);
-  h.Tap(Grid(3));
+  h.Tap(Grid(2));
   assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm);
   h.Tap(kEsc);
   assert(h.Modal() == nullptr && h.State().projectName == "GROOVE 1");
-  h.Tap(Grid(3));
+  h.Tap(Grid(2));
   h.Tap(kEnter);
   assert(h.State().projectName.empty() && !h.State().dirty);
   assert(!app.TrackMuted(0));
@@ -649,7 +711,7 @@ void TestProject(Harness& h)
   assert(ParameterValue(app, 2, "fx.delay") == 0);
 
   // FILES: load the saved project back, mixer and engines included.
-  h.Tap(Grid(2));
+  h.Tap(Grid(1));
   assert(h.App().Ui().CurrentPage() == groove::kSetupFiles);
   assert(!h.State().projects.empty());
   h.Tap(kEnter);
@@ -692,7 +754,7 @@ void TestQuickSaveReleasesFn(Harness& h)
   h.Chord(kFn, kAdd);
   assert(h.App().Sequencer().Tempo() == tempo + 10);
   h.Chord(kFn, kSub);
-  h.Tap(Grid(3));  // NEW
+  h.Tap(Grid(2));  // NEW
   if (h.Modal() != nullptr) h.Tap(kEnter);
   assert(h.State().projectName.empty());
   h.Down(kFn);
@@ -700,7 +762,7 @@ void TestQuickSaveReleasesFn(Harness& h)
   assert(h.Modal() == nullptr && h.State().projectName.rfind("SONG ", 0) == 0);
   h.Up(kFn);
   assert(!h.State().left[2].down && !h.App().Ui().FnOverlay());
-  h.Tap(Grid(1));  // SAVE AS
+  h.Chord(kFn, Grid(2));  // SAVE AS
   assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::TextEntry);
   // FN in text entry is the yellow keycap layer: , / move the cursor, ; . jump to the start / end,
   // FN + del deletes forward. No FN panel shows meanwhile.
@@ -732,7 +794,7 @@ void TestLeds(Harness& h)
 {
   // A fresh project on T2 (Juno) in SEQ: no notes anywhere.
   GoToSetupPage(h, groove::kSetupProject);
-  h.Tap(Grid(3));  // NEW
+  h.Tap(Grid(2));  // NEW
   if (h.Modal() != nullptr) h.Tap(kEnter);
   GoToScene(h, 2);
   while (h.App().Ui().CurrentPage() != 0) h.Tap(kCtrl);
@@ -752,23 +814,23 @@ void TestLeds(Harness& h)
   h.Tap(Grid(5));
   assert(h.Seq().steps[5].held && level(Grid(5)) == kFull);
   // The selected step's note is full on the pads (E3 on the white row), the other keys half.
-  assert(level(Key{3, 3}) == kFull && level(Key{3, 1}) == kHalf);
+  assert(level(Key{2, 3}) == kFull && level(Key{2, 1}) == kHalf);
   h.Tap(Grid(5));
   assert(level(Grid(5)) == kHalf);
 
-  // PIANO keyboard: the bottom row is white keys, all half; the row above is the black keys, half
-  // where there is one and off in the gaps (before C#, between E and F, after A#).
-  for (std::size_t column = 1; column <= 8; ++column) assert(level(Key{3, column}) == kHalf);
+  // PIANO keyboard: the second row from the bottom is white keys, all half; the row above is the
+  // black keys, half where there is one and off in the gaps (before C#, between E and F, after A#).
+  for (std::size_t column = 1; column <= 8; ++column) assert(level(Key{2, column}) == kHalf);
   for (std::size_t column = 1; column <= 8; ++column)
   {
     const bool gap = column == 1 || column == 4 || column == 8;
-    assert(level(Key{2, column}) == (gap ? kOff : kHalf));
+    assert(level(Key{1, column}) == (gap ? kOff : kHalf));
   }
   // A held key is full; letting go brings it back to half.
-  h.Down(Key{3, 1});
-  assert(level(Key{3, 1}) == kFull && level(Key{3, 2}) == kHalf);
-  h.Up(Key{3, 1});
-  assert(level(Key{3, 1}) == kHalf);
+  h.Down(Key{2, 1});
+  assert(level(Key{2, 1}) == kFull && level(Key{2, 2}) == kHalf);
+  h.Up(Key{2, 1});
+  assert(level(Key{2, 1}) == kHalf);
 
   // Edge keys: navigation half (CTRL too, SEQ has pages), ADD / SUB half, OK half (the record key:
   // full in STEP REC), PLAY half when stopped and full while playing.
@@ -844,14 +906,14 @@ void TestLedMotion(Harness& h)
   h.Up(kCtrl);
   assert(h.App().Ui().CurrentPage() == 0);
   h.Wait(600);
-  // Panic: every key flares, then the lights settle back.
-  h.App().HandleHomeButtonEvent(true);
-  h.App().HandleHomeButtonEvent(false);
+  // Panic (FN + ESC): every key flares, then the lights settle back.
+  h.Chord(kFn, kEsc);
   h.Frames();
   // The edge keys never go above the dimmest glow, even here.
-  assert(Led(h, Key{1, 5}) >= 14 && Led(h, Key{3, 0}) <= groove::kLedEdgeMax && Led(h, Key{3, 0}) > 0);
+  // (A playable key rests at half; the chord takes a few frames, so the flare has begun to fade.)
+  assert(Led(h, Key{1, 5}) >= 12 && Led(h, Key{3, 0}) <= groove::kLedEdgeMax && Led(h, Key{3, 0}) > 0);
   h.Wait(900);
-  assert(Led(h, Key{1, 5}) < 14);
+  assert(Led(h, Key{1, 5}) < 12);
 }
 
 std::size_t PadSlot(Key key) { return key.row * groove::kPadColumns + (key.column - groove::kPadFirstColumn); }
@@ -864,9 +926,9 @@ void TestPlayFeatures(Harness& h)
   h.Chord(kTab, Grid(1));  // T2, a melodic track
   assert(h.State().track == 1 && app.EngineKind(1) != synth::SynthEngineKind::Drums);
   h.Wait(900);
-  // The default keyboard is the piano: white keys on the lower row of each pair, C major.
+  // The default keyboard is the piano with C on the second row from the bottom, C major.
   assert(keys.layout == groove::KeyboardLayout::Piano && keys.scale == 0 && keys.root == 0);
-  const Key c3{3, 1}, e3{3, 3}, g3{3, 5}, cSharp{2, 2};
+  const Key c3{2, 1}, e3{2, 3}, g3{2, 5}, cSharp{1, 2};
   int note = 0;
   assert(app.Ui().PadNoteFor(c3.row, c3.column, note) && note == 48);
   assert(app.Ui().PadNoteFor(cSharp.row, cSharp.column, note) && note == 49);
@@ -1061,7 +1123,7 @@ void TestRecording(Harness& h)
   assert(frame[groove::KeyIndex(Grid(0).row, Grid(0).column)].effect == groove::LedEffect::Blink);  // the cursor
 
   // STEP REC: held pads become the cursor step's notes; letting go moves the cursor on.
-  const Key c3{3, 1}, e3{3, 3}, g3{3, 5};
+  const Key c3{2, 1}, e3{2, 3}, g3{2, 5};
   h.Tap(c3);
   std::array<std::uint8_t, 8> notes{};
   assert(sequencer.StepNotes(0, notes) == 1 && notes[0] == 48 && h.State().record.cursor == 1);
@@ -1109,8 +1171,11 @@ void TestRecording(Harness& h)
   assert(app.Ui().RecordOpen());
   h.Render();
   h.Tap(Grid(groove::kRecordFirstTake + 1));
-  std::array<groove::Controller::PlacedNote, groove::kCaptureNotes> placed{};
-  assert(app.Ui().TakeBarNotes(*app.Ui().TakeAt(1), 0, placed) == 4 && placed[0].step == 0 && placed[1].step == 2);
+  std::vector<groove::Controller::PlacedNote> placed;
+  app.Ui().ForEachTakeBarNote(*app.Ui().TakeAt(1), 0, [](const groove::Controller::PlacedNote& note, void* context) {
+    static_cast<std::vector<groove::Controller::PlacedNote>*>(context)->push_back(note);
+  }, &placed);
+  assert(placed.size() == 4 && placed[0].step == 0 && placed[1].step == 2);
   h.Render();
   const std::size_t before = sequencer.PatternCount(1);
   h.Tap(kEnter);
@@ -1180,10 +1245,11 @@ void TestSession(Harness& h)
   // ENTER launches the cursor's row on every track that has that pattern.
   h.Tap(kEnter);
   assert(sequencer.ActivePattern(1) == patterns && h.State().hud.label == "ROW");
-  // ADD / SUB walk the patterns and scroll the grid.
-  for (int press = 0; press < 8; ++press) h.Tap(kAdd);
+  // SUB and ADD walk down and up the patterns and scroll the grid.
+  assert(app.Ui().AdjustKeysMean() == groove::AdjustMeaning::List);
+  for (int press = 0; press < 8; ++press) h.Tap(kSub);
   assert(h.State().sessionPattern == std::min<std::size_t>(patterns + 8, 15) && h.State().sessionScroll + 3 == h.State().sessionPattern);
-  for (int press = 0; press < 16; ++press) h.Tap(kSub);
+  for (int press = 0; press < 16; ++press) h.Tap(kAdd);
   assert(h.State().sessionPattern == 0 && h.State().sessionScroll == 0);
   h.Render();
 }
@@ -1196,8 +1262,8 @@ void TestSelectMode(Harness& h)
   while (h.App().Ui().CurrentPage() != 0) h.Tap(kCtrl);
   h.Chord(kTab, Grid(1));
   assert(!h.State().keyboard.multiSelect);
-  // Steps 1 and 5 hold just the C under the bottom-left pad.
-  const Key c{3, 1};
+  // Steps 1 and 5 hold just the C under the second row's first pad.
+  const Key c{2, 1};
   int noteC = 0;
   assert(groove::PadNote(h.State().keyboard, h.App().EngineKind(h.State().track), c.row, c.column, noteC));
   const std::uint8_t cNote = static_cast<std::uint8_t>(noteC);
@@ -1209,7 +1275,7 @@ void TestSelectMode(Harness& h)
   assert(!h.Seq().steps[0].held && h.Seq().steps[4].held && h.Seq().heldStepCount == 1);
   std::array<std::uint8_t, groove::kKeyCount> leds{};
   h.App().Ui().ComputeLeds(leds);
-  assert(leds[groove::KeyIndex(c.row, c.column)] == groove::kLedFull && leds[groove::KeyIndex(3, 2)] == groove::kLedHalf);
+  assert(leds[groove::KeyIndex(c.row, c.column)] == groove::kLedFull && leds[groove::KeyIndex(2, 2)] == groove::kLedHalf);
   assert(leds[groove::KeyIndex(Grid(4).row, Grid(4).column)] == groove::kLedFull);
   h.Tap(Grid(4));
   assert(!h.Seq().hasHeldSteps);
@@ -1220,7 +1286,7 @@ void TestSelectMode(Harness& h)
   h.Wait(20);
   assert(h.Seq().playing && h.Seq().currentStep == 0);
   h.App().Ui().ComputeLeds(leds);
-  assert(leds[groove::KeyIndex(c.row, c.column)] == groove::kLedFull && leds[groove::KeyIndex(3, 2)] == groove::kLedHalf);
+  assert(leds[groove::KeyIndex(c.row, c.column)] == groove::kLedFull && leds[groove::KeyIndex(2, 2)] == groove::kLedHalf);
   h.Tap(kPlay);
   h.Wait(100);
   h.App().Ui().ComputeLeds(leds);
@@ -1236,6 +1302,994 @@ void TestSelectMode(Harness& h)
   h.App().Sequencer().ClearSelectedSteps();
   settings.keyboard.multiSelect = false;
   h.App().Ui().Restore(settings, h.State().projectName, h.State().dirty);
+}
+
+// Everything the pads play is kept: a long phrase is one take, and old takes make room for new notes.
+void TestLongCapture(Harness& h)
+{
+  auto& ui = h.App().Ui();
+  h.Wait(groove::kCaptureGapMs + 100);
+  const Key pad{2, 2};
+  h.Tap(pad);
+  const std::uint32_t firstTake = ui.TakeAt(0)->id;
+  for (int note = 1; note < 100; ++note) h.Tap(pad);
+  assert(ui.TakeAt(0)->id == firstTake && ui.TakeAt(0)->count == 100);
+  h.Render();
+  // A new take after a pause; the old one stays until its notes are needed.
+  h.Wait(groove::kCaptureGapMs + 100);
+  for (std::size_t note = 0; note < 250; ++note) h.Tap(pad);
+  assert(ui.TakeAt(0)->id == firstTake + 1 && ui.TakeAt(0)->count == 250 && ui.TakeAt(1)->id == firstTake && ui.TakeAt(1)->count == 100);
+  h.Wait(groove::kCaptureGapMs + 100);
+  for (std::size_t note = 0; note < 100; ++note) h.Tap(pad);
+  assert(ui.TakeAt(0)->id == firstTake + 2 && ui.TakeAt(1)->id == firstTake + 1 && ui.TakeAt(1)->count == 250);
+  assert(ui.TakeAt(2) == nullptr || ui.TakeAt(2)->id != firstTake);  // the 100 notes of the first gave way
+  // The panel shows and places every bar of the long take.
+  h.Hold(kEnter, 500);
+  h.Render();
+  h.Up(kEnter);
+  h.Tap(kEsc);
+}
+
+// A long pattern on the GRID: FN flips its pages and sets its length.
+void TestLongPatternUi(Harness& h)
+{
+  auto& sequencer = h.App().Sequencer();
+  GoToScene(h, 2);
+  while (h.App().Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  const std::size_t track = h.State().track;
+  const std::size_t length = sequencer.TrackStepCount(track);
+  // The menu's row 2: PAGE - / PAGE + / LEN - / LEN +. A big step lands on a page boundary.
+  sequencer.SetTrackStepCount(track, 16);
+  h.Chord(kFn, Grid(11));
+  assert(sequencer.TrackStepCount(track) == 32 && h.Seq().viewPageCount == 2);
+  h.Chord(kFn, Grid(11));
+  assert(sequencer.TrackStepCount(track) == 48 && h.Seq().viewPageCount == 3);
+  h.Chord(kFn, Grid(10));
+  assert(sequencer.TrackStepCount(track) == 32);
+  h.Chord(kFn, Grid(9));
+  assert(h.Seq().viewPage == 1 && h.Seq().firstViewStep == 16);
+  h.Render();
+  h.Chord(kFn, kSub);
+  assert(h.Seq().viewPage == 0);
+  h.Chord(kFn, kAdd);
+  assert(h.Seq().viewPage == 1);
+  h.Render();
+  // The GRID edits the page it shows: its third cell is step 19 here.
+  h.Tap(Grid(2));
+  auto ui = h.Seq();
+  assert(ui.hasHeldSteps && ui.primaryHeldStep == 18 && ui.steps[2].held);
+  h.Render();
+  // Arrow keys walk off the page and take the GRID along.
+  h.Tap(Grid(2));
+  assert(!h.Seq().hasHeldSteps);
+  // Hold a pad, tap a step: it lands on this page.
+  const std::size_t before = h.Seq().tracks[track].populatedStepCount;
+  h.Down(Key{2, 2});
+  h.Tap(Grid(4));
+  h.Up(Key{2, 2});
+  assert(sequencer.StepHasEvents(20) && h.Seq().tracks[track].populatedStepCount == before + 1);
+  h.Render();
+  sequencer.ClearStep(20);
+  // STEP view: the cursor crosses into the next page and the GRID follows.
+  h.Chord(kFn, Grid(5));
+  assert(h.State().record.view == groove::SeqView::Step);
+  while (h.State().record.cursor != 15) h.Tap(kAdd);
+  assert(h.Seq().viewPage == 0);
+  h.Tap(kAdd);
+  assert(h.State().record.cursor == 16 && h.Seq().viewPage == 1);
+  h.Render();
+  // FN + ADD / SUB jumps a page.
+  h.Chord(kFn, kSub);
+  assert(h.State().record.cursor == 0 && h.Seq().viewPage == 0);
+  h.Chord(kFn, Grid(5));
+  // The longest pattern is 256 steps; TRACK steps by one, FN by a page.
+  sequencer.SetTrackStepCount(track, 255);
+  h.Chord(kFn, Grid(11));
+  assert(sequencer.TrackStepCount(track) == 256 && h.Seq().viewPageCount == 16);
+  h.Chord(kFn, Grid(11));
+  assert(sequencer.TrackStepCount(track) == 256);
+  h.Render();
+  h.Tap(kCtrl);
+  h.Tap(kCtrl);
+  assert(h.App().Ui().CurrentPage() == 2);
+  h.Tap(Grid(1));
+  h.Render();
+  h.Tap(kSub);
+  assert(sequencer.TrackStepCount(track) == 255);
+  h.Down(kFn);
+  h.Tap(kSub);
+  h.Up(kFn);
+  assert(sequencer.TrackStepCount(track) == 240);
+  sequencer.SetTrackStepCount(track, length);
+  while (h.App().Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  GoToScene(h, 1);
+}
+
+// The whole sample recording flow through the keys, with a microphone that delivers in real time.
+void TestSampleRecording(Harness& h)
+{
+  namespace sim = CardenzaSim::Input;
+  auto& sampler = h.App().Sampler();
+  const std::size_t track = 3;
+  sim::SetMicrophonePresent(true);
+  h.Chord(kTab, Grid(track));
+  assert(h.App().EngineKind(track) == synth::SynthEngineKind::Sampler);
+  GoToInstrumentPage(h, "SAMPLE");
+  auto openRecord = [&] {
+    h.Tap(Grid(1));
+    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::SampleRecord);
+    h.Render();
+  };
+  auto feed = [&](int frames) {
+    for (int index = 0; index < frames; ++index)
+    {
+      sim::FeedMicrophone(735);
+      h.Frames();
+      h.Render();
+    }
+  };
+
+  // Opening the screen starts nothing; ENTER records, ENTER stops.
+  openRecord();
+  assert(!sampler.BuildUiState(track).recording);
+  h.Tap(kEnter);
+  assert(sampler.BuildUiState(track).recording);
+  feed(20);
+  assert(sampler.BuildUiState(track).frameCount == 20 * 735);
+  h.Tap(kEnter);
+  assert(!sampler.BuildUiState(track).recording && sampler.BuildUiState(track).hasDraft);
+  h.Render();
+  // The take plays, and ESC + ENTER discards it.
+  h.Tap(kPlay);
+  assert(sampler.BuildUiState(track).previewing);
+  h.Wait(100);
+  h.Render();
+  h.Tap(kEsc);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm);
+  h.Render();
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && !sampler.BuildUiState(track).hasDraft);
+
+  // ESC cancels a running recording; the screen stays open and can start again.
+  openRecord();
+  h.Tap(kEnter);
+  feed(5);
+  h.Tap(kEsc);
+  assert(!sampler.BuildUiState(track).recording && !sampler.BuildUiState(track).hasDraft);
+  h.Render();
+  h.Tap(kEnter);
+  feed(5);
+  // A recording that reaches its limit stops by itself and SAVE keeps it as a file.
+  const std::uint32_t limit = sampler.BuildUiState(track).recordMaxFrameCount;
+  assert(limit != 0);
+  sim::FeedMicrophone(limit);
+  h.Frames(2);
+  h.Render();
+  assert(!sampler.BuildUiState(track).recording && sampler.BuildUiState(track).hasDraft);
+  h.Tap(Grid(3));
+  h.Frames(3);
+  h.Render();
+  assert(h.Modal() == nullptr && sampler.BuildUiState(track).hasSample && !sampler.BuildUiState(track).hasDraft);
+
+  // Leaving the screen while recording never leaves the microphone running.
+  openRecord();
+  h.Tap(kEnter);
+  assert(sampler.BuildUiState(track).recording);
+  h.Chord(kEsc, Grid(2));
+  h.Wait(100);
+  h.Render();
+  assert(!sampler.BuildUiState(track).recording);
+  GoToInstrumentPage(h, "SAMPLE");
+
+  sim::SetMicrophonePresent(false);
+  // No microphone: an error on the screen, not a dead end.
+  openRecord();
+  h.Tap(kEnter);
+  h.Render();
+  assert(!sampler.BuildUiState(track).recording);
+  h.Tap(kEsc);
+  assert(h.Modal() == nullptr);
+  GoToScene(h, 1);
+  h.Chord(kTab, Grid(synth::kDefaultActiveTrack));
+}
+
+// A track with the drum engine plays the drum machine on the note page: the pads choose a lane, the
+// GRID is that lane's 16 steps, a tap adds at once, a tap on a hit removes it when let go, and a hit
+// held with ADD / SUB changes its velocity.
+void TestDrumMachine(Harness& h)
+{
+  h.App().Ui().UsePianoRollOnDrums(false);
+  GoToSetupPage(h, groove::kSetupProject);
+  h.Tap(Grid(2));  // NEW
+  if (h.Modal() != nullptr) h.Tap(kEnter);
+  h.Chord(kTab, Grid(0));
+  GoToScene(h, 2);
+  while (h.App().Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  assert(h.App().Ui().DrumLayout() && h.State().track == 0);
+  auto& sequencer = h.App().Sequencer();
+  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+  const auto hitsOn = [&](std::size_t step) { return sequencer.StepNoteEvents(0, step, notes); };
+  // Pads choose the lane.
+  const std::size_t firstLane = h.App().Ui().DrumLane();
+  h.Tap(kDrumPadA);
+  const std::size_t secondLane = h.App().Ui().DrumLane();
+  assert(secondLane != firstLane);
+  // Add at once, a second tap removes when let go.
+  assert(hitsOn(5) == 0);
+  h.Down(Grid(5));
+  assert(hitsOn(5) == 1);
+  h.Up(Grid(5));
+  assert(hitsOn(5) == 1);
+  h.Down(Grid(5));
+  assert(hitsOn(5) == 1);
+  h.Up(Grid(5));
+  assert(hitsOn(5) == 0);
+  // Another lane on the same step is another hit, and removing one keeps the other.
+  h.Tap(Grid(6));
+  h.Tap(kDrumPadB);
+  assert(h.App().Ui().DrumLane() != secondLane);
+  h.Tap(Grid(6));
+  assert(hitsOn(6) == 2);
+  h.Tap(Grid(6));
+  assert(hitsOn(6) == 1);
+  h.Tap(kDrumPadA);
+  h.Tap(Grid(6));
+  assert(hitsOn(6) == 0);
+  // Hold + ADD / SUB: velocity, and no removal when let go.
+  h.Tap(Grid(7));
+  assert(hitsOn(7) == 1);
+  const std::uint8_t before = notes[0].velocity;
+  h.Down(Grid(7));
+  h.Tap(kSub);
+  h.Up(Grid(7));
+  assert(hitsOn(7) == 1 && notes[0].velocity < before);
+  h.Tap(Grid(7));
+  assert(hitsOn(7) == 0);
+  GoToScene(h, 1);
+}
+
+// Every key, in any order, on every screen: once all keys are up, the transport stopped and the
+// arpeggiators off, nothing may still hold a note, and the safety net must not have had to step in.
+void TestNoStuckNotes(Harness& h)
+{
+  auto& app = h.App();
+  const char* seed = std::getenv("CARDENZA_FUZZ_SEED");
+  std::mt19937 random(seed != nullptr ? static_cast<std::uint32_t>(std::atoi(seed)) : 20261101u);
+  const std::uint32_t orphansBefore = app.EndedOrphanNotes();
+  const std::uint32_t voicesBefore = synth::audio::ReleasedOrphanVoiceCount();
+  std::vector<Key> down;
+  std::vector<std::string> trace;
+  std::array<std::int16_t, 256> block{};
+  const auto render = [&](int blocks) { for (int index = 0; index < blocks; ++index) synth::audio::RenderFrames(block.data(), block.size()); };
+  const auto press = [&](Key key, bool pressed) {
+    trace.push_back(std::string(pressed ? "down " : "up ") + std::to_string(key.row) + "," + std::to_string(key.column));
+    if (trace.size() > 60) trace.erase(trace.begin());
+    pressed ? h.Down(key) : h.Up(key);
+  };
+  const auto pick = [&]() -> Key {
+    const std::uint32_t kind = random() % 100;
+    if (kind < 55) return Key{random() % 4, 1 + random() % 8};   // Pads.
+    if (kind < 70) return Key{random() % 4, 0};                  // ESC, TAB, FN, CTRL.
+    if (kind < 90) return Key{random() % 4, 9 + random() % 4};   // GRID.
+    return Key{random() % 4, 13};                                // ADD, SUB, ENTER, PLAY.
+  };
+  for (int round = 0; round < 60; ++round)
+  {
+    for (int event = 0; event < 300; ++event)
+    {
+      // The HAL reports at most four keys at a time.
+      if (down.size() >= 4 || (!down.empty() && random() % 2 == 0))
+      {
+        const std::size_t index = random() % down.size();
+        press(down[index], false);
+        down.erase(down.begin() + static_cast<std::ptrdiff_t>(index));
+      }
+      else
+      {
+        const Key key = pick();
+        const bool held = std::any_of(down.begin(), down.end(), [&](const Key& other) { return other.row == key.row && other.column == key.column; });
+        if (held) continue;
+        press(key, true);
+        down.push_back(key);
+      }
+      for (std::uint32_t frame = 1 + random() % 3; frame > 0; --frame)
+      {
+        h.Frames(1);
+        render(1);
+      }
+      if (app.EndedOrphanNotes() != orphansBefore || synth::audio::ReleasedOrphanVoiceCount() != voicesBefore)
+      {
+        std::cerr << "safety net fired: round " << round << " event " << event << " scene " << static_cast<int>(h.State().scene) << " track " << h.State().track << " orphans " << app.EndedOrphanNotes() << " voices " << synth::audio::ReleasedOrphanVoiceCount() << "\n";
+        for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) std::cerr << "kind " << static_cast<int>(app.EngineKind(track)) << "\n";
+        for (const std::string& line : trace) std::cerr << line << " ";
+        std::cerr << "\n";
+        std::abort();
+      }
+    }
+    for (const Key& key : down) press(key, false);
+    down.clear();
+    for (int frame = 0; frame < 8; ++frame) { h.Frames(1); render(1); }
+    // Close whatever is open, let every screen settle.
+    for (int index = 0; index < 4 && h.Modal() != nullptr; ++index) { press(kEsc, true); press(kEsc, false); for (int frame = 0; frame < 4; ++frame) { h.Frames(1); render(1); } }
+    for (int frame = 0; frame < 8; ++frame) { h.Frames(1); render(1); }
+    // Stopped, with no arpeggiator running: no key is down, so nothing has a reason to sound.
+    if (!app.Sequencer().Playing())
+    {
+      for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+      {
+        const synth::audio::NoteSet held = synth::audio::HeldNotes(track);
+        if (app.Sequencer().ArpActive(track) || std::all_of(held.begin(), held.end(), [](std::uint32_t word) { return word == 0; })) continue;
+        std::cerr << "a note sounds with no key down: round " << round << " track " << track << "\n";
+        for (const std::string& line : trace) std::cerr << line << " ";
+        std::cerr << "\n";
+        std::abort();
+      }
+    }
+    app.Sequencer().Stop();
+    for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+    {
+      synth::ArpSettings arp = app.Sequencer().GetArpSettings(track);
+      arp.mode = synth::ArpMode::Off;
+      app.Sequencer().SetArpSettings(track, arp);
+    }
+    for (int frame = 0; frame < 16; ++frame) { h.Frames(1); render(1); }
+    // With every key up, nothing may still behave as if one were down.
+    const auto& state = h.State();
+    bool keysClear = !app.Ui().EscOverlay() && !app.Ui().TabOverlay() && !app.Ui().FnOverlay() && !app.Ui().CtrlOverlay() && !state.repeat.down;
+    for (const auto& left : state.left) keysClear = keysClear && !left.down;
+    for (const bool grid : state.gridDown) keysClear = keysClear && !grid;
+    for (const auto note : state.padNote) keysClear = keysClear && note == groove::kNoNote;
+    if (!keysClear)
+    {
+      std::cerr << "a key still counts as down: round " << round << " esc " << state.left[0].down << " tab " << state.left[1].down << " fn " << state.left[2].down << " ctrl " << state.left[3].down << " repeat " << state.repeat.down << "\n";
+      for (const std::string& line : trace) std::cerr << line << "\n";
+      std::abort();
+    }
+    for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+    {
+      const synth::audio::NoteSet held = synth::audio::HeldNotes(track);
+      const bool silent = std::all_of(held.begin(), held.end(), [](std::uint32_t word) { return word == 0; });
+      if (silent && app.EndedOrphanNotes() == orphansBefore && synth::audio::ReleasedOrphanVoiceCount() == voicesBefore) continue;
+      std::cerr << "stuck note: round " << round << " track " << track << " silent " << silent << " orphans " << app.EndedOrphanNotes() << " voices " << synth::audio::ReleasedOrphanVoiceCount() << "\n";
+      for (const std::string& line : trace) std::cerr << line << "\n";
+      std::abort();
+    }
+  }
+  GoToScene(h, 1);
+}
+
+// ADD and SUB's icons say what they do, and a list goes the way its arrows point.
+void TestAdjustIcons(Harness& h)
+{
+  auto& app = h.App();
+  using Meaning = groove::AdjustMeaning;
+  app.Ui().UsePianoRollOnDrums(false);
+  GoToScene(h, 1);
+  h.Chord(kTab, Grid(1));
+  while (app.Ui().CurrentInstrumentPage()->graphic != groove::PageGraphic::Voice) h.Tap(kCtrl);
+  // The instrument's first page walks the presets: up goes up the list, as in the browser.
+  assert(app.Ui().AdjustKeysMean() == Meaning::List);
+  h.Tap(kSub);
+  h.Tap(kSub);
+  const std::string lower = app.Engine(1)->CurrentPresetName();
+  h.Tap(kAdd);
+  const std::string upper = app.Engine(1)->CurrentPresetName();
+  assert(lower != upper);
+  h.Tap(Grid(1));
+  assert(app.Ui().AdjustKeysMean() == Meaning::List);
+  const std::size_t cursor = h.Modal()->cursor;
+  h.Tap(kAdd);
+  assert(h.Modal()->cursor + 1 == cursor);
+  h.Tap(kEsc);
+  // Parameters are values; an engine choice is a row.
+  h.Tap(kCtrl);
+  assert(app.Ui().AdjustKeysMean() == Meaning::Value);
+  h.Tap(kCtrl);
+  h.Tap(kCtrl);
+  assert(app.Ui().AdjustKeysMean() == Meaning::Value);
+  while (app.Ui().CurrentInstrumentPage()->graphic != groove::PageGraphic::Voice) h.Tap(kCtrl);
+  h.Tap(Grid(0));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && app.Ui().AdjustKeysMean() == Meaning::Sideways);
+  h.Tap(kEsc);
+  // Holding CTRL or TAB, they step the pages or the tracks.
+  h.Down(kCtrl);
+  assert(app.Ui().AdjustKeysMean() == Meaning::Sideways);
+  h.Tap(kAdd);
+  h.Up(kCtrl);
+  h.Down(kTab);
+  assert(app.Ui().AdjustKeysMean() == Meaning::Sideways);
+  h.Tap(kAdd);
+  h.Up(kTab);
+  h.Chord(kTab, Grid(1));
+  // SEQ: a value (pattern, velocity), except the step cursor of STEP REC.
+  GoToScene(h, 2);
+  while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  assert(app.Ui().AdjustKeysMean() == Meaning::Value);
+  h.Tap(kEnter);
+  h.Wait(50);
+  if (app.Ui().View() == groove::SeqView::Step) assert(app.Ui().AdjustKeysMean() == Meaning::Sideways);
+  if (app.Ui().View() == groove::SeqView::Step) { h.Tap(kEnter); h.Wait(50); }
+  // TAPE: the session is a list, the rest values.
+  GoToScene(h, 3);
+  while (app.Ui().CurrentPage() != groove::kTapeSession) h.Tap(kCtrl);
+  assert(app.Ui().AdjustKeysMean() == Meaning::List);
+  const std::size_t before = h.State().sessionPattern;
+  h.Tap(kSub);
+  assert(h.State().sessionPattern == before + 1);
+  h.Tap(kAdd);
+  assert(h.State().sessionPattern == before);
+  while (app.Ui().CurrentPage() != groove::kTapeMix) h.Tap(kCtrl);
+  assert(app.Ui().AdjustKeysMean() == Meaning::Value);
+  // SETUP: the file list is a list; a name field erases; a confirmation has no use for them.
+  GoToSetupPage(h, groove::kSetupFiles);
+  assert(app.Ui().AdjustKeysMean() == Meaning::List);
+  GoToSetupPage(h, groove::kSetupProject);
+  assert(app.Ui().AdjustKeysMean() == Meaning::Value);
+  h.Chord(kFn, Grid(2));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::TextEntry && app.Ui().AdjustKeysMean() == Meaning::Erase);
+  h.Tap(kEsc);
+  if (h.Modal() != nullptr) h.Tap(kEsc);
+  GoToScene(h, 1);
+}
+
+// On a drum track a column of pads is a drum and its rows how hard: the top row hardest. The column
+// shows it as a bar, and a hit runs along it, further the harder it was.
+void TestDrumPads(Harness& h)
+{
+  auto& app = h.App();
+  app.Ui().UsePianoRollOnDrums(false);
+  GoToScene(h, 1);
+  h.Chord(kTab, Grid(0));
+  assert(app.EngineKind(0) == synth::SynthEngineKind::Drums);
+  std::array<std::uint8_t, groove::kKeyCount> leds{};
+  const auto logical = [&](Key key) {
+    app.Ui().ComputeLeds(leds);
+    return leds[groove::KeyIndex(key.row, key.column)];
+  };
+  // Every row of a column plays the same drum, each with its own velocity.
+  for (std::size_t row = 0; row < groove::kRows; ++row)
+  {
+    const Key pad{row, 2};
+    h.Down(pad);
+    const std::size_t index = row * groove::kPadColumns + 1;
+    assert(h.State().padNote[index] == groove::kDrumNotes[1] && h.State().padVelocity[index] == groove::kDrumRowVelocity[row]);
+    // A bar from the bottom up to this row; the other columns are not touched.
+    for (std::size_t other = 0; other < groove::kRows; ++other)
+    {
+      assert(logical(Key{other, 2}) == (other >= row ? groove::kLedFull : groove::kLedHalf));
+      assert(logical(Key{other, 3}) == groove::kLedHalf);
+    }
+    h.Up(pad);
+    assert(logical(pad) == groove::kLedHalf);
+  }
+  // A melodic track goes on playing at the keyboard's velocity, on every row.
+  h.Chord(kTab, Grid(1));
+  h.Down(Key{0, 1});
+  assert(h.State().padVelocity[0] == h.State().keyboard.velocity);
+  h.Up(Key{0, 1});
+  h.Chord(kTab, Grid(0));
+  h.Wait(1000);
+
+  // At rest the columns get brighter towards the top; a hard hit strikes at once and runs down the
+  // whole column, a soft one stays near its key.
+  assert(Led(h, Key{0, 5}) > Led(h, Key{3, 5}) && Led(h, Key{3, 5}) >= groove::kLedHalf);
+  const int restTop = Led(h, Key{0, 5});
+  const int restBottom = Led(h, Key{3, 5});
+  h.Down(Key{0, 5});
+  assert(Led(h, Key{0, 5}) >= 12 && Led(h, Key{3, 5}) == restBottom);  // Not there yet.
+  h.Up(Key{0, 5});
+  int bottom = 0;
+  for (int frame = 0; frame < 12; ++frame) { h.Frames(1); bottom = std::max(bottom, Led(h, Key{3, 5})); }
+  assert(bottom > restBottom + 2);
+  h.Wait(1000);
+  assert(Led(h, Key{0, 5}) == restTop && Led(h, Key{3, 5}) == restBottom);
+  // Held, the bar stays: from the bottom up to the row played.
+  h.Down(Key{1, 5});
+  h.Wait(300);
+  assert(Led(h, Key{1, 5}) == groove::kLedFull && Led(h, Key{3, 5}) == groove::kLedFull && Led(h, Key{0, 5}) == restTop);
+  h.Up(Key{1, 5});
+  h.Wait(1000);
+  h.Down(Key{3, 5});
+  assert(Led(h, Key{3, 5}) >= 12);
+  h.Up(Key{3, 5});
+  int top = 0;
+  for (int frame = 0; frame < 12; ++frame) { h.Frames(1); top = std::max(top, Led(h, Key{0, 5})); }
+  assert(top == restTop);
+  h.Wait(1000);
+
+  // On the drum page a pad chooses the drum and how hard the GRID puts it in.
+  GoToScene(h, 2);
+  while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  auto& sequencer = app.Sequencer();
+  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+  std::size_t step = 0;
+  while (sequencer.StepNoteEvents(0, step, notes) != 0 && step < 15) ++step;
+  assert(sequencer.StepNoteEvents(0, step, notes) == 0);
+  h.Tap(Key{1, 4});
+  assert(app.Ui().DrumLane() == 3 && h.State().drumVelocity[0] == groove::kDrumRowVelocity[1]);
+  assert(logical(Key{1, 4}) == groove::kLedFull && logical(Key{3, 4}) == groove::kLedFull && logical(Key{0, 4}) == groove::kLedHalf);
+  h.Tap(Grid(step));
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].note == groove::kDrumNotes[3] && notes[0].velocity == groove::kDrumRowVelocity[1]);
+  h.Tap(Key{0, 4});
+  h.Tap(Grid(step));
+  assert(sequencer.StepNoteEvents(0, step, notes) == 0);
+  h.Tap(Grid(step));
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].velocity == groove::kDrumRowVelocity[0]);
+  // Holding a hit: ADD / SUB change its velocity, ENTER switches them to its timing and back.
+  assert(notes[0].microstep == 0 && !h.State().drumEditsMicrostep);
+  h.Hold(Grid(step), 400);
+  assert(h.State().hud.label == "OH VELOCITY");
+  h.Tap(kSub);
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].velocity == 121 && notes[0].microstep == 0);
+  h.Tap(kEnter);
+  assert(h.State().drumEditsMicrostep && h.State().hud.label == "OH MICRO" && h.State().hud.value == "ON GRID");
+  h.Tap(kAdd);
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 1 && notes[0].velocity == 121);
+  assert(h.State().hud.value == "+1/6");
+  h.Tap(kAdd);
+  h.Tap(kAdd);
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 3);
+  h.Tap(kSub);
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 2);
+  // It stops at both ends of the step, FN takes bigger steps.
+  for (int press = 0; press < 8; ++press) h.Tap(kAdd);
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 5);
+  h.Chord(kFn, kSub);
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 2);
+  h.Render();
+  h.Up(Grid(step));
+  // Letting go keeps the hit, and the next held hit edits timing again.
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 2);
+  h.Hold(Grid(step), 400);
+  assert(h.State().hud.label == "OH MICRO");
+  h.Tap(kEnter);
+  assert(!h.State().drumEditsMicrostep && h.State().hud.label == "OH VELOCITY");
+  h.Up(Grid(step));
+  // A short tap still takes it out, off the beat or not.
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1);
+  h.Tap(Grid(step));
+  assert(sequencer.StepNoteEvents(0, step, notes) == 0);
+  // Moving a note that is not there, or out of the step, does nothing.
+  assert(sequencer.InsertNote(0, sequencer.ActivePattern(0), step, 2, groove::kDrumNotes[3], 100, 24));
+  assert(!sequencer.MoveNote(0, sequencer.ActivePattern(0), step, groove::kDrumNotes[3], 0, 1));
+  assert(!sequencer.MoveNote(0, sequencer.ActivePattern(0), step, groove::kDrumNotes[3], 2, synth::kSequencerMicrostepCount));
+  assert(sequencer.MoveNote(0, sequencer.ActivePattern(0), step, groove::kDrumNotes[3], 2, 4));
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 4);
+  assert(sequencer.RemoveNote(0, sequencer.ActivePattern(0), step, groove::kDrumNotes[3]));
+  GoToScene(h, 1);
+}
+
+// Holding a parameter's GRID cell turns the pads into its values: lit where there is a value, the
+// current one full, a press sets it. A tap on the cell still does what it did, and the pads play again.
+void TestCellPicker(Harness& h)
+{
+  auto& app = h.App();
+  h.App().Ui().UsePianoRollOnDrums(false);
+  std::array<std::uint8_t, groove::kKeyCount> leds{};
+  const auto padLed = [&](std::size_t pad) {
+    app.Ui().ComputeLeds(leds);
+    return leds[groove::KeyIndex(pad / groove::kPadColumns, groove::kPadFirstColumn + pad % groove::kPadColumns)];
+  };
+  const auto padKey = [](std::size_t pad) { return Key{pad / groove::kPadColumns, groove::kPadFirstColumn + pad % groove::kPadColumns}; };
+  GoToScene(h, 1);
+  h.Chord(kTab, Grid(1));
+  // ARP page of T2: mode (a choice), rate, range (a number of four), gate (a long range), HOLD.
+  while (std::string(app.Ui().CurrentInstrumentPage()->tab) != "ARP") h.Tap(kCtrl);
+  const std::size_t modes = synth::kArpModeCount, rates = synth::kArpRateCount;
+  // Not yet: a short press leaves the pads alone, and a pad pressed meanwhile plays.
+  h.Down(Grid(1));
+  assert(!app.Ui().CellPickerActive());
+  h.Up(Grid(1));
+  assert(!app.Ui().CellPickerActive());
+  // Held: as many pads as values.
+  h.Hold(Grid(1), 300);
+  assert(app.Ui().CellPickerActive());
+  std::string label, text;
+  synth::SynthParameterInfo info;
+  assert(app.Ui().CellParameter(1, label, info, text) && label == "RATE");
+  for (std::size_t pad = 0; pad < rates; ++pad) assert(padLed(pad) == (pad == static_cast<std::size_t>(info.value) ? groove::kLedFull : groove::kLedHalf));
+  assert(padLed(rates) == groove::kLedOff);
+  // A press sets it, reports it and plays nothing; a press where nothing is lit does nothing.
+  h.Tap(padKey(1));
+  assert(app.Sequencer().GetArpSettings(1).rate == 1 && h.State().hud.label == "RATE" && h.State().padNote[0] == groove::kNoNote);
+  assert(padLed(1) == groove::kLedFull && padLed(info.value) == groove::kLedHalf);
+  h.Tap(padKey(rates));
+  assert(app.Sequencer().GetArpSettings(1).rate == 1);
+  h.Up(Grid(1));
+  // Letting go: the pads are the keyboard again, and picking did not also step the value.
+  assert(!app.Ui().CellPickerActive() && app.Sequencer().GetArpSettings(1).rate == 1);
+  h.Down(padKey(16));
+  assert(h.State().padNote[16] != groove::kNoNote);
+  h.Up(padKey(16));
+  // A tap on the focused cell still steps it; a long hold without a pick does not.
+  h.Tap(Grid(1));
+  assert(app.Sequencer().GetArpSettings(1).rate == 2);
+  h.Hold(Grid(1), 300);
+  h.Up(Grid(1));
+  assert(app.Sequencer().GetArpSettings(1).rate == 2);
+  // A long range spreads over all the pads, ends included.
+  h.Hold(Grid(3), 300);
+  h.Tap(padKey(30));  // An even range: 31 pads, so that the middle is on one.
+  assert(app.Sequencer().GetArpSettings(1).gate == 100);
+  h.Tap(padKey(0));
+  assert(app.Sequencer().GetArpSettings(1).gate == 10);
+  h.Up(Grid(3));
+  (void)modes;
+  // A left key takes over: the page map, not the values.
+  h.Hold(Grid(1), 300);
+  h.Hold(kCtrl, 300);
+  assert(!app.Ui().CellPickerActive());
+  h.Up(kCtrl);
+  h.Up(Grid(1));
+  while (std::string(app.Ui().CurrentInstrumentPage()->tab) != "ARP") h.Tap(kCtrl);
+  // Cells with no parameter: nothing.
+  h.Hold(Grid(15), 300);
+  assert(!app.Ui().CellPickerActive());
+  h.Up(Grid(15));
+
+  // HOLD: one tap, the arp plays on after the keys let go; a new press starts a new set; off stops it.
+  h.Tap(Grid(0));
+  while (app.Sequencer().GetArpSettings(1).mode == synth::ArpMode::Off) h.Tap(Grid(0));
+  assert(!app.Sequencer().GetArpSettings(1).latch);
+  h.Tap(Grid(4));
+  assert(app.Sequencer().GetArpSettings(1).latch);
+  app.Ui().ComputeLeds(leds);
+  assert(leds[groove::KeyIndex(Grid(4).row, Grid(4).column)] == groove::kLedFull);
+  h.Tap(Key{2, 1});
+  assert(app.Sequencer().ArpActive(1));
+  h.Tap(Grid(4));
+  assert(!app.Sequencer().GetArpSettings(1).latch && !app.Sequencer().ArpActive(1));
+  synth::ArpSettings off = app.Sequencer().GetArpSettings(1);
+  off.mode = synth::ArpMode::Off;
+  app.Sequencer().SetArpSettings(1, off);
+
+  // SETUP, the mixer and the effects offer their values too.
+  GoToSetupPage(h, groove::kSetupKeys);
+  h.Hold(Grid(1), 300);
+  assert(app.Ui().CellPickerActive());
+  h.Up(Grid(1));
+  GoToSetupPage(h, groove::kSetupProject);
+  h.Hold(Grid(5), 300);  // SWING
+  assert(app.Ui().CellPickerActive());
+  h.Up(Grid(5));
+  h.Hold(Grid(7), 300);  // PLAY mode, an action rather than a value.
+  assert(!app.Ui().CellPickerActive());
+  h.Up(Grid(7));
+  if (app.Sequencer().SongMode()) h.Tap(Grid(7));
+  GoToScene(h, 3);
+  while (app.Ui().CurrentPage() != groove::kTapeMix) h.Tap(kCtrl);
+  h.Hold(Grid(2), 300);
+  assert(app.Ui().CellPickerActive());
+  h.Tap(padKey(30));
+  assert(app.TrackLevel(2) == 100);
+  h.Tap(padKey(15));
+  assert(app.TrackLevel(2) == 50);
+  h.Up(Grid(2));
+  h.Hold(Grid(4 + 2), 300);  // Mute is a switch, no value to pick.
+  assert(!app.Ui().CellPickerActive());
+  h.Up(Grid(4 + 2));
+  if (app.TrackMuted(2)) h.Tap(Grid(4 + 2));
+  while (app.Ui().CurrentPage() != groove::kTapeSends) h.Tap(kCtrl);
+  h.Hold(Grid(4 + 1), 300);  // T2's chorus modes.
+  assert(app.Ui().CellPickerActive());
+  h.Up(Grid(4 + 1));
+  GoToScene(h, 1);
+}
+
+// A note held while anything else happens ends when its key does, whatever happened in between.
+void TestHeldNotesEnd(Harness& h)
+{
+  std::array<std::int16_t, 256> block{};
+  const auto settle = [&]() { for (int frame = 0; frame < 6; ++frame) { h.Frames(1); synth::audio::RenderFrames(block.data(), block.size()); } };
+  const auto silent = [&]() {
+    for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+    {
+      const synth::audio::NoteSet held = synth::audio::HeldNotes(track);
+      if (!std::all_of(held.begin(), held.end(), [](std::uint32_t word) { return word == 0; })) return false;
+    }
+    return true;
+  };
+  const Key pad{2, 1};
+  const auto holdThrough = [&](const char* what, const auto& action) {
+    GoToScene(h, 1);
+    h.Chord(kTab, Grid(1));
+    settle();
+    assert(silent());
+    h.Down(pad);
+    settle();
+    assert(!silent());
+    action();
+    settle();
+    h.Up(pad);
+    settle();
+    if (!silent())
+    {
+      std::cerr << "note left sounding after: " << what << "\n";
+      std::abort();
+    }
+    while (h.Modal() != nullptr) h.Tap(kEsc);
+  };
+  holdThrough("a scene change", [&]() { h.Tap(kEsc); h.Tap(kEsc); });
+  holdThrough("the scene map", [&]() { h.Chord(kEsc, Grid(1)); });
+  holdThrough("a track change", [&]() { h.Tap(kTab); });
+  holdThrough("the track map", [&]() { h.Chord(kTab, Grid(3)); });
+  holdThrough("a page change", [&]() { h.Tap(kCtrl); });
+  holdThrough("the FN menu", [&]() { h.Tap(kFn); h.Tap(kFn); });
+  holdThrough("a preset change", [&]() { h.Tap(kAdd); h.Tap(kSub); });
+  holdThrough("the preset browser", [&]() { h.Tap(Grid(1)); h.Tap(kAdd); h.Tap(kEnter); });
+  holdThrough("an engine change", [&]() { h.Tap(Grid(0)); h.Tap(kAdd); h.Tap(kEnter); h.Tap(Grid(0)); h.Tap(kSub); h.Tap(kEnter); });
+  holdThrough("transport", [&]() { h.Tap(kPlay); h.Wait(100); h.Tap(kPlay); });
+  holdThrough("an octave change", [&]() {
+    GoToSetupPage(h, groove::kSetupKeys);
+    h.Tap(Grid(3));
+    h.Tap(kAdd);
+    h.Tap(kSub);
+    h.Tap(kEsc);
+  });
+  holdThrough("a project change", [&]() {
+    GoToSetupPage(h, groove::kSetupProject);
+    h.Tap(Grid(2));
+    if (h.Modal() != nullptr) h.Tap(kEnter);
+    h.Tap(kEsc);
+  });
+  GoToScene(h, 1);
+}
+
+// DEMO-2 as a user's board saved it under the 0.1.0 release (format 6), unchanged.
+constexpr const char* kReleaseProject = R"FIXTURE(CARDENZA_PROJECT 6
+BUILD CardenzaSynth 1
+UI 0 -1 4 0 1 15
+MASTER 100
+MIX 0 100 0 0
+MIX 1 100 0 0
+MIX 2 100 0 0
+MIX 3 100 0 0
+SYSTEM 180
+FX 12 7 56 72 100 76 52 36 100 0 64 64 0
+KEYS 0 110
+PLAYFX 0 0 0 0 3 1 50 0
+PLAYFX 1 0 0 0 3 1 50 0
+PLAYFX 2 0 0 0 3 1 50 0
+PLAYFX 3 0 0 0 3 1 50 0
+TRACK 0 4 "drums.808" "drums.808" "808 Kit" ""
+PARAM 16
+"clap.level" 100
+"closed_hat.level" 100
+"cowbell.level" 100
+"fx.chorus" 2
+"fx.crush" 0
+"fx.delay" 0
+"fx.drive" 12
+"fx.filter" 64
+"fx.resonance" 20
+"fx.reverb" 40
+"kick.level" 127
+"maraca.level" 100
+"master.level" 100
+"open_hat.level" 100
+"snare.level" 100
+"tom.level" 100
+TRACK 1 2 "juno.a68" "juno.a68" "Synth Pad" ""
+PARAM 29
+"dco.lfo" 5
+"dco.noise" 0
+"dco.pulse" 1
+"dco.pwm" 43
+"dco.pwm_mode" 0
+"dco.range" 1
+"dco.saw" 0
+"dco.sub" 37
+"env.attack" 0
+"env.decay" 65
+"env.release" 70
+"env.sustain" 22
+"fx.chorus" 2
+"fx.crush" 0
+"fx.delay" 0
+"fx.drive" 0
+"fx.filter" 64
+"fx.resonance" 20
+"fx.reverb" 0
+"lfo.delay" 0
+"lfo.rate" 56
+"vca.level" 127
+"vca.mode" 0
+"vcf.cutoff" 37
+"vcf.env" 84
+"vcf.keyboard" 127
+"vcf.lfo" 0
+"vcf.polarity" 0
+"vcf.resonance" 0
+TRACK 2 2 "juno.b78" "juno.b78" "Brassy Organ" ""
+PARAM 29
+"dco.lfo" 0
+"dco.noise" 0
+"dco.pulse" 1
+"dco.pwm" 68
+"dco.pwm_mode" 0
+"dco.range" 0
+"dco.saw" 1
+"dco.sub" 56
+"env.attack" 0
+"env.decay" 36
+"env.release" 0
+"env.sustain" 109
+"fx.chorus" 1
+"fx.crush" 0
+"fx.delay" 0
+"fx.drive" 0
+"fx.filter" 64
+"fx.resonance" 20
+"fx.reverb" 0
+"lfo.delay" 0
+"lfo.rate" 16
+"vca.level" 127
+"vca.mode" 0
+"vcf.cutoff" 8
+"vcf.env" 87
+"vcf.keyboard" 52
+"vcf.lfo" 0
+"vcf.polarity" 0
+"vcf.resonance" 0
+TRACK 3 3 "sampler.empty" "sampler.empty" "Empty Slot" ""
+PARAM 18
+"amp.level" 96
+"env.attack" 4
+"env.release" 18
+"filter.cutoff" 96
+"filter.resonance" 18
+"fx.chorus" 0
+"fx.crush" 0
+"fx.delay" 0
+"fx.drive" 0
+"fx.filter" 64
+"fx.resonance" 20
+"fx.reverb" 0
+"sample.end" 127
+"sample.gain" 96
+"sample.loop" 0
+"sample.root" 60
+"sample.start" 0
+"sample.tune" 0
+SEQ 100 50
+T 3 2 110 24 1 0 16
+NOTES 14
+0 0 36 127 96 0
+0 4 42 110 28 0
+0 10 36 110 31 2
+0 12 42 110 24 0
+1 0 36 110 20 1
+1 1 36 110 22 2
+1 6 39 110 25 2
+1 8 36 110 24 0
+1 12 42 110 24 0
+2 0 36 110 24 0
+2 4 39 110 24 0
+2 8 36 110 24 0
+2 10 36 110 24 0
+2 12 39 110 24 0
+T 4 2 110 24 1 0 16
+NOTES 28
+0 0 73 110 72 0
+0 2 80 110 24 0
+0 4 76 110 24 0
+0 6 73 110 24 0
+0 10 75 110 24 0
+0 12 76 110 24 0
+0 14 68 110 36 0
+1 0 69 110 72 0
+1 2 80 110 24 0
+1 4 76 110 24 0
+1 6 73 110 24 0
+1 10 76 110 24 0
+1 12 78 110 24 0
+1 14 73 110 36 0
+2 0 66 110 72 0
+2 2 80 110 24 0
+2 4 76 110 24 0
+2 6 73 110 24 0
+2 10 78 110 24 0
+2 12 80 110 24 0
+2 14 73 110 36 0
+3 0 74 110 72 0
+3 2 78 110 24 0
+3 4 81 110 24 0
+3 6 83 110 24 0
+3 10 78 110 24 0
+3 12 81 110 24 0
+3 14 83 110 36 0
+T 1 0 110 24 1 0 16
+NOTES 0
+T 1 0 110 24 1 0 16
+NOTES 0
+SONG 4 1
+R 2 0 0 0 2
+R 2 1 0 0 2
+R 2 2 0 0 2
+R 2 3 0 0 2
+END
+)FIXTURE";
+
+// The 0.1.0 release kept its projects and samples in <card>/CardenzaSynth/{Projects,Samples}. They load
+// from there as they are; nothing there moves or changes, and saving goes to our own folder.
+void TestReleaseProjects(Harness& h)
+{
+  namespace fs = std::filesystem;
+  auto& app = h.App();
+  const fs::path release = fs::path(Device::Storage::RootPath()) / "CardenzaSynth";
+  const fs::path ours = fs::path(synth::storage::ProjectDirectory());
+  const auto write = [](const fs::path& path, const std::string& text) {
+    fs::create_directories(path.parent_path());
+    std::ofstream(path, std::ios::binary) << text;
+  };
+  const auto read = [](const fs::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(file), {});
+  };
+  const auto listed = [&](const std::string& name) {
+    const auto projects = app.ListProjects();
+    return std::find(projects.begin(), projects.end(), name) != projects.end();
+  };
+  for (const char* name : {"DEMO-1", "DEMO-2", "DRUM SET", "SONG1995"}) write(release / "Projects" / (std::string(name) + ".ccproj"), kReleaseProject);
+  write(release / "Session" / "session.cfg", "pending=1");
+  for (const char* name : {"DEMO-1", "DEMO-2", "DRUM SET", "SONG1995"})
+  {
+    assert(listed(name));
+    assert(!fs::exists(ours / (std::string(name) + ".ccproj")));
+  }
+  // Loading it from FILES: the notes are there, on the track they were on.
+  GoToSetupPage(h, groove::kSetupFiles);
+  const auto& projects = h.State().projects;
+  const std::size_t index = static_cast<std::size_t>(std::find(projects.begin(), projects.end(), "DEMO-1") - projects.begin());
+  assert(index < projects.size());
+  while (h.State().fileCursor < index) h.Tap(kSub);
+  while (h.State().fileCursor > index) h.Tap(kAdd);
+  assert(h.State().fileCursor == index);
+  h.Tap(kEnter);
+  if (h.Modal() != nullptr) h.Tap(kEnter);
+  assert(h.State().projectName == "DEMO-1");
+  // All four tracks as they were: the sounds with their changes, the patterns, the notes.
+  assert(app.EngineKind(0) == synth::SynthEngineKind::Drums && app.EngineKind(1) == synth::SynthEngineKind::Juno);
+  assert(app.EngineKind(2) == synth::SynthEngineKind::Juno && app.EngineKind(3) == synth::SynthEngineKind::Sampler);
+  const auto parameter = [&](std::size_t track, const char* id) {
+    synth::SynthParameterInfo info;
+    assert(app.Engine(track)->GetParameterInfo(id, info));
+    return info.value;
+  };
+  assert(parameter(1, "env.sustain") == 22 && parameter(1, "env.release") == 70 && parameter(1, "vca.level") == 127);
+  assert(parameter(1, "fx.chorus") == 2 && parameter(1, "dco.saw") == 0 && parameter(1, "dco.sub") == 37);
+  assert(h.Seq().bpm == 100);
+  assert(app.Sequencer().ActivePattern(0) == 2 && app.Sequencer().ActivePattern(1) == 2);
+  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+  assert(app.Sequencer().StepNoteEvents(1, 0, notes) == 1 && notes[0].note == 66 && notes[0].lengthPulses == 72);
+  assert(app.Sequencer().StepNoteEvents(0, 4, notes) == 1 && notes[0].note == 39);
+  // Saving it writes to our folder; the original stays as it was. The list shows it once, ours first.
+  const std::string original = read(release / "Projects" / "DEMO-1.ccproj");
+  h.Chord(kFn, Key{2, 3});  // S
+  assert(fs::exists(ours / "DEMO-1.ccproj"));
+  assert(read(release / "Projects" / "DEMO-1.ccproj") == original);
+  { const auto all = app.ListProjects(); assert(std::count(all.begin(), all.end(), std::string("DEMO-1")) == 1); }
+  assert(synth::ResolveProjectPath("DEMO-1") == (ours / "DEMO-1.ccproj").generic_string());
+  assert(synth::ResolveProjectPath("DEMO-2") == (release / "Projects" / "DEMO-2.ccproj").generic_string());
+  // A new project has nowhere else to go.
+  GoToSetupPage(h, groove::kSetupProject);
+  h.Tap(Grid(2));  // NEW
+  if (h.Modal() != nullptr) h.Tap(kEnter);
+  h.Chord(kFn, Key{2, 3});  // S
+  assert(fs::exists(ours / (h.State().projectName + ".ccproj")));
+  assert(!fs::exists(release / "Projects" / (h.State().projectName + ".ccproj")));
+  // Samples: found in either folder, ours first, and listed once.
+  write(release / "Samples" / "OLD-KICK.wav", "riff");
+  assert(synth::storage::ResolveSamplePath("OLD-KICK.wav") == (release / "Samples" / "OLD-KICK.wav").generic_string());
+  { const auto all = app.ListSamples(); assert(std::count(all.begin(), all.end(), std::string("OLD-KICK.wav")) == 1); }
+  write(fs::path(synth::storage::SampleDirectory()) / "OLD-KICK.wav", "riff 2");
+  assert(synth::storage::ResolveSamplePath("OLD-KICK.wav") == (fs::path(synth::storage::SampleDirectory()) / "OLD-KICK.wav").generic_string());
+  { const auto all = app.ListSamples(); assert(std::count(all.begin(), all.end(), std::string("OLD-KICK.wav")) == 1); }
+  // Nothing of the release went anywhere.
+  assert(read(release / "Session" / "session.cfg") == "pending=1" && fs::exists(release / "Samples" / "OLD-KICK.wav"));
+  fs::remove_all(release);
+  fs::remove(fs::path(synth::storage::SampleDirectory()) / "OLD-KICK.wav");
+  GoToScene(h, 1);
 }
 
 void TestRenderSmoke(Harness& h)
@@ -1281,6 +2335,183 @@ void TestRenderSmoke(Harness& h)
 
 }  // namespace
 
+// A computer on USB: MIDI channels 1-4 play tracks 1-4 and those notes have an owner (the safety net
+// leaves them alone); a disconnect ends them; what the device plays goes back out, track n on channel n.
+void TestComputerMidi(Harness& h)
+{
+  auto& app = h.App();
+  std::array<std::int16_t, 256> block{};
+  const auto settle = [&](int frames) {
+    for (int frame = 0; frame < frames; ++frame)
+    {
+      h.Frames(1);
+      synth::audio::RenderFrames(block.data(), block.size());
+    }
+  };
+  const auto held = [](std::size_t track, std::uint8_t note) {
+    return (synth::audio::HeldNotes(track)[note / 32] & (1u << (note % 32))) != 0;
+  };
+  std::uint8_t packet[4];
+  while (CardenzaSim::Input::TakeDeviceMidi(packet)) {}
+  std::string error;
+  assert(app.EngineKind(1) == synth::SynthEngineKind::Juno || app.SwitchEngine(1, synth::SynthEngineKind::Juno, error));
+  // A solo left by an earlier test would keep track 2 quiet.
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    app.SetTrackSoloed(track, false);
+    app.SetTrackMuted(track, false);
+  }
+  settle(4);
+  const std::uint32_t orphansBefore = app.EndedOrphanNotes();
+  CardenzaSim::Input::SetComputerConnected(true);
+  const std::uint8_t on[4] = {0x09, 0x91, 64, 100};  // channel 2: track 2
+  CardenzaSim::Input::SendComputerMidi(on);
+  settle(80);  // longer than the safety net takes to confirm
+  assert(held(1, 64) && app.EndedOrphanNotes() == orphansBefore);
+  const std::uint8_t off[4] = {0x08, 0x81, 64, 0};
+  CardenzaSim::Input::SendComputerMidi(off);
+  settle(4);
+  assert(!held(1, 64));
+  CardenzaSim::Input::SendComputerMidi(on);
+  settle(4);
+  assert(held(1, 64));
+  CardenzaSim::Input::SetComputerConnected(false);
+  settle(4);
+  assert(!held(1, 64) && app.EndedOrphanNotes() == orphansBefore);
+  // The pads go out on the current track's channel.
+  CardenzaSim::Input::SetComputerConnected(true);
+  GoToScene(h, 1);
+  h.Chord(kTab, Key{0, 10});  // track 2
+  h.Down(Key{2, 1});
+  h.Up(Key{2, 1});
+  bool noteOn = false, noteOff = false;
+  while (CardenzaSim::Input::TakeDeviceMidi(packet))
+  {
+    noteOn = noteOn || packet[1] == 0x91;
+    noteOff = noteOff || packet[1] == 0x81;
+  }
+  assert(noteOn && noteOff);
+  CardenzaSim::Input::SetComputerConnected(false);
+  settle(4);
+}
+
+// Every cell of every page of every scene, on every engine, stopped and playing: moved both ways, in
+// big steps to both ends, ENTER, picked from the pads; then every parameter of every engine at both ends,
+// and every preset. Whatever falls over here shows as an assertion or under ASan. Running out of memory
+// does not show on a host: see the on-board sweep in docs/groovebox-design.md.
+void TestEveryParameter(Harness& h)
+{
+  using Kind = synth::SynthEngineKind;
+  auto& app = h.App();
+  std::array<std::int16_t, 256> block{};
+  const auto heard = [&]() { synth::audio::RenderFrames(block.data(), block.size()); };
+  const auto closeModals = [&]() { for (int i = 0; i < 6 && h.Modal() != nullptr; ++i) h.Tap(kEsc); };
+  const auto setKinds = [&](const std::array<Kind, 4>& kinds) {
+    for (std::size_t track = 0; track < kinds.size(); ++track)
+    {
+      std::string error;
+      assert(app.EngineKind(track) == kinds[track] || app.SwitchEngine(track, kinds[track], error));
+    }
+  };
+  const auto addNotes = [&]() {
+    for (std::size_t step = 0; step < 16; step += 2)
+    {
+      const std::uint8_t notes[4] = {static_cast<std::uint8_t>(36 + step % 5), 64, 67, 71};
+      for (std::size_t track = 0; track < 4; ++track) (void)app.Sequencer().SetStepNotes(track, step, notes, 1 + track, 110);
+    }
+  };
+  const std::array<std::array<Kind, 4>, 2> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
+                                                 {{Kind::Juno, Kind::Dx7, Kind::Sampler, Kind::Drums}}}};
+  struct Walk { groove::Scene scene; std::size_t track; };
+  const std::array<Walk, 10> walks{{{groove::Scene::Tape, 0},
+                                    {groove::Scene::Instrument, 0}, {groove::Scene::Instrument, 1},
+                                    {groove::Scene::Instrument, 2}, {groove::Scene::Instrument, 3},
+                                    {groove::Scene::Sequence, 0}, {groove::Scene::Sequence, 1},
+                                    {groove::Scene::Sequence, 2}, {groove::Scene::Sequence, 3},
+                                    {groove::Scene::Setup, 0}}};
+  for (std::size_t pass = 0; pass < rack.size(); ++pass)
+  {
+    closeModals();
+    setKinds(rack[pass]);
+    addNotes();
+    for (const Walk& walk : walks)
+    {
+      closeModals();
+      h.Chord(kEsc, Key{0, 9 + static_cast<std::size_t>(walk.scene)});
+      h.Chord(kTab, Key{0, 9 + walk.track});
+      closeModals();
+      assert(h.State().scene == walk.scene && h.State().track == walk.track);
+      for (std::size_t page = 0; page < app.Ui().PageCount(walk.scene); ++page)
+      {
+        for (std::size_t cell = 0; cell < 16; ++cell)
+        {
+          // The cell before may have gone anywhere.
+          closeModals();
+          if (h.State().scene != walk.scene) h.Chord(kEsc, Key{0, 9 + static_cast<std::size_t>(walk.scene)});
+          closeModals();
+          if (h.State().track != walk.track) h.Chord(kTab, Key{0, 9 + walk.track});
+          closeModals();
+          if (app.Ui().CurrentPage() != page) h.Chord(kCtrl, Grid(page));
+          closeModals();
+          assert(app.Ui().CurrentPage() == page);
+          if (app.Sequencer().Playing() != (pass == 1)) app.Sequencer().TogglePlayback();
+          h.Tap(Grid(cell));
+          closeModals();
+          for (const auto& [modifier, key] : std::array<std::pair<bool, Key>, 7>{{{false, kAdd}, {true, kAdd}, {true, kAdd}, {false, kSub}, {true, kSub}, {true, kSub}, {true, kSub}}})
+          {
+            if (modifier) h.Chord(kFn, key); else h.Tap(key);
+            closeModals();
+            heard();
+          }
+          h.Tap(kEnter);
+          closeModals();
+          h.Down(Grid(cell));
+          h.Wait(250);
+          h.Tap(Key{0, 1});
+          h.Tap(Key{3, 8});
+          h.Up(Grid(cell));
+          closeModals();
+          heard();
+          h.Render();
+        }
+      }
+    }
+    // Everything the engines have, also what is on no page.
+    app.Sequencer().Play();
+    for (std::size_t track = 0; track < 4; ++track)
+    {
+      synth::ISynthEngine* engine = app.Engine(track);
+      synth::SynthPageRequest request;
+      request.limit = 1;
+      for (request.offset = 0;; ++request.offset)
+      {
+        const synth::SynthParameterPage parameters = engine->ListParameters(request);
+        if (parameters.items.empty()) break;
+        const synth::SynthParameterInfo& parameter = parameters.items[0];
+        for (const int value : {parameter.minValue, parameter.maxValue, parameter.defaultValue})
+        {
+          (void)engine->SetParameterValue(parameter.id, value);
+          (void)engine->DescribeParameterValue(parameter.id);
+          h.Frames();
+          heard();
+        }
+      }
+      for (request.offset = 0;; ++request.offset)
+      {
+        const synth::SynthPresetPage presets = engine->ListPresets(request);
+        if (presets.items.empty()) break;
+        (void)engine->LoadPreset(presets.items[0].id);
+        h.Frames();
+        heard();
+      }
+    }
+    h.Render();
+    app.Sequencer().Stop();
+  }
+  setKinds(rack[0]);
+  closeModals();
+}
+
 int main()
 {
   // Projects and samples go to a scratch card under the test's working directory.
@@ -1296,6 +2527,7 @@ int main()
   Harness h(*app);
   h.Frames(4);
 
+  TestPresetBrowsers(h);
   TestBoot(h);
   TestNavigation(h);
   TestStepEditing(h);
@@ -1314,7 +2546,19 @@ int main()
   TestSession(h);
   TestRecording(h);
   TestSelectMode(h);
+  TestLongCapture(h);
+  TestLongPatternUi(h);
+  TestSampleRecording(h);
+  TestDrumMachine(h);
   TestRenderSmoke(h);
+  TestReleaseProjects(h);
+  TestAdjustIcons(h);
+  TestDrumPads(h);
+  TestCellPicker(h);
+  TestHeldNotesEnd(h);
+  TestNoStuckNotes(h);
+  TestComputerMidi(h);
+  TestEveryParameter(h);
 
   std::filesystem::current_path(std::filesystem::temp_directory_path());
   std::filesystem::remove_all(root);

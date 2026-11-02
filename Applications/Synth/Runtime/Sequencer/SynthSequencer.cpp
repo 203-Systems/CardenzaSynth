@@ -8,6 +8,7 @@
 #include <utility>
 
 #if defined(ESP_PLATFORM)
+#include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -33,8 +34,8 @@ constexpr std::array<std::uint8_t, kHomePerformanceColumnCount> kVelocityBuckets
 };
 
 // Relative length edits step through musically useful lengths, from a quarter step to a full pattern.
-constexpr std::array<std::uint16_t, 12> kAdjustLengthTable = {
-    6, 12, 18, 24, 36, 48, 72, 96, 144, 192, 288, 384,
+constexpr std::array<std::uint16_t, 16> kAdjustLengthTable = {
+    6, 12, 18, 24, 36, 48, 72, 96, 144, 192, 288, 384, 768, 1536, 3072, kSequencerMaxSteps * kSequencerPulsesPerStep,
 };
 
 constexpr std::uint8_t kMinSwing = 50;
@@ -44,9 +45,13 @@ constexpr std::uint16_t kMaxTempo = 300;
 
 constexpr std::size_t kClockIdleSleepMs = 2;
 constexpr std::size_t kClockTaskStackWords = 4096;
-constexpr int kClockTaskPriority = 4;
-// The clock catches up on late pulses at most this far; further behind, it restarts from now.
-constexpr std::uint64_t kClockMaxLagMicros = 50000;
+// The beat does not depend on anything else that runs: on the core without the main audio task, above
+// the UI and the audio helper there, and each pulse takes only a moment.
+constexpr int kClockTaskPriority = 7;
+constexpr int kClockTaskCore = 0;
+// The clock catches up on late pulses, however many, so the tempo stays right; only further behind than
+// this (the whole device was stopped) it restarts from now.
+constexpr std::uint64_t kClockMaxLagMicros = 500000;
 
 }  // namespace
 
@@ -54,6 +59,22 @@ namespace {
 
 const SynthSequencer::PatternData kEmptyPattern{};
 SynthSequencer::PatternData scratchPattern{};
+const SynthSequencer::StepData kEmptyStep{};
+SynthSequencer::StepData scratchStep{};
+std::atomic<bool> patternMemoryFull{false};
+
+bool StepHasNotes(const SynthSequencer::StepData& step)
+{
+  return std::any_of(step.notes.begin(), step.notes.end(), [](const auto& note) { return note.active; });
+}
+#if defined(ESP_PLATFORM)
+// Pages stop here: file IO, the event queues, the effects and keeping the work on the card need the
+// rest of the heap.
+constexpr std::size_t kPatternHeapFloorBytes = 40 * 1024;
+#endif
+#if defined(CARDENZA_SEQUENCER_TEST_HOOKS)
+int testPageBudget = -1;
+#endif
 
 std::size_t ClampedPatternCount(const SynthSequencer::TrackData& track)
 {
@@ -72,6 +93,141 @@ bool ValidSongRow(const SongRow& row, const std::array<SynthSequencer::TrackData
 }
 
 }  // namespace
+
+struct SynthSequencer::StepStore::Page {
+  std::atomic<std::uint16_t> owners{1};
+  std::array<StepData, kSequencerStepCount> steps{};
+};
+
+SynthSequencer::StepStore::StepStore(const StepStore& other)
+    : pages_(other.pages_), populated_(other.populated_), populatedKnown_(other.populatedKnown_)
+{
+  for (Page* page : pages_)
+    if (page != nullptr) page->owners.fetch_add(1, std::memory_order_relaxed);
+}
+
+SynthSequencer::StepStore& SynthSequencer::StepStore::operator=(const StepStore& other)
+{
+  if (this == &other) return *this;
+  for (Page* page : other.pages_)
+    if (page != nullptr) page->owners.fetch_add(1, std::memory_order_relaxed);
+  for (Page* page : pages_) ReleasePage(page);
+  pages_ = other.pages_;
+  populated_ = other.populated_;
+  populatedKnown_ = other.populatedKnown_;
+  return *this;
+}
+
+SynthSequencer::StepStore::~StepStore()
+{
+  for (Page* page : pages_) ReleasePage(page);
+}
+
+void SynthSequencer::StepStore::ReleasePage(Page* page)
+{
+  if (page != nullptr && page->owners.fetch_sub(1, std::memory_order_acq_rel) == 1) delete page;
+}
+
+SynthSequencer::StepStore::Page* SynthSequencer::StepStore::NewPage()
+{
+#if defined(CARDENZA_SEQUENCER_TEST_HOOKS)
+  if (testPageBudget == 0) return nullptr;
+  if (testPageBudget > 0) --testPageBudget;
+#endif
+#if defined(ESP_PLATFORM)
+  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < sizeof(Page) + kPatternHeapFloorBytes) return nullptr;
+#endif
+  return new (std::nothrow) Page;
+}
+
+const SynthSequencer::StepData& SynthSequencer::StepStore::operator[](std::size_t step) const
+{
+  const std::size_t page = step / kSequencerStepCount;
+  if (page >= pages_.size() || pages_[page] == nullptr) return kEmptyStep;
+  return pages_[page]->steps[step % kSequencerStepCount];
+}
+
+SynthSequencer::StepData* SynthSequencer::StepStore::TryEdit(std::size_t step)
+{
+  const std::size_t index = step / kSequencerStepCount;
+  if (index >= pages_.size()) return nullptr;
+  Page*& page = pages_[index];
+  if (page == nullptr)
+  {
+    page = NewPage();
+    if (page == nullptr) return nullptr;
+  }
+  else if (page->owners.load(std::memory_order_acquire) > 1)
+  {
+    // A snapshot still reads this page: it keeps the old one, this store writes a copy.
+    Page* copy = NewPage();
+    if (copy == nullptr) return nullptr;
+    copy->steps = page->steps;
+    ReleasePage(page);
+    page = copy;
+  }
+  populatedKnown_ = false;
+  return &page->steps[step % kSequencerStepCount];
+}
+
+SynthSequencer::StepData& SynthSequencer::StepStore::Edit(std::size_t step)
+{
+  if (StepData* data = TryEdit(step)) return *data;
+  patternMemoryFull.store(true, std::memory_order_relaxed);
+  scratchStep = StepData{};
+  return scratchStep;
+}
+
+std::size_t SynthSequencer::StepStore::NextInUse(std::size_t step) const
+{
+  for (std::size_t page = step / kSequencerStepCount; page < pages_.size(); ++page)
+    if (pages_[page] != nullptr) return std::max(step, page * kSequencerStepCount);
+  return size();
+}
+
+std::size_t SynthSequencer::StepStore::PopulatedSteps() const
+{
+  if (!populatedKnown_)
+  {
+    populated_ = 0;
+    for (std::size_t step = NextInUse(0); step < size(); step = NextInUse(step + 1))
+      if (StepHasNotes((*this)[step])) ++populated_;
+    populatedKnown_ = true;
+  }
+  return populated_;
+}
+
+void SynthSequencer::StepStore::ReleaseEmptyPages()
+{
+  if (populatedKnown_) return;
+  for (Page*& page : pages_)
+  {
+    if (page == nullptr) continue;
+    if (std::any_of(page->steps.begin(), page->steps.end(), StepHasNotes)) continue;
+    ReleasePage(page);
+    page = nullptr;
+  }
+}
+
+void SynthSequencer::StepStore::Clear()
+{
+  for (Page*& page : pages_)
+  {
+    ReleasePage(page);
+    page = nullptr;
+  }
+  populated_ = 0;
+  populatedKnown_ = true;
+}
+
+bool SynthSequencer::ConsumePatternMemoryFull()
+{
+  return patternMemoryFull.exchange(false, std::memory_order_relaxed);
+}
+
+#if defined(CARDENZA_SEQUENCER_TEST_HOOKS)
+void SynthSequencer::SetPageBudgetForTest(int pages) { testPageBudget = pages; }
+#endif
 
 SynthSequencer::PatternBank& SynthSequencer::PatternBank::operator=(const PatternBank& other)
 {
@@ -193,6 +349,7 @@ void SynthSequencer::Play()
   {
     return;
   }
+  viewFollow_.fill(true);
   absolutePulse_ = 0;
   playbackStep_ = 0;
   ResetPlaybackPositionsLocked();
@@ -325,8 +482,11 @@ void SynthSequencer::Reset()
     track.defaultLengthPulses = kSequencerPulsesPerStep;
     track.enabled = true;
     track.muted = false;
-    track.stepCount = kSequencerStepCount;
+    track.patternSteps = TrackData::DefaultPatternSteps();
   }
+  viewPage_.fill(0);
+  viewPattern_.fill(0);
+  viewFollow_.fill(true);
   bpm_ = 120;
   swing_ = kMinSwing;
   recordArmed_ = false;
@@ -363,18 +523,20 @@ bool SynthSequencer::ValidateState(const ProjectState& state)
   for (std::size_t row = 0; row < state.songLength; ++row)
     if (!ValidSongRow(state.song[row], state.tracks)) return false;
   for (const TrackData& track : state.tracks) {
-    if (track.stepCount < 1 || track.stepCount > kSequencerStepCount || track.patternCount < 1 || track.patternCount > kSequencerMaxPatternCount ||
+    if (track.patternCount < 1 || track.patternCount > kSequencerMaxPatternCount ||
         track.activePattern >= track.patternCount || track.defaultVelocity == 0 || track.defaultVelocity > 127 ||
-        track.defaultLengthPulses == 0 || track.defaultLengthPulses > kSequencerStepCount * kSequencerPulsesPerStep) return false;
+        track.defaultLengthPulses == 0 || track.defaultLengthPulses > kSequencerMaxSteps * kSequencerPulsesPerStep) return false;
+    for (const std::uint16_t steps : track.patternSteps)
+      if (steps < 1 || steps > kSequencerMaxSteps) return false;
     for (std::size_t patternIndex = 0; patternIndex < track.patterns.size(); ++patternIndex) {
       if (!track.patterns.Allocated(patternIndex)) continue;
       const PatternData& pattern = track.patterns[patternIndex];
-      for (std::size_t stepIndex = 0; stepIndex < pattern.steps.size(); ++stepIndex) {
+      for (std::size_t stepIndex = pattern.steps.NextInUse(0); stepIndex < pattern.steps.size(); stepIndex = pattern.steps.NextInUse(stepIndex + 1)) {
         std::array<bool, 128> notes{};
         for (const NoteEvent& note : pattern.steps[stepIndex].notes) {
           if (!note.active) continue;
           if (note.note > 127 || note.velocity == 0 || note.velocity > 127 || note.microstep >= kSequencerMicrostepCount ||
-              note.lengthPulses == 0 || note.lengthPulses > (kSequencerStepCount - stepIndex) * kSequencerPulsesPerStep - note.microstep * kSequencerPulsesPerMicrostep ||
+              note.lengthPulses == 0 || note.lengthPulses > (kSequencerMaxSteps - stepIndex) * kSequencerPulsesPerStep - note.microstep * kSequencerPulsesPerMicrostep ||
               notes[note.note]) return false;
           notes[note.note] = true;
         }
@@ -440,8 +602,11 @@ void SynthSequencer::AdjustPatternCount(int delta)
   for (int index = next; index < current; ++index)
   {
     track.patterns.Release(static_cast<std::size_t>(index));
+    track.patternSteps[static_cast<std::size_t>(index)] = kSequencerStepCount;
     RemoveSongPatternLocked(activeTrack_, static_cast<std::size_t>(index), false);
   }
+  for (int index = current; index < next; ++index)
+    track.patternSteps[static_cast<std::size_t>(index)] = track.patternSteps[std::min<std::size_t>(track.activePattern, kSequencerMaxPatternCount - 1)];
   track.patternCount = static_cast<std::size_t>(next);
   if (track.activePattern >= track.patternCount)
   {
@@ -474,6 +639,7 @@ bool SynthSequencer::SelectOrCreatePattern(std::size_t patternIndex)
     {
       return false;
     }
+    track.patternSteps[patternIndex] = track.patternSteps[std::min(track.activePattern, track.patternCount - 1)];
     ++track.patternCount;
   }
 
@@ -512,6 +678,7 @@ bool SynthSequencer::DeletePattern(std::size_t patternIndex)
   {
     // The only pattern is cleared rather than removed, so song rows keep referring to it.
     track.patterns.Release(0);
+    track.patternSteps[0] = kSequencerStepCount;
     track.activePattern = 0;
     NormalizeScopeLocked();
     return true;
@@ -521,8 +688,10 @@ bool SynthSequencer::DeletePattern(std::size_t patternIndex)
   for (std::size_t index = patternIndex; index + 1 < track.patternCount; ++index)
   {
     track.patterns.Swap(index, index + 1);
+    track.patternSteps[index] = track.patternSteps[index + 1];
   }
   track.patterns.Release(track.patternCount - 1);
+  track.patternSteps[track.patternCount - 1] = kSequencerStepCount;
   --track.patternCount;
   if (track.activePattern > patternIndex) --track.activePattern;
   track.activePattern = std::min(track.activePattern, track.patternCount - 1);
@@ -555,6 +724,7 @@ bool SynthSequencer::CopyPattern(std::size_t sourcePattern, std::size_t destinat
   }
 
   track.patterns[destinationPattern] = std::as_const(track.patterns)[sourcePattern];
+  track.patternSteps[destinationPattern] = track.patternSteps[sourcePattern];
   track.activePattern = destinationPattern;
   queuedPattern_[activeTrack_] = kNoPattern;
   NormalizeScopeLocked();
@@ -567,9 +737,15 @@ std::uint16_t SynthSequencer::PatternStepMask(std::size_t trackIndex, std::size_
   if (trackIndex >= tracks_.size() || patternIndex >= kSequencerMaxPatternCount) return 0;
   const TrackData& track = tracks_[trackIndex];
   if (patternIndex >= std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount) || !track.patterns.Allocated(patternIndex)) return 0;
+  const StepStore& steps = track.patterns[patternIndex].steps;
+  const std::size_t length = std::clamp<std::size_t>(track.patternSteps[patternIndex], 1, kSequencerMaxSteps);
   std::uint16_t mask = 0;
-  for (std::size_t step = 0; step < kSequencerStepCount; ++step)
-    if (ActiveNoteCount(track.patterns[patternIndex].steps[step]) > 0) mask = static_cast<std::uint16_t>(mask | (1u << step));
+  for (std::size_t step = steps.NextInUse(0); step < length; step = steps.NextInUse(step + 1))
+    if (ActiveNoteCount(steps[step]) > 0)
+    {
+      const std::size_t bit = length <= kSequencerStepCount ? step : step * kSequencerStepCount / length;
+      mask = static_cast<std::uint16_t>(mask | (1u << bit));
+    }
   return mask;
 }
 
@@ -588,19 +764,12 @@ bool SynthSequencer::PatternHasEvents(std::size_t patternIndex) const
     return false;
   }
 
-  for (const StepData& step : track.patterns[patternIndex].steps)
-  {
-    if (ActiveNoteCount(step) > 0)
-    {
-      return true;
-    }
-  }
-  return false;
+  return track.patterns[patternIndex].steps.PopulatedSteps() != 0;
 }
 
 void SynthSequencer::PressStep(std::size_t stepIndex, const std::uint8_t* heldNotes, std::size_t heldNoteCount)
 {
-  if (stepIndex >= kSequencerStepCount)
+  if (stepIndex >= kSequencerMaxSteps)
   {
     return;
   }
@@ -614,7 +783,7 @@ void SynthSequencer::PressStep(std::size_t stepIndex, const std::uint8_t* heldNo
   }
 
   TrackData& track = tracks_[activeTrack_];
-  StepData& step = ActivePatternLocked(track).steps[stepIndex];
+  StepData& step = ActivePatternLocked(track).steps.Edit(stepIndex);
   std::array<bool, 128> seen{};
   for (std::size_t index = 0; index < heldNoteCount; ++index)
   {
@@ -631,7 +800,7 @@ void SynthSequencer::PressStep(std::size_t stepIndex, const std::uint8_t* heldNo
 void SynthSequencer::ReleaseStep(std::size_t stepIndex)
 {
   std::lock_guard<std::mutex> outputLock(outputMutex_);
-  if (stepIndex >= kSequencerStepCount)
+  if (stepIndex >= kSequencerMaxSteps)
   {
     return;
   }
@@ -674,7 +843,7 @@ void SynthSequencer::ClearHeldSteps()
 
 void SynthSequencer::ClearStep(std::size_t stepIndex)
 {
-  if (stepIndex >= kSequencerStepCount)
+  if (stepIndex >= kSequencerMaxSteps)
   {
     return;
   }
@@ -685,7 +854,8 @@ void SynthSequencer::ClearStep(std::size_t stepIndex)
     return;
   }
 
-  ClearStepLocked(ActivePatternLocked(tracks_[activeTrack_]).steps[stepIndex]);
+  PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
+  if (ActiveNoteCount(pattern.steps[stepIndex]) != 0) ClearStepLocked(pattern.steps.Edit(stepIndex));
   NormalizeScopeLocked();
 }
 
@@ -705,9 +875,9 @@ void SynthSequencer::ClearHeldStepEvents()
     PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
     for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
     {
-      if (heldSteps_[stepIndex])
+      if (heldSteps_[stepIndex] && ActiveNoteCount(pattern.steps[stepIndex]) != 0)
       {
-        ClearStepLocked(pattern.steps[stepIndex]);
+        ClearStepLocked(pattern.steps.Edit(stepIndex));
       }
     }
     NormalizeScopeLocked();
@@ -717,7 +887,7 @@ void SynthSequencer::ClearHeldStepEvents()
 
 bool SynthSequencer::CopyStep(std::size_t sourceStep, std::size_t destinationStep)
 {
-  if (sourceStep >= kSequencerStepCount || destinationStep >= kSequencerStepCount)
+  if (sourceStep >= kSequencerMaxSteps || destinationStep >= kSequencerMaxSteps)
   {
     return false;
   }
@@ -734,8 +904,10 @@ bool SynthSequencer::CopyStep(std::size_t sourceStep, std::size_t destinationSte
     return false;
   }
 
-  pattern.steps[destinationStep] = pattern.steps[sourceStep];
-  for (NoteEvent& note : pattern.steps[destinationStep].notes)
+  const StepData source = pattern.steps[sourceStep];
+  StepData& destination = pattern.steps.Edit(destinationStep);
+  destination = source;
+  for (NoteEvent& note : destination.notes)
   {
     if (note.active)
       note.lengthPulses = ClampLengthForStepMicrostep(destinationStep, note.microstep, note.lengthPulses);
@@ -746,7 +918,7 @@ bool SynthSequencer::CopyStep(std::size_t sourceStep, std::size_t destinationSte
 
 std::size_t SynthSequencer::StepNoteEvents(std::size_t trackIndex, std::size_t stepIndex, std::array<StepNoteView, 8>& notes) const
 {
-  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerStepCount) return 0;
+  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerMaxSteps) return 0;
   std::lock_guard<std::mutex> lock(mutex_);
   std::size_t count = 0;
   for (const NoteEvent& event : ActivePatternLocked(tracks_[trackIndex]).steps[stepIndex].notes)
@@ -760,9 +932,9 @@ std::size_t SynthSequencer::StepNoteEvents(std::size_t trackIndex, std::size_t s
 bool SynthSequencer::SetStepNotes(std::size_t trackIndex, std::size_t stepIndex, const std::uint8_t* notes, std::size_t count,
                                   std::uint8_t velocity)
 {
-  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerStepCount || (count > 0 && notes == nullptr)) return false;
+  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerMaxSteps || (count > 0 && notes == nullptr)) return false;
   std::lock_guard<std::mutex> lock(mutex_);
-  StepData& step = ActivePatternLocked(tracks_[trackIndex]).steps[stepIndex];
+  StepData& step = ActivePatternLocked(tracks_[trackIndex]).steps.Edit(stepIndex);
   ClearStepLocked(step);
   std::size_t slot = 0;
   for (std::size_t index = 0; index < count && slot < step.notes.size(); ++index)
@@ -779,14 +951,52 @@ bool SynthSequencer::SetStepNotes(std::size_t trackIndex, std::size_t stepIndex,
   return true;
 }
 
-bool SynthSequencer::InsertNote(std::size_t trackIndex, std::size_t patternIndex, std::size_t stepIndex, std::uint8_t microstep,
-                                std::uint8_t note, std::uint8_t velocity, std::uint16_t lengthPulses)
+bool SynthSequencer::MoveNote(std::size_t trackIndex, std::size_t patternIndex, std::size_t stepIndex, std::uint8_t note, std::uint8_t fromMicrostep, std::uint8_t toMicrostep)
 {
-  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerStepCount || note > 127) return false;
+  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerMaxSteps || toMicrostep >= kSequencerMicrostepCount) return false;
   std::lock_guard<std::mutex> lock(mutex_);
   TrackData& track = tracks_[trackIndex];
   if (patternIndex >= std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount)) return false;
-  StepData& step = track.patterns[patternIndex].steps[stepIndex];
+  auto& steps = track.patterns[patternIndex].steps;
+  const auto& notes = steps[stepIndex].notes;
+  const auto at = [&](std::uint8_t microstep) {
+    return std::any_of(notes.begin(), notes.end(), [&](const NoteEvent& event) { return event.active && event.note == note && event.microstep == microstep; });
+  };
+  if (!at(fromMicrostep) || at(toMicrostep)) return false;
+  for (NoteEvent& event : steps.Edit(stepIndex).notes)
+  {
+    if (!event.active || event.note != note || event.microstep != fromMicrostep) continue;
+    event.microstep = toMicrostep;
+    event.lengthPulses = ClampLengthForStepMicrostep(stepIndex, toMicrostep, event.lengthPulses);
+    break;
+  }
+  return true;
+}
+
+bool SynthSequencer::RemoveNote(std::size_t trackIndex, std::size_t patternIndex, std::size_t stepIndex, std::uint8_t note)
+{
+  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerMaxSteps) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  TrackData& track = tracks_[trackIndex];
+  if (patternIndex >= std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount) || !track.patterns.Allocated(patternIndex)) return false;
+  auto& steps = track.patterns[patternIndex].steps;
+  const auto& held = steps[stepIndex].notes;
+  if (std::none_of(held.begin(), held.end(), [&](const NoteEvent& event) { return event.active && event.note == note; })) return false;
+  for (NoteEvent& event : steps.Edit(stepIndex).notes)
+    if (event.active && event.note == note) event = NoteEvent{};
+  steps.ReleaseEmptyPages();
+  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  return true;
+}
+
+bool SynthSequencer::InsertNote(std::size_t trackIndex, std::size_t patternIndex, std::size_t stepIndex, std::uint8_t microstep,
+                                std::uint8_t note, std::uint8_t velocity, std::uint16_t lengthPulses)
+{
+  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerMaxSteps || note > 127) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  TrackData& track = tracks_[trackIndex];
+  if (patternIndex >= std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount)) return false;
+  StepData& step = track.patterns[patternIndex].steps.Edit(stepIndex);
   NoteEvent* target = nullptr;
   for (NoteEvent& event : step.notes)
     if (event.active && event.note == note) { target = &event; break; }
@@ -798,7 +1008,7 @@ bool SynthSequencer::InsertNote(std::size_t trackIndex, std::size_t patternIndex
   target->note = note;
   target->velocity = std::clamp<std::uint8_t>(velocity, 1, 127);
   target->microstep = std::min<std::uint8_t>(microstep, kSequencerMicrostepCount - 1);
-  target->lengthPulses = ClampLengthForStepMicrostep(stepIndex, target->microstep, std::max<std::uint16_t>(1, lengthPulses));
+  target->lengthPulses = ClampLengthInPattern(track.patternSteps[patternIndex], stepIndex, target->microstep, std::max<std::uint16_t>(1, lengthPulses));
   if (trackIndex == activeTrack_) NormalizeScopeLocked();
   return true;
 }
@@ -809,9 +1019,15 @@ std::uint64_t SynthSequencer::PlayPulse() const
   return playing_ ? absolutePulse_ : 0;
 }
 
+bool SynthSequencer::StepSelected(std::size_t stepIndex) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return stepIndex < heldSteps_.size() && heldSteps_[stepIndex];
+}
+
 bool SynthSequencer::StepHasEvents(std::size_t stepIndex) const
 {
-  if (stepIndex >= kSequencerStepCount)
+  if (stepIndex >= kSequencerMaxSteps)
   {
     return false;
   }
@@ -828,7 +1044,7 @@ bool SynthSequencer::StepHasEvents(std::size_t stepIndex) const
 std::size_t SynthSequencer::StepNotes(std::size_t stepIndex, std::array<std::uint8_t, 8>& notes) const
 {
   static_assert(std::tuple_size<decltype(StepData::notes)>::value == 8, "StepNotes returns one pitch per note slot.");
-  if (stepIndex >= kSequencerStepCount)
+  if (stepIndex >= kSequencerMaxSteps)
   {
     return 0;
   }
@@ -861,7 +1077,7 @@ std::uint8_t SynthSequencer::SelectedNoteVelocity(std::uint8_t pitch) const
 
 void SynthSequencer::QuantizeStep(std::size_t stepIndex)
 {
-  if (stepIndex >= kSequencerStepCount)
+  if (stepIndex >= kSequencerMaxSteps)
   {
     return;
   }
@@ -872,7 +1088,8 @@ void SynthSequencer::QuantizeStep(std::size_t stepIndex)
     return;
   }
 
-  QuantizeStepLocked(ActivePatternLocked(tracks_[activeTrack_]).steps[stepIndex], stepIndex);
+  PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
+  if (ActiveNoteCount(pattern.steps[stepIndex]) != 0) QuantizeStepLocked(pattern.steps.Edit(stepIndex), stepIndex);
   NormalizeScopeLocked();
 }
 
@@ -887,9 +1104,9 @@ void SynthSequencer::QuantizeHeldSteps()
   PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
   {
-    if (heldSteps_[stepIndex])
+    if (heldSteps_[stepIndex] && ActiveNoteCount(pattern.steps[stepIndex]) != 0)
     {
-      QuantizeStepLocked(pattern.steps[stepIndex], stepIndex);
+      QuantizeStepLocked(pattern.steps.Edit(stepIndex), stepIndex);
     }
   }
   NormalizeScopeLocked();
@@ -904,9 +1121,9 @@ void SynthSequencer::QuantizeActivePattern()
   }
 
   PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
-  for (std::size_t stepIndex = 0; stepIndex < pattern.steps.size(); ++stepIndex)
+  for (std::size_t stepIndex = pattern.steps.NextInUse(0); stepIndex < pattern.steps.size(); stepIndex = pattern.steps.NextInUse(stepIndex + 1))
   {
-    QuantizeStepLocked(pattern.steps[stepIndex], stepIndex);
+    if (ActiveNoteCount(pattern.steps[stepIndex]) != 0) QuantizeStepLocked(pattern.steps.Edit(stepIndex), stepIndex);
   }
   NormalizeScopeLocked();
 }
@@ -921,9 +1138,9 @@ void SynthSequencer::QuantizePattern(std::size_t patternIndex)
   }
 
   PatternData& pattern = tracks_[activeTrack_].patterns[patternIndex];
-  for (std::size_t stepIndex = 0; stepIndex < pattern.steps.size(); ++stepIndex)
+  for (std::size_t stepIndex = pattern.steps.NextInUse(0); stepIndex < pattern.steps.size(); stepIndex = pattern.steps.NextInUse(stepIndex + 1))
   {
-    QuantizeStepLocked(pattern.steps[stepIndex], stepIndex);
+    if (ActiveNoteCount(pattern.steps[stepIndex]) != 0) QuantizeStepLocked(pattern.steps.Edit(stepIndex), stepIndex);
   }
   NormalizeScopeLocked();
 }
@@ -1030,7 +1247,7 @@ bool SynthSequencer::HandlePerformanceKeyPress(std::size_t, std::size_t column, 
     {
       if (heldSteps_[stepIndex])
       {
-        ToggleNoteInStepLocked(pattern.steps[stepIndex], note, track, stepIndex);
+        ToggleNoteInStepLocked(pattern.steps.Edit(stepIndex), note, track, stepIndex);
       }
     }
     NormalizeScopeLocked();
@@ -1089,10 +1306,9 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     summary.patternCount = source.patternCount;
     summary.stepCount = TrackStepCountOf(source);
     summary.currentStep = std::min<std::size_t>(trackCurrentPulse_[index] / kSequencerPulsesPerStep, summary.stepCount - 1);
+    summary.populatedStepCount = ActivePatternLocked(source).steps.PopulatedSteps();
     summary.queuedPattern = queuedPattern_[index] < source.patternCount ? queuedPattern_[index] : kNoPattern;
     summary.songSilent = playing_ && songSilent_[index];
-    for (const StepData& step : ActivePatternLocked(source).steps)
-      if (ActiveNoteCount(step) != 0) ++summary.populatedStepCount;
   }
   state.songMode = songMode_;
   state.songLoop = songLoop_;
@@ -1129,18 +1345,34 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     for (std::size_t index = 0; index < state.patternCount; ++index)
     {
       if (!track->patterns.Allocated(index)) continue;
-      std::uint8_t populated = 0;
-      for (const StepData& step : track->patterns[index].steps)
-        if (ActiveNoteCount(step) != 0) ++populated;
-      state.patternStepCounts[index] = populated;
+      const std::size_t populated = track->patterns[index].steps.PopulatedSteps();
+      state.patternStepCounts[index] = static_cast<std::uint16_t>(populated);
       state.patternHasEvents[index] = populated != 0;
     }
   }
   const StepData* primaryHeldStep = nullptr;
-  for (std::size_t stepIndex = 0; stepIndex < state.steps.size(); ++stepIndex)
+  if (track != nullptr)
   {
+    state.viewPage = ViewPageLocked(activeTrack);
+    state.viewPageCount = (TrackStepCountOf(*track) + kSequencerStepCount - 1) / kSequencerStepCount;
+    state.firstViewStep = state.viewPage * kSequencerStepCount;
+    state.viewFollow = viewFollow_[activeTrack];
+  }
+  for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
+  {
+    if (!heldSteps_[stepIndex]) continue;
+    if (track != nullptr) primaryHeldStep = &ActivePatternLocked(*track).steps[stepIndex];
+    state.primaryHeldStep = stepIndex;
+    if (primaryHeldStep != nullptr)
+      for (const NoteEvent& note : primaryHeldStep->notes)
+        if (note.active && (state.primaryLowestNote < 0 || note.note < state.primaryLowestNote)) state.primaryLowestNote = note.note;
+    break;
+  }
+  for (std::size_t cellIndex = 0; cellIndex < state.steps.size(); ++cellIndex)
+  {
+    const std::size_t stepIndex = state.firstViewStep + cellIndex;
     const StepData* step = track != nullptr ? &ActivePatternLocked(*track).steps[stepIndex] : nullptr;
-    auto& cell = state.steps[stepIndex];
+    auto& cell = state.steps[cellIndex];
     if (step != nullptr)
       for (const NoteEvent& note : step->notes)
         if (note.active)
@@ -1155,13 +1387,8 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
           cell.velocity = std::max(cell.velocity, note.velocity);
         }
     cell.hasEvents = cell.noteCount > 0;
-    state.steps[stepIndex].held = heldSteps_[stepIndex];
-    state.steps[stepIndex].playing = playing_ && state.currentStep == stepIndex;
-    if (heldSteps_[stepIndex] && primaryHeldStep == nullptr)
-    {
-      primaryHeldStep = step;
-      state.primaryHeldStep = stepIndex;
-    }
+    cell.held = heldSteps_[stepIndex];
+    cell.playing = playing_ && state.currentStep == stepIndex;
   }
   if (primaryHeldStep != nullptr)
   {
@@ -1182,11 +1409,11 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     if (slot < primaryHeldStep->notes.size())
     {
       state.scopedNote = primaryHeldStep->notes[slot].note;
-      for (std::size_t stepIndex = 0; stepIndex < state.steps.size(); ++stepIndex)
+      for (std::size_t cellIndex = 0; cellIndex < state.steps.size(); ++cellIndex)
       {
-        if (heldSteps_[stepIndex])
+        if (heldSteps_[state.firstViewStep + cellIndex])
         {
-          state.steps[stepIndex].scoped = true;
+          state.steps[cellIndex].scoped = true;
         }
       }
     }
@@ -1283,8 +1510,12 @@ void SynthSequencer::RecordNoteOnLocked(std::size_t trackIndex, std::uint8_t not
   std::uint32_t bestDistance = loopPulses;
   bool bestAhead = false;
   std::int32_t bestOffset = 0;
+  const std::size_t center = position / kSequencerPulsesPerStep;
   for (std::size_t stepIndex = 0; stepIndex < stepCount; ++stepIndex)
   {
+    // Swing moves a slot by less than a step, so the nearest one is at most two steps away.
+    const std::size_t away = (stepIndex + stepCount - center) % stepCount;
+    if (away > 2 && away + 2 < stepCount) continue;
     for (std::uint8_t microstep = 0; microstep < kSequencerMicrostepCount; ++microstep)
     {
       const std::uint32_t slot = NoteOffsetPulsesLocked(stepIndex, microstep) % loopPulses;
@@ -1305,7 +1536,7 @@ void SynthSequencer::RecordNoteOnLocked(std::size_t trackIndex, std::uint8_t not
     }
   }
 
-  StepData& step = ActivePatternLocked(track).steps[bestStep];
+  StepData& step = ActivePatternLocked(track).steps.Edit(bestStep);
   NoteEvent* target = nullptr;
   for (NoteEvent& event : step.notes)
     if (event.active && event.note == note) { target = &event; break; }
@@ -1321,7 +1552,7 @@ void SynthSequencer::RecordNoteOnLocked(std::size_t trackIndex, std::uint8_t not
   target->note = note;
   target->velocity = std::min<std::uint8_t>(velocity, 127);
   target->microstep = bestMicrostep;
-  target->lengthPulses = ClampLengthForStepMicrostep(bestStep, bestMicrostep, kSequencerPulsesPerMicrostep);
+  target->lengthPulses = ClampLengthInPattern(stepCount, bestStep, bestMicrostep, kSequencerPulsesPerMicrostep);
 
   HeldRecording* held = nullptr;
   for (HeldRecording& recording : heldRecordings_)
@@ -1584,6 +1815,7 @@ bool SynthSequencer::QueuePattern(std::size_t trackIndex, std::size_t patternInd
     {
       return false;
     }
+    track.patternSteps[patternIndex] = track.patternSteps[track.activePattern];
     ++track.patternCount;
   }
 
@@ -1621,9 +1853,9 @@ void SynthSequencer::SetTrackStepCount(std::size_t trackIndex, std::size_t steps
 
   std::lock_guard<std::mutex> lock(mutex_);
   TrackData& track = tracks_[trackIndex];
-  track.stepCount = std::clamp<std::size_t>(steps, 1, kSequencerStepCount);
+  track.patternSteps[std::min(track.activePattern, ClampedPatternCount(track) - 1)] = static_cast<std::uint16_t>(std::clamp<std::size_t>(steps, 1, kSequencerMaxSteps));
   // A shorter loop keeps its phase; reaching pulse 0 runs the usual loop boundary.
-  const std::uint16_t loopPulses = static_cast<std::uint16_t>(track.stepCount * kSequencerPulsesPerStep);
+  const std::uint16_t loopPulses = static_cast<std::uint16_t>(TrackStepCountOf(track) * kSequencerPulsesPerStep);
   trackNextPulse_[trackIndex] = static_cast<std::uint16_t>(trackNextPulse_[trackIndex] % loopPulses);
   trackCurrentPulse_[trackIndex] = static_cast<std::uint16_t>(trackCurrentPulse_[trackIndex] % loopPulses);
 }
@@ -1634,9 +1866,48 @@ std::size_t SynthSequencer::TrackStepCount(std::size_t trackIndex) const
   return trackIndex < tracks_.size() ? TrackStepCountOf(tracks_[trackIndex]) : kSequencerStepCount;
 }
 
+std::size_t SynthSequencer::PatternStepCount(std::size_t trackIndex, std::size_t patternIndex) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (trackIndex >= tracks_.size() || patternIndex >= kSequencerMaxPatternCount) return kSequencerStepCount;
+  return std::clamp<std::size_t>(tracks_[trackIndex].patternSteps[patternIndex], 1, kSequencerMaxSteps);
+}
+
+std::size_t SynthSequencer::ViewPageLocked(std::size_t trackIndex) const
+{
+  const TrackData& track = tracks_[trackIndex];
+  if (viewPattern_[trackIndex] != track.activePattern)
+  {
+    viewPattern_[trackIndex] = static_cast<std::uint8_t>(track.activePattern);
+    viewPage_[trackIndex] = 0;
+  }
+  const std::size_t stepCount = TrackStepCountOf(track);
+  const std::size_t pageCount = (stepCount + kSequencerStepCount - 1) / kSequencerStepCount;
+  // The page stays put while steps are selected, so an edit never moves away under the fingers.
+  if (playing_ && viewFollow_[trackIndex] && std::none_of(heldSteps_.begin(), heldSteps_.end(), [](bool held) { return held; }))
+    viewPage_[trackIndex] = static_cast<std::uint8_t>(std::min<std::size_t>(trackCurrentPulse_[trackIndex] / kSequencerPulsesPerStep, stepCount - 1) / kSequencerStepCount);
+  return std::min<std::size_t>(viewPage_[trackIndex], pageCount - 1);
+}
+
+void SynthSequencer::SetViewPage(std::size_t trackIndex, std::size_t page)
+{
+  if (trackIndex >= tracks_.size()) return;
+  std::lock_guard<std::mutex> lock(mutex_);
+  (void)ViewPageLocked(trackIndex);
+  viewPage_[trackIndex] = static_cast<std::uint8_t>(std::min(page, kSequencerMaxStepPages - 1));
+  viewFollow_[trackIndex] = false;
+}
+
+std::size_t SynthSequencer::ViewFirstStep(std::size_t trackIndex) const
+{
+  if (trackIndex >= tracks_.size()) return 0;
+  std::lock_guard<std::mutex> lock(mutex_);
+  return ViewPageLocked(trackIndex) * kSequencerStepCount;
+}
+
 void SynthSequencer::SetStepSelected(std::size_t stepIndex, bool selected)
 {
-  if (stepIndex >= kSequencerStepCount)
+  if (stepIndex >= kSequencerMaxSteps)
   {
     return;
   }
@@ -1676,7 +1947,7 @@ bool SynthSequencer::ToggleNoteOnSelectedSteps(std::uint8_t note)
   TrackData& track = tracks_[activeTrack_];
   PatternData& pattern = ActivePatternLocked(track);
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
-    if (heldSteps_[stepIndex]) ToggleNoteInStepLocked(pattern.steps[stepIndex], note, track, stepIndex);
+    if (heldSteps_[stepIndex]) ToggleNoteInStepLocked(pattern.steps.Edit(stepIndex), note, track, stepIndex);
   NormalizeScopeLocked();
   return true;
 }
@@ -1761,7 +2032,7 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
     if (editLane_ == SequencerEditLane::Length)
     {
       const std::uint16_t next = std::clamp<std::uint16_t>(stepLength(track.defaultLengthPulses), 1,
-                                                           kSequencerStepCount * kSequencerPulsesPerStep);
+                                                           kSequencerMaxSteps * kSequencerPulsesPerStep);
       const bool changed = next != track.defaultLengthPulses;
       track.defaultLengthPulses = next;
       return changed;
@@ -1783,9 +2054,10 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
   {
     if (!heldSteps_[stepIndex]) continue;
-    StepData& step = pattern.steps[stepIndex];
     const bool primary = !primarySeen;
     primarySeen = true;
+    if (ActiveNoteCount(pattern.steps[stepIndex]) == 0) continue;
+    StepData& step = pattern.steps.Edit(stepIndex);
 
     // Affected slots, in pitch order so a transposed chord never collides with itself.
     std::array<std::size_t, 8> slots{};
@@ -2092,12 +2364,13 @@ void SynthSequencer::EnsureClockWorkerStarted()
 
 #if defined(ESP_PLATFORM)
   TaskHandle_t taskHandle = nullptr;
-  if (xTaskCreate(&SynthSequencer::ClockTaskEntry,
-                  "synth_seq",
-                  kClockTaskStackWords,
-                  this,
-                  kClockTaskPriority,
-                  &taskHandle) != pdPASS)
+  if (xTaskCreatePinnedToCore(&SynthSequencer::ClockTaskEntry,
+                              "synth_seq",
+                              kClockTaskStackWords,
+                              this,
+                              kClockTaskPriority,
+                              &taskHandle,
+                              kClockTaskCore) != pdPASS)
   {
     clockWorkerRunning_.store(false);
     clockWorkerExited_.store(true);
@@ -2228,6 +2501,17 @@ void SynthSequencer::ClockLoop()
   clockWorkerExited_.store(true);
 }
 
+void SynthSequencer::AddSoundingNotes(std::size_t trackIndex, std::array<std::uint32_t, 4>& notes) const
+{
+  if (trackIndex >= kSynthTrackCount) return;
+  const auto add = [&](std::uint8_t note) { notes[(note & 0x7F) / 32] |= 1u << ((note & 0x7F) % 32); };
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (const PlaybackNote& note : playbackNotes_)
+    if (note.active && note.trackIndex == trackIndex) add(note.note);
+  if (auditionActive_ && auditionTrack_ == trackIndex) add(auditionNote_);
+  if (arps_[trackIndex].soundingNote >= 0) add(static_cast<std::uint8_t>(arps_[trackIndex].soundingNote));
+}
+
 bool SynthSequencer::ClockNeeded(std::uint64_t& startMicros)
 {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -2262,7 +2546,7 @@ void SynthSequencer::ProcessTransportPulseLocked(std::uint64_t pulse,
                                                  std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
                                                  std::size_t& eventCount)
 {
-  playbackStep_ = static_cast<std::size_t>((pulse / kSequencerPulsesPerStep) % kSequencerStepCount);
+  playbackStep_ = static_cast<std::size_t>((pulse / kSequencerPulsesPerStep) % kSequencerMaxSteps);
 
   CollectDueNoteOffsLocked(pulse, events, eventCount);
   for (SuppressedNote& suppressed : suppressedNotes_)
@@ -2303,7 +2587,7 @@ void SynthSequencer::ProcessTransportPulseLocked(std::uint64_t pulse,
     const std::uint16_t previousPulses = previousPassPulses_[trackIndex];
     if (previousPattern < kSequencerMaxPatternCount && previousPulses >= kSequencerPulsesPerStep && position < 2u * kSequencerPulsesPerStep)
     {
-      const std::size_t lastStep = std::min<std::size_t>(previousPulses / kSequencerPulsesPerStep, kSequencerStepCount) - 1;
+      const std::size_t lastStep = std::min<std::size_t>(previousPulses / kSequencerPulsesPerStep, kSequencerMaxSteps) - 1;
       FireStepNotesLocked(trackIndex, track.patterns[previousPattern].steps[lastStep], lastStep,
                           static_cast<std::uint32_t>(position) + previousPulses, pulse, events, eventCount);
     }
@@ -2506,12 +2790,12 @@ void SynthSequencer::ApplyLengthToHeldStepsLocked(std::uint16_t lengthPulses)
   track.defaultLengthPulses = lengthPulses;
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
   {
-    if (!heldSteps_[stepIndex])
+    if (!heldSteps_[stepIndex] || ActiveNoteCount(pattern.steps[stepIndex]) == 0)
     {
       continue;
     }
 
-    StepData& step = pattern.steps[stepIndex];
+    StepData& step = pattern.steps.Edit(stepIndex);
     if (noteScopeIndex_ < 0)
     {
       for (NoteEvent& note : step.notes)
@@ -2544,12 +2828,12 @@ void SynthSequencer::ApplyVelocityToHeldStepsLocked(std::uint8_t velocity)
   track.defaultVelocity = velocity;
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
   {
-    if (!heldSteps_[stepIndex])
+    if (!heldSteps_[stepIndex] || ActiveNoteCount(pattern.steps[stepIndex]) == 0)
     {
       continue;
     }
 
-    StepData& step = pattern.steps[stepIndex];
+    StepData& step = pattern.steps.Edit(stepIndex);
     if (noteScopeIndex_ < 0)
     {
       for (NoteEvent& note : step.notes)
@@ -2582,12 +2866,12 @@ void SynthSequencer::ApplyMicrostepToHeldStepsLocked(std::uint8_t microstep)
   PatternData& pattern = ActivePatternLocked(track);
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
   {
-    if (!heldSteps_[stepIndex])
+    if (!heldSteps_[stepIndex] || ActiveNoteCount(pattern.steps[stepIndex]) == 0)
     {
       continue;
     }
 
-    StepData& step = pattern.steps[stepIndex];
+    StepData& step = pattern.steps.Edit(stepIndex);
     if (noteScopeIndex_ < 0)
     {
       for (NoteEvent& note : step.notes)
@@ -2670,7 +2954,8 @@ void SynthSequencer::NormalizeScopeLocked()
   const StepData* primaryStep = nullptr;
   if (activeTrack_ < tracks_.size())
   {
-    const PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
+    ActivePatternLocked(tracks_[activeTrack_]).steps.ReleaseEmptyPages();
+    const PatternData& pattern = ActivePatternLocked(std::as_const(tracks_[activeTrack_]));
     for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
     {
       if (heldSteps_[stepIndex])
@@ -2849,9 +3134,15 @@ void SynthSequencer::PopulateEditValueStateLocked(SequencerUiState& state, const
 
 std::uint16_t SynthSequencer::ClampLengthForStepMicrostep(std::size_t stepIndex, std::uint8_t microstep, std::uint16_t lengthPulses) const
 {
+  return ClampLengthInPattern(activeTrack_ < tracks_.size() ? TrackStepCountOf(tracks_[activeTrack_]) : kSequencerMaxSteps, stepIndex, microstep, lengthPulses);
+}
+
+// To the end of the pattern (a short one still has the 16 steps of its page).
+std::uint16_t SynthSequencer::ClampLengthInPattern(std::size_t patternSteps, std::size_t stepIndex, std::uint8_t microstep, std::uint16_t lengthPulses)
+{
   const std::uint16_t startPulse = static_cast<std::uint16_t>(stepIndex * kSequencerPulsesPerStep +
                                                              microstep * kSequencerPulsesPerMicrostep);
-  const std::uint16_t patternPulses = static_cast<std::uint16_t>(kSequencerStepCount * kSequencerPulsesPerStep);
+  const std::uint16_t patternPulses = static_cast<std::uint16_t>((std::max)(patternSteps, kSequencerStepCount) * kSequencerPulsesPerStep);
   const std::uint16_t remaining = startPulse < patternPulses ? static_cast<std::uint16_t>(patternPulses - startPulse) : 1;
   return std::max<std::uint16_t>(1, std::min(lengthPulses, remaining));
 }
@@ -2928,7 +3219,8 @@ std::string SynthSequencer::ValueLabelLocked(const StepData* step) const
 
 std::size_t SynthSequencer::TrackStepCountOf(const TrackData& track)
 {
-  return std::clamp<std::size_t>(track.stepCount, 1, kSequencerStepCount);
+  const std::size_t pattern = std::min(track.activePattern, ClampedPatternCount(track) - 1);
+  return std::clamp<std::size_t>(track.patternSteps[pattern], 1, kSequencerMaxSteps);
 }
 
 std::uint16_t SynthSequencer::SwingDelayPulsesLocked() const
@@ -3147,12 +3439,12 @@ void SynthSequencer::FinalizeHeldRecordingLocked(HeldRecording& recording, std::
   }
 
   TrackData& track = tracks_[finished.trackIndex];
-  if (finished.pattern >= track.patternCount || finished.step >= kSequencerStepCount || !track.patterns.Allocated(finished.pattern))
+  if (finished.pattern >= track.patternCount || finished.step >= kSequencerMaxSteps || !track.patterns.Allocated(finished.pattern))
   {
     return;
   }
 
-  StepData& step = track.patterns[finished.pattern].steps[finished.step];
+  StepData& step = track.patterns[finished.pattern].steps.Edit(finished.step);
   for (NoteEvent& note : step.notes)
   {
     if (!note.active || note.note != finished.note) continue;
@@ -3162,7 +3454,7 @@ void SynthSequencer::FinalizeHeldRecordingLocked(HeldRecording& recording, std::
     const std::uint32_t slotPulse = static_cast<std::uint32_t>(finished.step * kSequencerPulsesPerStep + note.microstep * kSequencerPulsesPerMicrostep);
     const std::uint32_t maximum = std::max<std::uint32_t>(kSequencerPulsesPerMicrostep, slotPulse < loopPulses ? loopPulses - slotPulse : 0);
     const auto length = static_cast<std::uint16_t>(std::clamp<std::uint64_t>(elapsed, kSequencerPulsesPerMicrostep, maximum));
-    note.lengthPulses = ClampLengthForStepMicrostep(finished.step, note.microstep, length);
+    note.lengthPulses = length;
     return;
   }
 }

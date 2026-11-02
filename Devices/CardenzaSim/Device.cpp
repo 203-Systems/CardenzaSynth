@@ -2,6 +2,8 @@
 #include "Devices/LedFrameBuffer.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
 
+#include <mutex>
+#include <deque>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -27,6 +29,15 @@ constexpr std::size_t MatrixIndex(std::size_t row, std::size_t column) {
 
 }  // namespace
 
+namespace {
+
+// A computer on the USB port (CardenzaSim::Input drives it, Device::USB is what the firmware sees).
+std::mutex g_usbMutex;
+bool g_usbConnected = false;
+std::deque<std::array<std::uint8_t, 4>> g_toDevice, g_fromDevice;
+
+}  // namespace
+
 namespace CardenzaSim::Input {
 
 void SetMatrixKey(std::size_t row, std::size_t column, bool pressed) {
@@ -43,6 +54,28 @@ void SetHomeButton(bool pressed) {
 
 void ClearMatrixKeys() {
   keyboardState.reset();
+}
+
+void SetComputerConnected(bool connected)
+{
+  std::lock_guard<std::mutex> lock(g_usbMutex);
+  g_usbConnected = connected;
+  if (!connected) g_toDevice.clear();
+}
+
+void SendComputerMidi(const std::uint8_t packet[4])
+{
+  std::lock_guard<std::mutex> lock(g_usbMutex);
+  if (g_usbConnected) g_toDevice.push_back({packet[0], packet[1], packet[2], packet[3]});
+}
+
+bool TakeDeviceMidi(std::uint8_t packet[4])
+{
+  std::lock_guard<std::mutex> lock(g_usbMutex);
+  if (g_fromDevice.empty()) return false;
+  std::copy(g_fromDevice.front().begin(), g_fromDevice.front().end(), packet);
+  g_fromDevice.pop_front();
+  return true;
 }
 
 }  // namespace CardenzaSim::Input
@@ -82,6 +115,33 @@ const MatrixKeyState& State() {
 }
 
 }  // namespace Keyboard
+
+namespace USB {
+
+bool Connected()
+{
+  std::lock_guard<std::mutex> lock(g_usbMutex);
+  return g_usbConnected;
+}
+
+bool ReadMidi(std::uint8_t packet[4])
+{
+  std::lock_guard<std::mutex> lock(g_usbMutex);
+  if (g_toDevice.empty()) return false;
+  std::copy(g_toDevice.front().begin(), g_toDevice.front().end(), packet);
+  g_toDevice.pop_front();
+  return true;
+}
+
+bool WriteMidi(const std::uint8_t packet[4])
+{
+  std::lock_guard<std::mutex> lock(g_usbMutex);
+  if (!g_usbConnected) return false;
+  g_fromDevice.push_back({packet[0], packet[1], packet[2], packet[3]});
+  return true;
+}
+
+}  // namespace USB
 
 namespace Buttons {
 

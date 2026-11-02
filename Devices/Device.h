@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Device {
 
@@ -133,7 +134,20 @@ InputStatus ReadInputFrames(std::int16_t* destination,
                             std::size_t& framesRead,
                             std::uint32_t timeoutMs = 0);
 
+// What a computer plays to the device over USB: interleaved stereo int16 frames at 44.1 kHz, its own
+// mute and volume already applied. Returns the frames given; 0 when nothing plays.
+std::size_t ReadComputerAudio(std::int16_t* stereoFrames, std::size_t frameCount);
+
 }  // namespace Audio
+
+// The USB port as a MIDI interface to a computer (USB-MIDI 1.0 event packets on cable 0: the code
+// index number, then three MIDI bytes). The device also appears as an audio interface (Audio above,
+// and the rendered sound goes to the computer) and a HID device; that is the device layer's business.
+namespace USB {
+bool Connected();
+bool ReadMidi(std::uint8_t packet[4]);
+bool WriteMidi(const std::uint8_t packet[4]);
+}  // namespace USB
 
 namespace Storage {
 
@@ -152,6 +166,9 @@ std::string RootPath();
 // may limit how often a missing card is probed.
 bool Mount();
 bool IsMounted();
+// Call after a file operation failed, with the file closed: a card that stopped responding counts
+// as missing from now on (Mount() then retries it); a healthy one (a full disk) stays mounted.
+void CheckAfterIoError();
 // Size and free space of the mounted card in bytes (0 when unknown).
 std::uint64_t CapacityBytes();
 std::uint64_t FreeBytes();
@@ -163,6 +180,9 @@ inline constexpr std::size_t kInternalValueMax = 4000;
 bool ReadInternal(std::string_view key, std::string& value);
 bool WriteInternal(std::string_view key, std::string_view value);
 bool EraseInternal(std::string_view key);
+// Every key there is. They outlive firmware updates, so what no firmware reads any more stays until
+// someone erases it.
+std::vector<std::string> ListInternal();
 
 }  // namespace Storage
 

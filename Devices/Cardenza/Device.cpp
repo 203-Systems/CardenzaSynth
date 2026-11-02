@@ -1,31 +1,32 @@
 #include "Devices/Device.h"
+#include "Devices/KeySettle.h"
 #include "Devices/LedFrameBuffer.h"
 #include "Devices/LedLight.h"
 
+#include <atomic>
+#include <new>
+#include <cstdlib>
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <string_view>
 #include <utility>
 
-#include <esp_attr.h>
-#include <esp_lcd_panel_io.h>
-#include <esp_lcd_panel_ops.h>
+#include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <esp_vfs_fat.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
 #include <nvs.h>
 #include <nvs_flash.h>
 
 #include "cardenzaHAL.h"
+#include "usb/usb.h"
+#include "Devices/Cardenza/DeviceUsbStats.h"
 
 namespace {
 
 std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
 Device::Keyboard::MatrixKeyState keyboardState{};
 Device::LED::detail::LedFrameBuffer keyboardLedFrames;
-SemaphoreHandle_t framePresentDone = nullptr;
-bool displayCallbacksInstalled = false;
 
 // The HAL mounts the card here. The folders below it belong to the OS storage protocol.
 constexpr char kCardRoot[] = "/sdcard";
@@ -46,20 +47,18 @@ constexpr std::size_t MatrixIndex(std::size_t row, std::size_t column) {
   return row * static_cast<std::size_t>(Device::LED::kColumns) + column;
 }
 
-// What the HAL holds now: only keys that changed are sent (each setLED rebuilds its scan masks). Key
-// levels are perceived brightness, gamma-mapped to the HAL's linear duty (Devices/LedLight.h); the
-// master level goes as it is, the HAL corrects it.
+// What the HAL holds now. Key levels are perceived brightness, gamma-mapped to the HAL's linear duty
+// (Devices/LedLight.h) and sent as one frame; the master level goes as it is, the HAL corrects it.
 Device::LED::detail::LedFrame halLeds{};
 bool halLedsKnown = false;
 
 void PublishLedFrame(bool changed) {
   if (!changed) return;
   const auto& frame = keyboardLedFrames.Current();
-  for (std::size_t index = 0; index < frame.levels.size(); ++index) {
-    if (halLedsKnown && frame.levels[index] == halLeds.levels[index]) continue;
-    const CardenzaHAL::Keyboard::Point2D_t key{static_cast<int>(index % Device::LED::kColumns),
-                                               static_cast<int>(index / Device::LED::kColumns)};
-    CardenzaHAL::Keyboard::setLED(key, Device::LED::KeyLevel(frame.levels[index]));
+  if (!halLedsKnown || frame.levels != halLeds.levels) {
+    CardenzaHAL::Keyboard::LedFrame duties{};
+    for (std::size_t index = 0; index < frame.levels.size(); ++index) duties[index] = Device::LED::KeyLevel(frame.levels[index]);
+    CardenzaHAL::Keyboard::setLEDFrame(duties);
   }
   if (!halLedsKnown || frame.master != halLeds.master) CardenzaHAL::Keyboard::setLEDGlobalBrightness(frame.master);
   if (!halLedsKnown || frame.enabled != halLeds.enabled) (void)CardenzaHAL::Keyboard::enableLED(frame.enabled);
@@ -67,47 +66,12 @@ void PublishLedFrame(bool changed) {
   halLedsKnown = true;
 }
 
-bool IRAM_ATTR OnFramePresentDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* userContext) {
-  if (userContext == nullptr) {
-    return false;
-  }
-
-  BaseType_t highTaskWoken = pdFALSE;
-  xSemaphoreGiveFromISR(static_cast<SemaphoreHandle_t>(userContext), &highTaskWoken);
-  return highTaskWoken == pdTRUE;
-}
-
-bool EnsureDisplayPresentSync(esp_lcd_panel_io_handle_t panelIo) {
-  if (displayCallbacksInstalled) {
-    return true;
-  }
-
-  if (framePresentDone == nullptr) {
-    framePresentDone = xSemaphoreCreateBinary();
-    if (framePresentDone == nullptr) {
-      return false;
-    }
-  }
-
-  esp_lcd_panel_io_callbacks_t callbacks = {};
-  callbacks.on_color_trans_done = OnFramePresentDone;
-  if (esp_lcd_panel_io_register_event_callbacks(panelIo, &callbacks, framePresentDone) != ESP_OK) {
-    return false;
-  }
-
-  displayCallbacksInstalled = true;
-  return true;
-}
-
 bool InitNvs() {
-  esp_err_t status = nvs_flash_init();
-  if (status == ESP_ERR_NVS_NO_FREE_PAGES || status == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    // Truncated or written by a newer NVS layout: start over (it only holds settings copies).
-    if (nvs_flash_erase() != ESP_OK) {
-      return false;
-    }
-    status = nvs_flash_init();
-  }
+  // Never erased from here, whatever state it is in: under the Launcher this partition also holds the
+  // Launcher's settings, its list of installed apps and its self-update state. Without NVS the device
+  // runs on without internal records (no autosave, settings only on the card).
+  const esp_err_t status = nvs_flash_init();
+  if (status != ESP_OK) ESP_LOGE("Cardenza", "NVS unavailable (%s): no internal records", esp_err_to_name(status));
   return status == ESP_OK;
 }
 
@@ -135,28 +99,12 @@ void Clear(Pixel color) {
 }
 
 void Present() {
-  if (!CardenzaHAL::Display::Init()) {
-    return;
-  }
-
-  const esp_lcd_panel_handle_t panel = CardenzaHAL::Display::GetPanel();
-  const esp_lcd_panel_io_handle_t panelIo = CardenzaHAL::Display::GetPanelIO();
-  if (panel == nullptr || panelIo == nullptr || !EnsureDisplayPresentSync(panelIo)) {
-    return;
-  }
-
-  while (xSemaphoreTake(framePresentDone, 0) == pdTRUE) {
-  }
-
-  if (esp_lcd_panel_draw_bitmap(panel, 0, 0, kWidth, kHeight, frameBuffer.data()) != ESP_OK) {
-    return;
-  }
-
-  (void)xSemaphoreTake(framePresentDone, pdMS_TO_TICKS(1000));
+  // The HAL sends the frame and waits for it. The first frame also turns the backlight on.
+  (void)CardenzaHAL::Display::Present(frameBuffer.data());
 }
 
 void SetBacklight(std::uint8_t level) {
-  // The HAL caches the level and applies it when the backlight PWM starts.
+  // Perceived brightness; the HAL applies the gamma and keeps the level until the first frame.
   (void)CardenzaHAL::Display::SetBrightness(level);
 }
 
@@ -167,6 +115,13 @@ std::uint8_t Backlight() {
 }  // namespace Display
 
 namespace Keyboard {
+
+namespace {
+KeySettle<static_cast<std::size_t>(kRows)> leftKeySettle;
+std::uint32_t reportedGlitches = 0;
+std::uint32_t reportedStuck = 0;
+std::int64_t lastKeyReportAt = 0;
+}  // namespace
 
 const MatrixKeyState& State() {
   keyboardState.reset();
@@ -180,6 +135,21 @@ const MatrixKeyState& State() {
 
     const std::size_t index = static_cast<std::size_t>(key.y) * static_cast<std::size_t>(kColumns) + static_cast<std::size_t>(key.x);
     keyboardState.set(index);
+  }
+  // ESC, TAB, FN and CTRL decide what every other key means: only settled readings count.
+  const std::int64_t now = esp_timer_get_time();
+  for (std::size_t row = 0; row < static_cast<std::size_t>(kRows); ++row)
+  {
+    const std::size_t index = row * static_cast<std::size_t>(kColumns);
+    keyboardState.set(index, leftKeySettle.Update(row, keyboardState[index], now));
+  }
+  // What the filter did, for telling a bad contact or signal from a bug. At most once a second.
+  if ((leftKeySettle.Glitches() != reportedGlitches || leftKeySettle.Stuck() != reportedStuck) && now - lastKeyReportAt >= 1000000)
+  {
+    lastKeyReportAt = now;
+    reportedGlitches = leftKeySettle.Glitches();
+    reportedStuck = leftKeySettle.Stuck();
+    std::printf("keyboard: left column glitches=%u stuck=%u\n", static_cast<unsigned>(reportedGlitches), static_cast<unsigned>(reportedStuck));
   }
   return keyboardState;
 }
@@ -241,6 +211,49 @@ bool Enabled() {
 
 }  // namespace LED
 
+namespace USB {
+
+namespace {
+
+std::atomic<std::uint32_t> g_midiIn{0}, g_midiOut{0};
+
+// The HAL's app reports (0xFF) carry this firmware's test requests from a computer: 'S' answers with
+// what has gone through USB so far (tools/remote-flash/gate.sh usb-* commands read it).
+void HandleAppReport(const std::uint8_t* report, std::size_t length)
+{
+  if (length == 0 || report[0] != 'S') return;
+  const Audio::ComputerAudioStats audio = Audio::ComputerStats();
+  char text[CardenzaHAL::USB::kReportSize] = {};
+  // One report (62 characters at most); the heap and the endpoint counters are in the console.
+  const int size = std::snprintf(text, sizeof(text), "S midi_in=%lu midi_out=%lu to_pc=%lu from_pc=%lu peak=%u",
+                                 static_cast<unsigned long>(g_midiIn.load()), static_cast<unsigned long>(g_midiOut.load()),
+                                 static_cast<unsigned long>(audio.framesToComputer), static_cast<unsigned long>(audio.framesFromComputer),
+                                 static_cast<unsigned>(audio.peakFromComputer));
+  (void)CardenzaHAL::USB::SendAppReport(reinterpret_cast<const std::uint8_t*>(text), static_cast<std::size_t>(size > 0 ? size : 0));
+}
+
+}  // namespace
+
+bool Connected() { return CardenzaHAL::USB::Mounted(); }
+
+bool ReadMidi(std::uint8_t packet[4])
+{
+  if (!CardenzaHAL::USB::MidiRead(packet)) return false;
+  g_midiIn.fetch_add(1, std::memory_order_relaxed);
+  return true;
+}
+
+bool WriteMidi(const std::uint8_t packet[4])
+{
+  if (!CardenzaHAL::USB::MidiWrite(packet)) return false;
+  g_midiOut.fetch_add(1, std::memory_order_relaxed);
+  return true;
+}
+
+void InstallTestHooks() { CardenzaHAL::USB::SetAppReportHandler(&HandleAppReport); }
+
+}  // namespace USB
+
 namespace Storage {
 
 std::string RootPath() {
@@ -262,6 +275,10 @@ bool Mount() {
 
 bool IsMounted() {
   return CardenzaHAL::Storage::IsMounted();
+}
+
+void CheckAfterIoError() {
+  (void)CardenzaHAL::Storage::CheckAfterIoError();
 }
 
 std::uint64_t CapacityBytes() {
@@ -325,6 +342,24 @@ bool EraseInternal(std::string_view key) {
   return ok;
 }
 
+std::vector<std::string> ListInternal() {
+  std::vector<std::string> keys;
+  if (!nvsReady) {
+    return keys;
+  }
+  nvs_iterator_t entry = nullptr;
+  esp_err_t status = nvs_entry_find(NVS_DEFAULT_PART_NAME, kNvsNamespace, NVS_TYPE_ANY, &entry);
+  while (status == ESP_OK) {
+    nvs_entry_info_t info{};
+    if (nvs_entry_info(entry, &info) == ESP_OK) {
+      keys.emplace_back(info.key);
+    }
+    status = nvs_entry_next(&entry);
+  }
+  nvs_release_iterator(entry);
+  return keys;
+}
+
 }  // namespace Storage
 
 std::string Name() {
@@ -337,6 +372,14 @@ std::string BackendName() {
 
 bool Init() {
   const bool initialized = CardenzaHAL::Init();
+  // One composite device: MIDI, audio both ways, HID, and the HAL's system channel (console, restart
+  // into the Launcher or the ROM download mode). Func held at start keeps USB-Serial-JTAG.
+  CardenzaHAL::USB::Config usb;
+  usb.product = "Cardenza";
+  // No HID keyboard: this firmware types nothing, and with one macOS lets host tools open the HID
+  // interface only with the Input Monitoring permission.
+  usb.keyboard = false;
+  if (CardenzaHAL::USB::Init(usb)) USB::InstallTestHooks();
   if (!initialized) {
     return false;
   }
@@ -351,3 +394,31 @@ bool Init() {
 void Start() {}
 
 }  // namespace Device
+
+// libstdc++'s nothrow new calls plain new and catches what it throws, but this firmware is built
+// without exceptions: the throw itself aborts, so every `new (std::nothrow)` that ran out of memory
+// rebooted the device. These replace them for the whole program: out of memory is a null pointer.
+// A large block is something the device can do without (a delay line, a sample in RAM), and it must
+// not take what the small plain allocations need, which do end the program when they fail.
+namespace {
+
+constexpr std::size_t kLargeAllocationBytes = 4 * 1024;
+constexpr std::size_t kHeapFloorBytes = 20 * 1024;
+
+void* AllocateOrNull(std::size_t size)
+{
+  if (size >= kLargeAllocationBytes && heap_caps_get_free_size(MALLOC_CAP_8BIT) < size + kHeapFloorBytes) return nullptr;
+  return std::malloc(size != 0 ? size : 1);
+}
+
+}  // namespace
+
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept
+{
+  return AllocateOrNull(size);
+}
+
+void* operator new[](std::size_t size, const std::nothrow_t&) noexcept
+{
+  return AllocateOrNull(size);
+}

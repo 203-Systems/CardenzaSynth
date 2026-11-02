@@ -10,12 +10,18 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <cstdio>
 #include <memory>
 
 namespace synth {
 
 class SamplerManager {
 public:
+  // With a card a recording goes straight to a file on it (Session/take-<track>.wav, on the card
+  // for good about once a second); without one it fits in what RAM is free. The file stays until the
+  // take is saved or discarded, so a power cut loses at most the last second.
+  static constexpr std::uint32_t kMaxRecordSeconds = 60;
+
   ~SamplerManager();
   struct PreparedSample {
     std::string fileName;
@@ -33,6 +39,8 @@ public:
   void SetDraftTrimWindow(std::size_t trackIndex, int start127, int end127);
   void SetDraftLoopEnabled(std::size_t trackIndex, bool enabled);
   void EnterDraftNaming(std::size_t trackIndex);
+  // The first TAKE_nn that is free.
+  std::string FreeTakeName() const;
   bool CommitDraftName(std::size_t trackIndex, std::string_view name);
   bool ConfirmOverwriteDraft(std::size_t trackIndex);
   void CancelNameEntry(std::size_t trackIndex);
@@ -45,7 +53,15 @@ public:
   bool RenameCurrentSample(std::size_t trackIndex, std::string_view newName);
   bool DeleteCurrentSample(std::size_t trackIndex);
 
+  // Brings back the takes a power cut or an app switch left on the card, on the tracks that are
+  // samplers. Returns the track of the first one, -1 when there is none.
+  int RestoreTakes();
+  // The app is going away, not the takes: a recording ends as a take and the files stay.
+  void KeepTakesOnCard();
   SamplerTrackUiState BuildUiState(std::size_t trackIndex) const;
+  bool Previewing(std::size_t trackIndex) const;
+  // The track the microphone is recording for, -1 when it is off.
+  int RecordingTrack() const { return activeRecordingTrack_; }
   bool ConsumeTrimReset(std::size_t trackIndex);
   static bool ValidateSampleReference(std::string_view id);
   static bool PrepareSample(std::string_view id, PreparedSample& sample);
@@ -54,7 +70,14 @@ public:
 private:
   struct TrackState {
     SamplerTrackUiState ui;
-    std::shared_ptr<audio::SampleBuffer> draftFrames;
+    audio::SharedSampleBuffer draftFrames;
+    // While recording: the frames so far, in RAM when recordBuffer is set, else in the take file.
+    std::shared_ptr<audio::SampleBuffer> recordBuffer;
+    std::size_t recordedFrames = 0;
+    std::int32_t recordBinPeak = 0;
+    std::size_t recordBinFrames = 0;
+    std::size_t recordSyncedFrames = 0;
+    bool takeOnCard = false;
     audio::SharedSampleBuffer currentFrames;
     std::uint32_t currentSampleRate = audio::kSampleRate;
     std::string pendingDeleteFileName;
@@ -73,9 +96,14 @@ private:
   void PumpInput(TrackState& state);
   void FinishDraft(TrackState& state);
   bool SaveDraftAs(TrackState& state, std::string_view name, bool overwrite);
+  // The take file of the running recording, finished into a sample when `keep`.
+  void CloseTakeFile(TrackState& state, bool keep);
+  void RemoveTakeFile(std::size_t trackIndex);
 
   std::array<TrackState, kSynthTrackCount> tracks_{};
   int activeRecordingTrack_ = -1;
+  std::FILE* takeFile_ = nullptr;
+  bool keepTakes_ = false;
 };
 
 }  // namespace synth

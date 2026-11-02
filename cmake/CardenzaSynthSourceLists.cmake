@@ -28,6 +28,7 @@ function(cardenza_collect_synth_app_cpp_sources root_dir out_var)
         set(${out_var}
             ${runtime_sources}
             ${root_dir}/Applications/Synth/GrooveApp.cpp
+            ${root_dir}/Applications/Synth/Runtime/SessionStore.cpp
             ${root_dir}/Applications/Synth/UI/Groove/GrooveController.cpp
             ${root_dir}/Applications/Synth/UI/Groove/GrooveModals.cpp
             ${root_dir}/Applications/Synth/UI/Groove/GrooveRecord.cpp
@@ -67,6 +68,7 @@ endfunction()
 function(cardenza_collect_synth_fx_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Library/Synth/Audio/Fx/SynthFxDsp.cpp
+        ${root_dir}/Library/Synth/Audio/SampleStream.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
@@ -137,9 +139,8 @@ function(cardenza_collect_ui_cpp_sources root_dir out_var)
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
-# CardenzaHAL (Devices/Cardenza/cardenza) is the read-only upstream submodule (AGENT.md): the build
-# refuses a HAL with local changes, whatever started it (make, idf.py, an IDE). Its sources are listed
-# here like Cardenza-MPE does; keep the list in step with the HAL's own CMakeLists.txt.
+# CardenzaHAL (Devices/Cardenza/cardenza) is the upstream submodule, a clean consumer copy (AGENT.md):
+# the build refuses one with local changes, whatever started it (make, idf.py, an IDE).
 function(cardenza_check_hal_pristine root_dir)
     set(hal_dir ${root_dir}/Devices/Cardenza/cardenza)
     if(NOT EXISTS ${hal_dir}/cardenzaHAL.h)
@@ -152,35 +153,21 @@ function(cardenza_check_hal_pristine root_dir)
         execute_process(COMMAND ${GIT_EXECUTABLE} -C ${hal_dir} status --porcelain
                         OUTPUT_VARIABLE hal_changes OUTPUT_STRIP_TRAILING_WHITESPACE)
         if(NOT hal_changes STREQUAL "")
-            message(FATAL_ERROR "CardenzaHAL (Devices/Cardenza/cardenza) has local changes, but it is a read-only "
-                                "dependency (AGENT.md). Work above it in Devices/Cardenza and restore it:\n"
+            message(FATAL_ERROR "CardenzaHAL (Devices/Cardenza/cardenza) has local changes, but it is a clean consumer "
+                                "copy (AGENT.md). Change the HAL in its clone ~/projects/CardenzaHAL and restore this one:\n"
                                 "  git -C Devices/Cardenza/cardenza checkout -- . && git -C Devices/Cardenza/cardenza clean -fd\n"
                                 "${hal_changes}")
         endif()
     endif()
 endfunction()
 
+# CardenzaHAL builds as its own ESP-IDF component (Devices/Cardenza/CMakeLists.txt): its sources and
+# dependencies are its business. This only refuses a modified submodule.
 function(cardenza_collect_firmware_hal_cpp_sources root_dir out_var)
-    set(sources)
     if(DEFINED COMPONENT_DIR)
         cardenza_check_hal_pristine(${root_dir})
-        list(APPEND sources
-            ${root_dir}/Devices/Cardenza/cardenza/cardenzaHAL.cpp
-            ${root_dir}/Devices/Cardenza/cardenza/audio/audio.cpp
-            ${root_dir}/Devices/Cardenza/cardenza/audio/codec/es8156.cpp
-            ${root_dir}/Devices/Cardenza/cardenza/display/display.cpp
-            ${root_dir}/Devices/Cardenza/cardenza/ir/ir.cpp
-            ${root_dir}/Devices/Cardenza/cardenza/keyboard/keyboard.cpp
-            ${root_dir}/Devices/Cardenza/cardenza/keyboard/internal/keyboard_hardware.cpp
-            ${root_dir}/Devices/Cardenza/cardenza/keyboard/internal/keyboard_key_scan.cpp
-            ${root_dir}/Devices/Cardenza/cardenza/keyboard/internal/keyboard_led_scan.cpp
-            ${root_dir}/Devices/Cardenza/cardenza/mic/mic.cpp
-            ${root_dir}/Devices/Cardenza/cardenza/storage/storage.cpp
-            ${root_dir}/Devices/Cardenza/cardenza/system/system.cpp
-        )
     endif()
-
-    set(${out_var} ${sources} PARENT_SCOPE)
+    set(${out_var} "" PARENT_SCOPE)
 endfunction()
 
 function(cardenza_collect_firmware_device_cpp_sources root_dir out_var)

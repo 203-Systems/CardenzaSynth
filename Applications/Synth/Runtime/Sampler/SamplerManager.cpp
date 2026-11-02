@@ -12,17 +12,86 @@
 #include <cstdio>
 #include <cmath>
 #include <fstream>
+#include <cstring>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <sys/stat.h>
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace synth {
 
 namespace {
 
-constexpr std::uint32_t kMaxRecordSeconds = 5;
+// Without a card the take has to fit in RAM.
+constexpr std::uint32_t kMaxRamRecordSeconds = 5;
 constexpr std::size_t kInputReadFrames = 512;
 constexpr std::uint32_t kRecordingWaveformWindowMs = 750;
+constexpr std::size_t kWaveformProbeFrames = 512;
+
+std::string TakeFilePath(std::size_t trackIndex)
+{
+  const std::string directory = storage::SessionDirectory();
+  return directory.empty() ? std::string() : directory + "/take-" + std::to_string(trackIndex + 1) + ".wav";
+}
+
+std::string WavHeaderText(std::size_t frameCount, std::uint32_t sampleRate)
+{
+  std::ostringstream header;
+  sampler::WriteMono16WavHeader(header, frameCount, sampleRate);
+  return header.str();
+}
+
+// What has been written so far is on the card even if the power goes now (the file size in the
+// directory only changes here, not with every write).
+void SyncFile(std::FILE* file)
+{
+  std::fflush(file);
+#if defined(_WIN32)
+  (void)_commit(_fileno(file));
+#else
+  (void)fsync(fileno(file));
+#endif
+}
+
+// A take a power cut interrupted has a header from when it began: make it agree with what arrived.
+bool RepairTakeHeader(const std::string& path)
+{
+  std::FILE* file = std::fopen(path.c_str(), "r+b");
+  if (file == nullptr) return false;
+  std::array<unsigned char, sampler::kWavHeaderBytes> header{};
+  const bool read = std::fread(header.data(), 1, header.size(), file) == header.size() && std::memcmp(header.data(), "RIFF", 4) == 0;
+  bool repaired = false;
+  if (read && std::fseek(file, 0, SEEK_END) == 0)
+  {
+    const long size = std::ftell(file);
+    const std::uint32_t rate = static_cast<std::uint32_t>(header[24]) | (static_cast<std::uint32_t>(header[25]) << 8) |
+                               (static_cast<std::uint32_t>(header[26]) << 16) | (static_cast<std::uint32_t>(header[27]) << 24);
+    if (size > static_cast<long>(sampler::kWavHeaderBytes) + 1 && rate >= sampler::kMinSampleRate && rate <= sampler::kMaxSampleRate)
+    {
+      const std::size_t frames = std::min<std::size_t>((static_cast<std::size_t>(size) - sampler::kWavHeaderBytes) / sizeof(std::int16_t), sampler::kMaxSampleFrames);
+      const std::string text = WavHeaderText(frames, rate);
+      repaired = std::fseek(file, 0, SEEK_SET) == 0 && std::fwrite(text.data(), 1, text.size(), file) == text.size();
+      // An odd byte or anything past the frames would make it an invalid file.
+      if (repaired && static_cast<std::size_t>(size) != sampler::kWavHeaderBytes + frames * sizeof(std::int16_t))
+      {
+        std::fclose(file);
+#if defined(_WIN32)
+        file = nullptr;
+#else
+        repaired = truncate(path.c_str(), static_cast<off_t>(sampler::kWavHeaderBytes + frames * sizeof(std::int16_t))) == 0;
+        file = nullptr;
+#endif
+      }
+    }
+  }
+  if (file != nullptr) std::fclose(file);
+  return repaired;
+}
 
 std::string PhaseStatus(SamplerTrackPhase phase)
 {
@@ -174,6 +243,19 @@ void BuildWaveform(std::array<float, kSamplerWaveformBinCount>& waveform, const 
     return;
   }
 
+  if (frames->stream)
+  {
+    // Too long to scan on the card: a look at the start of every bin.
+    std::array<std::int16_t, kWaveformProbeFrames> probe{};
+    for (std::size_t bin = 0; bin < waveform.size(); ++bin)
+    {
+      const std::size_t begin = bin * frames->frameCount / waveform.size();
+      const std::size_t count = std::min(probe.size(), frames->frameCount - begin);
+      if (count != 0 && frames->stream->ReadFrames(begin, probe.data(), count)) waveform[bin] = PeakLevel(probe.data(), count);
+    }
+    return;
+  }
+
   for (std::size_t bin = 0; bin < waveform.size(); ++bin)
   {
     const std::size_t begin = bin * frames->frameCount / waveform.size();
@@ -187,58 +269,6 @@ void BuildWaveform(std::array<float, kSamplerWaveformBinCount>& waveform, const 
   }
 }
 
-void BuildRecordingWaveform(std::array<float, kSamplerWaveformBinCount>& waveform,
-                            const audio::SharedSampleBuffer& frames,
-                            std::uint32_t sampleRate)
-{
-  if ((!frames || frames->frameCount == 0) || sampleRate == 0)
-  {
-    BuildWaveform(waveform, frames);
-    return;
-  }
-
-  const std::size_t windowFrames = std::max<std::size_t>(kInputReadFrames,
-                                                          (static_cast<std::size_t>(sampleRate) * kRecordingWaveformWindowMs) / 1000);
-  if (frames->frameCount <= windowFrames)
-  {
-    BuildWaveform(waveform, frames);
-    return;
-  }
-
-  waveform.fill(0.0f);
-  const std::size_t frameStart = frames->frameCount - windowFrames;
-  const std::size_t frameCount = frames->frameCount - frameStart;
-  for (std::size_t bin = 0; bin < waveform.size(); ++bin)
-  {
-    const std::size_t begin = frameStart + (bin * frameCount) / waveform.size();
-    const std::size_t end = std::max<std::size_t>(begin + 1, frameStart + ((bin + 1) * frameCount) / waveform.size());
-    double mean = 0.0;
-    std::size_t sampleCount = 0;
-    for (std::size_t index = begin; index < end && index < frames->frameCount; ++index)
-    {
-      mean += static_cast<double>(frames->frames[index]);
-      ++sampleCount;
-    }
-
-    if (sampleCount == 0)
-    {
-      waveform[bin] = 0.0f;
-      continue;
-    }
-
-    mean /= static_cast<double>(sampleCount);
-    double energy = 0.0;
-    for (std::size_t index = begin; index < end && index < frames->frameCount; ++index)
-    {
-      const double centered = static_cast<double>(frames->frames[index]) - mean;
-      energy += centered * centered;
-    }
-
-    const double rms = std::sqrt(energy / static_cast<double>(sampleCount));
-    waveform[bin] = static_cast<float>(rms / static_cast<double>(std::numeric_limits<std::int16_t>::max()));
-  }
-}
-
 }  // namespace
 
 SamplerManager::~SamplerManager()
@@ -246,6 +276,10 @@ SamplerManager::~SamplerManager()
   if (activeRecordingTrack_ >= 0)
   {
     Device::Audio::StopInput();
+  }
+  if (takeFile_ != nullptr)
+  {
+    std::fclose(takeFile_);
   }
 }
 
@@ -264,7 +298,9 @@ void SamplerManager::OnTrackEngineChanged(std::size_t trackIndex, SynthEngineKin
     {
       Device::Audio::StopInput();
       activeRecordingTrack_ = -1;
+      CloseTakeFile(state, keepTakes_);
     }
+    if (state.takeOnCard && !keepTakes_) RemoveTakeFile(trackIndex);
     StopPreview(trackIndex, state);
     audio::SetSamplerFrames(trackIndex, {}, audio::kSampleRate);
     state = TrackState{};
@@ -349,29 +385,62 @@ bool SamplerManager::BeginRecord(std::size_t trackIndex, bool replaceDraft)
     state.ui.statusText = "INPUT FORMAT";
     return false;
   }
-  std::size_t capacity = std::min<std::size_t>(info.sampleRate * kMaxRecordSeconds, sampler::kMaxSampleFrames);
-  std::shared_ptr<audio::SampleBuffer> draft;
-  for (; capacity >= info.sampleRate / 4; capacity /= 2)
-  {
-    draft = sampler::AllocateFrames(capacity);
-    if (draft)
-    {
-      break;
-    }
-  }
-  if (!draft)
-  {
-    state.ui.statusText = "NO MEMORY";
-    return false;
-  }
+  // First the microphone: if it fails, an unsaved take that is there stays as it is.
   if (Device::Audio::StartInput() != Device::Audio::InputStatus::Ready)
   {
     state.ui.phase = SamplerTrackPhase::Error;
     state.ui.statusText = "INPUT ERR";
     return false;
   }
-  state.draftFrames = std::move(draft);
-  state.draftFrames->frameCount = 0;
+  // The take goes straight to the card when there is one; the WAV header is written when it ends.
+  std::size_t capacity = 0;
+  std::shared_ptr<audio::SampleBuffer> buffer;
+  const std::string takePath = storage::EnsureLayout() ? TakeFilePath(trackIndex) : std::string();
+  if (!takePath.empty())
+  {
+    audio::SampleFileGuard guard(takePath);
+    takeFile_ = std::fopen(takePath.c_str(), "wb");
+    if (takeFile_ != nullptr)
+    {
+      // The rate is on the card from the start; the length is set when the take ends, or from the file
+      // size after a power cut.
+      const std::string header = WavHeaderText(0, info.sampleRate);
+      if (std::fwrite(header.data(), 1, header.size(), takeFile_) == header.size())
+      {
+        capacity = std::min<std::size_t>(info.sampleRate * kMaxRecordSeconds, sampler::kMaxSampleFrames);
+      }
+      else
+      {
+        std::fclose(takeFile_);
+        takeFile_ = nullptr;
+      }
+    }
+  }
+  if (takeFile_ == nullptr)
+  {
+    capacity = std::min<std::size_t>(info.sampleRate * kMaxRamRecordSeconds, sampler::kMaxSampleFrames);
+    for (; capacity >= info.sampleRate / 4; capacity /= 2)
+    {
+      buffer = sampler::AllocateFrames(capacity);
+      if (buffer)
+      {
+        break;
+      }
+    }
+    if (!buffer)
+    {
+      Device::Audio::StopInput();
+      state.ui.statusText = "NO MEMORY";
+      return false;
+    }
+  }
+  state.draftFrames.reset();
+  state.recordBuffer = std::move(buffer);
+  state.recordedFrames = 0;
+  state.recordBinPeak = 0;
+  state.recordBinFrames = 0;
+  state.recordSyncedFrames = 0;
+  state.takeOnCard = takeFile_ != nullptr;
   state.ui.sampleRate = info.sampleRate;
   state.ui.frameCount = 0;
   state.ui.recordMaxFrameCount = static_cast<std::uint32_t>(capacity);
@@ -416,7 +485,7 @@ bool SamplerManager::StopRecord(std::size_t trackIndex)
     return false;
   }
 
-  if (!state.draftFrames || state.draftFrames->frameCount == 0)
+  if (state.recordedFrames == 0)
   {
     DiscardDraftTake(trackIndex);
     state.ui.statusText = "NO INPUT";
@@ -424,7 +493,7 @@ bool SamplerManager::StopRecord(std::size_t trackIndex)
   }
 
   FinishDraft(state);
-  return true;
+  return state.ui.hasDraft;
 }
 
 void SamplerManager::CancelRecord(std::size_t trackIndex)
@@ -439,6 +508,7 @@ void SamplerManager::CancelRecord(std::size_t trackIndex)
     Device::Audio::StopInput();
     activeRecordingTrack_ = -1;
   }
+  CloseTakeFile(tracks_[trackIndex], false);
   DiscardDraftTake(trackIndex);
 }
 
@@ -455,8 +525,12 @@ void SamplerManager::DiscardDraftTake(std::size_t trackIndex)
     Device::Audio::StopInput();
     activeRecordingTrack_ = -1;
   }
+  CloseTakeFile(state, false);
   StopPreview(trackIndex, state);
   state.draftFrames.reset();
+  state.recordBuffer.reset();
+  state.recordedFrames = 0;
+  if (state.takeOnCard) RemoveTakeFile(trackIndex);
   state.ui.hasDraft = false;
   state.ui.needsName = false;
   state.ui.overwritePending = false;
@@ -519,6 +593,17 @@ void SamplerManager::EnterDraftNaming(std::size_t trackIndex)
   state.ui.phase = SamplerTrackPhase::Naming;
   state.ui.needsName = true;
   state.ui.statusText = PhaseStatus(state.ui.phase);
+}
+
+std::string SamplerManager::FreeTakeName() const
+{
+  for (int number = 1; number < 1000; ++number)
+  {
+    const std::string name = std::string("TAKE_") + (number < 10 ? "0" : "") + std::to_string(number);
+    // Not a name in use in the 0.1.0 release's folder either: a project there may mean that file.
+    if (!FileExists(storage::ResolveSamplePath(name + ".wav"))) return name;
+  }
+  return "TAKE";
 }
 
 bool SamplerManager::CommitDraftName(std::size_t trackIndex, std::string_view name)
@@ -624,7 +709,7 @@ bool SamplerManager::PrepareSample(std::string_view id, PreparedSample& sample)
   PreparedSample prepared;
   prepared.fileName = SampleFileName(id);
   if (prepared.fileName.empty() || !sampler::ReadMono16Wav(
-          JoinPath(storage::SampleDirectory(), prepared.fileName), prepared.frames, prepared.sampleRate))
+          storage::ResolveSamplePath(prepared.fileName), prepared.frames, prepared.sampleRate))
   {
     return false;
   }
@@ -634,7 +719,7 @@ bool SamplerManager::PrepareSample(std::string_view id, PreparedSample& sample)
 
 bool SamplerManager::ApplySample(std::size_t trackIndex, const PreparedSample& sample)
 {
-  if (!CanReplaceSample(trackIndex) || !sample.frames || !sample.frames->frames || sample.frames->frameCount == 0 ||
+  if (!CanReplaceSample(trackIndex) || !sample.frames || (!sample.frames->frames && !sample.frames->stream) || sample.frames->frameCount == 0 ||
       sample.frames->frameCount > sampler::kMaxSampleFrames || sample.sampleRate < sampler::kMinSampleRate ||
       sample.sampleRate > sampler::kMaxSampleRate || sample.fileName.empty() || SampleFileName(sample.fileName) != sample.fileName)
   {
@@ -693,10 +778,14 @@ bool SamplerManager::DeleteBrowserSample(std::size_t trackIndex, std::string_vie
     state.ui.statusText = "FILE IN USE";
     return false;
   }
-  if (!RemoveFileIfPresent(JoinPath(storage::SampleDirectory(), fileName)))
   {
-    state.ui.statusText = "DEL ERR";
-    return false;
+    const std::string path = JoinPath(storage::SampleDirectory(), fileName);
+    audio::SampleFileGuard guard(path);
+    if (!RemoveFileIfPresent(path))
+    {
+      state.ui.statusText = "DEL ERR";
+      return false;
+    }
   }
   if (SameSampleFile(state.ui.sampleFileName, fileName))
   {
@@ -733,10 +822,14 @@ bool SamplerManager::RenameBrowserSample(std::size_t trackIndex, std::string_vie
   const std::string destinationName = renamedName == FileStem(fileName) ? fileName : renamedName + ".wav";
   const std::string sourcePath = JoinPath(storage::SampleDirectory(), fileName);
   const std::string destinationPath = JoinPath(storage::SampleDirectory(), destinationName);
-  if (!RenameFileIfPossible(sourcePath, destinationPath))
   {
-    state.ui.statusText = "REN ERR";
-    return false;
+    audio::SampleFileGuard guard(sourcePath);
+    if (!RenameFileIfPossible(sourcePath, destinationPath))
+    {
+      state.ui.statusText = "REN ERR";
+      return false;
+    }
+    guard.MovedTo(destinationPath);
   }
 
   for (auto& track : tracks_)
@@ -794,7 +887,7 @@ bool SamplerManager::ValidateSampleReference(std::string_view id)
   {
     return false;
   }
-  std::ifstream file(JoinPath(storage::SampleDirectory(), name), std::ios::binary);
+  std::ifstream file(storage::ResolveSamplePath(name), std::ios::binary);
   sampler::WavInfo info;
   return file && sampler::InspectMono16Wav(file, info);
 }
@@ -831,6 +924,11 @@ audio::SharedSampleBuffer SamplerManager::ActiveFrames(const TrackState& state)
   return state.ui.hasDraft ? state.draftFrames : state.currentFrames;
 }
 
+bool SamplerManager::Previewing(std::size_t trackIndex) const
+{
+  return trackIndex < tracks_.size() && tracks_[trackIndex].ui.previewing;
+}
+
 void SamplerManager::StopPreview(std::size_t trackIndex, TrackState& state)
 {
   if (!state.ui.previewing)
@@ -857,17 +955,19 @@ void SamplerManager::SyncAudioSample(std::size_t trackIndex, const TrackState& s
 
 void SamplerManager::PumpInput(TrackState& state)
 {
-  if (!state.draftFrames || !state.ui.recording)
+  if (!state.ui.recording || (takeFile_ == nullptr && !state.recordBuffer))
   {
     return;
   }
   const std::size_t maxFrames = state.ui.recordMaxFrameCount;
+  const std::size_t binFrames = std::max<std::size_t>(1, state.ui.sampleRate * kRecordingWaveformWindowMs / 1000 / state.ui.waveform.size());
+  std::array<std::int16_t, kInputReadFrames> chunk{};
   float peak = 0;
-  while (state.draftFrames->frameCount < maxFrames)
+  while (state.recordedFrames < maxFrames)
   {
     std::size_t framesRead = 0;
-    const std::size_t requestFrames = std::min<std::size_t>(kInputReadFrames, maxFrames - state.draftFrames->frameCount);
-    auto* destination = state.draftFrames->frames.get() + state.draftFrames->frameCount;
+    const std::size_t requestFrames = std::min<std::size_t>(kInputReadFrames, maxFrames - state.recordedFrames);
+    auto* destination = takeFile_ != nullptr ? chunk.data() : state.recordBuffer->frames.get() + state.recordedFrames;
     const auto status = Device::Audio::ReadInputFrames(destination, requestFrames, framesRead, 0);
     if (status == Device::Audio::InputStatus::Overflow)
     {
@@ -882,14 +982,37 @@ void SamplerManager::PumpInput(TrackState& state)
     {
       break;
     }
+    if (takeFile_ != nullptr && std::fwrite(destination, sizeof(std::int16_t), framesRead, takeFile_) != framesRead)
+    {
+      // The card is full or gone: what is on it so far is the take.
+      Device::Audio::StopInput();
+      activeRecordingTrack_ = -1;
+      FinishDraft(state);
+      state.ui.statusText = "CARD FULL";
+      return;
+    }
     peak = std::max(peak, PeakLevel(destination, framesRead));
-    state.draftFrames->frameCount += framesRead;
+    state.recordedFrames += framesRead;
+    if (takeFile_ != nullptr && state.recordedFrames - state.recordSyncedFrames >= state.ui.sampleRate)
+    {
+      SyncFile(takeFile_);
+      state.recordSyncedFrames = state.recordedFrames;
+    }
+    // The waveform of the last moments scrolls by, one peak per bin.
+    for (std::size_t frame = 0; frame < framesRead; ++frame)
+    {
+      state.recordBinPeak = std::max<std::int32_t>(state.recordBinPeak, std::abs(static_cast<int>(destination[frame])));
+      if (++state.recordBinFrames < binFrames) continue;
+      std::rotate(state.ui.waveform.begin(), state.ui.waveform.begin() + 1, state.ui.waveform.end());
+      state.ui.waveform.back() = static_cast<float>(state.recordBinPeak) / static_cast<float>(std::numeric_limits<std::int16_t>::max());
+      state.recordBinPeak = 0;
+      state.recordBinFrames = 0;
+    }
   }
   state.ui.inputLevel = peak;
-  state.ui.frameCount = static_cast<std::uint32_t>(state.draftFrames->frameCount);
-  BuildRecordingWaveform(state.ui.waveform, state.draftFrames, state.ui.sampleRate);
-  state.ui.recordProgress = maxFrames == 0 ? 0.0f : static_cast<float>(state.draftFrames->frameCount) / static_cast<float>(maxFrames);
-  if (state.draftFrames->frameCount >= maxFrames)
+  state.ui.frameCount = static_cast<std::uint32_t>(state.recordedFrames);
+  state.ui.recordProgress = maxFrames == 0 ? 0.0f : static_cast<float>(state.recordedFrames) / static_cast<float>(maxFrames);
+  if (state.recordedFrames >= maxFrames)
   {
     Device::Audio::StopInput();
     activeRecordingTrack_ = -1;
@@ -897,8 +1020,88 @@ void SamplerManager::PumpInput(TrackState& state)
   }
 }
 
+void SamplerManager::CloseTakeFile(TrackState& state, bool keep)
+{
+  if (takeFile_ == nullptr)
+  {
+    return;
+  }
+  const std::size_t trackIndex = static_cast<std::size_t>(&state - tracks_.data());
+  bool closed = true;
+  if (keep && state.recordedFrames != 0)
+  {
+    // Now the length is known.
+    const std::string text = WavHeaderText(state.recordedFrames, state.ui.sampleRate);
+    closed = std::fseek(takeFile_, 0, SEEK_SET) == 0 && std::fwrite(text.data(), 1, text.size(), takeFile_) == text.size();
+  }
+  closed = std::fclose(takeFile_) == 0 && closed;
+  takeFile_ = nullptr;
+  if (keep && closed && state.recordedFrames != 0)
+  {
+    audio::SharedSampleBuffer take;
+    std::uint32_t rate = state.ui.sampleRate;
+    if (sampler::ReadMono16Wav(TakeFilePath(trackIndex), take, rate)) state.draftFrames = std::move(take);
+  }
+  if (!state.draftFrames) RemoveTakeFile(trackIndex);
+}
+
+void SamplerManager::RemoveTakeFile(std::size_t trackIndex)
+{
+  tracks_[trackIndex].takeOnCard = false;
+  const std::string path = TakeFilePath(trackIndex);
+  if (path.empty()) return;
+  audio::SampleFileGuard guard(path);
+  (void)RemoveFileIfPresent(path);
+}
+
+int SamplerManager::RestoreTakes()
+{
+  int first = -1;
+  for (std::size_t trackIndex = 0; trackIndex < tracks_.size(); ++trackIndex)
+  {
+    TrackState& state = tracks_[trackIndex];
+    if (state.ui.hasDraft || activeRecordingTrack_ == static_cast<int>(trackIndex)) continue;
+    const std::string path = TakeFilePath(trackIndex);
+    if (path.empty() || !IsRegularFile(path)) continue;
+    audio::SharedSampleBuffer take;
+    std::uint32_t rate = audio::kSampleRate;
+    const bool usable = state.isSampler && RepairTakeHeader(path) && sampler::ReadMono16Wav(path, take, rate);
+    if (!usable)
+    {
+      RemoveTakeFile(trackIndex);
+      continue;
+    }
+    state.draftFrames = std::move(take);
+    state.recordedFrames = state.draftFrames->frameCount;
+    state.takeOnCard = true;
+    state.ui.sampleRate = rate;
+    FinishDraft(state);
+    if (first < 0) first = static_cast<int>(trackIndex);
+  }
+  return first;
+}
+
+void SamplerManager::KeepTakesOnCard()
+{
+  keepTakes_ = true;
+  if (activeRecordingTrack_ < 0) return;
+  // The recording up to here is the take the next start finds.
+  const auto trackIndex = static_cast<std::size_t>(activeRecordingTrack_);
+  (void)StopRecord(trackIndex);
+}
+
 void SamplerManager::FinishDraft(TrackState& state)
 {
+  if (takeFile_ != nullptr)
+  {
+    CloseTakeFile(state, true);
+  }
+  else if (state.recordBuffer)
+  {
+    state.recordBuffer->frameCount = state.recordedFrames;
+    state.draftFrames = std::move(state.recordBuffer);
+  }
+  state.recordBuffer.reset();
   state.ui.hasDraft = state.draftFrames && state.draftFrames->frameCount != 0;
   state.ui.recording = false;
   state.ui.phase = state.ui.hasDraft ? SamplerTrackPhase::DraftTrim : (state.ui.hasSample ? SamplerTrackPhase::Ready : SamplerTrackPhase::Empty);
@@ -947,21 +1150,23 @@ bool SamplerManager::SaveDraftAs(TrackState& state, std::string_view name, bool 
   const std::uint32_t totalFrames = static_cast<std::uint32_t>(state.draftFrames->frameCount);
   const std::uint32_t startFrame = std::min<std::uint32_t>(state.ui.trimStartFrame, totalFrames - 1);
   const std::uint32_t endFrame = std::clamp<std::uint32_t>(state.ui.trimEndFrame, startFrame + 1, totalFrames);
-  audio::SharedSampleBuffer savedFrames = state.draftFrames;
-  if (startFrame != 0 || endFrame != totalFrames)
+  const std::size_t savedCount = endFrame - startFrame;
+  const audio::SampleBuffer& draft = *state.draftFrames;
+  // The file is written piece by piece from the take, in RAM or on the card.
+  bool written = false;
   {
-    auto trimmed = sampler::AllocateFrames(endFrame - startFrame);
-    if (!trimmed)
-    {
-      state.ui.statusText = "NO MEMORY";
-      return false;
-    }
-    std::copy_n(state.draftFrames->frames.get() + startFrame, trimmed->frameCount, trimmed->frames.get());
-    savedFrames = std::move(trimmed);
+    audio::SampleFileGuard guard(filePath);
+    written = storage::EnsureLayout() &&
+        sampler::WriteMono16WavFrom(filePath, savedCount, state.ui.sampleRate, [&](std::int16_t* chunk, std::size_t offset, std::size_t count) {
+          if (draft.stream) return draft.stream->ReadFrames(startFrame + offset, chunk, count);
+          std::copy_n(draft.frames.get() + startFrame + offset, count, chunk);
+          return true;
+        });
   }
-
-  if (!storage::EnsureLayout() || !sampler::WriteMono16Wav(
-          filePath, savedFrames->frames.get(), savedFrames->frameCount, state.ui.sampleRate))
+  // Back from the file: a short sample into RAM, a long one streamed from where it now lives.
+  audio::SharedSampleBuffer savedFrames;
+  std::uint32_t savedRate = state.ui.sampleRate;
+  if (!written || !sampler::ReadMono16Wav(filePath, savedFrames, savedRate))
   {
     state.ui.phase = SamplerTrackPhase::Error;
     state.ui.statusText = "SAVE ERR";
@@ -971,6 +1176,7 @@ bool SamplerManager::SaveDraftAs(TrackState& state, std::string_view name, bool 
   state.currentFrames = savedFrames;
   state.currentSampleRate = state.ui.sampleRate;
   state.draftFrames.reset();
+  if (state.takeOnCard) RemoveTakeFile(trackIndex);
   state.ui.sampleName = sanitizedName;
   state.ui.sampleFileName = sanitizedName + ".wav";
   state.ui.hasSample = true;

@@ -37,7 +37,7 @@ enum class UiModifier {
 constexpr std::size_t kSynthTrackCount = 4;
 // The track a fresh start and a new project open on: T2, the first melodic track, so the pads show
 // the piano layout (white keys, black keys, dark gaps) from the start.
-constexpr std::size_t kDefaultActiveTrack = 1;
+constexpr std::size_t kDefaultActiveTrack = 0;
 constexpr std::size_t kKeyboardMatrixRows = 4;
 constexpr std::size_t kKeyboardMatrixColumns = 14;
 constexpr std::size_t kHomeLeftBarColumn = 0;
@@ -48,7 +48,11 @@ constexpr std::size_t kHomePerformanceLastColumn = kHomePerformanceFirstColumn +
 constexpr std::size_t kSequencerStepFirstColumn = kHomePerformanceLastColumn + 1;
 constexpr std::size_t kSequencerStepColumnCount = 4;
 constexpr std::size_t kSequencerStepLastColumn = kSequencerStepFirstColumn + kSequencerStepColumnCount - 1;
+// Steps on the GRID: one page of a pattern, and the default pattern length.
 constexpr std::size_t kSequencerStepCount = kKeyboardMatrixRows * kSequencerStepColumnCount;
+// A pattern is up to this long, shown and stored one page at a time.
+constexpr std::size_t kSequencerMaxSteps = 256;
+constexpr std::size_t kSequencerMaxStepPages = kSequencerMaxSteps / kSequencerStepCount;
 constexpr std::size_t kSequencerMaxPatternCount = 16;
 constexpr std::uint16_t kSequencerPulsesPerQuarter = 96;
 constexpr std::uint16_t kSequencerPulsesPerStep = 24;

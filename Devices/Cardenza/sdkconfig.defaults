@@ -8,3 +8,6 @@ CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
 # Long file names: the storage protocol uses names such as settings.cfg.bak and <project>.ccproj.
 CONFIG_FATFS_LFN_HEAP=y
+
+# AMY runs from flash on both cores: a bigger instruction cache for sound, measured on the board.
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y

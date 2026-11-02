@@ -27,9 +27,11 @@ constexpr std::size_t kMaxProjectBytes = 1024 * 1024;
 // settings of the time. It still loads (the PLAY line is skipped).
 // Version 6 makes the play settings project data: after FX a KEYS line (scale lock, velocity) and
 // one PLAYFX line per track (chord, voicing, arp mode, rate, octaves, gate, latch); the UI line's
-// octave, root, scale and layout are the project's keyboard. The next format change takes 7.
-constexpr int kProjectVersion = 6;
-constexpr int kMaxReadProjectVersion = 6;
+// octave, root, scale and layout are the project's keyboard.
+// Version 7 gives every pattern its own length, up to 256 steps: the T line ends with the length of
+// each pattern instead of the one length of the track. The next format change takes 8.
+constexpr int kProjectVersion = 7;
+constexpr int kMaxReadProjectVersion = 7;
 constexpr int kMinProjectVersion = 1;
 constexpr unsigned kMaxMixerLevel = 100;
 
@@ -119,7 +121,6 @@ bool IsProjectNameValid(const std::string& name) {
 
 std::vector<std::string> ListProjects() {
   std::vector<std::string> result;
-  const std::string directory = storage::ProjectDirectory();
   auto add = [&](const std::string& filename) {
     std::string candidate = filename;
     if (candidate.size() > 11 && candidate.substr(candidate.size() - 11) == ".ccproj.bak") candidate.resize(candidate.size() - 4);
@@ -128,17 +129,20 @@ std::vector<std::string> ListProjects() {
       if (IsProjectNameValid(name)) result.push_back(name);
     }
   };
+  // Ours, and what the 0.1.0 release saved.
+  for (const std::string& directory : {storage::ProjectDirectory(), storage::ReleaseProjectDirectory()}) {
 #if defined(ESP_PLATFORM)
-  if (DIR* dir = opendir(directory.c_str())) {
-    while (auto* entry = readdir(dir)) add(entry->d_name);
-    closedir(dir);
-  }
+    if (DIR* dir = opendir(directory.c_str())) {
+      while (auto* entry = readdir(dir)) add(entry->d_name);
+      closedir(dir);
+    }
 #else
-  std::error_code error;
-  for (std::filesystem::directory_iterator it(directory, error), end; !error && it != end; it.increment(error)) {
-    if (it->is_regular_file(error)) add(it->path().filename().string());
-  }
+    std::error_code error;
+    for (std::filesystem::directory_iterator it(directory, error), end; !error && it != end; it.increment(error)) {
+      if (it->is_regular_file(error)) add(it->path().filename().string());
+    }
 #endif
+  }
   std::sort(result.begin(), result.end());
   result.erase(std::unique(result.begin(), result.end()), result.end());
   return result;
@@ -179,13 +183,18 @@ ProjectResult WriteProject(const std::string& path, const ProjectData& project) 
   file << "SEQ " << project.sequence->bpm << ' ' << static_cast<int>(project.sequence->swing) << '\n';
   for (const auto& track : project.sequence->tracks) {
     file << "T " << track.patternCount << ' ' << track.activePattern << ' ' << static_cast<int>(track.defaultVelocity) << ' '
-         << track.defaultLengthPulses << ' ' << track.enabled << ' ' << track.muted << ' ' << track.stepCount << '\n';
+         << track.defaultLengthPulses << ' ' << track.enabled << ' ' << track.muted;
+    for (std::size_t p = 0; p < track.patternCount; ++p) file << ' ' << track.patternSteps[p];
+    file << '\n';
     std::size_t count = 0;
-    for (std::size_t p = 0; p < track.patternCount; ++p)
-      for (const auto& step : track.patterns[p].steps) for (const auto& note : step.notes) count += note.active;
+    for (std::size_t p = 0; p < track.patternCount; ++p) {
+      const auto& steps = track.patterns[p].steps;
+      for (std::size_t s = steps.NextInUse(0); s < steps.size(); s = steps.NextInUse(s + 1))
+        for (const auto& note : steps[s].notes) count += note.active;
+    }
     file << "NOTES " << count << '\n';
     for (std::size_t p = 0; p < track.patternCount; ++p)
-      for (std::size_t s = 0; s < kSequencerStepCount; ++s)
+      for (std::size_t s = track.patterns[p].steps.NextInUse(0); s < kSequencerMaxSteps; s = track.patterns[p].steps.NextInUse(s + 1))
         for (const auto& note : track.patterns[p].steps[s].notes)
           if (note.active) file << p << ' ' << s << ' ' << static_cast<int>(note.note) << ' ' << static_cast<int>(note.velocity)
                                << ' ' << note.lengthPulses << ' ' << static_cast<int>(note.microstep) << '\n';
@@ -313,10 +322,18 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
     unsigned velocity = 0, length = 0, enabled = 0, muted = 0;
     std::size_t noteCount = 0;
     if (!ReadExpected(file, "T") || !(file >> track.patternCount >> track.activePattern >> velocity >> length >> enabled >> muted) ||
-        (version >= 2 && (!(file >> track.stepCount) || track.stepCount < 1 || track.stepCount > kSequencerStepCount)) ||
         track.patternCount < 1 || track.patternCount > kSequencerMaxPatternCount || track.activePattern >= track.patternCount ||
-        velocity < 1 || velocity > 127 || length < 1 || length > kSequencerStepCount * kSequencerPulsesPerStep || enabled > 1 || muted > 1 ||
-        !ReadExpected(file, "NOTES") || !(file >> noteCount) || noteCount > track.patternCount * kSequencerStepCount * 8) return ProjectResult::Invalid;
+        velocity < 1 || velocity > 127 || length < 1 || length > kSequencerMaxSteps * kSequencerPulsesPerStep || enabled > 1 || muted > 1) return ProjectResult::Invalid;
+    // Before version 7 all the patterns of a track shared one length.
+    if (version >= 7) {
+      for (std::size_t p = 0; p < track.patternCount; ++p)
+        if (!(file >> track.patternSteps[p]) || track.patternSteps[p] < 1 || track.patternSteps[p] > kSequencerMaxSteps) return ProjectResult::Invalid;
+    } else if (version >= 2) {
+      std::uint16_t steps = 0;
+      if (!(file >> steps) || steps < 1 || steps > kSequencerStepCount) return ProjectResult::Invalid;
+      track.patternSteps.fill(steps);
+    }
+    if (!ReadExpected(file, "NOTES") || !(file >> noteCount) || noteCount > track.patternCount * kSequencerMaxSteps * 8) return ProjectResult::Invalid;
     track.defaultVelocity = static_cast<std::uint8_t>(velocity);
     track.defaultLengthPulses = static_cast<std::uint16_t>(length);
     track.enabled = enabled != 0;
@@ -324,10 +341,12 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
     for (std::size_t n = 0; n < noteCount; ++n) {
       std::size_t p = 0, s = 0;
       unsigned pitch = 0, microstep = 0;
-      if (!(file >> p >> s >> pitch >> velocity >> length >> microstep) || p >= track.patternCount || s >= kSequencerStepCount ||
-          pitch > 127 || velocity < 1 || velocity > 127 || length < 1 || length > 384 || microstep >= kSequencerMicrostepCount) return ProjectResult::Invalid;
-      if (!track.patterns.Ensure(p)) return ProjectResult::StorageError;
-      auto& notes = track.patterns[p].steps[s].notes;
+      if (!(file >> p >> s >> pitch >> velocity >> length >> microstep) || p >= track.patternCount || s >= kSequencerMaxSteps ||
+          pitch > 127 || velocity < 1 || velocity > 127 || length < 1 || length > kSequencerMaxSteps * kSequencerPulsesPerStep || microstep >= kSequencerMicrostepCount) return ProjectResult::Invalid;
+      if (!track.patterns.Ensure(p)) return ProjectResult::NoMemory;
+      auto* step = track.patterns[p].steps.TryEdit(s);
+      if (step == nullptr) return ProjectResult::NoMemory;
+      auto& notes = step->notes;
       auto slot = std::find_if(notes.begin(), notes.end(), [](const auto& note) { return !note.active; });
       if (slot == notes.end()) return ProjectResult::Invalid;
       *slot = {static_cast<std::uint8_t>(pitch), static_cast<std::uint8_t>(velocity), static_cast<std::uint16_t>(length), static_cast<std::uint8_t>(microstep), true};
@@ -370,9 +389,16 @@ ProjectResult SaveProjectFile(const std::string& name, const ProjectData& projec
   return WriteProject(path, project);
 }
 
+std::string ResolveProjectPath(const std::string& name) {
+  const std::string current = ProjectPath(name);
+  if (Exists(current) || Exists(current + ".bak")) return current;
+  const std::string release = storage::ReleaseProjectDirectory() + "/" + name + ".ccproj";
+  return Exists(release) || Exists(release + ".bak") ? release : current;
+}
+
 ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination) {
   if (!IsProjectNameValid(name)) return ProjectResult::Invalid;
-  return ReadProject(ProjectPath(name), destination);
+  return ReadProject(ResolveProjectPath(name), destination);
 }
 
 ProjectResult SaveProjectFileAt(const std::string& path, const ProjectData& project) {

@@ -5,14 +5,20 @@
 #include <array>
 #include <atomic>
 #include <cinttypes>
+#include <cmath>
 #include <cstdint>
+#include <memory>
 #include <mutex>
+#include <new>
 
 #include "audio/audio.h"
+#include "usb/usb.h"
+#include "Devices/Cardenza/DeviceUsbStats.h"
 #include "mic/mic.h"
 
 #include <esp_log.h>
 #include <esp_attr.h>
+#include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -26,13 +32,42 @@ std::mutex g_audioOutputMutex;
 std::mutex g_audioInputMutex;
 std::mutex g_audioInputDataMutex;
 bool g_audioOutputEnabled = false;
+// GPIO43 is the speaker's WS and the microphone's PDM clock, so they take turns: while the input
+// runs the TX channel is off, the codec in standby and rendered blocks go nowhere.
+bool g_audioOutputPaused = false;
 std::atomic<bool> g_audioInputEnabled{false};
 std::atomic<bool> g_audioInputOverflow{false};
-constexpr std::size_t kInputRingFrames = 16384;
-std::array<std::int16_t, kInputRingFrames> g_audioInputRing{};
+// Exists only while the input runs. The UI drains it every frame and writes the take to the card,
+// which can stall: up to 372 ms of audio, less when the memory is not there.
+constexpr std::array<std::size_t, 3> kInputRingSizes{{16384, 8192, 4096}};
+std::size_t g_audioInputRingFrames = 0;
+std::unique_ptr<std::int16_t[]> g_audioInputRing;
 std::size_t g_audioInputHead = 0;
 std::size_t g_audioInputCount = 0;
 TaskHandle_t g_audioInputTask = nullptr;
+
+// The rendered sound also goes to a computer recording from the USB port, before the device volume.
+std::atomic<std::uint32_t> g_framesToComputer{0};
+std::atomic<std::uint32_t> g_framesFromComputer{0};
+std::atomic<std::uint16_t> g_peakFromComputer{0};
+std::atomic<std::uint16_t> g_peakToComputer{0};  // since the last console line
+
+void SendToComputer(const std::int16_t* mono, std::size_t frameCount)
+{
+  if (!CardenzaHAL::USB::AudioInputActive()) return;
+  g_framesToComputer.fetch_add(static_cast<std::uint32_t>(frameCount), std::memory_order_relaxed);
+  int peak = g_peakToComputer.load(std::memory_order_relaxed);
+  for (std::size_t frame = 0; frame < frameCount; ++frame) peak = (std::max)(peak, std::abs(static_cast<int>(mono[frame])));
+  g_peakToComputer.store(static_cast<std::uint16_t>((std::min)(peak, 32767)), std::memory_order_relaxed);
+  std::array<std::int16_t, 2 * 256> stereo;
+  for (std::size_t done = 0; done < frameCount;)
+  {
+    const std::size_t count = (std::min)(frameCount - done, stereo.size() / 2);
+    for (std::size_t frame = 0; frame < count; ++frame) stereo[2 * frame] = stereo[2 * frame + 1] = mono[done + frame];
+    (void)CardenzaHAL::USB::AudioWrite(stereo.data(), count);
+    done += count;
+  }
+}
 
 std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
 {
@@ -49,7 +84,7 @@ std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
 constexpr std::size_t kRenderFrameCount = 256;
 constexpr BaseType_t kAudioTaskPinnedCore = 1;
 constexpr UBaseType_t kAudioTaskPriority = 6;
-constexpr uint32_t kAudioTaskStackSize = 16 * 1024;
+constexpr uint32_t kAudioTaskStackSize = 12 * 1024;  // Measured: 7 KB.
 constexpr int64_t kRenderBudgetUs =
   static_cast<int64_t>((1000000ULL * kRenderFrameCount) / device::kDefaultSynthAudioSampleRate);
 constexpr uint32_t kTimingLogBlockInterval = 1024;
@@ -77,8 +112,37 @@ bool EnsureOutputChannelEnabled()
   }
 
   g_audioOutputEnabled = true;
-  (void)CardenzaHAL::Audio::SetVolume(CardenzaHAL::Audio::GetVolume());
   return true;
+}
+
+bool OutputPaused()
+{
+  std::lock_guard<std::mutex> lock(g_audioOutputMutex);
+  return g_audioOutputPaused;
+}
+
+// Gives GPIO43 to the microphone: TX off (a write in progress finishes first), codec in standby.
+void PauseOutputForInput()
+{
+  std::lock_guard<std::mutex> lock(g_audioOutputMutex);
+  g_audioOutputPaused = true;
+  if (g_audioOutputEnabled)
+  {
+    (void)i2s_channel_disable(CardenzaHAL::Audio::GetTxChannel());
+    g_audioOutputEnabled = false;
+  }
+  (void)CardenzaHAL::Audio::StandbyCodec();
+}
+
+// Gives GPIO43 back to the speaker and wakes the codec; the render task enables TX again.
+void ResumeOutputAfterInput()
+{
+  std::lock_guard<std::mutex> lock(g_audioOutputMutex);
+  if (!CardenzaHAL::Audio::RestoreOutputPins() || !CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO))
+  {
+    ESP_LOGW(kLogTag, "audio output not restored after input");
+  }
+  g_audioOutputPaused = false;
 }
 
 bool WriteOutputFrames(i2s_chan_handle_t outputChannel, const std::int16_t* samples, std::size_t sampleCount)
@@ -104,14 +168,6 @@ void ResetAudioPumpState()
 
 void AudioRenderTask(void*)
 {
-  if (!EnsureOutputChannelEnabled())
-  {
-    ESP_LOGE(kLogTag, "failed to enable I2S output");
-    ResetAudioPumpState();
-    vTaskDelete(nullptr);
-    return;
-  }
-
   const i2s_chan_handle_t outputChannel = CardenzaHAL::Audio::GetTxChannel();
   if (outputChannel == nullptr)
   {
@@ -126,19 +182,30 @@ void AudioRenderTask(void*)
   int64_t maxRenderUs = 0;
   int64_t maxWriteUs = 0;
   std::uint32_t overBudgetRenderCount = 0;
+  int64_t totalRenderUs = 0;
+  std::uint32_t outputFailures = 0;
   for (;;)
   {
     const int64_t renderStartUs = esp_timer_get_time();
     RenderSynthFrames(buffer.data(), buffer.size());
     const int64_t renderEndUs = esp_timer_get_time();
+    SendToComputer(buffer.data(), buffer.size());
     const int64_t writeStartUs = esp_timer_get_time();
 
-    if (!WriteOutputFrames(outputChannel, buffer.data(), buffer.size()))
+    // The input has GPIO43: keep the engines running, slower, with nowhere to send the sound.
+    if (OutputPaused())
     {
-      ESP_LOGE(kLogTag, "I2S write failed after %" PRIu32 " rendered blocks", renderedBlocks);
-      ResetAudioPumpState();
-      vTaskDelete(nullptr);
-      return;
+      vTaskDelay(1);
+      continue;
+    }
+    // This task also drains the engine events, so it never ends: an output that fails stays silent
+    // and is tried again.
+    if (!EnsureOutputChannelEnabled() || !WriteOutputFrames(outputChannel, buffer.data(), buffer.size()))
+    {
+      if (OutputPaused()) continue;
+      if ((++outputFailures % 64) == 1) ESP_LOGE(kLogTag, "I2S output failed after %" PRIu32 " rendered blocks", renderedBlocks);
+      vTaskDelay(1);
+      continue;
     }
 
     const int64_t writeEndUs = esp_timer_get_time();
@@ -146,31 +213,35 @@ void AudioRenderTask(void*)
     const int64_t writeUs = writeEndUs - writeStartUs;
     maxRenderUs = (std::max)(maxRenderUs, renderUs);
     maxWriteUs = (std::max)(maxWriteUs, writeUs);
-    if (renderUs > kRenderBudgetUs)
-    {
-      ++overBudgetRenderCount;
-      if (overBudgetRenderCount == 1 || (overBudgetRenderCount % 16) == 0)
-      {
-        ESP_LOGW(kLogTag,
-                 "audio render over budget: render=%" PRId64 "us budget=%" PRId64 "us write=%" PRId64 "us block=%" PRIu32 " overruns=%" PRIu32,
-                 renderUs,
-                 kRenderBudgetUs,
-                 writeUs,
-                 renderedBlocks,
-                 overBudgetRenderCount);
-      }
-    }
+    totalRenderUs += renderUs;
+    if (renderUs > kRenderBudgetUs) ++overBudgetRenderCount;
 
     ++renderedBlocks;
     if ((renderedBlocks % kTimingLogBlockInterval) == 0)
     {
       ESP_LOGI(kLogTag,
-               "audio timing: blocks=%" PRIu32 " max_render=%" PRId64 "us max_write=%" PRId64 "us budget=%" PRId64 "us overruns=%" PRIu32,
+               "audio timing: blocks=%" PRIu32 " avg_render=%" PRId64 "us max_render=%" PRId64 "us max_write=%" PRId64 "us budget=%" PRId64 "us overruns=%" PRIu32,
                renderedBlocks,
+               totalRenderUs / kTimingLogBlockInterval,
                maxRenderUs,
                maxWriteUs,
                kRenderBudgetUs,
                overBudgetRenderCount);
+      if (CardenzaHAL::USB::Started())
+      {
+        const CardenzaHAL::USB::AudioCounters usb = CardenzaHAL::USB::AudioStats();
+        ESP_LOGI(kLogTag, "usb audio: from_pc %lu pkts %lu B fifo %lu read %lu restarts %lu | to_pc %lu pkts %lu B empty %lu fifo %lu written %lu peak %u | in=%d out=%d heap=%u",
+                 static_cast<unsigned long>(usb.packetsFromHost), static_cast<unsigned long>(usb.bytesFromHost),
+                 static_cast<unsigned long>(usb.fifoFromHost), static_cast<unsigned long>(g_framesFromComputer.load()),
+                 static_cast<unsigned long>(usb.playbackRestarts), static_cast<unsigned long>(usb.packetsToHost), static_cast<unsigned long>(usb.bytesToHost),
+                 static_cast<unsigned long>(usb.emptyPacketsToHost), static_cast<unsigned long>(usb.fifoToHost),
+                 static_cast<unsigned long>(g_framesToComputer.load()), static_cast<unsigned>(g_peakToComputer.exchange(0)),
+                 CardenzaHAL::USB::AudioInputActive() ? 1 : 0,
+                 CardenzaHAL::USB::AudioOutputActive() ? 1 : 0, static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)));
+      }
+      maxRenderUs = 0;
+      maxWriteUs = 0;
+      totalRenderUs = 0;
     }
   }
 }
@@ -232,23 +303,28 @@ void AudioInputTask(void*)
           frames.data(), frames.size() * sizeof(std::int16_t), &bytesRead, 20);
       if (result != ESP_OK && result != ESP_ERR_TIMEOUT)
       {
+        // This task outranks the UI and the audio: an error must not become a busy loop.
         g_audioInputOverflow.store(true, std::memory_order_relaxed);
+        vTaskDelay(1);
       }
       const std::size_t count = bytesRead / sizeof(std::int16_t);
       std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
-      if (count > kInputRingFrames - g_audioInputCount)
+      if (!g_audioInputRing) continue;
+      if (count > g_audioInputRingFrames - g_audioInputCount)
       {
         g_audioInputOverflow.store(true, std::memory_order_relaxed);
         continue;
       }
       for (std::size_t i = 0; i < count; ++i)
       {
-        g_audioInputRing[(g_audioInputHead + g_audioInputCount + i) % kInputRingFrames] = frames[i];
+        g_audioInputRing[(g_audioInputHead + g_audioInputCount + i) % g_audioInputRingFrames] = frames[i];
       }
       g_audioInputCount += count;
     }
   }
 }
+
+std::atomic<std::uint8_t> g_outputVolume{Device::Audio::kDefaultOutputVolume};
 
 }  // namespace
 
@@ -256,13 +332,40 @@ namespace Device::Audio {
 
 void SetOutputVolume(std::uint8_t percent)
 {
-  // Cached by the HAL (codec register) and also applied to every rendered block by AudioRenderTask.
-  (void)CardenzaHAL::Audio::SetVolume((std::min)(percent, std::uint8_t{100}));
+  // The HAL's percent runs the codec linearly in dB over its whole -95.5..0 dB, so half the slider
+  // would be inaudible. Ours takes the top 50 dB, half a dB per percent (a codec register step).
+  const std::uint8_t volume = (std::min)(percent, std::uint8_t{100});
+  g_outputVolume.store(volume, std::memory_order_relaxed);
+  (void)CardenzaHAL::Audio::SetVolume(volume == 0 ? 0 : static_cast<std::uint8_t>(((91 + volume) * 100 + 95) / 191));
+}
+
+ComputerAudioStats ComputerStats()
+{
+  ComputerAudioStats stats;
+  stats.framesToComputer = g_framesToComputer.load(std::memory_order_relaxed);
+  stats.framesFromComputer = g_framesFromComputer.load(std::memory_order_relaxed);
+  stats.peakFromComputer = g_peakFromComputer.exchange(0, std::memory_order_relaxed);
+  return stats;
+}
+
+std::size_t ReadComputerAudio(std::int16_t* stereoFrames, std::size_t frameCount)
+{
+  const std::size_t frames = CardenzaHAL::USB::AudioRead(stereoFrames, frameCount);
+  if (frames == 0) return 0;
+  g_framesFromComputer.fetch_add(static_cast<std::uint32_t>(frames), std::memory_order_relaxed);
+  int peak = 0;
+  for (std::size_t sample = 0; sample < 2 * frames; ++sample) peak = (std::max)(peak, std::abs(static_cast<int>(stereoFrames[sample])));
+  if (peak > g_peakFromComputer.load(std::memory_order_relaxed)) g_peakFromComputer.store(static_cast<std::uint16_t>(peak), std::memory_order_relaxed);
+  // The computer's own volume control: mute, and its level in 1/256 dB.
+  const float gain = CardenzaHAL::USB::HostMuted() ? 0.0f : std::pow(10.0f, CardenzaHAL::USB::HostVolume() / (256.0f * 20.0f));
+  if (gain < 1.0f)
+    for (std::size_t sample = 0; sample < 2 * frames; ++sample) stereoFrames[sample] = static_cast<std::int16_t>(stereoFrames[sample] * gain);
+  return frames;
 }
 
 std::uint8_t OutputVolume()
 {
-  return CardenzaHAL::Audio::GetVolume();
+  return g_outputVolume.load(std::memory_order_relaxed);
 }
 
 InputStreamInfo InputInfo()
@@ -272,16 +375,38 @@ InputStreamInfo InputInfo()
 
 InputStatus StartInput()
 {
-  const i2s_chan_handle_t inputChannel = CardenzaHAL::Mic::InputChannel();
-  if (inputChannel == nullptr)
-  {
-    return InputStatus::NotReady;
-  }
-
   std::lock_guard<std::mutex> lock(g_audioInputMutex);
   if (g_audioInputEnabled)
   {
     return InputStatus::Ready;
+  }
+
+  {
+    std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
+    for (const std::size_t frames : kInputRingSizes)
+    {
+      g_audioInputRing.reset(new (std::nothrow) std::int16_t[frames]);
+      g_audioInputRingFrames = frames;
+      if (g_audioInputRing) break;
+    }
+    if (!g_audioInputRing) return InputStatus::NotReady;
+    g_audioInputHead = 0;
+    g_audioInputCount = 0;
+    g_audioInputOverflow.store(false, std::memory_order_relaxed);
+  }
+  auto fail = [] {
+    ResumeOutputAfterInput();
+    std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
+    g_audioInputRing.reset();
+    g_audioInputCount = 0;
+    return InputStatus::NotReady;
+  };
+  // The speaker lets go of GPIO43 before the microphone channel takes it.
+  PauseOutputForInput();
+  const i2s_chan_handle_t inputChannel = CardenzaHAL::Mic::InputChannel();
+  if (inputChannel == nullptr || !CardenzaHAL::Mic::RestoreInputPins())
+  {
+    return fail();
   }
 
   if (g_audioInputTask == nullptr)
@@ -291,18 +416,13 @@ InputStatus StartInput()
     if (i2s_channel_register_event_callback(inputChannel, &callbacks, nullptr) != ESP_OK ||
         xTaskCreate(AudioInputTask, "sample_input", 4096, nullptr, 7, &g_audioInputTask) != pdPASS)
     {
-      return InputStatus::NotReady;
+      g_audioInputTask = nullptr;
+      return fail();
     }
-  }
-  {
-    std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
-    g_audioInputHead = 0;
-    g_audioInputCount = 0;
-    g_audioInputOverflow.store(false, std::memory_order_relaxed);
   }
   if (i2s_channel_enable(inputChannel) != ESP_OK)
   {
-    return InputStatus::NotReady;
+    return fail();
   }
 
   g_audioInputEnabled.store(true, std::memory_order_release);
@@ -323,6 +443,11 @@ void StopInput()
   {
     (void)i2s_channel_disable(inputChannel);
   }
+  ResumeOutputAfterInput();
+  ESP_LOGI(kLogTag, "input stopped: reader stack left %u bytes", static_cast<unsigned>(uxTaskGetStackHighWaterMark(g_audioInputTask)));
+  std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
+  g_audioInputRing.reset();
+  g_audioInputCount = 0;
 }
 
 InputStatus ReadInputFrames(std::int16_t* destination,
@@ -351,12 +476,12 @@ InputStatus ReadInputFrames(std::int16_t* destination,
         ESP_LOGW(kLogTag, "microphone input overflow; recording must stop");
         return InputStatus::Overflow;
       }
-      framesRead = std::min(frameCount, g_audioInputCount);
+      framesRead = g_audioInputRing ? std::min(frameCount, g_audioInputCount) : 0;
       for (std::size_t i = 0; i < framesRead; ++i)
       {
-        destination[i] = g_audioInputRing[(g_audioInputHead + i) % kInputRingFrames];
+        destination[i] = g_audioInputRing[(g_audioInputHead + i) % g_audioInputRingFrames];
       }
-      g_audioInputHead = (g_audioInputHead + framesRead) % kInputRingFrames;
+      g_audioInputHead = (g_audioInputHead + framesRead) % g_audioInputRingFrames;
       g_audioInputCount -= framesRead;
     }
     if (framesRead != 0 || timeoutMs == 0 || esp_timer_get_time() >= deadline)

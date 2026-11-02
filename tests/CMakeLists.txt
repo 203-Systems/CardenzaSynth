@@ -32,9 +32,17 @@ add_executable(CardenzaStorageTests
 target_include_directories(CardenzaStorageTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaStorageTests COMMAND CardenzaStorageTests)
 
+add_executable(CardenzaSampleStreamTests
+  sample_stream_test.cpp
+  ${PROJECT_SOURCE_DIR}/Library/Synth/Audio/SampleStream.cpp
+)
+target_include_directories(CardenzaSampleStreamTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaSampleStreamTests COMMAND CardenzaSampleStreamTests)
+
 add_executable(CardenzaSamplerTests
   sampler_test.cpp
   ${PROJECT_SOURCE_DIR}/Applications/Synth/Runtime/Sampler/SamplerManager.cpp
+  ${PROJECT_SOURCE_DIR}/Library/Synth/Audio/SampleStream.cpp
 )
 target_include_directories(CardenzaSamplerTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaSamplerTests COMMAND CardenzaSamplerTests)
@@ -66,6 +74,7 @@ add_executable(CardenzaProjectTests
   ${project_workflow_engine_sources}
   ${project_workflow_midi_sources}
   ${PROJECT_SOURCE_DIR}/OS/MIDI/MIDI.cpp
+  ${PROJECT_SOURCE_DIR}/Library/Synth/Audio/SampleStream.cpp
 )
 target_include_directories(CardenzaProjectTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaProjectTests COMMAND CardenzaProjectTests)

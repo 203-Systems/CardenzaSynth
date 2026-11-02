@@ -15,6 +15,8 @@ namespace groove {
 // UiState::padNote of a pad that is not down.
 inline constexpr std::uint8_t kNoNote = 0xFF;
 inline constexpr std::uint32_t kHoldMs = 250;
+// A parameter's GRID cell held this long turns the pads into its values.
+inline constexpr std::uint32_t kCellPickMs = 200;
 // OK in SEQ: held this long it opens the RECORD panel instead of switching the view.
 inline constexpr std::uint32_t kOkHoldMs = 450;
 // Key LED states, in perceived brightness 0-15 (the device gamma-corrects them, Devices/LedLight.h):
@@ -59,7 +61,8 @@ enum class SeqView : std::uint8_t { Roll, Step };
 // Capture: everything the pads play is kept, without recording, as takes split by pauses. A take
 // can be put into a pattern afterwards (RECORD panel).
 inline constexpr std::size_t kCaptureTakes = 8;
-inline constexpr std::size_t kCaptureNotes = 48;
+// The notes of all takes together: one long take can have them all, and the oldest takes make room.
+inline constexpr std::size_t kCaptureNotes = 400;
 inline constexpr std::uint32_t kCaptureGapMs = 2500;
 inline constexpr std::uint32_t kCaptureMaxMs = 60000;
 
@@ -73,8 +76,8 @@ struct CaptureNote {
 };
 
 struct CaptureTake {
-  std::array<CaptureNote, kCaptureNotes> notes{};
-  std::uint8_t count = 0;
+  std::uint32_t first = 0;        // where its notes begin in RecordState::notes (keeps counting up)
+  std::uint16_t count = 0;
   std::uint8_t track = 0;
   bool synced = false;            // played with the transport running: timed by the sequencer
   std::uint16_t bpm = 120;        // tempo when played (free takes are timed with it)
@@ -94,7 +97,6 @@ inline constexpr std::size_t kRecordFirstTake = 4;
 enum class TextPurpose : std::uint8_t {
   ProjectSaveAs,
   PresetSaveAs,
-  SampleName,
   SampleRename,
   Search,  // the filter of the preset / sample browser underneath (FN + F)
 };
@@ -107,7 +109,6 @@ enum class ConfirmPurpose : std::uint8_t {
   DeleteSample,
   DiscardTake,
   ReplaceTake,
-  OverwriteSample,
 };
 
 struct ListItem {
@@ -116,7 +117,14 @@ struct ListItem {
   bool marked = false;  // current / active entry
 };
 
-struct Modal {
+// How many rows a list shows, and the first of them with the cursor on `cursor`.
+inline constexpr std::size_t kListVisibleRows = 9;
+constexpr std::size_t ListFirstRow(std::size_t cursor)
+{
+  return cursor >= kListVisibleRows ? cursor - kListVisibleRows + 1 : 0;
+}
+
+struct ModalFields {
   ModalKind kind = ModalKind::None;
   // Text entry
   TextPurpose textPurpose = TextPurpose::ProjectSaveAs;
@@ -128,14 +136,28 @@ struct Modal {
   std::string detail;
   std::string payload;
   bool danger = false;
-  // Lists (presets, engines, samples, file options)
-  std::vector<ListItem> items;
   std::size_t cursor = 0;
   std::string search;
   // Sample take editing: 0 = start marker, 1 = end marker.
   std::uint8_t trimMarker = 0;
   // Text entry: insertion point (FN + , / move it, FN + ; . jump to the ends).
   std::size_t textCursor = 0;
+};
+
+struct Modal : ModalFields {
+  // Lists (presets, engines, samples, file options). `items` holds the rows from `firstItem` on,
+  // the whole list or, when `itemCount` says it is longer, a window of it. There is no memory for a
+  // long list: the preset browser keeps the rows on screen, the rest stay with the engine.
+  std::vector<ListItem> items;
+  std::size_t firstItem = 0;
+  std::size_t itemCount = 0;
+  std::vector<std::uint16_t> presets;  // Preset browser: the engine's presets that match the search.
+
+  std::size_t Count() const { return itemCount != 0 ? itemCount : items.size(); }
+  const ListItem* Row(std::size_t index) const
+  {
+    return index >= firstItem && index - firstItem < items.size() ? &items[index - firstItem] : nullptr;
+  }
 };
 
 // Parameter feedback for FN functions and SETUP edits: a pop-up with the name and the new value.
@@ -160,6 +182,62 @@ struct LedCell {
   LedEffect effect = LedEffect::Steady;
 };
 using LedFrame = std::array<LedCell, kKeyCount>;
+
+// A parameter on the pads (a held GRID cell): one pad per value, or an even spread over all of them,
+// in reading order. An odd spread when the range has a middle, so a bipolar value can land on it.
+inline std::size_t CellPickCount(const synth::SynthParameterInfo& info)
+{
+  const int range = info.maxValue - info.minValue;
+  const int pads = static_cast<int>(kRows * kPadColumns);
+  if (range < pads) return static_cast<std::size_t>(range + 1);
+  return static_cast<std::size_t>(range % 2 == 0 ? pads - 1 : pads);
+}
+inline int CellPickValue(const synth::SynthParameterInfo& info, std::size_t pad)
+{
+  const std::size_t count = CellPickCount(info);
+  if (count <= 1) return info.minValue;
+  const int range = info.maxValue - info.minValue;
+  const int last = static_cast<int>(count) - 1;
+  return info.minValue + (static_cast<int>(pad) * range + last / 2) / last;
+}
+inline std::size_t CellPickPad(const synth::SynthParameterInfo& info)
+{
+  const std::size_t count = CellPickCount(info);
+  std::size_t nearest = 0;
+  int distance = 0x7FFFFFFF;
+  for (std::size_t pad = 0; pad < count; ++pad)
+  {
+    const int value = CellPickValue(info, pad);
+    const int away = value < info.value ? info.value - value : value - info.value;
+    if (away < distance)
+    {
+      distance = away;
+      nearest = pad;
+    }
+  }
+  return nearest;
+}
+
+// What ADD and SUB do right now, which the icons on the screen's right edge say: change a value, move
+// up and down a list, move sideways (steps, pages, tracks), erase text, or nothing.
+enum class AdjustMeaning : std::uint8_t { Value, List, Sideways, Erase, None };
+
+// A drum pad or sequencer hit, for the wave it sends along its column.
+struct DrumHit {
+  std::uint32_t at = 0;
+  std::uint8_t row = 0;
+  std::uint8_t velocity = 0;
+};
+
+// The GRID cell being held, for the pads to pick its value. A press on a focused switch or choice
+// steps it, but only when it was a tap: holding that same cell picks instead.
+struct CellPress {
+  bool down = false;
+  std::uint8_t index = 0;
+  bool stepOnRelease = false;
+  bool picked = false;
+  std::uint32_t at = 0;
+};
 
 struct LeftKeyState {
   bool down = false;
@@ -205,6 +283,10 @@ enum class MenuAction : std::uint8_t {
   Quantize,
   Duplicate,
   View,         // ROLL / STEP
+  PagePrev,     // the GRID's page of a long pattern (also FN + ADD / SUB)
+  PageNext,
+  LengthDown,   // the length of the current pattern
+  LengthUp,
   RecordPanel,  // the RECORD panel (also a held OK)
   Scope,        // the note a chord step edits (also FN + ENTER)
   // TAPE
@@ -256,10 +338,26 @@ struct RecordState {
   bool okHeld = false;
   std::uint32_t okDownAt = 0;
   std::array<CaptureTake, kCaptureTakes> takes{};
+  std::array<CaptureNote, kCaptureNotes> notes{};
+  std::uint32_t nextNote = 0;
+  const CaptureNote& TakeNote(const CaptureTake& take, std::size_t index) const { return notes[(take.first + index) % kCaptureNotes]; }
   std::size_t newest = kCaptureTakes;  // index of the newest take; kCaptureTakes = none yet
   std::uint32_t nextTakeId = 1;
   std::uint32_t lastPadActivity = 0;
-  std::array<std::uint8_t, 128> openNote{};  // capture note index + 1 of each held pitch
+  std::array<std::uint16_t, 128> openNote{};  // capture note index + 1 of each held pitch
+};
+
+// A GRID key down on the drum page: a hit goes in at once; one that was there comes out at the release
+// of a tap, and stays when the key was held to change it.
+inline constexpr std::uint32_t kDrumStepHoldMs = 350;
+struct DrumPress {
+  bool down = false;
+  bool added = false;
+  bool edited = false;
+  bool shown = false;  // Held long enough to say what ADD / SUB change.
+  std::size_t index = 0;
+  std::size_t step = 0;
+  std::uint32_t at = 0;
 };
 
 struct UiState {
@@ -267,6 +365,12 @@ struct UiState {
   Scene scene = Scene::Instrument;
   Scene previousScene = Scene::Sequence;
   std::array<std::uint8_t, kSceneCount> page{};
+  std::array<std::uint8_t, kTrackCount> drumVelocity{{100, 100, 100, 100}};  // how hard the GRID puts hits in
+  std::array<std::uint8_t, kRows * kPadColumns> padVelocity{};
+  std::array<DrumHit, kDrumNotes.size()> drumPadHits{};
+  std::array<std::uint8_t, kTrackCount> drumLane{};  // the drum each track's pads last chose on the drum page
+  DrumPress drumPress;
+  bool drumEditsMicrostep = false;  // ADD / SUB on a held hit: its timing instead of its velocity.
   std::size_t track = synth::kDefaultActiveTrack;
   KeyboardSettings keyboard{};
   // Each track's chord effect (INSTR CHORD).
@@ -310,6 +414,7 @@ struct UiState {
   bool clipboardValid = false;
 
   // Pads: the key each held pad pressed, the notes it sounds (scale lock, chord) and their track.
+  CellPress cellPress;
   std::array<std::uint8_t, kRows * kPadColumns> padNote{};
   std::array<std::array<std::uint8_t, kMaxPadNotes>, kRows * kPadColumns> padChord{};
   std::array<std::uint8_t, kRows * kPadColumns> padChordCount{};
@@ -347,8 +452,25 @@ public:
   ProjectUiSettings Settings() const;
 
   void KeyEvent(std::size_t row, std::size_t column, bool pressed, std::uint32_t nowMs);
-  void HomeButton(bool pressed, std::uint32_t nowMs);
   void Tick(std::uint32_t nowMs);
+  // What ENTER on a project in FILES does: with unsaved changes it asks first.
+  void OpenProject(std::string name);
+  // A track on the Drums engine has a drum machine on SEQ's note page: the pads choose the drum, the
+  // GRID puts it on the steps. No other views there.
+  bool DrumLayout() const;
+  AdjustMeaning AdjustKeysMean() const;
+  // The pads as the values of the GRID cell being held. What a cell offers: `info` is its range and
+  // current value, as for ADD / SUB. Returns false for a cell that holds no parameter.
+  bool CellPickerActive() const;
+  bool CellParameter(std::size_t index, std::string& label, synth::SynthParameterInfo& info, std::string& text) const;
+  // Marks the notes the pads held down are sounding on a track, one bit per MIDI note.
+  void AddHeldPadNotes(std::size_t track, std::array<std::uint32_t, 4>& notes) const;
+  void UsePianoRollOnDrums(bool roll) { pianoRollOnDrums_ = roll; }  // For tests of the piano roll on T1.
+  std::size_t DrumLane() const { return state_.drumLane[state_.track]; }
+  // A take came back from the card: its screen opens, as it was left.
+  void ResumeTake(std::size_t track);
+  // The autosave could not take it all.
+  void ReportAutosaveProblem(const std::string& text);
   void ComputeLeds(LedFrame& frame) const;
   // Levels only (no effects), for callers that do not animate.
   void ComputeLeds(std::array<std::uint8_t, kKeyCount>& levels) const;
@@ -381,7 +503,7 @@ public:
   // A take laid out on the steps of its track's pattern: how many pattern lengths it spans, and
   // the notes of one of them (snapped to steps when the SNAP setting is on).
   std::size_t TakeBars(const CaptureTake& take) const;
-  std::size_t TakeBarNotes(const CaptureTake& take, std::size_t bar, std::array<PlacedNote, kCaptureNotes>& notes) const;
+  void ForEachTakeBarNote(const CaptureTake& take, std::size_t bar, void (*visit)(const PlacedNote&, void*), void* context) const;
   // While a screen takes input (text, lists, the sample editor) FN is the yellow keycap layer:
   // ; , . / are arrows. Everywhere else FN is the menu.
   bool FnYellowMode() const { return TopModal() != nullptr && TopModal()->kind != ModalKind::Menu; }
@@ -491,6 +613,12 @@ private:
   void ResetSetting(const char* id);
   void ShowSettingHud(const char* id, const char* label);
   void ShowHud(const std::string& label, const std::string& value, float fraction = -1.0f, bool bipolar = false);
+  void FlipStepPage(int delta);
+  void DrumStepPress(std::size_t index);
+  void DrumStepRelease(std::size_t index);
+  bool DrumStepAdjust(int delta, bool coarse);
+  void ShowDrumStepHud();
+  void AdjustPatternLength(int delta, bool coarse);
   void SettingsGrid(std::size_t index);
   void SettingsAdjust(int delta, bool coarse);
   void SettingsEnter();
@@ -520,6 +648,7 @@ private:
   void StepCursorMove(int delta);
 
   // Fn functions
+  void AllStop();
   void Copy();
   void Paste();
   void Clear();
@@ -538,6 +667,12 @@ private:
   void OpenConfirm(ConfirmPurpose purpose, const std::string& title, const std::string& detail, bool danger, const std::string& payload = {});
   void OpenPresetBrowser();
   void RefreshPresetBrowser();
+  bool pianoRollOnDrums_ = false;
+  void FillPresetRows(Modal& modal) const;
+  void SetCellParameter(std::size_t index, int value);
+  void PickCellValue(std::size_t row, std::size_t column);
+  void ShowCellHud();
+  void StepCell(std::size_t index);
   void OpenEnginePicker();
   void OpenSampleBrowser();
   void RefreshSampleBrowser();

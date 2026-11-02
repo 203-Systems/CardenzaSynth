@@ -31,6 +31,12 @@ enum class Glyph : std::uint8_t {
   Right,
   Check,
   Dot,
+  Back,    // ESC: scenes, back
+  Tab,     // TAB: tracks
+  Menu,    // FN: the menu of the screen, a grid
+  Pages,   // CTRL: pages
+  Delete,  // Text entry: erase
+  None,
 };
 
 enum class Align : std::uint8_t { Left, Center, Right };

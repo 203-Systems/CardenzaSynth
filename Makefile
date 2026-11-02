@@ -1,7 +1,6 @@
 DEVICE ?= Cardenza
 IDF_TARGET ?= esp32s3
 PORT ?=
-AMY_MULTICORE ?= 0
 REMOTE ?= macbook
 
 # Browser simulator (DEVICE=CardenzaWeb): Emscripten from $(EMSDK), page in $(WEB_BUILD)/site.
@@ -40,33 +39,34 @@ endif
 
 IDF_PORT_ARG := $(if $(PORT),-p '$(PORT)',)
 CARDENZA_IDF_ARGS := -B '$(abspath $(BUILD))'
-ifeq ($(AMY_MULTICORE),1)
-CARDENZA_IDF_ARGS += -DCARDENZA_AMY_EXPERIMENTAL_MULTICORE=ON
-else
-CARDENZA_IDF_ARGS += -DCARDENZA_AMY_EXPERIMENTAL_MULTICORE=OFF
-endif
 
 .PHONY: all build run set-target flash remote-flash bootloader-flash app-flash erase monitor flash-monitor clean fullclean validate-architecture firmware firmware-target host cardenza cardenza-firmware cardenza-flash cardenza-monitor cardenza-flash-monitor cardenza-host cardenza-clean cardenza-fullclean web web-serve web-deploy learn hal-check hal-update
 
 all: build
 
 # CardenzaHAL (Devices/Cardenza/cardenza) is the upstream submodule
-# https://github.com/203-Systems/CardenzaHAL, a read-only dependency (AGENT.md): no local changes, no
-# local commits, never a push. hal-check enforces it before every firmware build; hal-update pulls.
+# https://github.com/203-Systems/CardenzaHAL (AGENT.md). It changes in its own clone and upstream main; here it
+# is a clean consumer copy. hal-check enforces that before every firmware build; hal-update pulls.
+# HAL_DEV=<HAL clone> builds against that clone instead (CARDENZA_HAL_DEV), to test a HAL change before it
+# is pushed; the submodule is not touched.
 HAL_DIR := Devices/Cardenza/cardenza
+ifneq ($(HAL_DEV),)
+export CARDENZA_HAL_DEV := $(abspath $(HAL_DEV))
+endif
 HAL_NO_PUSH := no-push://CardenzaHAL-is-a-read-only-dependency
 
 hal-check:
 	@test -e $(HAL_DIR)/.git || git submodule update --init $(HAL_DIR)
 	@git -C $(HAL_DIR) config remote.origin.pushurl $(HAL_NO_PUSH)
 	@test -z "$$(git -C $(HAL_DIR) status --porcelain)" || { \
-	  echo "hal-check: $(HAL_DIR) has local changes. CardenzaHAL is a read-only dependency (AGENT.md);" >&2; \
+	  echo "hal-check: $(HAL_DIR) has local changes. Change the HAL in its own clone and push it upstream (AGENT.md);" >&2; \
 	  echo "hal-check: work above it in Devices/Cardenza and restore it: git -C $(HAL_DIR) checkout -- . && git -C $(HAL_DIR) clean -fd" >&2; \
 	  git -C $(HAL_DIR) status --short >&2; exit 1; }
+	@test -z "$(HAL_DEV)" || echo "hal-check: HAL_DEV=$(HAL_DEV): building against that HAL clone, a test build, never ship it" >&2
 	@git -C $(HAL_DIR) merge-base --is-ancestor HEAD origin/main 2>/dev/null || \
 	  { git -C $(HAL_DIR) fetch -q origin && git -C $(HAL_DIR) merge-base --is-ancestor HEAD origin/main; } || { \
 	  echo "hal-check: $(HAL_DIR) is on a commit that is not on upstream main (a local commit?)." >&2; \
-	  echo "hal-check: CardenzaHAL is read-only: make hal-update (or git submodule update $(HAL_DIR))." >&2; exit 1; }
+	  echo "hal-check: push the HAL change upstream first, then make hal-update (HAL_DEV=<clone> for a test build)." >&2; exit 1; }
 
 # Pull the latest upstream CardenzaHAL; commit the new submodule pointer in this repository.
 hal-update:

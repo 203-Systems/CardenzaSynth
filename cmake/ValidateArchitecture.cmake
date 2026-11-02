@@ -69,8 +69,9 @@ cardenza_require_file("Applications/Synth/UI/Groove/GrooveController.cpp")
 cardenza_require_file("Applications/Synth/UI/Groove/Render/Gfx.cpp")
 cardenza_require_file("Library/third_party/amy/src/amy.c")
 
-cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "keyboard/internal/keyboard_key_scan.cpp")
-cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "keyboard/internal/keyboard_led_scan.cpp")
+# The HAL builds as its own component (its sources, TinyUSB and the rest come with it).
+cardenza_require_text("Devices/Cardenza/CMakeLists.txt" "\"\${CARDENZA_HAL_DIR}\"")
+cardenza_require_text("Devices/Cardenza/CMakeLists.txt" "\${CARDENZA_HAL_COMPONENT}")
 cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "DesktopHost/DesktopSimulatorInput.cpp")
 cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "DesktopHost/DesktopSimulatorRender.cpp")
 cardenza_require_text("cmake/CardenzaSynthSourceLists.cmake" "Applications/Synth/Runtime/SynthRack.cpp")
