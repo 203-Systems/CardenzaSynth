@@ -78,7 +78,7 @@ def icon(name, cls=""):
 
 LEFT_ROLES = ["ESC", "TAB", "FN", "CTRL"]
 RIGHT_ROLES = ["ADD", "SUB", "OK", "PLAY"]
-RIGHT_SYMBOLS = ["↑", "↓", "↵", "▶"]
+RIGHT_SYMBOLS = ["←", "↓", "↵", "▶"]  # as on the keycaps: ADD is the backspace key
 LEGEND = [
     ["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", ""],
     ["", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]", "\\"],
