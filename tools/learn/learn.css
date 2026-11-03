@@ -20,6 +20,7 @@
   --t1: #ff5cb0; --t2: #4898ff; --t3: #b0ec38; --t4: #ffa428;
   --led: 255, 246, 226;       /* the key LEDs: one warm white */
   --mark: var(--fn);          /* highlights and their numbers */
+  --step: #8cc8ff;            /* the picture lessons' step bar: a light blue that is no key's role */
   --sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
   --top: 56px;
