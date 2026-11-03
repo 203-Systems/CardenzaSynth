@@ -90,6 +90,10 @@ public:
   void SetLedBrightness(std::uint8_t level) override;
   std::uint8_t LedBrightness() const override;
   void SetBacklight(std::uint8_t level) override;
+  void SetStandbyMinutes(std::uint8_t minutes) override;
+  std::uint8_t StandbyMinutes() const override;
+  void SetStandbyLights(std::uint8_t style) override;
+  std::uint8_t StandbyLights() const override;
   std::uint8_t Backlight() const override;
   void SetLogging(bool on) override;
   bool Logging() const override;
@@ -182,6 +186,11 @@ private:
   int keysHeld_ = 0;
   std::array<std::string, synth::kSynthTrackCount> pendingSamples_;
   std::uint32_t lastKeyAt_ = 0;
+  void UpdateScreenDim(std::uint32_t now);
+  // Standby dims the screen (os::storage::SetScreenDim): the percent shown now and when it last moved.
+  float screenDim_ = 100.0f;
+  std::uint8_t screenDimShown_ = 100;
+  std::uint32_t screenDimAt_ = 0;
   void EndOrphanNotes(std::uint32_t now);
   std::uint32_t lastOrphanCheckAt_ = 0;
   std::array<synth::audio::NoteSet, synth::kSynthTrackCount> orphanNotes_{};

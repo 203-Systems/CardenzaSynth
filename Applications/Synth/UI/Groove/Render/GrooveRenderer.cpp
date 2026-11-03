@@ -809,6 +809,135 @@ void DrawBoot(Gfx& g, Animator& animator)
   fx::ScanLine(g, 0, kScreenWidth, scan, 8, kDim);
 }
 
+// The word changing in a corner: its letters flicker through others and settle, left to right.
+void StandbySwapText(Gfx& g, int x, int y, std::string_view word, Color color, Color flicker, float t, std::uint32_t seed)
+{
+  static constexpr std::string_view kLetters = "CARDENZA203";
+  int cursor = x;
+  for (std::size_t index = 0; index < word.size(); ++index)
+  {
+    const float settle = 0.3f + 0.6f * static_cast<float>(index) / static_cast<float>(std::max<std::size_t>(1, word.size() - 1));
+    const bool settled = t >= settle;
+    const char letter = settled ? word[index] : kLetters[fx::Hash(seed + static_cast<std::uint32_t>(index) * 977u) % kLetters.size()];
+    cursor = g.Text(cursor, y, std::string_view(&letter, 1), settled ? color : flicker, Font::Huge);
+  }
+}
+
+// Standby: the word bouncing around a dark screen under a few faint stars.
+void DrawStandby(Gfx& g, const Controller& controller, const Animator& animator)
+{
+  const std::uint32_t now = animator.Now();
+  const Animator::StandbyLogo& logo = animator.Standby();
+  const std::uint32_t since = now - controller.StandbyAt();
+
+  for (std::uint32_t star = 0; star < 30; ++star)
+  {
+    const std::uint32_t noise = fx::Hash(logo.seed + star * 7919u);
+    const std::uint32_t period = 2400 + (noise >> 18) % 3200;
+    const float phase = static_cast<float>((now + noise % period) % period) / static_cast<float>(period);
+    const float glow = phase < 0.5f ? phase * 2.0f : (1.0f - phase) * 2.0f;
+    if (glow < 0.55f) continue;
+    g.Pixel(static_cast<int>(noise % kScreenWidth), static_cast<int>((noise >> 9) % kScreenHeight), glow > 0.9f ? kDim : kFaint);
+  }
+
+  const char* word = StandbyWord(logo.alt);
+  const int width = StandbyLogoWidth(logo.alt);
+  const int capHeight = Gfx::CapHeight(Font::Huge);
+  const int x = static_cast<int>(std::lround(logo.x));
+  const int y = static_cast<int>(std::lround(logo.y));
+  const Color color = kStandbyPalette[logo.color % kStandbyPalette.size()];
+  const bool effectOn = logo.effect != StandbyEffect::None && now - logo.effectAt < kStandbyEffectMs;
+  const float effectT = effectOn ? fx::Progress(now, logo.effectAt, kStandbyEffectMs) : 1.0f;
+  const StandbyEffect effect = effectOn ? logo.effect : StandbyEffect::None;
+
+
+  // Rings out of the corner it just landed in.
+  const float corner = logo.corneredAt != 0 ? fx::Progress(now, logo.corneredAt, kStandbyCornerMs) : 1.0f;
+  if (corner < 1.0f)
+  {
+    const int cornerX = logo.cornerRight ? kScreenWidth - 1 : 0;
+    const int cornerY = logo.cornerBottom ? kScreenHeight - 1 : 0;
+    for (int ring = 0; ring < 3; ++ring)
+    {
+      const float radius = fx::EaseOutCubic(fx::Clamp01(corner * 1.3f - static_cast<float>(ring) * 0.15f)) * 150.0f;
+      if (radius <= 1.0f) continue;
+      const Color ringColor = kStandbyPalette[(logo.color + static_cast<std::size_t>(ring)) % kStandbyPalette.size()];
+      for (int step = 0; step <= 48; ++step)
+      {
+        const float angle = static_cast<float>(step) / 48.0f * 1.5707963f;
+        const int px = cornerX + static_cast<int>(std::cos(angle) * radius) * (logo.cornerRight ? -1 : 1);
+        const int py = cornerY + static_cast<int>(std::sin(angle) * radius) * (logo.cornerBottom ? -1 : 1);
+        if (((step + ring) & 1) == 0 || corner < 0.5f) g.Pixel(px, py, ringColor);
+      }
+    }
+    // Sparks thrown out of it.
+    for (std::uint32_t spark = 0; spark < 18; ++spark)
+    {
+      const std::uint32_t noise = fx::Hash(logo.corneredAt + spark * 131u);
+      const float angle = static_cast<float>(noise % 1571u) / 1000.0f;
+      const float reach = (40.0f + static_cast<float>((noise >> 11) % 90)) * fx::EaseOutCubic(corner);
+      const int px = (logo.cornerRight ? kScreenWidth - 1 : 0) + static_cast<int>(std::cos(angle) * reach) * (logo.cornerRight ? -1 : 1);
+      const int py = (logo.cornerBottom ? kScreenHeight - 1 : 0) + static_cast<int>(std::sin(angle) * reach) * (logo.cornerBottom ? -1 : 1);
+      if (corner < 0.85f) g.Fill(Rect{px, py, 2, 2}, kStandbyPalette[(spark + logo.color) % kStandbyPalette.size()]);
+    }
+  }
+
+  // The word: decoding into the other one in a corner, letters of every color, or plain.
+  const bool swapping = logo.corneredAt != 0 && now - logo.corneredAt < kStandbySwapMs;
+  if (swapping)
+    StandbySwapText(g, x, y, word, color, kStandbyPalette[(logo.color + 3) % kStandbyPalette.size()], fx::Progress(now, logo.corneredAt, kStandbySwapMs),
+                    now / 60);
+  else if (effect == StandbyEffect::Rainbow)
+  {
+    int letterX = x;
+    for (std::size_t index = 0; word[index] != '\0'; ++index)
+    {
+      const char letter[2] = {word[index], '\0'};
+      const Color letterColor = kStandbyPalette[(logo.color + index + now / 140) % kStandbyPalette.size()];
+      letterX = g.Text(letterX, y, std::string_view(letter, 1), letterColor, Font::Huge);
+    }
+  }
+  else g.Text(x, y, word, color, Font::Huge);
+
+  // Shine: a bright band passes across the word.
+  if (effect == StandbyEffect::Shine)
+  {
+    const int band = x - 14 + static_cast<int>(fx::EaseInOutCubic(effectT) * static_cast<float>(width + 28));
+    g.SetClip(Rect{band, y, 7, capHeight});
+    g.Text(x, y, word, kInk, Font::Huge);
+    g.SetClip(Rect{band + 9, y, 2, capHeight});
+    g.Text(x, y, word, kInk, Font::Huge);
+    g.ResetClip();
+  }
+  // Sparkle: glints come and go around the word.
+  if (effect == StandbyEffect::Sparkle)
+    for (std::uint32_t glint = 0; glint < 16; ++glint)
+    {
+      const std::uint32_t noise = fx::Hash(logo.effectAt + glint * 2654435761u);
+      const std::uint32_t period = 500 + noise % 600;
+      const float phase = static_cast<float>((now + (noise >> 7) % period) % period) / static_cast<float>(period);
+      if (phase > 0.4f || effectT > 0.92f) continue;
+      const int gx = x - 8 + static_cast<int>((noise >> 3) % static_cast<std::uint32_t>(width + 16));
+      const int gy = y - 6 + static_cast<int>((noise >> 13) % static_cast<std::uint32_t>(capHeight + 18));
+      const int arm = phase < 0.2f ? 2 : 1;
+      const Color glow = (glint & 1u) != 0 ? kInk : kStandbyPalette[(logo.color + glint) % kStandbyPalette.size()];
+      g.HLine(gx - arm, gy, arm * 2 + 1, glow);
+      g.VLine(gx, gy - arm, arm * 2 + 1, glow);
+    }
+  // Glitch: a few rows of the word slip sideways for a moment.
+  if (effect == StandbyEffect::Glitch && effectT < 0.45f)
+    fx::Glitch(g, Rect{x - 4, y, width + 8, capHeight}, 1.0f - effectT / 0.45f, now / 60);
+
+  // The four keys' colors under the word, as on the boot screen.
+  const int gap = 4;
+  const int dash = std::max(4, (width - gap * 3) / 4);
+  for (std::size_t index = 0; index < 4; ++index)
+    g.Dither(Rect{x + static_cast<int>(index) * (dash + gap), y + capHeight + 5, dash, 3}, kStripColors[index], 12);
+
+  // In from black.
+  if (since < kStandbyFadeInMs) fx::Fade(g, Rect{0, 0, kScreenWidth, kScreenHeight}, 16 - static_cast<int>(16 * since / kStandbyFadeInMs));
+}
+
 }  // namespace
 
 void RenderFrame(Gfx& g, const Controller& controller, Animator& animator)
@@ -819,6 +948,11 @@ void RenderFrame(Gfx& g, const Controller& controller, Animator& animator)
   if (sinceBoot < kBootMs - 300)
   {
     DrawBoot(g, animator);
+    return;
+  }
+  if (controller.Standby())
+  {
+    DrawStandby(g, controller, animator);
     return;
   }
 

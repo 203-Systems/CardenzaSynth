@@ -26,6 +26,20 @@ inline constexpr std::uint32_t kRewindMs = 320;
 inline constexpr std::uint32_t kPanicMs = 650;
 inline constexpr std::uint32_t kSessionSweepMs = 420;
 
+// Standby, the screen saver: the word bounces around the screen like the old DVD logo, one color step
+// per wall; when it lands exactly in a corner it turns into the other word (CARDENZA <-> 203). Now
+// and then an effect runs over it.
+inline constexpr std::uint32_t kStandbyStyleMs = 12000;   // ALL: each key-light style this long
+inline constexpr std::uint32_t kStandbyEffectMs = 2600;   // an occasional effect
+inline constexpr std::uint32_t kStandbySwapMs = 700;      // the word changing in a corner
+inline constexpr std::uint32_t kStandbyCornerMs = 1400;   // the rings out of that corner
+inline constexpr std::uint32_t kStandbyFadeInMs = 600;
+enum class StandbyEffect : std::uint8_t { None, Shine, Sparkle, Rainbow, Glitch };
+inline constexpr std::size_t kStandbyEffectCount = 4;
+const char* StandbyWord(bool alt);
+int StandbyLogoWidth(bool alt);
+int StandbyLogoHeight();
+
 // Render-side motion state. It diffs the controller once per frame and keeps the timestamps of
 // everything worth animating; the renderer turns those into motion. Keeping this out of the
 // controller leaves UI behaviour independent of animation.
@@ -43,6 +57,26 @@ public:
   };
 
   void Update(const Controller& controller, std::uint32_t now);
+
+  // Standby's bouncing word: where it is, which word, its color step and what it last hit.
+  struct StandbyLogo {
+    float x = 0.0f;
+    float y = 0.0f;
+    float vx = 0.0f;
+    float vy = 0.0f;
+    bool alt = false;             // 203 instead of CARDENZA
+    std::uint8_t color = 0;       // step in the standby palette, one per wall
+    std::uint32_t bouncedAt = 0;
+    std::uint32_t corneredAt = 0;  // landed exactly in a corner: the word changed
+    bool cornerRight = false;
+    bool cornerBottom = false;
+    StandbyEffect effect = StandbyEffect::None;
+    std::uint32_t effectAt = 0;
+    std::uint32_t nextEffectAt = 0;
+    std::uint32_t seed = 0;
+    std::uint32_t startedAt = 0;  // the standby it belongs to (Controller::StandbyAt)
+  };
+  const StandbyLogo& Standby() const { return standby_; }
   // Turns the controller's LED cells (level + effect) into motion and adds the event layer
   // (ripples, sweeps, trails, playback notes).
   void DecorateLeds(const Controller& controller, const LedFrame& frame, std::array<std::uint8_t, kKeyCount>& levels) const;
@@ -105,6 +139,9 @@ public:
   static std::uint32_t Key(const char* text, std::uint32_t salt = 0);
 
 private:
+  void UpdateStandby(const Controller& controller, float dt);
+  void StandbyLeds(const Controller& controller, std::array<std::uint8_t, kKeyCount>& levels) const;
+
   struct SmoothEntry {
     std::uint32_t key = 0;
     float value = 0.0f;
@@ -114,6 +151,7 @@ private:
 
   std::uint32_t now_ = 0;
   std::uint32_t lastFrame_ = 0;
+  StandbyLogo standby_{};
   std::uint32_t bootAt_ = 0;
   bool primed_ = false;
 
