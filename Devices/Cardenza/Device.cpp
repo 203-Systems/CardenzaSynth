@@ -1,4 +1,5 @@
 #include "Devices/Device.h"
+#include "Devices/Cardenza/DeviceLog.h"
 #include "Devices/KeySettle.h"
 #include "Devices/LedFrameBuffer.h"
 #include "Devices/LedLight.h"
@@ -416,6 +417,8 @@ bool Init() {
   // interface only with the Input Monitoring permission.
   usb.keyboard = false;
   if (CardenzaHAL::USB::Init(usb)) USB::InstallAppChannel();
+  // The USB console reopened stdout and stderr on itself: the log ring goes in front of it again.
+  Log::Hook();
   if (!initialized) {
     return false;
   }
@@ -435,7 +438,10 @@ void Start() {}
 // without exceptions: the throw itself aborts, so every `new (std::nothrow)` that ran out of memory
 // rebooted the device. These replace them for the whole program: out of memory is a null pointer.
 // A large block is something the device can do without (a delay line, a sample in RAM), and it must
-// not take what the small plain allocations need, which do end the program when they fail.
+// not take what the small plain allocations need, which do end the program when they fail. Small
+// nothrow blocks get no floor: libraries use them for what they need (NVS refused to write the
+// autosave when they had one, 2026-11-03); our own optional small pieces check for themselves
+// (the effects' choruses and buses).
 namespace {
 
 constexpr std::size_t kLargeAllocationBytes = 4 * 1024;

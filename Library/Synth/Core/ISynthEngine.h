@@ -96,6 +96,13 @@ public:
   // value for the others.
   virtual SynthEngineState CaptureChanges() const { return CaptureState(); }
   virtual bool RestoreState(const SynthEngineState& state) = 0;
+  // Whether RestoreState would take this state, without changing anything: a project is checked
+  // before any of its tracks replaces what plays now.
+  virtual bool CanRestore(const SynthEngineState& state) const
+  {
+    (void)state;
+    return true;
+  }
   virtual bool RefreshPresetCatalog() = 0;
   virtual bool CanReplace(const ISynthEngine& previous) const = 0;
   virtual void ReplaceBinding(ISynthEngine& previous) = 0;

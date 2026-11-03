@@ -56,6 +56,7 @@ std::string FormatPercent127(int value)
 SamplerSynthEngine::SamplerSynthEngine()
     : PagedSynthEngine({SynthEngineKind::Sampler, "sampler", "Sampler"})
 {
+  ReserveParameters(11);
   RegisterParameter({"sample.start", "Start", "Sample", SynthParameterKind::Continuous, 0, 127, 1, 0, 0});
   RegisterParameter({"sample.end", "End", "Sample", SynthParameterKind::Continuous, 0, 127, 1, 127, 127});
   RegisterParameter({"sample.loop", "Loop", "Sample", SynthParameterKind::Toggle, 0, 1, 1, 0, 0});

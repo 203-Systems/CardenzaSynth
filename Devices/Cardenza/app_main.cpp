@@ -4,6 +4,7 @@
 #include <freertos/task.h>
 #include <nvs.h>
 
+#include "Devices/Cardenza/DeviceLog.h"
 #include "Devices/Device.h"
 #include "OS/System/System.h"
 
@@ -45,6 +46,7 @@ void LogFailedAllocation(size_t size, uint32_t caps, const char* functionName)
 {
     ESP_EARLY_LOGE(kLogTag, "alloc failed: %u bytes caps=0x%x in %s", static_cast<unsigned>(size),
                    static_cast<unsigned>(caps), functionName != nullptr ? functionName : "?");
+    Device::Log::NoteFailedAllocation(size, caps, functionName);
 }
 
 void CardenzaRuntimeTask(void*)
@@ -78,6 +80,8 @@ void CardenzaRuntimeTask(void*)
 
 extern "C" void app_main(void)
 {
+    // Before any task exists: what the previous run left in the log ring, and the console through it.
+    Device::Log::Install();
     heap_caps_register_failed_alloc_callback(LogFailedAllocation);
     BaseType_t created = pdFAIL;
 #if portNUM_PROCESSORS > 1

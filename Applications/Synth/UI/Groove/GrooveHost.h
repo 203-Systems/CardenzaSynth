@@ -93,6 +93,9 @@ public:
   virtual std::uint8_t LedBrightness() const = 0;
   virtual void SetBacklight(std::uint8_t level) = 0;  // 0..255
   virtual std::uint8_t Backlight() const = 0;
+  // The console log on the card (a device setting, OS/System/Log.h).
+  virtual void SetLogging(bool on) = 0;
+  virtual bool Logging() const = 0;
   virtual SystemInfo QuerySystem() const = 0;
 };
 

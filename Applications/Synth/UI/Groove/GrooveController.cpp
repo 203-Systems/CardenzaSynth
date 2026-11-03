@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <string_view>
 
@@ -295,6 +296,8 @@ void Controller::ShowToast(const std::string& text, ToastKind kind)
   state_.toast.text = text;
   state_.toast.kind = kind;
   state_.toast.until = state_.now + kToastMs;
+  // What the screen said goes into the console log too (OS/System/Log.h).
+  std::printf("ui: %s%s\n", kind == ToastKind::Error ? "error: " : "", text.c_str());
 }
 
 // ---------------------------------------------------------------------------------------------

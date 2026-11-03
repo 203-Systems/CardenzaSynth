@@ -196,6 +196,20 @@ std::vector<std::string> ListInternal();
 
 }  // namespace Storage
 
+// The console log: what the firmware prints (printf, ESP-IDF log lines, the @K key trace). The device
+// keeps the newest of it in a small ring that outlives a crash reset, and adds the crash itself (the
+// reason, the task and a backtrace) there; OS/System/Log.h takes it out and writes it to the card
+// while the LOG setting is on (docs/app-storage-protocol.md). Nothing here allocates.
+namespace Log {
+// Copies text nobody has taken yet, oldest first, at most `capacity` bytes, and returns how many (0:
+// nothing new). `lost` gets the bytes overwritten before anyone took them.
+std::size_t Take(char* destination, std::size_t capacity, std::size_t& lost);
+// Bytes waiting to be taken (at most the ring's size).
+std::size_t Pending();
+// A line for the log and the console. The simulator's log holds only what comes through here.
+void Write(std::string_view line);
+}  // namespace Log
+
 std::string Name();
 std::string BackendName();
 bool Init();

@@ -11,6 +11,7 @@
 #include "OS/Storage/Migration.h"
 #include "OS/Storage/Settings.h"
 #include "OS/Storage/Storage.h"
+#include "OS/System/Log.h"
 
 namespace os::system {
 
@@ -152,6 +153,7 @@ void PerformSwitch(const std::string& id) {
   {
     state.application->Suspend();
     (void)os::storage::FlushAllSettings();
+    (void)os::log::Flush();
     // Destroy before create: the next app gets the whole heap.
     state.application.reset();
     os::storage::ReleaseAppSettings(from);
@@ -220,6 +222,8 @@ bool Begin(const BootOptions& options) {
   (void)os::storage::MigrateLegacyLayout(os::storage::AppFolder(app::DefaultApplicationId()));
   (void)os::storage::EnsureSystemLayout();
   os::storage::ApplyDeviceSettings();
+  // The end of the previous run (a crash too) goes to the card before anything can go wrong again.
+  (void)os::log::Flush();
 
   const std::string bootId = BootApplicationId();
   if (!StartApplication(bootId, options.applicationArgs) &&
@@ -264,6 +268,7 @@ void RunFrame() {
   application->RenderFrame();
   Device::Display::Present();
   WriteBehindSettings();
+  os::log::Service(Now());
 }
 
 app::Application* ActiveApplication() {
@@ -298,6 +303,7 @@ void Shutdown() {
     state.activeId.clear();
   }
   (void)os::storage::FlushAllSettings();
+  (void)os::log::Flush();
 }
 
 void UseClock(std::uint32_t (*clock)()) {

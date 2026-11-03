@@ -7,6 +7,7 @@ namespace synth {
 DrumsSynthEngine::DrumsSynthEngine()
     : PagedSynthEngine({SynthEngineKind::Drums, "drums", "Drums"})
 {
+  ReserveParameters(kDrumNotes.size() + 1);
   std::map<std::string, int> preset;
   for (std::size_t i = 0; i < kDrumNotes.size(); ++i)
   {

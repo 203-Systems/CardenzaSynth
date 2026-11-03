@@ -41,6 +41,10 @@ public:
 
   // Tests replace the wall clock to make hold and repeat timing deterministic.
   void UseClock(std::uint32_t (*clock)()) { clock_ = clock; }
+  // Tests stand in for the device heap (free bytes, largest free block) to run out of memory on
+  // purpose; nullptr is the real heap (unlimited on the host).
+  using HeapProbe = void (*)(std::size_t& freeBytes, std::size_t& largestBlock);
+  void UseHeapProbe(HeapProbe probe) { heapProbe_ = probe; }
 
   // Writes the autosave now if something changed (not during a sample recording). The web host calls
   // it when the page is hidden or closed, where waiting for a quiet moment would lose the last edits.
@@ -87,6 +91,8 @@ public:
   std::uint8_t LedBrightness() const override;
   void SetBacklight(std::uint8_t level) override;
   std::uint8_t Backlight() const override;
+  void SetLogging(bool on) override;
+  bool Logging() const override;
   groove::SystemInfo QuerySystem() const override;
 
   static constexpr std::array<synth::SynthEngineKind, synth::kSynthTrackCount> kDefaultKinds{{
@@ -112,6 +118,22 @@ private:
   void ApplyMasterFx(const std::array<std::uint8_t, synth::fx::kMasterParamCount>& values);
   void SyncSamplerTrim();
   bool ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message, bool workingState = false);
+  // Memory for engines. A plain allocation that fails ends the program, and a whole engine is many
+  // of them (a DX7 is about 10 KB), so an engine is only built with room for it: the heap now, the
+  // size of its kind (the most one gave back here when it was destroyed, an estimate before that),
+  // and its largest block.
+  struct HeapRoom {
+    std::size_t freeBytes = 0;
+    std::size_t largestBlock = 0;
+  };
+  HeapRoom Heap() const;
+  std::size_t EngineBytes(synth::SynthEngineKind kind) const;
+  std::size_t EngineBlockBytes(synth::SynthEngineKind kind) const;
+  // A new engine with its user presets, or nullptr when there is no room for it plus `alsoNeeded`
+  // (`force` builds it anyway: restoring the working state at boot, as before).
+  std::unique_ptr<synth::ISynthEngine> BuildEngine(synth::SynthEngineKind kind, std::size_t alsoNeeded, bool force = false);
+  // Destroys an engine of `kind` and learns its size from what the heap got back.
+  void DropEngine(std::unique_ptr<synth::ISynthEngine>& engine, synth::SynthEngineKind kind);
   // The current session as project data. False (with a UI message) while a sampler take is unsaved,
   // except for the session itself: the take has its own file and comes back with it.
   bool CaptureProject(const groove::ProjectUiSettings& settings, synth::ProjectData& project, std::string& message, bool forSession = false) const;
@@ -125,6 +147,13 @@ private:
   // key may have changed something, so after a key what changed is written once it is quiet.
   void KeepSessionCurrent(std::uint32_t now);
   synth::SessionStore::SaveResult SaveSessionState();
+  // Two projects do not always fit in RAM side by side. The current patterns go to the autosave
+  // (internal flash) and are given back, and the effects give their memory back until
+  // synth::audio::ResumeEffects; a caller that still fails brings the patterns back with
+  // RestoreSessionPatterns (the engines are only changed by a load that works). False (NO MEMORY)
+  // when the autosave cannot be written.
+  bool MakeRoom(std::string& message);
+  bool RestoreSessionPatterns();
   bool RestoreSessionState();
   bool Quiet(std::uint32_t now) const;
   void CheckCard(std::uint32_t now);
@@ -163,6 +192,9 @@ private:
   std::uint32_t lastCardCheckAt_ = 0;
   std::uint32_t lastCardProbeAt_ = 0;
   std::uint32_t (*clock_)() = nullptr;
+  HeapProbe heapProbe_ = nullptr;
+  // By SynthEngineKind: the most an engine of the kind gave back when destroyed (0 = none yet).
+  std::array<std::size_t, 5> engineBytes_{};
   synth::SynthRack rack_;
   synth::SamplerManager sampler_;
   synth::SynthSequencer sequencer_;

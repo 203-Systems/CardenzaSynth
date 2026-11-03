@@ -154,6 +154,11 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
   else if (Is(id, "sys.volume")) number(host_.MasterVolume(), 0, 100, os::storage::kDefaultOutputVolume, std::to_string(host_.MasterVolume()));
   else if (Is(id, "sys.led")) number(host_.LedBrightness(), 0, 15, os::storage::kDefaultKeyLedBrightness, std::to_string(host_.LedBrightness()));
   else if (Is(id, "sys.screen")) number(host_.Backlight(), 10, 255, os::storage::kDefaultScreenBacklight, std::to_string(host_.Backlight() * 100 / 255) + "%");
+  else if (Is(id, "sys.log"))
+  {
+    choice(host_.Logging() ? 1 : 0, 2, os::storage::kDefaultLogEnabled ? 1 : 0, host_.Logging() ? "ON" : "OFF");
+    info.kind = synth::SynthParameterKind::Toggle;
+  }
   else return false;
   return true;
 }
@@ -198,6 +203,7 @@ void Controller::AdjustSetting(const char* id, int delta)
   else if (Is(id, "sys.volume")) host_.SetMasterVolume(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.led")) host_.SetLedBrightness(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.screen")) host_.SetBacklight(static_cast<std::uint8_t>(value));
+  else if (Is(id, "sys.log")) host_.SetLogging(value != 0);
   // The key range moves under held pads: let them go before they map to other notes.
   if (Is(id, "keys.layout") || Is(id, "keys.octave")) ReleaseAllPads();
   // Only project data makes the project unsaved: the keyboard, the tracks' chords and arpeggiators,

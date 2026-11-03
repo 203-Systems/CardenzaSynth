@@ -16,12 +16,14 @@ constexpr const char* kVolumeRevisionKey = "sys.volume.rev";
 constexpr int kVolumeRevision = 2;
 constexpr const char* kLedKey = "sys.led";
 constexpr const char* kScreenKey = "sys.screen";
+constexpr const char* kLogKey = "sys.log";
 
 struct Cache {
   bool loaded = false;
   std::uint8_t volume = kDefaultOutputVolume;
   std::uint8_t led = kDefaultKeyLedBrightness;
   std::uint8_t screen = kDefaultScreenBacklight;
+  bool log = kDefaultLogEnabled;
 };
 
 Cache& Values()
@@ -38,6 +40,7 @@ Cache& Values()
     cache.volume = static_cast<std::uint8_t>(system.GetInt(kVolumeKey, kDefaultOutputVolume, 0, 100));
     cache.led = static_cast<std::uint8_t>(system.GetInt(kLedKey, kDefaultKeyLedBrightness, 0, Device::LED::kBrightnessMax));
     cache.screen = static_cast<std::uint8_t>(system.GetInt(kScreenKey, kDefaultScreenBacklight, kMinScreenBacklight, 255));
+    cache.log = system.GetBool(kLogKey, kDefaultLogEnabled);
     cache.loaded = true;
   }
   return cache;
@@ -98,6 +101,17 @@ void SetScreenBacklight(std::uint8_t level)
 std::uint8_t ScreenBacklight()
 {
   return Values().screen;
+}
+
+void SetLogEnabled(bool enabled)
+{
+  Values().log = enabled;
+  SystemSettings().SetBool(kLogKey, enabled);
+}
+
+bool LogEnabled()
+{
+  return Values().log;
 }
 
 }  // namespace os::storage
