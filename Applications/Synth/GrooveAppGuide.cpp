@@ -12,6 +12,7 @@
 //             practice project               lesson's demo project)
 //   GH<keys>  keys to blink: two hex digits per KeyIndex, none clears
 //   GK<kk><0|1> press / release a key       GK<kk><0|1> for every key the user presses
+//                                           GD<56 hex digits> the key lights as shown (over USB)
 //
 // While the guide runs, the user's working state waits in internal flash (it was saved when the guide
 // started and nothing writes the practice project there); it comes back when the guide ends, when
@@ -72,6 +73,26 @@ void GrooveApp::SendGuideState(std::uint32_t now, bool always)
   SendGuide(state);
 }
 
+// The key lights as the device shows them (perceived level 0-15, one hex digit per KeyIndex), so the
+// page draws the keyboard beside the lesson as it looks. When they change, at most every 50 ms, and
+// only to a page on the cable: the simulator shows its own.
+void GrooveApp::SendGuideLeds(std::uint32_t now)
+{
+  if (!guide_ || !guideOverUsb_ || now - guideLedsAt_ < kGuideStateMs) return;
+  std::array<char, 2 + groove::kKeyCount> leds{};
+  leds[0] = 'G';
+  leds[1] = 'D';
+  for (std::size_t index = 0; index < groove::kKeyCount; ++index)
+  {
+    const std::uint8_t level = Device::LED::Brightness(index / groove::kColumns, index % groove::kColumns);
+    leds[2 + index] = "0123456789abcdef"[level > 15 ? 15 : level];
+  }
+  if (leds == guideLeds_) return;
+  guideLedsAt_ = now;
+  guideLeds_ = leds;
+  (void)Device::USB::WriteAppMessage(leds.data(), leds.size());
+}
+
 void GrooveApp::ServiceGuide(std::uint32_t now)
 {
   Device::USB::AppMessage message;
@@ -87,6 +108,7 @@ void GrooveApp::ServiceGuide(std::uint32_t now)
     return;
   }
   SendGuideState(now, false);
+  SendGuideLeds(now);
 }
 
 void GrooveApp::HandleGuideMessage(const char* text, std::size_t length, std::uint32_t now)
@@ -191,6 +213,7 @@ bool GrooveApp::EnterGuide(std::string& reason)
   guide_ = true;
   guideOverUsb_ = Device::USB::Connected();
   guideState_.clear();
+  guideLeds_ = {};
   guideInjectedDown_ = 0;
   controller_.SetGuide(true);
   std::printf("Groove: guide started\n");

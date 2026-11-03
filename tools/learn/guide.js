@@ -234,6 +234,8 @@
       const down = text[4] === '1';
       liveKey(key, down);
       onKey(key, down);
+    } else if (/^GD[0-9a-f]{56}$/.test(text)) {
+      liveLeds(text.slice(2));
     }
   }
 
@@ -280,6 +282,7 @@
     device.entering = false;
     device.state = null;
     if (mode === 'sim') usbDrop();
+    liveLeds(null);
     paintDevice();
     if (want) beginGuide();
   }
@@ -365,10 +368,24 @@
     }).catch(() => {});
   }
 
-  // The keyboard beside the lesson while a Cardenza is used: the keys pressed on it light here.
+  // The keyboard beside the lesson while a Cardenza is used: the keys pressed on it go down here, and
+  // its key lights show as the device shows them (GD: a level 0-15 per key, as the eye sees it; the
+  // device blinks the hints itself then). Levels to light as in the manual's pictures (build.py
+  // KEY_LEVEL_FOR_PERCEIVED, at full master level).
   function liveKey(key, down) {
     const g = $(`#d-live [data-k="${key}"]`);
     if (g) g.classList.toggle('press', down);
+  }
+  const LED_DUTY = [0, 1, 1, 1, 1, 1, 1, 2, 3, 4, 5, 7, 8, 10, 13, 15];
+  function liveLeds(digits) {
+    const live = $('#d-live');
+    live.classList.toggle('mirror', !!digits);
+    $$('.k', live).forEach((g) => {
+      const level = digits ? parseInt(digits[Number(g.dataset.k)] || '0', 16) : 0;
+      const glow = level ? Math.pow(LED_DUTY[level] / 15, 0.45) : 0;
+      g.style.setProperty('--b', glow.toFixed(3));
+      g.classList.toggle('lit', glow > 0.55);
+    });
   }
 
   // ---- Device lessons ---------------------------------------------------------------------------
@@ -433,7 +450,7 @@
   }
 
   function onState(state) {
-    if (!run) return;
+    if (!run || run.demo) return;
     if (run.waitingStart) {
       const matches = Object.keys(run.startFields).every((f) => state[f] === run.startFields[f]);
       if (matches) takeBase(state);
@@ -444,7 +461,7 @@
   }
 
   function onKey(key, down) {
-    if (!run || run.waitingStart || !down) return;
+    if (!run || run.waitingStart || run.demo || !down) return;
     const li = run.steps[run.index];
     stopDemo();
     conditions(li).forEach((condition, i) => {
@@ -454,7 +471,7 @@
   }
 
   function evaluate(state) {
-    if (!run || run.waitingStart || !run.base) return;
+    if (!run || run.waitingStart || run.demo || !run.base) return;
     const li = run.steps[run.index];
     if (li.classList.contains('done')) return;
     conditions(li).forEach((condition, i) => {
@@ -503,7 +520,8 @@
     const li = event.target.closest('.lesson[data-kind="device"] .step');
     if (!li || !run || !run.steps.includes(li)) return;
     const index = run.steps.indexOf(li);
-    if (event.target.closest('.s-show')) playDemo(li, 1);
+    if (run.demo) return;  // the device is showing a step: it finishes first
+    if (event.target.closest('.s-show')) showOnDevice(li);
     else if (event.target.closest('.s-skip')) completeStep(index);
     else if (event.target.closest('.s-head')) {
       li.classList.remove('done');
@@ -512,18 +530,37 @@
     }
   });
 
-  // The step's demo on its key picture: keys go down and light as a person would press them.
-  function stopDemo() {
-    demoToken++;
-    clearTimeout(demoTimer);
-    $$('.s-keys .k.press').forEach((g) => g.classList.remove('press'));
+  // The step's demo on its key picture: keys go down and light as a person would press them. "Show me"
+  // has the device do it as well (keys the page presses, GK, which never count for the step): the
+  // device goes to where the step begins (a fresh practice project at the lesson's start, and the
+  // earlier steps' demos again), does the step so it is seen and heard, and goes back there. The step
+  // is then the user's to do.
+  const injected = new Set();
+  function inject(key, down) {
+    if (down) injected.add(key);
+    else injected.delete(key);
+    send('GK' + key.toString(16).padStart(2, '0') + (down ? '1' : '0'));
+  }
+  function releaseInjected() { [...injected].forEach((key) => inject(key, false)); }
+  function demoActions(li) {
+    try { return JSON.parse(li.dataset.demo || '[]'); } catch (error) { return []; }
   }
 
-  function playDemo(li, loops) {
-    stopDemo();
+  function cancelDemo() {
+    demoToken++;
+    clearTimeout(demoTimer);
+    releaseInjected();
+    $$('.s-keys .k.press').forEach((g) => g.classList.remove('press'));
+  }
+  function stopDemo() {
+    cancelDemo();
+    if (run && run.demo) endDeviceDemo();
+  }
+
+  function playDemo(li, loops, onDevice, after) {
+    cancelDemo();
     const token = demoToken;
-    let actions = [];
-    try { actions = JSON.parse(li.dataset.demo || '[]'); } catch (error) { actions = []; }
+    const actions = demoActions(li);
     const keys = (li.dataset.keys || '').split(',').filter(Boolean).map(Number);
     const figure = $('.s-keys', li);
     if (!figure) return;
@@ -534,29 +571,116 @@
       if (token !== demoToken) return;
       if (at >= actions.length) {
         $$('.k.press', figure).forEach((g) => g.classList.remove('press'));
+        if (onDevice) releaseInjected();
         if (--loops > 0) demoTimer = setTimeout(() => { at = 0; step(); }, 1500);
+        else if (after) after(token);
         return;
       }
       const [verb, value] = actions[at++];
       let wait = 260;
       const g = verb === 'wait' || verb === 'shot' ? null : key(value);
-      if (verb === 'tap' && g) {
-        g.classList.add('press');
-        setTimeout(() => { if (token === demoToken) g.classList.remove('press'); }, 200);
+      if (verb === 'tap') {
+        if (g) g.classList.add('press');
+        // On the device a tap is short: held 200 ms a GRID cell opens its value picker instead.
+        if (onDevice) {
+          inject(value, true);
+          setTimeout(() => { if (token === demoToken) inject(value, false); }, 70);
+        }
+        setTimeout(() => { if (token === demoToken && g) g.classList.remove('press'); }, 200);
         wait = 330;
-      } else if (verb === 'down' && g) {
-        g.classList.add('press');
+      } else if (verb === 'down') {
+        if (g) g.classList.add('press');
+        if (onDevice) inject(value, true);
         wait = 380;
-      } else if (verb === 'up' && g) {
-        g.classList.remove('press');
+      } else if (verb === 'up') {
+        if (g) g.classList.remove('press');
+        if (onDevice) inject(value, false);
       } else if (verb === 'wait') {
-        wait = Math.max(160, Math.min(1400, value * 16));
+        // On the device a wait is the time the demo needs (a held key, a song playing).
+        wait = onDevice ? Math.max(160, Math.min(3200, value * 16)) : Math.max(160, Math.min(1400, value * 16));
       } else if (verb === 'shot') {
         wait = 0;
       }
       demoTimer = setTimeout(step, wait);
     };
     demoTimer = setTimeout(step, 450);
+  }
+
+  function showOnDevice(li) {
+    if (!run || !device.guide || run.waitingStart) {
+      playDemo(li, 1);
+      return;
+    }
+    const index = run.steps.indexOf(li);
+    const button = $('.s-show', li);
+    run.demo = { button };
+    button.disabled = true;
+    button.dataset.label = button.innerHTML;
+    button.innerHTML = say('演示中…', 'Showing…');
+    const toStepStart = (token, then) => {
+      const start = run.section.dataset.start;
+      send('GL' + (/[rd]1/.test(start) ? start : 'r1' + start));
+      replay(run.steps.slice(0, index).flatMap(demoActions), token, then);
+    };
+    cancelDemo();
+    const first = demoToken;
+    toStepStart(first, () => {
+      if (first !== demoToken || !run) return;
+      playDemo(li, 1, true, (token) => {
+        // The result stays a moment, then the device goes back.
+        demoTimer = setTimeout(() => {
+          if (token !== demoToken || !run) return;
+          toStepStart(token, () => {
+            if (token !== demoToken || !run) return;
+            endDeviceDemo();
+            run.base = null;
+            run.latched = conditions(li).map(() => false);
+            sendHint();
+            send('GQ');
+            toast(say('轮到你了：在机器上照着做一遍。', 'Your turn: now do it on the device.'));
+          });
+        }, 1300);
+      });
+    });
+  }
+
+  function endDeviceDemo() {
+    const { button } = run.demo;
+    run.demo = null;
+    button.disabled = false;
+    if (button.dataset.label) button.innerHTML = button.dataset.label;
+  }
+
+  // The earlier steps' demos, quickly, after the lesson's start (GL) has taken effect. Held keys keep
+  // their waits, so a key map still opens.
+  function replay(actions, token, done) {
+    let at = 0;
+    const next = () => {
+      if (token !== demoToken) return;
+      if (at >= actions.length) {
+        releaseInjected();
+        demoTimer = setTimeout(done, 300);
+        return;
+      }
+      const [verb, value] = actions[at++];
+      let wait = 90;
+      if (verb === 'tap') {
+        inject(value, true);
+        setTimeout(() => { if (token === demoToken) inject(value, false); }, 60);
+        wait = 130;
+      } else if (verb === 'down') {
+        inject(value, true);
+        wait = 130;
+      } else if (verb === 'up') {
+        inject(value, false);
+      } else if (verb === 'wait') {
+        wait = Math.max(60, Math.min(600, value * 16));
+      } else {
+        wait = 0;
+      }
+      demoTimer = setTimeout(next, wait);
+    };
+    demoTimer = setTimeout(next, 400);
   }
 
   // ---- Concept lessons --------------------------------------------------------------------------
