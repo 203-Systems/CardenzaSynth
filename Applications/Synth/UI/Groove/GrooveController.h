@@ -188,9 +188,9 @@ using LedFrame = std::array<LedCell, kKeyCount>;
 // Standby, the screen saver (docs/groovebox-design.md): after a while without a key the screen dims
 // and the logo bounces around it; the key lights play one of these styles (sys.standby.led, ALL = each
 // in turn). The one place besides boot where the key lights run free: asked for by the user.
-enum class StandbyLightStyle : std::uint8_t { All, Ring, Sweep, Rain, Aurora, Stars, Breathe, Off };
-inline constexpr std::size_t kStandbyLightCount = 8;
-inline constexpr std::array<const char*, kStandbyLightCount> kStandbyLightNames{{"ALL", "RING", "SWEEP", "RAIN", "AURORA", "STARS", "BREATH", "OFF"}};
+enum class StandbyLightStyle : std::uint8_t { All, Ring, Sweep, Rain, Aurora, Breathe, Off };
+inline constexpr std::size_t kStandbyLightCount = 7;
+inline constexpr std::array<const char*, kStandbyLightCount> kStandbyLightNames{{"ALL", "RING", "SWEEP", "RAIN", "AURORA", "BREATH", "OFF"}};
 // The waits to choose from (sys.standby), in minutes; 0 = never.
 inline constexpr std::array<std::uint8_t, 6> kStandbyMinuteChoices{{1, 3, 5, 10, 30, 0}};
 inline constexpr std::array<const char*, 6> kStandbyMinuteNames{{"1 MIN", "3 MIN", "5 MIN", "10 MIN", "30 MIN", "NEVER"}};

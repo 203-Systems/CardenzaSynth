@@ -114,7 +114,22 @@ body.guide { --rail: 236px; --dev: min(520px, 40vw); }
 .l-pager .redo:hover { border-color: var(--dim); color: var(--ink); }
 .l-pager .redo[hidden] { display: none; }
 .l-pager .redo:not([hidden]) + .next { margin-left: 0; }
-.lesson.complete .l-pager .next { background: var(--fn); color: #000; border-color: var(--fn); }
+/* 学习下一个: a ring of blue gradient with a soft glow; on hover it grows a little and brightens. A finished
+   lesson fills it with the gradient. */
+.l-pager .next {
+  --next-a: #33b1ff; --next-b: #a070ff;
+  border: 1.5px solid transparent;
+  background: linear-gradient(var(--panel), var(--panel)) padding-box, linear-gradient(120deg, var(--next-a), var(--next-b)) border-box;
+  box-shadow: 0 0 10px -2px color-mix(in srgb, var(--next-a) 45%, transparent), 0 0 14px -4px color-mix(in srgb, var(--next-b) 40%, transparent);
+  transition: transform .22s ease, filter .22s ease, box-shadow .22s ease;
+}
+.l-pager .next:hover, .l-pager .next:focus-visible {
+  border-color: transparent; transform: scale(1.06); filter: brightness(1.25) saturate(1.1);
+  box-shadow: 0 0 16px -2px color-mix(in srgb, var(--next-a) 70%, transparent), 0 0 22px -4px color-mix(in srgb, var(--next-b) 60%, transparent);
+}
+.lesson.complete .l-pager .next { color: #000; font-weight: 600;
+  background: linear-gradient(120deg, var(--next-a), var(--next-b)) padding-box, linear-gradient(120deg, var(--next-a), var(--next-b)) border-box; }
+@media (prefers-reduced-motion: reduce) { .l-pager .next { transition: none; } .l-pager .next:hover { transform: none; } }
 .l-more { font: 13px var(--mono); margin-top: 18px; }
 .l-more a { color: var(--tab); text-decoration: none; }
 
