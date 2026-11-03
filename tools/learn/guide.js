@@ -55,6 +55,7 @@
   function paintProgress() {
     $$('.g-part a[data-lesson], .card[data-lesson]').forEach((a) => a.classList.toggle('done', !!done[a.dataset.lesson]));
     const count = data.order.filter((id) => done[id]).length;
+    $('#redo-all').hidden = count === 0;
     $('#progress-bar').style.width = (100 * count / Math.max(1, data.order.length)) + '%';
     $('#progress-text').textContent = say(`完成 ${count} / ${data.order.length} 课`, `${count} of ${data.order.length} lessons done`);
   }
@@ -785,6 +786,55 @@
     }
   }
   window.addEventListener('hashchange', route);
+
+  // Learning again: a lesson's tick goes and it starts over from its first step; "all" clears every
+  // tick (after asking) and starts from the first lesson.
+  function startOver(id) {
+    if (shown !== id) {
+      location.hash = '#/' + id;
+      return;
+    }
+    stopDemo();
+    if (anim && anim.player) anim.player.destroy();
+    anim = null;
+    run = null;
+    window.scrollTo(0, 0);
+    const section = sections[id];
+    if (section.dataset.kind === 'device') startDeviceLesson(section);
+    else startAnimLesson(section);
+  }
+  function learnAgain(id) {
+    delete done[id];
+    store.set('guide.done', JSON.stringify(done));
+    paintProgress();
+    startOver(id);
+  }
+  function learnAllAgain() {
+    const count = data.order.filter((id) => done[id]).length;
+    if (!count || !window.confirm(say(`清除全部 ${count} 课的完成记录，从第一课重新学习？`,
+      `Clear the ticks of all ${count} finished lessons and start again from lesson 1?`))) return;
+    done = {};
+    store.set('guide.done', JSON.stringify(done));
+    paintProgress();
+    startOver(data.order[0]);
+  }
+  document.addEventListener('click', (event) => {
+    const redo = event.target.closest('.redo[data-lesson]');
+    if (redo) {
+      event.preventDefault();
+      event.stopPropagation();
+      learnAgain(redo.dataset.lesson);
+    } else if (event.target.closest('#redo-all')) {
+      learnAllAgain();
+    }
+  }, true);
+  document.addEventListener('keydown', (event) => {
+    const redo = event.target.closest && event.target.closest('span.redo[data-lesson]');
+    if (redo && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      learnAgain(redo.dataset.lesson);
+    }
+  });
 
   // Small looping pictures on the home page and the cards.
   if (window.GuideAnim) $$('[data-anim-thumb]').forEach((el) => window.GuideAnim.thumb(el, el.dataset.animThumb));

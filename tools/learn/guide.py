@@ -230,6 +230,7 @@ UI = {
     "more": {"zh": "字典里的详细说明", "en": "In the reference"},
     "keys": {"zh": "要按的键", "en": "Keys to press"},
     "screen": {"zh": "会看到", "en": "You will see"},
+    "redo": {"zh": "重新学习", "en": "Learn again"},
 }
 
 
@@ -260,15 +261,19 @@ def render(guide, say, dictionary_ids, leds):
         for number, lesson_id in enumerate(part["lessons"], start=1):
             lesson = guide["lessons"][lesson_id]
             numbers[lesson_id] = (part, number)
+            redo_title = f'{UI["redo"]["zh"]} · {UI["redo"]["en"]}'
             items.append(f'<li><a href="#/{lesson_id}" data-lesson="{lesson_id}"><span class="n">{number}</span>'
-                         f'<span class="t">{plain_both(lesson["title"])}</span><span class="ok" aria-hidden="true"></span></a></li>')
+                         f'<span class="t">{plain_both(lesson["title"])}</span><span class="ok" aria-hidden="true"></span></a>'
+                         f'<button type="button" class="redo" data-lesson="{lesson_id}" title="{redo_title}" '
+                         f'aria-label="{redo_title}">↺</button></li>')
             if "anim" in lesson:
                 thumb = f'<div class="c-art" data-anim-thumb="{lesson["anim"]}"></div>'
             else:
                 thumb = f'<div class="c-art"><img src="img/{shot_name(lesson_id, len(lesson["steps"]))}.png" alt="" loading="lazy"></div>'
             part_cards.append(f'<a class="card" href="#/{lesson_id}" data-lesson="{lesson_id}">{thumb}<div class="c-text">'
                               f'<span class="c-num">{number}</span><b>{plain_both(lesson["title"])}</b>'
-                              f'<small>{plain_both(lesson["lead"])}</small></div><span class="ok" aria-hidden="true"></span></a>')
+                              f'<small>{plain_both(lesson["lead"])}</small></div><span class="ok" aria-hidden="true"></span>'
+                              f'<span class="redo" role="button" tabindex="0" data-lesson="{lesson_id}">↺ {ui("redo")}</span></a>')
         rail.append(f'<div class="g-part"><h3>{plain_both(part["title"])}</h3><ol>{"".join(items)}</ol></div>')
         cards.append(f'<section class="cards-part"><h2>{plain_both(part["title"])}</h2><div class="cards">{"".join(part_cards)}</div></section>')
 
@@ -328,7 +333,8 @@ def render(guide, say, dictionary_ids, leds):
             f'<h1>{plain_both(lesson["title"])}</h1><p class="l-lead">{plain_both(lesson["lead"])}</p></header>'
             f'{stage}<ol class="l-steps">{"".join(steps)}</ol>'
             f'<div class="l-done" hidden><b>{plain_both({"zh": "完成！", "en": "Done!"})}</b>'
-            f'<span>{plain_both({"zh": "这一课学会了。", "en": "You have got this one."})}</span></div>'
+            f'<span>{plain_both({"zh": "这一课学会了。", "en": "You have got this one."})}</span>'
+            f'<button type="button" class="redo l-redo" data-lesson="{lesson_id}">↺ {ui("redo")}</button></div>'
             f'{pager}{more_link}</section>')
     index = {"order": order, "dictionary": sorted(dictionary_ids)}
     return "".join(rail), "".join(cards), "".join(sections), index

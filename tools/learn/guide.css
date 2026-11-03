@@ -25,6 +25,23 @@ body.guide { --rail: 236px; --dev: min(520px, 40vw); }
 .g-progress { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 8px; color: var(--faint); font-size: 12px; }
 .g-progress .bar { height: 6px; border: 1px solid var(--line-2); border-radius: 2px; overflow: hidden; }
 .g-progress .bar i { display: block; height: 100%; width: 0; background: var(--play); transition: width .4s ease; }
+/* Learning a finished lesson again: beside its tick in the rail and on its card, in its "Done" box;
+   all of them under the progress bar. */
+.g-part li { display: flex; align-items: center; gap: 2px; }
+.g-part li > a { flex: 1; min-width: 0; }
+.g-part .redo { display: none; flex: none; width: 24px; height: 24px; place-items: center; padding: 0; border: 1px solid var(--line-2);
+  border-radius: 3px; background: transparent; color: var(--dim); font-size: 13px; cursor: pointer; }
+.g-part a.done + .redo { display: grid; }
+.g-part .redo:hover { color: var(--ink); border-color: var(--play); }
+.card .redo { display: none; position: absolute; top: 6px; right: 32px; padding: 2px 8px; border: 1px solid var(--line-2); border-radius: 3px;
+  background: rgba(14, 14, 13, .9); color: var(--dim); font: 600 11.5px var(--mono); cursor: pointer; }
+.card.done .redo { display: block; }
+.card .redo:hover { color: var(--ink); border-color: var(--play); }
+.l-redo { margin-left: auto; border: 1px solid var(--play); background: transparent; color: var(--play); font: 600 13px var(--mono);
+  padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.redo-all { align-self: flex-start; border: 0; background: none; padding: 2px 0; color: var(--faint); font: 12px var(--mono); cursor: pointer; }
+.redo-all:hover { color: var(--ink); text-decoration: underline; }
+.redo-all[hidden] { display: none; }
 
 /* Home: a hero, the lessons as cards, the device. */
 .g-home { max-width: 1040px; }
