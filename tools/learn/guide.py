@@ -316,16 +316,15 @@ def render(guide, say, dictionary_ids, leds):
                      f'<button type="button" class="a-next">{ui("next")} →</button></div>')
         prev_id = order[position - 1] if position > 0 else None
         next_id = order[position + 1] if position + 1 < len(order) else None
-        # The links say they go to another lesson: a bare title ("Screens and pages →") reads like an action.
-        def lesson_link(other, zh, en):
-            title = guide["lessons"][other]["title"]
-            return plain_both({"zh": f'{zh}：{title["zh"]}', "en": f'{en}: {title["en"]}'})
+        # The links say what they do, not the other lesson's title (a bare "换界面 →" reads like an action;
+        # the rail shows the titles).
         pager = '<nav class="l-pager">'
         if prev_id:
-            pager += f'<a class="prev" href="#/{prev_id}">← {lesson_link(prev_id, "上一课", "Previous")}</a>'
-        # Learn this lesson again: its tick goes and it starts over from its first step.
-        pager += f'<button type="button" class="redo" data-lesson="{lesson_id}">↺ {ui("redo")}</button>'
-        pager += f'<a class="next" href="#/{next_id}">{lesson_link(next_id, "下一课", "Next")} →</a>' if next_id else \
+            pager += f'<a class="prev" href="#/{prev_id}">← {plain_both({"zh": "学习上一个", "en": "Previous lesson"})}</a>'
+        # Learn this lesson again: its tick goes and it starts over from its first step. Only on a
+        # finished lesson (paintProgress shows it).
+        pager += f'<button type="button" class="redo" data-lesson="{lesson_id}" hidden>↺ {ui("redo")}</button>'
+        pager += f'<a class="next" href="#/{next_id}">{plain_both({"zh": "学习下一个", "en": "Next lesson"})} →</a>' if next_id else \
             '<a class="next" href="#/">' + plain_both({"zh": "回到目录", "en": "All lessons"}) + ' →</a>'
         pager += "</nav>"
         more_link = (f'<p class="l-more"><a href="reference.html#{more}">{ui("more")} →</a></p>' if more else "")

@@ -60,6 +60,8 @@
   }
   function paintProgress() {
     $$('.g-part a[data-lesson], .card[data-lesson]').forEach((a) => a.classList.toggle('done', !!done[a.dataset.lesson]));
+    // "Learn again" only on a lesson that is done.
+    $$('.l-pager .redo[data-lesson]').forEach((button) => { button.hidden = !done[button.dataset.lesson]; });
     const count = data.order.filter((id) => done[id]).length;
     $('#redo-all').hidden = count === 0;
     $('#progress-bar').style.width = (100 * count / Math.max(1, data.order.length)) + '%';
