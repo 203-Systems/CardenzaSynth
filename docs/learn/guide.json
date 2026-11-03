@@ -35,8 +35,8 @@
       "anim": "boxes-in-a-row",
       "steps": [
         {"say": {"zh": "一段只有几秒钟。", "en": "One part lasts a few seconds."}},
-        {"say": {"zh": "多做几段，从左往右一段接一段地播。", "en": "Make a few parts and play them one after another, left to right."}},
-        {"say": {"zh": "这就是一首歌（SONG）。在机器上，它在 {{scene:TAPE}} 场景里排。", "en": "That is a song. On Cardenza you arrange it in scene {{scene:TAPE}}."}}
+        {"say": {"zh": "多做几段（前奏、A、B……），从左往右一段接一段地播。", "en": "Make a few parts (an intro, A, B…) and play them one after another, left to right."}},
+        {"say": {"zh": "这就是一首歌（SONG）。每一段里，每条轨道选自己的一个 Pattern（P01、P02……），也可以空着不播（--）。在机器上，它在 {{scene:TAPE}} 场景里排。", "en": "That is a song. In each part every track picks one of its own patterns (P01, P02, …) or stays silent (--). On Cardenza you arrange it in scene {{scene:TAPE}}."}}
       ]
     },
 

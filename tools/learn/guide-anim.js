@@ -137,26 +137,41 @@
   const FILL = { 0: 'kick', 4: 'snare', 8: 'kick', 10: 'kick', 12: 'snare', 13: 'snare', 14: 'snare', 15: 'snare' };
   const CHORDS = { 0: 48, 8: 53, 12: 48 };
   const BASS = { 0: 36, 6: 43, 8: 41, 12: 36 };
-  // Part B: like A but its own, the tune's second line (F F E E D D C, then D back to A), its own
-  // chords and bass, and a drum fill.
-  const MELODY_B = [[0, 3], [2, 3], [4, 2], [6, 2], [8, 1], [10, 1], [12, 0], [14, 1]];
-  const CHORDS_B = { 0: 53, 4: 48, 8: 55, 12: 48 };
-  const BASS_B = { 0: 41, 4: 36, 8: 43, 12: 36, 14: 43 };
-  // hits(step, b): what a track plays on a step of part A, or of part B.
+  const drums = (map) => (s) => map[s] || (s % 2 === 0 ? 'hat' : null);
   const TRACKS = [
-    { zh: '鼓', en: 'DRUMS', hits: (s, b) => (b ? FILL : DRUMS)[s] || (s % 2 === 0 ? 'hat' : null) },
-    { zh: '钢琴', en: 'PIANO', hits: (s, b) => (b ? MELODY_B : MELODY).find((m) => m[0] === s) },
-    { zh: '和弦', en: 'CHORDS', hits: (s, b) => (b ? CHORDS_B : CHORDS)[s] },
-    { zh: '贝斯', en: 'BASS', hits: (s, b) => (b ? BASS_B : BASS)[s] },
+    { zh: '鼓', en: 'DRUMS', hits: drums(DRUMS) },
+    { zh: '钢琴', en: 'PIANO', hits: (s) => MELODY.find((m) => m[0] === s) },
+    { zh: '和弦', en: 'CHORDS', hits: (s) => CHORDS[s] },
+    { zh: '贝斯', en: 'BASS', hits: (s) => BASS[s] },
   ];
-  function sound(track, s, fill) {
-    const hit = TRACKS[track].hits(s, fill);
+  function playHit(track, hit, s) {
     if (!hit) return;
     if (track === 0) { play(hit); if (hit !== 'hat' && s % 2 === 0) play('hat'); }
     if (track === 1) play('piano', SCALE[hit[1]]);
     if (track === 2) play('chord', hit + 12);
     if (track === 3) play('bass', hit);
   }
+  const sound = (track, s) => playHit(track, TRACKS[track].hits(s), s);
+
+  // A song: every track has patterns of its own (numbered as they were made) and each part picks one
+  // per track, or none. A is the tune's first line; B, like it but its own, the second line (F F E E
+  // D D C, then D back to A) with its own chords and bass and a drum fill; the intro has only a
+  // kick, a long chord and the bass of A.
+  const MELODY_B = [[0, 3], [2, 3], [4, 2], [6, 2], [8, 1], [10, 1], [12, 0], [14, 1]];
+  const PATTERNS = [
+    { 1: drums({ 0: 'kick', 8: 'kick' }), 2: drums(DRUMS), 3: drums(FILL) },
+    { 1: (s) => MELODY.find((m) => m[0] === s), 2: (s) => MELODY_B.find((m) => m[0] === s) },
+    { 1: (s) => CHORDS[s], 2: (s) => ({ 0: 53, 4: 48, 8: 55, 12: 48 })[s], 3: (s) => ({ 0: 48, 8: 53 })[s] },
+    { 1: (s) => BASS[s], 2: (s) => ({ 0: 41, 4: 36, 8: 43, 12: 36, 14: 43 })[s] },
+  ];
+  const SONG = [
+    { zh: '前奏', en: 'INTRO', p: [1, 0, 3, 1] },
+    { zh: 'A', en: 'A', p: [2, 1, 1, 1] },
+    { zh: 'A', en: 'A', p: [2, 1, 1, 1] },
+    { zh: 'B', en: 'B', p: [3, 2, 2, 2] },
+    { zh: 'A', en: 'A', p: [2, 1, 1, 1] },
+  ];
+  const hitOf = (track, pattern, s) => (pattern ? PATTERNS[track][pattern](s) : null);
 
   // ---- Pieces ---------------------------------------------------------------------------------
   // A music box seen from the front. The pinned drum stands upright and turns towards the comb on its
@@ -428,52 +443,55 @@
   };
 
   SCENES['boxes-in-a-row'] = (svg, thumb) => {
-    // A part drawn small: four lanes of hits in the track colours.
-    const PARTS = [false, false, true, false];  // A A B A
-    const part = (parent, x, y, w, h, fill) => {
+    // A part drawn small: four lanes of hits in the track colours, from the patterns it picks.
+    const part = (parent, x, y, w, h, picks) => {
       const g = el(parent, 'g', {});
       el(g, 'rect', { x, y, width: w, height: h, rx: 6, fill: '#0e0e0d', stroke: C.line2 });
       const lh = (h - 16) / 4;
       for (let i = 0; i < 4; i++) {
         for (let s = 0; s < 16; s++) {
-          if (!TRACKS[i].hits(s, fill)) continue;
+          if (!hitOf(i, picks[i], s)) continue;
           el(g, 'rect', { x: x + 8 + s * (w - 16) / 16, y: y + 8 + i * lh + 1, width: (w - 16) / 16 - 1.5, height: lh - 3, fill: svg.dither(C.t[i], 12) });
         }
       }
       const frame = el(g, 'rect', { x: x - 3, y: y - 3, width: w + 6, height: h + 6, rx: 8, fill: 'none', stroke: C.play, 'stroke-width': 2, opacity: 0 });
       return { g, frame };
     };
+    const A = SONG[1].p;
     const single = el(svg, 'g', {});
-    const lone = part(single, 220, 110, 200, 120, false);
-    const clock = label(single, 320, 270, '≈ 2.4 秒', '≈ 2.4 seconds', { fill: C.dim, 'font-size': 14, 'text-anchor': 'middle' });
-    void clock;
-    const lone_head = el(single, 'rect', { y: 104, width: 2, height: 132, fill: C.play });
+    part(single, 220, 110, 200, 120, A);
+    label(single, 320, 270, '≈ 2.4 秒', '≈ 2.4 seconds', { fill: C.dim, 'font-size': 14, 'text-anchor': 'middle' });
+    const loneHead = el(single, 'rect', { y: 104, width: 2, height: 132, fill: C.play });
+    // The parts in a row.
     const row = el(svg, 'g', {});
-    const parts = PARTS.map((fill, i) => {
-      const p = part(row, 34 + i * 148, 110, 132, 100, fill);
-      el(row, 'text', { x: 100 + i * 148, y: 236, fill: fill ? C.fn : C.dim, 'font-size': 13, 'text-anchor': 'middle', 'font-weight': 700 }, fill ? 'B' : 'A');
+    const pw = 104, px = (i) => 28 + i * 120;
+    const parts = SONG.map((section, i) => {
+      const p = part(row, px(i), 110, pw, 100, section.p);
+      label(row, px(i) + pw / 2, 236, section.zh, section.en,
+        { fill: section.zh === 'B' ? C.fn : C.dim, 'font-size': 13, 'text-anchor': 'middle', 'font-weight': 700 });
       return p;
     });
     const tape = el(row, 'rect', { y: 100, width: 2, height: 120, fill: C.play });
     label(row, 320, 290, '时间 →', 'time →', { fill: C.faint, 'font-size': 13, 'text-anchor': 'middle' });
-    // The SONG page: a column per part, a row per track, the pattern in each cell.
+    // The SONG page: a column per part, a row per track, the pattern it plays there (-- none).
     const song = el(svg, 'g', {});
     const cells = [];
-    PARTS.forEach((fill, c) => {
-      el(song, 'text', { x: 150 + c * 112, y: 62, fill: C.dim, 'font-size': 12 }, String(c + 1).padStart(2, '0'));
+    const cx = (c) => 140 + c * 94;
+    SONG.forEach((section, c) => {
+      el(song, 'text', { x: cx(c), y: 62, fill: C.dim, 'font-size': 12 }, String(c + 1).padStart(2, '0'));
       for (let r = 0; r < 4; r++) {
-        const x = 150 + c * 112, y = 74 + r * 54;
-        cells.push(el(song, 'rect', { x: x - 4, y: y - 4, width: 104, height: 46, rx: 3, fill: 'none', stroke: C.play, 'stroke-width': 2, opacity: 0, 'data-c': c }));
-        el(song, 'text', { x, y: y + 22, fill: C.ink, 'font-size': 20, 'font-weight': 700 }, fill ? 'P02' : 'P01');
-        el(song, 'rect', { x, y: y + 32, width: 92, height: 3, fill: C.t[r] });
+        const x = cx(c), y = 74 + r * 54, pattern = section.p[r];
+        cells.push(el(song, 'rect', { x: x - 4, y: y - 4, width: 86, height: 46, rx: 3, fill: 'none', stroke: C.play, 'stroke-width': 2, opacity: 0, 'data-c': c }));
+        el(song, 'text', { x, y: y + 22, fill: pattern ? C.ink : C.faint, 'font-size': 20, 'font-weight': 700 }, pattern ? 'P0' + pattern : '--');
+        el(song, 'rect', { x, y: y + 32, width: 76, height: 3, fill: C.t[r], opacity: pattern ? 1 : 0.35 });
       }
     });
     for (let r = 0; r < 4; r++) {
       el(song, 'rect', { x: 66, y: 74 + r * 54, width: 54, height: 30, rx: 3, fill: C.t[r] });
       el(song, 'text', { x: 93, y: 94 + r * 54, fill: '#000', 'font-size': 14, 'font-weight': 700, 'text-anchor': 'middle' }, 'T' + (r + 1));
     }
-    el(song, 'rect', { x: 520, y: 300, width: 64, height: 22, rx: 2, fill: C.fn });
-    el(song, 'text', { x: 552, y: 316, fill: '#000', 'font-size': 13, 'font-weight': 700, 'text-anchor': 'middle' }, 'SONG');
+    el(song, 'rect', { x: 534, y: 300, width: 64, height: 22, rx: 2, fill: C.fn });
+    el(song, 'text', { x: 566, y: 316, fill: '#000', 'font-size': 13, 'font-weight': 700, 'text-anchor': 'middle' }, 'SONG');
     label(song, 66, 318, '3 TAPE · SONG 页', '3 TAPE · the SONG page', { fill: C.faint, 'font-size': 12 });
     let last = -1;
     return (t, step, from, to, k) => {
@@ -481,19 +499,18 @@
       single.setAttribute('opacity', show(0));
       row.setAttribute('opacity', show(1));
       song.setAttribute('opacity', show(2));
-      const s = Math.floor(t / STEP) % 16;
-      const total = Math.floor(t / STEP) % 64;
-      const current = total >> 4;
-      lone_head.setAttribute('x', 228 + (t / STEP % 16) * 184 / 16);
-      tape.setAttribute('x', 42 + current * 148 + ((t / STEP) % 16) * 116 / 16);
+      const at = t / STEP;
+      const s = Math.floor(at) % 16;
+      const current = Math.floor(at / 16) % SONG.length;
+      loneHead.setAttribute('x', 228 + (at % 16) * 184 / 16);
+      tape.setAttribute('x', px(current) + 8 + (at % 16) * (pw - 16) / 16);
       parts.forEach((p, i) => p.frame.setAttribute('opacity', i === current ? 1 : 0));
-      lone.frame.setAttribute('opacity', 0);
       cells.forEach((cell) => cell.setAttribute('opacity', Number(cell.dataset.c) === current ? 1 : 0));
       if (s !== last) {
         last = s;
         if (thumb) return;
-        const fill = to === 0 ? false : PARTS[current];
-        for (let i = 0; i < 4; i++) sound(i, s, fill);
+        const picks = to === 0 ? A : SONG[current].p;
+        for (let i = 0; i < 4; i++) playHit(i, hitOf(i, picks[i], s), s);
       }
     };
   };
