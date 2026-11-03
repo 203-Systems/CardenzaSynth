@@ -7,7 +7,8 @@ run on the live device of the page (the web simulator, or a Cardenza on USB) thr
 s scene, p page, t track 1-4, r1 a fresh project, d1 the song demo), and per step
 
   keys   the keys that blink on the device and stand out on the picture (figures.keys_for tokens)
-  done   what completes it, all of: ["press", KEYS] a key pressed, ["state", f, n] / ["seen", f, n]
+  done   what completes it, all of: ["press", KEYS] a key pressed (["press", KEYS, n]: n different
+         ones of them), ["state", f, n] / ["seen", f, n]
          field f of the device state is n, ["change", f] it changed since the step began,
          ["min", f, n] it is n or more (fields: Controller::GuideState)
   demo   what a person would press: tap / down / up KEY, wait FRAMES (16 ms), shot (the step's
@@ -140,7 +141,8 @@ def satisfied(condition, base, states, presses):
     kind = condition[0]
     if kind == "press":
         wanted = set(key_indices(condition[1]))
-        return any(index in wanted for index in presses)
+        needed = condition[2] if len(condition) > 2 else 1
+        return len(wanted & set(presses)) >= needed
     field = condition[1]
     every = [base] + states
     if kind in ("state", "seen"):
@@ -286,7 +288,7 @@ def render(guide, say, dictionary_ids, leds):
             keys = key_indices(step.get("keys", ""))
             demo = [list(action) for action in parse_demo(step["demo"])]
             # Key presses are checked by KeyIndex on the page.
-            done = [[c[0], key_indices(c[1])] if c[0] == "press" else c for c in step["done"]]
+            done = [[c[0], key_indices(c[1])] + c[2:] if c[0] == "press" else c for c in step["done"]]
             shot = shot_name(lesson_id, index)
             marks = [("mark", target, "") for target in step.get("marks", [])]
             picture, _items = figures.screen(f"img/{shot}.png", marks, f"guide:{shot}", plain(step["say"]["en"]), 1, True)

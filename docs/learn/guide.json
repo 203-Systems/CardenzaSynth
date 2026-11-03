@@ -111,7 +111,7 @@
         {"say": {"zh": "按 {{key:PLAY}}：绿线走到哪一格，哪一格就响。", "en": "Press {{key:PLAY}}: each step plays as the green line reaches it."},
          "keys": "PLAY", "done": [["state", "y", 1]], "demo": "tap PLAY"},
         {"say": {"zh": "按住军鼓键（第 2 列），点 GRID 5、13。边放边写。", "en": "Hold the snare key (column 2) and tap GRID 5 and 13, while it plays."},
-         "keys": "r3c2 G5 G13", "done": [["press", "r3c2"], ["press", "GRID"]], "demo": "down r3c2; wait 20; tap G5; tap G13; wait 20; shot; up r3c2"},
+         "keys": "r3c2 G5 G13", "done": [["press", "r3c2"], ["press", "G5 G13", 2]], "demo": "down r3c2; wait 20; tap G5; tap G13; wait 20; shot; up r3c2"},
         {"say": {"zh": "再按 {{key:PLAY}}：停。写好的会自动留着。", "en": "{{key:PLAY}} again stops. What you wrote is kept."},
          "keys": "PLAY", "done": [["state", "y", 0]], "demo": "tap PLAY"}
       ]

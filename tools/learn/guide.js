@@ -394,7 +394,7 @@
   let demoToken = 0;
 
   function startDeviceLesson(section) {
-    run = { section, steps: $$('.step', section), index: 0, base: null, latched: [], waitingStart: true };
+    run = { section, steps: $$('.step', section), index: 0, base: null, latched: [], pressed: [], waitingStart: true };
     run.steps.forEach((li) => li.classList.remove('current', 'done', 'ticked'));
     $('.l-done', section).hidden = true;
     section.classList.remove('complete');
@@ -432,7 +432,7 @@
     run.index = index;
     run.steps.forEach((li, i) => li.classList.toggle('current', i === index));
     const li = run.steps[index];
-    run.latched = conditions(li).map(() => false);
+    resetConditions(li);
     run.base = run.waitingStart ? null : (device.state ? Object.assign({}, device.state) : null);
     sendHint();
     playDemo(li, 3);
@@ -460,12 +460,20 @@
     evaluate(state);
   }
 
+  // Nothing met yet; ["press", keys, n] counts the different keys of its list pressed.
+  function resetConditions(li) {
+    run.latched = conditions(li).map(() => false);
+    run.pressed = conditions(li).map(() => new Set());
+  }
+
   function onKey(key, down) {
     if (!run || run.waitingStart || run.demo || !down) return;
     const li = run.steps[run.index];
     stopDemo();
     conditions(li).forEach((condition, i) => {
-      if (condition[0] === 'press' && condition[1].includes(key)) run.latched[i] = true;
+      if (condition[0] !== 'press' || !condition[1].includes(key)) return;
+      run.pressed[i].add(key);
+      if (run.pressed[i].size >= (condition[2] || 1)) run.latched[i] = true;
     });
     finishIfDone();
   }
@@ -634,7 +642,7 @@
             if (token !== demoToken || !run) return;
             endDeviceDemo();
             run.base = null;
-            run.latched = conditions(li).map(() => false);
+            resetConditions(li);
             sendHint();
             send('GQ');
             toast(say('轮到你了：在机器上照着做一遍。', 'Your turn: now do it on the device.'));
