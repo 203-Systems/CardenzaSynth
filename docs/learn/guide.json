@@ -24,8 +24,8 @@
       "anim": "four-boxes",
       "steps": [
         {"say": {"zh": "一个八音盒只有一种声音。", "en": "One music box has one sound."}},
-        {"say": {"zh": "再来三个：鼓、钢琴、和弦、贝斯，一起转。", "en": "Add three more: drums, piano, chords, bass, all turning together."}},
-        {"say": {"zh": "每个八音盒是一条轨道，它转的那一圈叫 Pattern。四轨一起转，就是一段完整的乐句。", "en": "Each box is a track, and its loop is a pattern. Four tracks together make a whole phrase."}}
+        {"say": {"zh": "再来三个：鼓、钢琴、和弦、贝斯，一起播放。", "en": "Add three more: drums, piano, chords, bass, all playing together."}},
+        {"say": {"zh": "每个八音盒是一条轨道，它转的那一圈叫 Pattern。四轨一起播放，就是一段完整的乐句。", "en": "Each box is a track, and its loop is a pattern. Four tracks playing together make a whole phrase."}}
       ]
     },
     "boxes-in-a-row": {
