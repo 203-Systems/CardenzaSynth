@@ -4,11 +4,6 @@
 #   tools/web-deploy.sh                 build with `make web`, then deploy to production
 #   SKIP_BUILD=1 tools/web-deploy.sh    deploy the existing build
 #   PREVIEW=1 tools/web-deploy.sh       a preview deployment instead of production
-#   SITE_TARGET=preview tools/web-deploy.sh
-#                                       the preview site (make web-preview): its own Vercel project,
-#                                       cardenza-synth-preview, at the fixed address
-#                                       https://cardenza-synth-preview.vercel.app, for what is not
-#                                       published yet; production stays as it is
 # One-time setup: `npx vercel login` (sign in in the browser), then the first run links the
 # Vercel project (VERCEL_PROJECT, default cardenza-synth, in VERCEL_SCOPE if set). The domain is
 # added to the project with `npx vercel domains add cardenza-synth.203.io cardenza-synth` and a
@@ -19,15 +14,11 @@ cd "$(dirname "$0")/.."
 PROJECT=${VERCEL_PROJECT:-cardenza-synth}
 WEB_BUILD=${WEB_BUILD:-build/web}
 SITE=$WEB_BUILD/site
-LINK=$WEB_BUILD/.vercel
-if [[ ${SITE_TARGET:-production} == preview ]]; then
-  PROJECT=${VERCEL_PREVIEW_PROJECT:-cardenza-synth-preview}
-  LINK=$WEB_BUILD/.vercel-preview
-fi
 # Staged outside the repository: from inside it the CLI attaches the last commit, and Vercel blocks
 # a deployment whose commit author is not on the Vercel account.
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/cardenza-web-deploy.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
+LINK=$WEB_BUILD/.vercel
 VERCEL=(npx --yes vercel@latest)
 SCOPE_ARGS=()
 [[ -n ${VERCEL_SCOPE:-} ]] && SCOPE_ARGS=(--scope "$VERCEL_SCOPE")
