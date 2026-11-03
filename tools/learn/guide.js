@@ -574,6 +574,11 @@
     if (run && run.demo) endDeviceDemo();
   }
 
+  // The demo's pace: slow enough to follow with the eye (the first pace, about three keys a second, was
+  // far too quick to see what was pressed). A pressed key stays lit, the next waits, and the moment
+  // the step wants you to see (its "shot") holds still a while.
+  const DEMO_PACE = { start: 800, tap: 900, tapLit: 420, down: 900, up: 650, shot: 900, loop: 2200, waitScale: 1.6, waitMin: 350 };
+
   function playDemo(li, loops, onDevice, after) {
     cancelDemo();
     const token = demoToken;
@@ -589,12 +594,12 @@
       if (at >= actions.length) {
         $$('.k.press', figure).forEach((g) => g.classList.remove('press'));
         if (onDevice) releaseInjected();
-        if (--loops > 0) demoTimer = setTimeout(() => { at = 0; step(); }, 1500);
+        if (--loops > 0) demoTimer = setTimeout(() => { at = 0; step(); }, DEMO_PACE.loop);
         else if (after) after(token);
         return;
       }
       const [verb, value] = actions[at++];
-      let wait = 260;
+      let wait = DEMO_PACE.up;
       const g = verb === 'wait' || verb === 'shot' ? null : key(value);
       if (verb === 'tap') {
         if (g) g.classList.add('press');
@@ -603,24 +608,25 @@
           inject(value, true);
           setTimeout(() => { if (token === demoToken) inject(value, false); }, 70);
         }
-        setTimeout(() => { if (token === demoToken && g) g.classList.remove('press'); }, 200);
-        wait = 330;
+        setTimeout(() => { if (token === demoToken && g) g.classList.remove('press'); }, DEMO_PACE.tapLit);
+        wait = DEMO_PACE.tap;
       } else if (verb === 'down') {
         if (g) g.classList.add('press');
         if (onDevice) inject(value, true);
-        wait = 380;
+        wait = DEMO_PACE.down;
       } else if (verb === 'up') {
         if (g) g.classList.remove('press');
         if (onDevice) inject(value, false);
       } else if (verb === 'wait') {
         // On the device a wait is the time the demo needs (a held key, a song playing).
-        wait = onDevice ? Math.max(160, Math.min(3200, value * 16)) : Math.max(160, Math.min(1400, value * 16));
+        const ms = value * 16 * DEMO_PACE.waitScale;
+        wait = Math.max(DEMO_PACE.waitMin, Math.min(onDevice ? 5000 : 2200, ms));
       } else if (verb === 'shot') {
-        wait = 0;
+        wait = DEMO_PACE.shot;
       }
       demoTimer = setTimeout(step, wait);
     };
-    demoTimer = setTimeout(step, 450);
+    demoTimer = setTimeout(step, DEMO_PACE.start);
   }
 
   function showOnDevice(li) {
@@ -644,7 +650,7 @@
     toStepStart(first, () => {
       if (first !== demoToken || !run) return;
       playDemo(li, 1, true, (token) => {
-        // The result stays a moment, then the device goes back.
+        // The result stays a while to be seen, then the device goes back.
         demoTimer = setTimeout(() => {
           if (token !== demoToken || !run) return;
           toStepStart(token, () => {
@@ -656,7 +662,7 @@
             send('GQ');
             toast(say('轮到你了：在机器上照着做一遍。', 'Your turn: now do it on the device.'));
           });
-        }, 1300);
+        }, 2200);
       });
     });
   }
