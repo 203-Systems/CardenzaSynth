@@ -91,7 +91,7 @@ make web        # 即 make DEVICE=CardenzaWeb build，输出 build/web/site/
 make web-serve  # http://localhost:8000/
 ```
 
-输出目录可以放到任何静态服务器上（不需要 COOP/COEP 头，可以嵌入 iframe）。线上版本在 https://cardenza-synth.203.io（Vercel），`make web-deploy` 重新构建并发布（首次需要 `npx vercel login`，见 `tools/web-deploy.sh`）。详见 [CardenzaWeb 说明](Devices/CardenzaWeb/README.md)。
+输出目录可以放到任何静态服务器上（不需要 COOP/COEP 头，可以嵌入 iframe）。线上版本在 https://cardenza-synth.203.io（Vercel），`make web-deploy` 重新构建并发布（首次需要 `npx vercel login`，见 `tools/web-deploy.sh`）。还没发布的改动先放到预览站 https://cardenza-synth-preview.vercel.app（`make web-preview`，单独的 Vercel 项目，不动线上版本）。详见 [CardenzaWeb 说明](Devices/CardenzaWeb/README.md)。
 
 ## Windows 模拟器与测试
 
