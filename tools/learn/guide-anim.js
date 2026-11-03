@@ -167,7 +167,7 @@
     const g = el(parent, 'g', {});
     const fx = x - 12 * sc - 4, fy = y - 14 * sc - 4, fw = w + 24 * sc + 8, fh = h + 28 * sc + 8;
     el(g, 'rect', { x: fx, y: fy, width: fw, height: fh, rx: 8, fill: '#0e0e0d', stroke: C.line2 });
-    const combW = w * 0.34;
+    const combW = w * 0.24;
     const cylX = x + combW - 6 * sc, cylW = x + w - cylX;
     const contact = cylX + cylW * 0.1;
     const visibleSteps = 8;  // the front half of the drum
@@ -202,7 +202,7 @@
     const pinR = Math.max(2, 4.4 * sc);
     const pinNodes = pins.map(() => el(pinLayer, 'ellipse', { rx: pinR, ry: pinR, fill: C.ink, stroke: '#000', 'stroke-width': 0.8 }));
     // The comb: a plate with one tooth per row, all the same length.
-    const baseX = () => x + combW * 0.3;
+    const baseX = () => x + combW * 0.45;
     el(g, 'rect', { x, y: y - 3, width: baseX() + 2 - x, height: h + 6, fill: svg.dither(C.dim, 5), stroke: C.faint });
     for (const yy of [y + h * 0.18, y + h * 0.82]) el(g, 'circle', { cx: x + combW * 0.1, cy: yy, r: 2.6 * sc, fill: '#0e0e0d', stroke: C.faint });
     const tipX = contact + 3 * sc;
@@ -258,9 +258,9 @@
           });
           // The pin lifts the tip a little, lets go, and the tooth rings down.
           let bend = 0;
-          if (next < 0.3) bend = -(1 - next / 0.3) * 1.6 * sc;
-          else if (since < 3) bend = 1.4 * sc * Math.exp(-since / 0.7) * Math.cos(since * Math.PI * 2.5);
-          const cy = rowY(row), bx = baseX(row), hb = laneH * 0.32, ht = laneH * 0.17;
+          if (next < 0.3) bend = -(1 - next / 0.3) * 1.2 * sc;
+          else if (since < 3) bend = 1 * sc * Math.exp(-since / 0.7) * Math.cos(since * Math.PI * 2.5);
+          const cy = rowY(row), bx = baseX(row), hb = laneH * 0.2, ht = laneH * 0.1;
           tooth.setAttribute('points', `${bx},${cy - hb} ${tipX},${cy - ht + bend} ${tipX},${cy + ht + bend} ${bx},${cy + hb}`);
           tooth.setAttribute('fill', since < 1.6 ? color : C.dim);
         });
