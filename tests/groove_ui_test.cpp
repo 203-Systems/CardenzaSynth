@@ -2538,11 +2538,11 @@ void TestGuide(Harness& h)
   send("GH000d");
   groove::LedFrame frame{};
   ui.ComputeLeds(frame);
-  assert(frame[0].effect == groove::LedEffect::Blink && frame[13].effect == groove::LedEffect::Blink);
-  assert(frame[groove::KeyIndex(1, 0)].effect != groove::LedEffect::Blink);
+  assert(frame[0].effect == groove::LedEffect::Hint && frame[13].effect == groove::LedEffect::Hint);
+  assert(frame[groove::KeyIndex(1, 0)].effect != groove::LedEffect::Hint);
   send("GH");
   ui.ComputeLeds(frame);
-  assert(frame[0].effect != groove::LedEffect::Blink);
+  assert(frame[0].effect != groove::LedEffect::Hint);
 
   // Keys the user presses go to the page; keys the page presses do not come back.
   heard.clear();
@@ -2581,7 +2581,7 @@ void TestGuide(Harness& h)
   std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
   assert(app.Sequencer().StepNoteEvents(0, 2, notes) == 1 && app.Sequencer().PatternCount(0) == 1);
   ui.ComputeLeds(frame);
-  assert(frame[0].effect != groove::LedEffect::Blink);
+  assert(frame[0].effect != groove::LedEffect::Hint);
 
   // A page that goes quiet ends the guide by itself.
   send("GE");
@@ -2593,7 +2593,7 @@ void TestGuide(Harness& h)
   // While nothing runs, messages without G are ignored, and a guide message after the end is too.
   send("GH000d");
   ui.ComputeLeds(frame);
-  assert(frame[0].effect != groove::LedEffect::Blink);
+  assert(frame[0].effect != groove::LedEffect::Hint);
 }
 
 // Every cell of every page of every scene, on every engine, stopped and playing: moved both ways, in

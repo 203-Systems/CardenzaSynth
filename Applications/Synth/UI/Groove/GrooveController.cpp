@@ -1174,7 +1174,7 @@ void Controller::ComputeLeds(LedFrame& frame) const
   ComputeSceneLeds(frame);
   // The guide's hint: the keys a lesson waits for blink (the only effect: waiting).
   for (std::size_t index = 0; index < kKeyCount; ++index)
-    if ((guideHint_ >> index) & 1u) frame[index] = LedCell{kLedFull, LedEffect::Blink};
+    if ((guideHint_ >> index) & 1u) frame[index] = LedCell{kLedFull, LedEffect::Hint};
 }
 
 void Controller::ComputeSceneLeds(LedFrame& frame) const
