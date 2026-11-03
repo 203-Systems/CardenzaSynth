@@ -225,7 +225,6 @@ UI = {
     "next": {"zh": "下一步", "en": "Next"},
     "back": {"zh": "上一步", "en": "Back"},
     "sound": {"zh": "声音", "en": "Sound"},
-    "replay": {"zh": "重播", "en": "Play again"},
     "more": {"zh": "字典里的详细说明", "en": "In the reference"},
     "keys": {"zh": "要按的键", "en": "Keys to press"},
     "screen": {"zh": "会看到", "en": "You will see"},
@@ -308,8 +307,7 @@ def render(guide, say, dictionary_ids, leds):
             dots = "".join(f'<button type="button" class="a-dot" data-step="{i}" aria-label="{i + 1}"></button>'
                            for i in range(len(lesson["steps"])))
             stage = (f'<div class="anim-wrap"><div class="anim-stage" data-anim="{lesson["anim"]}"></div>'
-                     f'<button type="button" class="a-sound" aria-pressed="false">♪ {ui("sound")}</button>'
-                     f'<button type="button" class="a-replay" hidden>↻ {ui("replay")}</button></div>'
+                     f'<button type="button" class="a-sound" aria-pressed="false">♪ {ui("sound")}</button></div>'
                      f'<div class="anim-bar"><button type="button" class="a-back" aria-label="Back">←</button>'
                      f'<div class="anim-say"><div class="anim-dots">{dots}</div><p class="anim-text"></p></div>'
                      f'<button type="button" class="a-next">{ui("next")} →</button></div>')

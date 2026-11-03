@@ -314,7 +314,7 @@
   // Each scene builds its layers once; frame(t, step, from, to, k) blends from one lesson step to the next.
   const SCENES = {};
 
-  SCENES['music-box'] = (svg, thumb, api) => {
+  SCENES['music-box'] = (svg, thumb) => {
     const pins = MELODY.map((m) => m.slice());
     const box = el(svg, 'g', {});
     const mb = musicBox(box, svg, 176, 92, 250, 170, C.t[1], pins);
@@ -360,7 +360,6 @@
       const at = pins.findIndex((p) => p[0] === s && p[1] === r);
       if (at >= 0) pins.splice(at, 1);
       else { pins.push([s, r]); play('bell', SCALE[r]); }
-      api.replay();  // from the top, to hear it
     });
     let last = -1;
     const frame = (t, step, from, to, k) => {
@@ -389,7 +388,6 @@
         if (!thumb) pins.filter((p) => p[0] === s).forEach((p) => play(to === 0 ? 'bell' : 'piano', SCALE[p[1]] + (to === 0 ? 12 : 0)));
       }
     };
-    frame.duration = () => 2 * 16 * STEP;  // two turns
     return frame;
   };
 
@@ -443,7 +441,6 @@
         else for (let i = 0; i < 4; i++) sound(i, s, false);
       }
     };
-    frame.duration = () => 2 * 16 * STEP;  // two bars
     return frame;
   };
 
@@ -518,48 +515,30 @@
         for (let i = 0; i < 4; i++) playHit(i, hitOf(i, picks[i], s), s);
       }
     };
-    frame.duration = (step) => (step === 0 ? 1 : SONG.length) * 16 * STEP;  // one part, or the whole song once
     return frame;
   };
 
   // ---- Players ----------------------------------------------------------------------------------
-  // A lesson's player plays each step from the top when it is shown, once (frame.duration), then
-  // stops: the picture stays, nothing sounds, options.onEnd() (the page offers to play it again,
-  // replay()). Thumbnails loop without sound.
+  // A lesson's player loops the step it shows, from the top each time a step is shown; it plays only
+  // while its lesson is on screen (hidden, or destroyed with the lesson, it draws and sounds nothing).
   function create(container, name, options) {
     options = options || {};
     const thumb = !!options.thumb;
     container.innerHTML = '';
     const svg = makeSvg(container);
     const scene = SCENES[name];
-    if (!scene) return { setStep() {}, replay() {}, destroy() {} };
-    let playStart = performance.now(), playing = true;
-    const replay = () => {
-      playStart = performance.now();
-      playing = true;
-      if (options.onPlay) options.onPlay();
-    };
-    const frame = scene(svg, thumb, { replay });
+    if (!scene) return { setStep() {}, destroy() {} };
+    const frame = scene(svg, thumb);
     let from = 0, to = options.step || 0, changed = -10, raf = 0, alive = true;
     const t0 = performance.now();
+    let stepStart = t0;
     const tick = (now) => {
       if (!alive) return;
       raf = requestAnimationFrame(tick);
       if (container.offsetParent === null) return;  // hidden: nothing to draw
       const t = (now - t0) / 1000;
       const k = ease((t - changed) / 0.8);
-      if (thumb) {
-        frame(t, to, from, to, k);
-        return;
-      }
-      if (!playing) return;
-      const local = (now - playStart) / 1000;
-      if (local >= frame.duration(to)) {
-        playing = false;
-        if (options.onEnd) options.onEnd();
-        return;
-      }
-      frame(local, to, from, to, k);
+      frame((now - stepStart) / 1000, to, from, to, k);
     };
     raf = requestAnimationFrame(tick);
     return {
@@ -567,10 +546,9 @@
         if (index === to) return;
         from = to;
         to = index;
-        changed = (performance.now() - t0) / 1000;
-        replay();
+        stepStart = performance.now();
+        changed = (stepStart - t0) / 1000;
       },
-      replay,
       destroy() {
         alive = false;
         cancelAnimationFrame(raf);
@@ -581,7 +559,7 @@
 
   const THUMB_STEP = { 'music-box': 1, 'four-boxes': 2, 'boxes-in-a-row': 2 };
   window.GuideAnim = {
-    create: (container, name, options) => create(container, name, options),
+    create: (container, name) => create(container, name, {}),
     thumb: (container, name) => create(container, name, { thumb: true, step: container.classList.contains('hero-art') ? 0 : THUMB_STEP[name] || 0 }),
     setSound(on) {
       soundOn = !!on;
