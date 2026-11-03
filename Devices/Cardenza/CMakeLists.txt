@@ -36,6 +36,7 @@ if(DEFINED COMPONENT_DIR)
         REQUIRES
             ${CARDENZA_HAL_COMPONENT}
             driver
+            esp_app_format
             esp_lcd
             esp_rom
             esp_timer
@@ -49,6 +50,8 @@ if(DEFINED COMPONENT_DIR)
     )
 
     target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
+    # A crash goes into the log ring before ESP-IDF prints it (Devices/Cardenza/DeviceLog.cpp).
+    target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=esp_panic_handler")
     set_property(TARGET ${COMPONENT_LIB} PROPERTY C_STANDARD 11)
     set_property(TARGET ${COMPONENT_LIB} PROPERTY C_STANDARD_REQUIRED ON)
 

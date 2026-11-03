@@ -65,6 +65,11 @@ std::string SystemDirectory()
   return JoinPath(Root(), kSystemFolder);
 }
 
+std::string LogDirectory()
+{
+  return JoinPath(Root(), "Logs");
+}
+
 std::string SystemSettingsPath()
 {
   return JoinPath(SystemDirectory(), kSettingsFile);

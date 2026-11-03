@@ -68,9 +68,11 @@ bool StepHasNotes(const SynthSequencer::StepData& step)
   return std::any_of(step.notes.begin(), step.notes.end(), [](const auto& note) { return note.active; });
 }
 #if defined(ESP_PLATFORM)
-// Pages stop here: file IO, the event queues, the effects and keeping the work on the card need the
-// rest of the heap.
-constexpr std::size_t kPatternHeapFloorBytes = 40 * 1024;
+// Pages stop here: file IO, the event queues, the effects, the autosave (12 KB) and building an engine
+// (which checks for itself) need the rest of the heap. It was 40 KB when the board had about 68 KB
+// free; since the USB functions about 48 KB are free with a session, which left room for some ten
+// pages and a 0.1.0 project like DEMO-2 (seven) did not load (2026-11-03).
+constexpr std::size_t kPatternHeapFloorBytes = 24 * 1024;
 #endif
 #if defined(CARDENZA_SEQUENCER_TEST_HOOKS)
 int testPageBudget = -1;

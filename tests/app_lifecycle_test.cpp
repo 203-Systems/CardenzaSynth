@@ -20,6 +20,7 @@
 #include "Devices/Device.h"
 #include "OS/Storage/DeviceSettings.h"
 #include "OS/Storage/Storage.h"
+#include "OS/System/Log.h"
 #include "OS/System/System.h"
 
 namespace fs = std::filesystem;
@@ -163,6 +164,41 @@ int main()
   std::string text = ReadText(systemSettings);
   assert(Contains(text, "protocol=1\n") && Contains(text, "migrate.legacy=done\n") && Contains(text, "boot.app=Cardenza/Synth\n"));
   for (const char* folder : {"Projects", "Presets/DX7", "Presets/Drums", "Session"}) assert(fs::is_directory(synthFolder / folder));
+
+  // The console log (OS/System/Log.h): on by default, written to Cardenza/Logs every few seconds.
+  const fs::path logFile = cardenza / "Logs" / "log.txt";
+  assert(os::storage::LogEnabled() && os::log::FilePath() == logFile.generic_string());
+  gNow += os::log::kWriteIntervalMs;
+  Frames(1);
+  Device::Log::Write("test: first line");
+  Frames(1);
+  assert(!Contains(ReadText(logFile), "test: first line"));  // not every frame
+  gNow += os::log::kWriteIntervalMs;
+  Frames(1);
+  assert(Contains(ReadText(logFile), "test: first line\n") && Device::Log::Pending() == 0);
+  // Off: nothing goes to the card, the newest lines wait in the ring and come when it is on again.
+  groove->SetLogging(false);
+  assert(!os::storage::LogEnabled());
+  Device::Log::Write("test: while off");
+  gNow += os::log::kWriteIntervalMs;
+  Frames(1);
+  assert(!Contains(ReadText(logFile), "while off") && !os::log::Flush());
+  groove->SetLogging(true);
+  assert(os::log::Flush() && Contains(ReadText(logFile), "test: while off\n"));
+  // More than the ring holds before a write: the file says what is missing.
+  for (int line = 0; line < 2000; ++line) Device::Log::Write(std::string(60, 'x'));
+  assert(os::log::Flush() && Contains(ReadText(logFile), "bytes lost here]"));
+  // Past its size the file becomes log.1.txt and a new one starts.
+  for (int round = 0; round < 12 && !fs::exists(cardenza / "Logs" / "log.1.txt"); ++round)
+  {
+    for (int line = 0; line < 900; ++line) Device::Log::Write(std::string(60, 'y'));
+    // One write takes a bounded amount: the rest waits for the next.
+    while (Device::Log::Pending() > 0) assert(os::log::Flush());
+  }
+  assert(fs::exists(cardenza / "Logs" / "log.1.txt") && fs::file_size(cardenza / "Logs" / "log.1.txt") > static_cast<std::uintmax_t>(os::log::kMaxFileBytes));
+  Device::Log::Write("test: after the rotation");
+  assert(os::log::Flush() && Contains(ReadText(logFile), "after the rotation") &&
+         fs::file_size(logFile) < static_cast<std::uintmax_t>(os::log::kMaxFileBytes));
 
   // Device settings, play settings and the session.
   groove->SetMasterVolume(60);

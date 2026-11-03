@@ -182,6 +182,50 @@ bool WriteAppMessage(const char* data, std::size_t length)
 
 }  // namespace USB
 
+// The simulator's console is the terminal: its log holds what comes through Write (the system's own
+// lines, tests), in a ring like the device's.
+namespace Log {
+
+namespace {
+
+constexpr std::size_t kRingBytes = 64 * 1024;
+std::mutex g_logMutex;
+std::string g_log;          // not taken yet, oldest first
+std::size_t g_logLost = 0;  // dropped before anyone took it
+
+}  // namespace
+
+std::size_t Take(char* destination, std::size_t capacity, std::size_t& lost)
+{
+  std::lock_guard<std::mutex> lock(g_logMutex);
+  lost = g_logLost;
+  g_logLost = 0;
+  const std::size_t count = std::min(capacity, g_log.size());
+  std::copy_n(g_log.data(), count, destination);
+  g_log.erase(0, count);
+  return count;
+}
+
+std::size_t Pending()
+{
+  std::lock_guard<std::mutex> lock(g_logMutex);
+  return g_log.size();
+}
+
+void Write(std::string_view line)
+{
+  std::lock_guard<std::mutex> lock(g_logMutex);
+  g_log.append(line.data(), line.size());
+  if (line.empty() || line.back() != '\n') g_log.push_back('\n');
+  if (g_log.size() > kRingBytes)
+  {
+    g_logLost += g_log.size() - kRingBytes;
+    g_log.erase(0, g_log.size() - kRingBytes);
+  }
+}
+
+}  // namespace Log
+
 namespace Buttons {
 
 bool HomePressed() {

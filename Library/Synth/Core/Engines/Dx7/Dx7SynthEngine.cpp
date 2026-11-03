@@ -47,6 +47,8 @@ std::string NormalizeDx7PresetName(std::string_view name)
 Dx7SynthEngine::Dx7SynthEngine()
     : PagedSynthEngine({SynthEngineKind::Dx7, "dx7", "DX7"})
 {
+  // Eight global parameters, then fourteen per operator.
+  ReserveParameters(8 + 6 * 14);
   RegisterParameter({"global.algorithm", "Algorithm", "Global", SynthParameterKind::Choice, 1, 32, 1, 5, 5});
   RegisterParameter({"global.feedback", "Feedback", "Global", SynthParameterKind::Continuous, 0, 7, 1, 2, 2});
   RegisterParameter({"global.lfo_speed", "LFO Speed", "Global", SynthParameterKind::Continuous, 0, 99, 1, 40, 40});

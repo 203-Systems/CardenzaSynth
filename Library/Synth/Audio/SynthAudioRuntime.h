@@ -84,5 +84,10 @@ void SetTempo(float bpm);
 float FxReturnLevel(std::size_t bus);
 // False after the bus could not get its delay memory; the bus then stays silent.
 bool FxBusAvailable(std::size_t bus);
+// The effects' memory (some 20 KB with a reverb, a delay and choruses) goes back to the heap and the
+// effects stay off until ResumeEffects, which takes what the settings ask for again before it
+// returns. Calls nest. For building a project, while nothing plays.
+void SuspendEffects();
+void ResumeEffects();
 
 }  // namespace synth::audio

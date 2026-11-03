@@ -11,6 +11,7 @@ after any app switch, and so that apps never touch each other's files. Code: `OS
 ```text
 <card>/Cardenza/
   System/settings.cfg          device settings, owned by the OS
+  Logs/log.txt                 the console log while sys.log is on (log.1.txt: the one before)
   Shared/Samples/              audio any app may read and write
   Apps/<Author>/<Name>/        one folder per app id "Author/Name", owned by that app
     settings.cfg               the app's settings
@@ -85,13 +86,25 @@ card is probed at most every five seconds.
 | `sys.volume.rev` | when this is below 2, `sys.volume` was saved before the output got louder and goes back to the default, once |
 | `sys.led` | key LED master brightness 0–15, default 15 |
 | `sys.screen` | screen backlight 10–255, default 180 |
+| `sys.log` | `1` writes the console log to `Logs/` (OS/System/Log.h), `0` stops it; default 1 |
 | `boot.app` | last non-system app; started at boot when it is still installed |
 | `migrate.legacy` | `done` or `partial`: result of moving the pre-protocol layout (section 6) |
 | `migrate.left` | files left in the old folder (name conflicts, failures) |
 
-Volume, key LEDs and screen are device settings: the OS applies them at boot and every app changes
-them only through `os::storage::SetOutputVolume / SetKeyLedBrightness / SetScreenBacklight`. Projects
-never carry them.
+Volume, key LEDs, screen and the log are device settings: the OS applies them at boot and every app
+changes them only through `os::storage::SetOutputVolume / SetKeyLedBrightness / SetScreenBacklight /
+SetLogEnabled`. Projects never carry them.
+
+### The log
+
+`Logs/` belongs to the OS like `System/`. The device keeps everything the firmware prints (its console)
+in a small ring that outlives a crash reset (`Device::Log`, RTC memory on the device), including the
+crash itself: reason, task and backtrace as `!!!` lines. While `sys.log` is on, the system loop appends
+what is new to `Logs/log.txt` every five seconds (every second when the ring is half full), once at boot
+right after the settings are read, and before an app switch or shutdown; past 512 KB the file becomes
+`log.1.txt`, replacing the one before. A line starts with the seconds since boot; every start begins
+with `==== <app> <version> (elf <hash>) started`. There is no task and no heap buffer for it, and a
+failed write loses only that text. Users send these two files when something went wrong.
 
 ## 4. App lifecycle
 
@@ -113,7 +126,7 @@ never carry them.
 
 ```cpp
 inline constexpr int kProtocolVersion = 1;
-std::string Root(), SystemDirectory(), SystemSettingsPath(), SharedDirectory(), SharedSamplesDirectory(), AppsDirectory();
+std::string Root(), SystemDirectory(), SystemSettingsPath(), SharedDirectory(), SharedSamplesDirectory(), AppsDirectory(), LogDirectory();
 bool IsValidAppId(std::string_view id);
 class AppFolder {                 // AppFolder("Author/Name"); paths are empty for an invalid id
   bool Valid() const; const std::string& Id() const;
@@ -155,7 +168,8 @@ std::string FormatSettings(const std::vector<SettingsEntry>& entries, std::strin
 ```
 
 `OS/Storage/DeviceSettings.h`: `ApplyDeviceSettings()`, `Set/OutputVolume`, `Set/KeyLedBrightness`,
-`Set/ScreenBacklight`. `OS/Storage/Migration.h`: `MigrateLegacyLayout(const AppFolder&)`.
+`Set/ScreenBacklight`, `Set/LogEnabled`. `OS/System/Log.h` (namespace `os::log`): `Service(now)` (the
+system loop), `Flush()`, `FilePath()`, `PreviousFilePath()`. `OS/Storage/Migration.h`: `MigrateLegacyLayout(const AppFolder&)`.
 
 `OS/System/System.h` (namespace `os::system`): `Begin`, `RunFrame`, `ActiveApplication`,
 `ActiveApplicationId`, `SwitchApplication(id)`, `BootApplicationId()`, `Shutdown()`, `kSettingsWriteDelayMs` (1000).
@@ -164,6 +178,7 @@ std::string FormatSettings(const std::vector<SettingsEntry>& entries, std::strin
 `Tick`, `UpdateLeds`, `RenderFrame` and the key handlers. Register an app with
 `app::RegisterApplication({id, name, author, isSystem, factory})`.
 
+`Devices/Device.h` (`Device::Log`): `Take`, `Pending`, `Write`, the console log ring the OS writes out.
 `Devices/Device.h` (`Device::Storage`, the device layer only): `RootPath()` (card root), `Mount()`,
 `IsMounted()`, `CapacityBytes()`, `FreeBytes()`, and the internal-flash records `ReadInternal`,
 `WriteInternal`, `EraseInternal` (keys up to 15 characters of `a–z 0–9 _`, values up to 4000 bytes).

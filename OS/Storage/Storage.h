@@ -31,6 +31,8 @@ std::string SystemSettingsPath();
 std::string SharedDirectory();
 std::string SharedSamplesDirectory();
 std::string AppsDirectory();
+// The console log (OS/System/Log.h): log.txt, and the one before as log.1.txt.
+std::string LogDirectory();
 
 // App ids are "Author/Name"; both parts are 1..24 characters of [A-Za-z0-9_-] because they become
 // folder names.

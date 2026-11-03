@@ -235,7 +235,7 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
   if (!file) return ProjectResult::StorageError;
   ProjectData project;
   project.sequence.reset(new (std::nothrow) SynthSequencer::ProjectState);
-  if (!project.sequence) return ProjectResult::StorageError;
+  if (!project.sequence) return ProjectResult::NoMemory;
   int version = 0;
   int build = 0;
   if (!ReadExpected(file, "CARDENZA_PROJECT") || !(file >> version) || version < kMinProjectVersion || version > kMaxReadProjectVersion ||

@@ -46,6 +46,37 @@ constexpr std::size_t kSessionHeapBytes = 12 * 1024;
 constexpr std::size_t kSessionBlockBytes = 5 * 1024;
 constexpr std::size_t kProjectSaveHeapBytes = 8 * 1024;
 #endif
+// Engines: what has to stay free when one is built, for everything that allocates on the side (the UI,
+// AMY's voices, the autosave). A kind's size is learnt from what the heap gets back when an engine of
+// it is destroyed (the boot replaces all four defaults with the working state); before that it is
+// estimated, from what each takes on the host (more than on the device: 64-bit pointers). How much the
+// heap shrinks while one is built does not work: it counts what other tasks and first-time setup take
+// meanwhile, which made a drum engine 46 KB at boot on the board and refused every load (2026-11-03).
+constexpr std::size_t kEngineHeapFloorBytes = 16 * 1024;
+// The largest single block an engine takes: its parameters and presets are kept in small blocks
+// (PagedSynthEngine), the largest is a sampler's 1 KB on the host.
+constexpr std::size_t kEngineBlockBytes = 2 * 1024;
+// Something else given back at the same moment: a size beyond this many estimates is not believed.
+constexpr std::size_t kEngineSizeTrustFactor = 3;
+
+std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
+{
+  switch (kind)
+  {
+    case synth::SynthEngineKind::Dx7: return 14 * 1024;
+    case synth::SynthEngineKind::Juno: return 6 * 1024;
+    case synth::SynthEngineKind::Sampler: return 6 * 1024;
+    case synth::SynthEngineKind::Drums: return 4 * 1024;
+    case synth::SynthEngineKind::None:
+    default: return 0;
+  }
+}
+
+std::size_t KindIndex(synth::SynthEngineKind kind)
+{
+  const auto index = static_cast<std::size_t>(kind);
+  return index < 5 ? index : 0;
+}
 
 os::storage::Settings& AppSettings()
 {
@@ -491,17 +522,23 @@ bool GrooveApp::SwitchEngine(std::size_t track, synth::SynthEngineKind kind, std
     error = "SAVE SAMPLE FIRST";
     return false;
   }
-  auto engine = synth::CreateSynthEngine(kind);
-  if (!engine || !slot.engine || !engine->CanReplace(*slot.engine))
+  auto engine = BuildEngine(kind, 0);
+  if (!engine)
   {
+    error = "NO MEMORY";
+    return false;
+  }
+  if (!slot.engine || !engine->CanReplace(*slot.engine))
+  {
+    DropEngine(engine, kind);
     error = "ENGINE UNAVAILABLE";
     return false;
   }
-  (void)engine->RefreshPresetCatalog();
   synth::audio::AllNotesOff(track);
   sampler_.OnTrackEngineChanged(track, synth::SynthEngineKind::None);
   engine->ReplaceBinding(*slot.engine);
-  slot.engine = std::move(engine);
+  std::swap(slot.engine, engine);
+  DropEngine(engine, slot.kind);
   slot.kind = kind;
   sampler_.OnTrackEngineChanged(track, kind);
   return true;
@@ -835,6 +872,7 @@ groove::SaveResult GrooveApp::SaveProject(const std::string& name, bool overwrit
   synth::ProjectData project;
   if (!CaptureProject(settings, project, message)) return groove::SaveResult::Failed;
   const auto result = synth::SaveProjectFile(name, project, overwrite);
+  std::printf("Groove: save %s: result %d\n", name.c_str(), static_cast<int>(result));
   storageReady_ = result != synth::ProjectResult::StorageError;
   if (!storageReady_) os::storage::ReportCardIoError();
   switch (result)
@@ -845,6 +883,72 @@ groove::SaveResult GrooveApp::SaveProject(const std::string& name, bool overwrit
     case synth::ProjectResult::StorageError:
     default: message = "SD CARD ERROR"; return groove::SaveResult::Failed;
   }
+}
+
+GrooveApp::HeapRoom GrooveApp::Heap() const
+{
+  HeapRoom room;
+  if (heapProbe_ != nullptr)
+  {
+    heapProbe_(room.freeBytes, room.largestBlock);
+    return room;
+  }
+#if defined(ESP_PLATFORM)
+  room.freeBytes = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  room.largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+#else
+  room.freeBytes = room.largestBlock = SIZE_MAX / 4;
+#endif
+  return room;
+}
+
+std::size_t GrooveApp::EngineBytes(synth::SynthEngineKind kind) const
+{
+  const std::size_t measured = engineBytes_[KindIndex(kind)];
+  return measured != 0 ? measured : EngineEstimateBytes(kind);
+}
+
+std::size_t GrooveApp::EngineBlockBytes(synth::SynthEngineKind kind) const
+{
+  return kind == synth::SynthEngineKind::None ? 0 : kEngineBlockBytes;
+}
+
+void GrooveApp::DropEngine(std::unique_ptr<synth::ISynthEngine>& engine, synth::SynthEngineKind kind)
+{
+  if (!engine) return;
+  const std::size_t before = Heap().freeBytes;
+  engine.reset();
+  const std::size_t after = Heap().freeBytes;
+  if (after <= before || kind == synth::SynthEngineKind::None) return;
+  const std::size_t bytes = after - before;
+  const std::size_t index = KindIndex(kind);
+  if (bytes > kEngineSizeTrustFactor * EngineEstimateBytes(kind))
+  {
+    std::printf("Groove: a %s engine gave back %u bytes, not believed\n", synth::ToString(kind).c_str(), static_cast<unsigned>(bytes));
+    return;
+  }
+  // The largest seen: one with its user presets read, or a project's sound, is larger than a new one.
+  if (bytes > engineBytes_[index])
+  {
+    engineBytes_[index] = bytes;
+    std::printf("Groove: a %s engine takes %u bytes\n", synth::ToString(kind).c_str(), static_cast<unsigned>(bytes));
+  }
+}
+
+std::unique_ptr<synth::ISynthEngine> GrooveApp::BuildEngine(synth::SynthEngineKind kind, std::size_t alsoNeeded, bool force)
+{
+  const HeapRoom room = Heap();
+  if (!force && (room.freeBytes < EngineBytes(kind) + alsoNeeded + kEngineHeapFloorBytes || room.largestBlock < EngineBlockBytes(kind)))
+  {
+    std::printf("Groove: no room for a %s engine: %u free, largest %u, needs %u + %u\n", synth::ToString(kind).c_str(),
+                static_cast<unsigned>(room.freeBytes), static_cast<unsigned>(room.largestBlock), static_cast<unsigned>(EngineBytes(kind)),
+                static_cast<unsigned>(alsoNeeded + kEngineHeapFloorBytes));
+    return nullptr;
+  }
+  auto engine = synth::CreateSynthEngine(kind);
+  if (!engine) return nullptr;
+  (void)engine->RefreshPresetCatalog();
+  return engine;
 }
 
 bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message, bool workingState)
@@ -864,28 +968,75 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
       return false;
     }
   }
+  // The effects give their memory back while the project is checked and built (nothing plays then),
+  // and take what the new one asks for at the end, before the next thing is checked.
+  synth::audio::SuspendEffects();
+  struct ResumeEffectsAtEnd {
+    ~ResumeEffectsAtEnd() { synth::audio::ResumeEffects(); }
+  } resumeEffects;
 
-  std::array<std::unique_ptr<synth::ISynthEngine>, synth::kSynthTrackCount> engines;
-  std::array<synth::SamplerManager::PreparedSample, synth::kSynthTrackCount> samples;
-  std::array<std::string, synth::kSynthTrackCount> pending;
-  // Validate and preload everything while the current session stays intact.
+  // Everything is checked first, while the current session plays on untouched: a sound this firmware
+  // does not know, a sample that is not there, or a project that does not fit leaves it as it was.
+  // Then the tracks are replaced one at a time, so at most one engine is built beside the four that
+  // play. (Four new ones beside the four old needed some 30 KB more than the device has: loading a
+  // project, or NEW, ended the program, 2026-11-03.)
+  // Memory first: the most the swap needs on top of what is used now, track by track (a track's new
+  // engine is built before its old one goes).
+  long long growth = 0, need = 0;
+  std::size_t block = 0;
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
-    engines[track] = synth::CreateSynthEngine(project.kinds[track]);
-    if (!engines[track])
+    const auto kind = project.kinds[track];
+    need = std::max(need, growth + static_cast<long long>(EngineBytes(kind)));
+    growth += static_cast<long long>(EngineBytes(kind)) - static_cast<long long>(EngineBytes(rack_.Slot(track).kind));
+    block = std::max(block, EngineBlockBytes(kind));
+  }
+  const HeapRoom room = Heap();
+  if (!workingState && (room.freeBytes < static_cast<std::size_t>(need) + kEngineHeapFloorBytes || room.largestBlock < block))
+  {
+    std::printf("Groove: project does not fit: %u free, largest %u, needs %u + %u, block %u\n", static_cast<unsigned>(room.freeBytes),
+                static_cast<unsigned>(room.largestBlock), static_cast<unsigned>(need), static_cast<unsigned>(kEngineHeapFloorBytes),
+                static_cast<unsigned>(block));
+    message = "NO MEMORY";
+    return false;
+  }
+  // The sounds: a track that keeps its kind is checked by the engine playing it; another kind by an
+  // engine built for the check alone, one at a time.
+  if (!createNew)
+  {
+    std::unique_ptr<synth::ISynthEngine> probe;
+    for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
     {
-      message = "NO MEMORY";
-      return false;
+      const auto kind = project.kinds[track];
+      const synth::ISynthEngine* checker = rack_.Slot(track).engine.get();
+      if (rack_.Slot(track).kind != kind)
+      {
+        if (!probe || probe->Descriptor().kind != kind)
+        {
+          if (probe) DropEngine(probe, probe->Descriptor().kind);
+          probe = BuildEngine(kind, 0, workingState);
+          if (!probe)
+          {
+            message = "NO MEMORY";
+            return false;
+          }
+        }
+        checker = probe.get();
+      }
+      // The working state does not fall over a sound this firmware no longer knows: that track starts
+      // from the engine's first one.
+      if (!checker->CanRestore(project.engines[track]) && !workingState)
+      {
+        message = "INVALID SOUND";
+        return false;
+      }
     }
-    (void)engines[track]->RefreshPresetCatalog();
-    // The working state does not fall over a sound this firmware no longer knows: it starts from the
-    // engine's first one.
-    const bool restored = createNew || engines[track]->RestoreState(project.engines[track]) || workingState;
-    if (!restored || !engines[track]->CanReplace(*rack_.Slot(track).engine))
-    {
-      message = "INVALID SOUND";
-      return false;
-    }
+    if (probe) DropEngine(probe, probe->Descriptor().kind);
+  }
+  std::array<synth::SamplerManager::PreparedSample, synth::kSynthTrackCount> samples;
+  std::array<std::string, synth::kSynthTrackCount> pending;
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
     if (project.samples[track].empty()) continue;
     bool shared = false;
     for (std::size_t previous = 0; previous < track; ++previous)
@@ -909,8 +1060,8 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
     }
   }
 
-  // No file reads or allocations that can fail remain: swap bindings in place. The arpeggiator
-  // goes first so no arp note fires while the engines are swapped.
+  // Nothing that can fail for a reason other than memory remains, and memory was checked: swap the
+  // engines track by track. The arpeggiator goes first so no arp note fires while they change.
   sequencer_.ArpReleaseAll();
   sequencer_.Stop();
   sequencer_.SetRecordArmed(false);
@@ -919,9 +1070,22 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
     auto& slot = rack_.Slot(track);
+    auto engine = BuildEngine(project.kinds[track], 0, true);
+    if (engine && !createNew && !engine->RestoreState(project.engines[track]) && !workingState)
+      std::printf("Groove: track %u lost its sound while loading\n", static_cast<unsigned>(track + 1));
+    // Its values are in the engine now: they go back to the heap before the next track is built.
+    project.engines[track].values.clear();
+    if (!engine || !engine->CanReplace(*slot.engine))
+    {
+      std::printf("Groove: track %u kept its engine while loading\n", static_cast<unsigned>(track + 1));
+      sampler_.OnTrackEngineChanged(track, slot.kind);
+      if (engine) DropEngine(engine, project.kinds[track]);
+      continue;
+    }
     synth::audio::AllNotesOff(track);
-    engines[track]->ReplaceBinding(*slot.engine);
-    slot.engine = std::move(engines[track]);
+    engine->ReplaceBinding(*slot.engine);
+    std::swap(slot.engine, engine);
+    DropEngine(engine, slot.kind);
     slot.kind = project.kinds[track];
     sampler_.OnTrackEngineChanged(track, slot.kind);
     if (!project.samples[track].empty()) (void)sampler_.ApplySample(track, samples[track]);
@@ -940,35 +1104,84 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   return true;
 }
 
-bool GrooveApp::LoadProject(const std::string& name, groove::ProjectUiSettings& settings, std::string& message)
+bool GrooveApp::MakeRoom(std::string& message)
 {
-  synth::ProjectData project;
-  auto result = synth::LoadProjectFile(name, project);
-  if (result == synth::ProjectResult::NoMemory)
+  message = "NO MEMORY";
+  // The effects first: the autosave needs room of its own.
+  const std::size_t before = Heap().freeBytes;
+  synth::audio::SuspendEffects();
+  bool saved = true;
+#if defined(ESP_PLATFORM)
+  // The autosave is many small plain allocations as well.
+  saved = heap_caps_get_free_size(MALLOC_CAP_8BIT) >= kSessionHeapBytes && heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= kSessionBlockBytes;
+#endif
+  saved = saved && SaveSessionState() == synth::SessionStore::SaveResult::Ok;
+  if (!saved)
   {
-    // Two long projects do not fit in RAM side by side. The current one waits in the autosave; if the
-    // new one does not load after all, it comes back from there.
-    project = synth::ProjectData{};
-    if (SaveSessionState() != synth::SessionStore::SaveResult::Ok)
-    {
-      message = "NO MEMORY";
-      return false;
-    }
-    sequencer_.Reset();
-    result = synth::LoadProjectFile(name, project);
-    if (result != synth::ProjectResult::Ok)
-    {
-      (void)RestoreSessionState();
-      message = result == synth::ProjectResult::NoMemory ? "NO MEMORY" : "INVALID PROJECT";
-      return false;
-    }
-  }
-  if (result != synth::ProjectResult::Ok)
-  {
-    message = "INVALID PROJECT";
+    std::printf("Groove: no room made: the autosave could not be written (%u free)\n", static_cast<unsigned>(Heap().freeBytes));
+    synth::audio::ResumeEffects();
     return false;
   }
-  if (!ReplaceSession(name, project, false, message)) return false;
+  sequencer_.Reset();
+  std::printf("Groove: room made: the patterns wait in the autosave, the effects pause: %u free (was %u), largest %u\n",
+              static_cast<unsigned>(Heap().freeBytes), static_cast<unsigned>(before), static_cast<unsigned>(Heap().largestBlock));
+  return true;
+}
+
+bool GrooveApp::RestoreSessionPatterns()
+{
+  if (!synth::SessionStore::BeginRestore()) return false;
+  synth::ProjectData project;
+  synth::SessionInfo info;
+  const bool restored = session_.Load(info, project) && project.sequence && sequencer_.RestoreState(*project.sequence);
+  synth::SessionStore::FinishRestore();
+  if (!restored) std::printf("Groove: the patterns did not come back from the autosave\n");
+  return restored;
+}
+
+bool GrooveApp::LoadProject(const std::string& name, groove::ProjectUiSettings& settings, std::string& message)
+{
+  const HeapRoom before = Heap();
+  std::printf("Groove: loading %s (%u free, largest %u)\n", name.c_str(), static_cast<unsigned>(before.freeBytes), static_cast<unsigned>(before.largestBlock));
+  synth::ProjectData project;
+  auto result = synth::LoadProjectFile(name, project);
+  bool cleared = false;
+  if (result == synth::ProjectResult::NoMemory)
+  {
+    project = synth::ProjectData{};
+    if (!MakeRoom(message)) return false;
+    cleared = true;
+    result = synth::LoadProjectFile(name, project);
+  }
+  bool loaded = false;
+  if (result == synth::ProjectResult::Ok)
+  {
+    loaded = ReplaceSession(name, project, false, message);
+    // NO MEMORY changed nothing yet: the room the current patterns and the effects hold may be what
+    // is missing.
+    if (!loaded && !cleared && message == "NO MEMORY" && MakeRoom(message))
+    {
+      cleared = true;
+      loaded = ReplaceSession(name, project, false, message);
+    }
+  }
+  else if (result == synth::ProjectResult::NoMemory) message = "NO MEMORY";
+  else if (result == synth::ProjectResult::StorageError) message = "SD CARD ERROR";
+  else message = "INVALID PROJECT";
+  std::printf("Groove: load %s: %s (%u free, largest %u)\n", name.c_str(), loaded ? "ok" : message.c_str(),
+              static_cast<unsigned>(Heap().freeBytes), static_cast<unsigned>(Heap().largestBlock));
+  if (!loaded)
+  {
+    // What was cleared for it comes back from the autosave (the engines did not change).
+    if (cleared)
+    {
+      project = synth::ProjectData{};
+      (void)RestoreSessionPatterns();
+      synth::audio::ResumeEffects();
+    }
+    return false;
+  }
+  if (cleared) synth::audio::ResumeEffects();
   settings = controller_.Settings();
   settings.activeTrack = synth::kDefaultActiveTrack;
   ApplyPlaySettings(project, settings);
@@ -985,7 +1198,23 @@ bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& mes
     return false;
   }
   project.kinds = kDefaultKinds;
-  if (!ReplaceSession("", project, true, message)) return false;
+  bool created = ReplaceSession("", project, true, message);
+  bool cleared = false;
+  // As for a load: NO MEMORY changed nothing, and the current patterns and the effects may hold the
+  // room.
+  if (!created && message == "NO MEMORY" && MakeRoom(message))
+  {
+    cleared = true;
+    created = ReplaceSession("", project, true, message);
+  }
+  std::printf("Groove: new project: %s (%u free, largest %u)\n", created ? "ok" : message.c_str(), static_cast<unsigned>(Heap().freeBytes),
+              static_cast<unsigned>(Heap().largestBlock));
+  if (cleared)
+  {
+    if (!created) (void)RestoreSessionPatterns();
+    synth::audio::ResumeEffects();
+  }
+  if (!created) return false;
   // A new project starts on the first track with the default play settings:
   // C major, no chords, every arpeggiator off. SELECT is a preference and stays.
   const bool multiSelect = controller_.Settings().keyboard.multiSelect;
@@ -1017,6 +1246,17 @@ void GrooveApp::SetBacklight(std::uint8_t level)
 std::uint8_t GrooveApp::Backlight() const
 {
   return os::storage::ScreenBacklight();
+}
+
+void GrooveApp::SetLogging(bool on)
+{
+  os::storage::SetLogEnabled(on);
+  std::printf("log: %s\n", on ? "on" : "off");
+}
+
+bool GrooveApp::Logging() const
+{
+  return os::storage::LogEnabled();
 }
 
 groove::SystemInfo GrooveApp::QuerySystem() const

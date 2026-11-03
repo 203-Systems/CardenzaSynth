@@ -11,6 +11,7 @@ namespace synth {
 JunoSynthEngine::JunoSynthEngine()
     : PagedSynthEngine({SynthEngineKind::Juno, "juno", "Juno"})
 {
+  ReserveParameters(22);
   RegisterParameter({"dco.range", "DCO Range", "DCO", SynthParameterKind::Choice, 0, 2, 1, 1, 1});
   RegisterParameter({"dco.pwm", "PWM", "DCO", SynthParameterKind::Continuous, 0, 127, 1, 48, 48});
   RegisterParameter({"dco.sub", "Sub", "DCO", SynthParameterKind::Continuous, 0, 127, 1, 68, 68});

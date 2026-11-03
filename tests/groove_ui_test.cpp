@@ -739,6 +739,13 @@ void TestProject(Harness& h)
   h.Tap(Grid(2));
   h.Tap(kSub);
   assert(app.Backlight() == 175);
+  // LOG: the console log on the card, on unless someone turns it off.
+  assert(app.Logging());
+  h.Tap(Grid(3));
+  h.Tap(kSub);
+  assert(!app.Logging());
+  h.Tap(kAdd);
+  assert(app.Logging());
   h.Tap(kEsc);
   assert(h.State().scene != Scene::Setup);
 }
@@ -2292,6 +2299,81 @@ void TestReleaseProjects(Harness& h)
   GoToScene(h, 1);
 }
 
+// The device heap is small (no PSRAM, about 40 KB free while it plays): loading a project or NEW once
+// built all four new engines beside the four playing and ran out, which ended the program (a user's
+// DEMO-2 from 0.1.0, 2026-11-03). With too little room both say so and change nothing.
+std::size_t gHeapFree = 0, gHeapLargest = 0;
+void FakeHeap(std::size_t& freeBytes, std::size_t& largestBlock)
+{
+  freeBytes = gHeapFree;
+  largestBlock = gHeapLargest;
+}
+
+void TestLoadWithoutMemory(Harness& h)
+{
+  namespace fs = std::filesystem;
+  auto& app = h.App();
+  const fs::path release = fs::path(Device::Storage::RootPath()) / "CardenzaSynth" / "Projects";
+  fs::create_directories(release);
+  std::ofstream(release / "DEMO-2.ccproj", std::ios::binary) << kReleaseProject;
+  GoToSetupPage(h, groove::kSetupProject);
+  h.Tap(Grid(2));  // NEW: the default kinds, one of them a DX7
+  if (h.Modal() != nullptr) h.Tap(kEnter);
+  const std::string name = h.State().projectName;
+  const auto kinds = [&] {
+    std::array<synth::SynthEngineKind, synth::kSynthTrackCount> result{};
+    for (std::size_t track = 0; track < result.size(); ++track) result[track] = app.EngineKind(track);
+    return result;
+  };
+  const auto before = kinds();
+  assert(before[2] == synth::SynthEngineKind::Dx7);
+  const auto load = [&] {
+    GoToSetupPage(h, groove::kSetupFiles);
+    const auto& projects = h.State().projects;
+    const std::size_t index = static_cast<std::size_t>(std::find(projects.begin(), projects.end(), "DEMO-2") - projects.begin());
+    assert(index < projects.size());
+    while (h.State().fileCursor < index) h.Tap(kSub);
+    while (h.State().fileCursor > index) h.Tap(kAdd);
+    h.Tap(kEnter);
+    if (h.Modal() != nullptr) h.Tap(kEnter);
+  };
+  // A note of the current project: a load that fails after making room for itself (its patterns
+  // wait in the autosave) brings it back.
+  const std::uint8_t note = 64;
+  assert(app.Sequencer().SetStepNotes(1, 5, &note, 1, 100));
+  const auto hasNote = [&] {
+    std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+    return app.Sequencer().StepNoteEvents(1, 5, notes) == 1 && notes[0].note == note;
+  };
+  // Too little: NO MEMORY, and the session is as it was.
+  gHeapFree = gHeapLargest = 18 * 1024;
+  app.UseHeapProbe(&FakeHeap);
+  load();
+  assert(h.State().toast.text == "NO MEMORY");
+  assert(h.State().projectName == name && kinds() == before && hasNote());
+  GoToSetupPage(h, groove::kSetupProject);
+  h.Tap(Grid(2));
+  if (h.Modal() != nullptr) h.Tap(kEnter);
+  assert(h.State().toast.text == "NO MEMORY" && kinds() == before && hasNote());
+  // A free heap broken into blocks too small for the largest piece of an engine.
+  gHeapFree = 200 * 1024;
+  gHeapLargest = 1024;
+  h.Tap(Grid(2));
+  if (h.Modal() != nullptr) h.Tap(kEnter);
+  assert(h.State().toast.text == "NO MEMORY" && kinds() == before);
+  // Enough: DEMO-2 loads as it was saved.
+  gHeapFree = 64 * 1024;
+  gHeapLargest = 32 * 1024;
+  load();
+  assert(h.State().projectName == "DEMO-2");
+  assert(app.EngineKind(0) == synth::SynthEngineKind::Drums && app.EngineKind(1) == synth::SynthEngineKind::Juno);
+  assert(app.EngineKind(2) == synth::SynthEngineKind::Juno && app.EngineKind(3) == synth::SynthEngineKind::Sampler);
+  assert(ParameterValue(app, 1, "env.sustain") == 22 && ParameterValue(app, 2, "vcf.cutoff") == 8);
+  app.UseHeapProbe(nullptr);
+  fs::remove_all(fs::path(Device::Storage::RootPath()) / "CardenzaSynth");
+  GoToScene(h, 1);
+}
+
 void TestRenderSmoke(Harness& h)
 {
   // Every scene and page renders; the left strips and header are always drawn.
@@ -2671,6 +2753,7 @@ int main()
   TestDrumMachine(h);
   TestRenderSmoke(h);
   TestReleaseProjects(h);
+  TestLoadWithoutMemory(h);
   TestAdjustIcons(h);
   TestDrumPads(h);
   TestCellPicker(h);

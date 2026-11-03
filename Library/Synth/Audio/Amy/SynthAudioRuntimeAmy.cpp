@@ -1204,8 +1204,25 @@ void SetTrackFxParameterNoLock(std::size_t track, std::string_view id, int value
 // Allocates what the current settings need (render thread, only when settings changed). A bus
 // whose memory is missing stays silent and reports itself unavailable; the next settings change
 // tries again.
+// SuspendEffects calls not yet resumed (render lock).
+int g_fxSuspended = 0;
+
+// The effects can do without their memory, the small plain allocations elsewhere cannot: no piece of
+// it below this much free (the device's nothrow new keeps the same floor for blocks of 4 KB and more;
+// the choruses and buses are 1 KB each and took the heap down to 4 KB on the board, 2026-11-03).
+bool FxRoom(std::size_t bytes)
+{
+#if defined(ESP_PLATFORM)
+  return heap_caps_get_free_size(MALLOC_CAP_8BIT) >= bytes + 20 * 1024;
+#else
+  (void)bytes;
+  return true;
+#endif
+}
+
 void UpdateFxNoLock()
 {
+  if (g_fxSuspended > 0) return;
   // A slower tempo can ask for a delay time only the long line holds.
   const float tempo = g_fxTempo.load(std::memory_order_relaxed);
   if (tempo != g_fx.memoryTempo)
@@ -1236,7 +1253,7 @@ void UpdateFxNoLock()
     {
       return;
     }
-    g_fx.core.reset(new (std::nothrow) FxCore());
+    if (FxRoom(sizeof(FxCore))) g_fx.core.reset(new (std::nothrow) FxCore());
     if (!g_fx.core)
     {
       // Without the core no effect can run: the tracks stay on AMY's mix, the buses silent.
@@ -1260,7 +1277,7 @@ void UpdateFxNoLock()
   }
   for (std::size_t track = 0; track < g_fx.tracks.size(); ++track)
   {
-    if (g_fx.tracks[track].inserts.chorus > 0)
+    if (g_fx.tracks[track].inserts.chorus > 0 && (core.inserts[track].HasChorus() || FxRoom(fx::dsp::TrackInserts::kChorusMemoryBytes)))
     {
       (void)core.inserts[track].AllocateChorus();  // Without its line the chorus stays bypassed.
     }
@@ -1269,7 +1286,7 @@ void UpdateFxNoLock()
     const EngineState& engine = g_engines[track];
     const bool needsBus = engine.configured && (UsesAmy(engine.kind) || engine.kind == SynthEngineKind::Sampler) &&
                           TrackFxRequested(track);
-    if (needsBus && !g_fx.bus[track])
+    if (needsBus && !g_fx.bus[track] && FxRoom(kAmyFramesPerBlock * sizeof(float)))
     {
       g_fx.bus[track].reset(new (std::nothrow) float[kAmyFramesPerBlock]);
     }
@@ -2577,6 +2594,32 @@ float FxReturnLevel(std::size_t bus)
 bool FxBusAvailable(std::size_t bus)
 {
   return bus < fx::kBusCount && !g_fxBusFailed[bus].load(std::memory_order_relaxed);
+}
+
+void SuspendEffects()
+{
+  std::lock_guard<std::mutex> lock(g_renderMutex);
+  if (g_fxSuspended++ > 0) return;
+  // The float path and the voice hook point into the core: both end first.
+  g_fx.floatPath = false;
+  g_fx.blockPrepared = false;
+  g_fxHook = {};
+  g_fx.routed.fill(false);
+  g_fx.insertRouted.fill(false);
+  for (auto& bus : g_fx.bus) bus.reset();
+  g_fx.core.reset();
+}
+
+void ResumeEffects()
+{
+  std::lock_guard<std::mutex> lock(g_renderMutex);
+  if (g_fxSuspended == 0 || --g_fxSuspended > 0) return;
+  // The memory is taken here and now, with the settings already sent, so whatever the caller does
+  // next sees the heap as it is (from the render thread it came a moment later, while the next
+  // project was being built).
+  g_fx.dirty = true;
+  DrainPendingEvents();
+  UpdateFxNoLock();
 }
 
 void WarmUp()

@@ -115,6 +115,7 @@ endfunction()
 
 function(cardenza_collect_system_cpp_sources root_dir out_var)
     set(sources
+        ${root_dir}/OS/System/Log.cpp
         ${root_dir}/OS/System/System.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)
@@ -175,6 +176,7 @@ endfunction()
 function(cardenza_collect_firmware_device_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Devices/Cardenza/Device.cpp
+        ${root_dir}/Devices/Cardenza/DeviceLog.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()

@@ -96,7 +96,7 @@ PADS 与四周按键上的第二功能：
 | PROJECT | 工程名、是否未保存、四轨摘要（引擎、音色） | 行 0：SAVE / LOAD（跳到 FILES）/ NEW（SAVE AS 在 FN 菜单：要打字的操作都不放在一级界面）；行 1：BPM / SWING / TAP / PLAY（LOOP ↔ SONG 开关，SONG 时灯全亮） | 调整 BPM / SWING；ENTER 保存（焦点在 TAP 时是打拍） |
 | FILES | 工程列表 | — | 选择；ENTER 载入（未保存时确认） |
 | KEYS | 键盘预览（中间一个八度为主，两边各半个八度、颜色更暗：F 到 F）：音阶音带点、根音带横线，按下的音用当前轨颜色亮起 | LAYOUT、SCALE、ROOT、OCTAVE / VELO、LOCK、SELECT | 选中的设置：ADD / SUB 调整，ENTER 切换选项，Fn + ENTER 恢复默认；再按一次已选中的格子切换选项或开关 |
-| SYSTEM | 设备、音频后端、SD 卡、内存、构建日期（每次进来逐行打出） | VOLUME、KEY LED、SCREEN | 同上 |
+| SYSTEM | 设备、音频后端、SD 卡、内存、构建日期（每次进来逐行打出） | VOLUME、KEY LED、SCREEN、LOG | 同上 |
 
 键盘（LAYOUT、SCALE、ROOT、OCTAVE、VELO、LOCK）属于工程：随工程保存和载入，改动后工程变为未保存；NEW 的工程从默认键盘开始（PIANO、C MAJOR）。SELECT 是使用习惯，存在应用设置里（`Apps/Cardenza/Synth/settings.cfg`）。BPM / SWING 属于工程，PLAY 与 REC 是演奏状态；SYSTEM 是设备设置（`System/settings.cfg`，所有应用共用）。当前轨的步数在 SEQ TRACK 页，和弦与 ARP 在每条轨道的 INSTR 页。
 
@@ -104,7 +104,7 @@ PADS 与四周按键上的第二功能：
 
 - KEYS：LAYOUT PIANO（默认，黑白键）/ SCALE / CHROMA；SCALE 14 种音阶；ROOT C–B；OCTAVE −3…+3；VELO 演奏力度 1–127；LOCK OFF / MUTE / SNAP；SELECT ONE / MULTI。
 - PROJECT：BPM 30–300；SWING 50–75 %；PLAY LOOP / SONG。
-- SYSTEM：VOLUME 主音量 0–100；KEY LED 按键灯 0–15（选中它时，演奏区从左到右是亮度梯（感知等级 0、6、7、8、9、11、13、15，校正后是 HAL 的 0、1、2、3、4、7、10、15），方便用眼睛判断）；SCREEN 屏幕亮度。
+- SYSTEM：VOLUME 主音量 0–100；KEY LED 按键灯 0–15（选中它时，演奏区从左到右是亮度梯（感知等级 0、6、7、8、9、11、13、15，校正后是 HAL 的 0、1、2、3、4、7、10、15），方便用眼睛判断）；SCREEN 屏幕亮度；LOG 日志 ON / OFF（默认 ON，见第 9 节「日志」）。
 
 - 键盘布局：PIANO 按钢琴排列（屏幕上的键盘以中间一个八度为主，两边各露半个八度，所以演奏区最高和最低的几个音不在屏幕范围内），C 在从下往上第二行的最左边（像 OP-1，C 在键盘中部而不是角上）：从上到下是高一个八度的白键、黑键、从 C 开始的白键、低一个八度的黑键（缺口处不发声）；SCALE 只放音阶内的音，每行高一个八度；CHROMA 每格一个半音。
 - 音阶：MAJOR、MINOR、DORIAN、MIXOLYD、MIN PENT、MAJ PENT、BLUES、HARM MIN、PHRYGIAN、LYDIAN、LOCRIAN、MEL MIN、WHOLE、IN SEN。
@@ -406,6 +406,8 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
   开机自动回到这个状态（工程名和是否已存为文件一起恢复），开机页面仍是 INSTR VOICE。工程引用的采样在卡上：开机没卡时工程照常恢复，那个采样等卡，插上后自动补回。FN + S 仍然有用：把当前工作存成卡上有名字的工程文件，自动保存从不改动工程文件。
 
   放不下时（约 12 KB，约 2000 个音）优先保留正在播的 Pattern，屏幕提示 `TOO LONG TO AUTOSAVE: FN+S TO CARD`；写入失败提示 `AUTOSAVE FAILED: FN+S TO CARD`。没存的采样录音在卡上 `Session/take-<轨道>.wav`，录音中每秒落盘一次，开机后回到它的录音画面；没插卡时录音只在内存里，断电会丢。**不保存**：无感录制的 take（只在内存里）、播放状态。
+- **载入工程与内存**：板子没有 PSRAM，开了 USB 后带一个工程空闲约 40–65 KB，效果器（混响、延迟、合唱）约占 20 KB；一个引擎就是很多次普通分配（DX7 约 11 KB），普通分配失败程序就结束。以前载入（和 NEW）先把四个新引擎全部建好、旧的四个还在，峰值多出约 30 KB，0.1.0 的 DEMO-2 载入就重启（2026-11-03）。现在 `GrooveApp::ReplaceSession` 先检查、后替换：内存（每种引擎的大小取它被销毁时堆收回多少，`DropEngine`；之前用主机上量的偏大估计；空闲至少留 16 KB，最大的一块 2 KB）、音色（引擎不变的轨道由正在用的引擎 `CanRestore` 检查，换了引擎的轨道临时建一个检查引擎，一次只建一个）、采样；都通过才一轨一轨换，同时最多多一个引擎。检查和替换期间效果器把内存还给堆（`synth::audio::SuspendEffects`），换完按新工程的设置当场重新分配（`ResumeEffects`），下一件事看到的就是真实的空闲。放不下时先腾地方（`GrooveApp::MakeRoom`）：当前的 Pattern 写进内部闪存的自动保存后释放，效果器暂停，再试一次；仍然不行就提示 `NO MEMORY`，Pattern 从自动保存恢复（`RestoreSessionPatterns`，引擎没动过），当前工程不变。切换引擎（`SwitchEngine`）同样先看内存。引擎的参数表分小块存放（deque；DX7 一整块要 9.5 KB，碎片化的堆常常没有）；预设的值按参数序号紧凑存放（每个 4 字节），所以 DX7 用户音色从约 5 KB 降到约 0.4 KB，内存不够时不读用户音色库（也不让保存，避免覆盖读不到的部分）。Pattern 页在空闲低于 24 KB 时不再分配（`kPatternHeapFloorBytes`，原来 40 KB，那是 USB 之前约 68 KB 空闲时定的）；4 KB 以上的 `new (std::nothrow)` 和效果器的小块（合唱、总线各 1 KB，`FxRoom`）都不会把空闲压到 20 KB 以下；更小的 nothrow 块不设下限（NVS 等库在用，设了下限自动保存就写不进去）。板上实测（2026-11-03 自测固件）：DEMO-2、19 页的工程、播放中载入和 NEW 都成功，期间最低空闲约 10 KB；64 页的工程放不下，提示 `NO MEMORY`。测试：`TestLoadWithoutMemory` 用假的堆大小检查放不下时什么都不变，失败后当前的音符还在。
+- **日志**：设备把串口打印的所有内容（`printf`、ESP-IDF 日志、`@K` 按键行、界面提示 `ui:`，每行前面是开机后的秒数）放在 RTC 慢速内存的 6 KB 环里（不占堆，死机重启和经过 Launcher 都不丢，断电清空）；死机时包装过的 panic 处理先把原因、任务和回溯（`!!!` 行）写进环里。系统循环每 5 秒（环里超过 3 KB 时每秒）把新内容追加到卡上 `Cardenza/Logs/log.txt`，满 512 KB 改名为 `log.1.txt`；开机一读完设置就先写一次，所以上次死机的最后几十行在下次开机时就在卡上。不另开任务，不占堆缓冲，一次写入通常几毫秒，超过 40 ms 会在日志里注明。SETUP SYSTEM 的 LOG 关掉后不写卡（环里仍保留最新的内容）。用同一次构建的 ELF 解回溯：`xtensa-esp32s3-elf-addr2line -pfiaC -e CardenzaSynthFirmware.elf <地址…>`，所以每个发出去的固件都要留着它的 ELF。载入、保存、新建工程和内存不足都有对应的日志行（`Groove: load …`、`no room for …`、`allocation failed`）。
 - **走带编排**：最多 64 行，每行为四轨各指定一个 Pattern（或静音）和 1–16 小节；行在全局小节线上切换，所有轨道在行首对齐；SONG / LOOP 切换在下一条小节线生效。
 - **旧界面**：仍在仓库中，`-DCARDENZA_GROOVE_UI=OFF` 可构建，默认不编译。
 

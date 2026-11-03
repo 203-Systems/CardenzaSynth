@@ -8,6 +8,9 @@
 #include <fstream>
 #include <iomanip>
 #include <sstream>
+#if defined(ESP_PLATFORM)
+#include <esp_heap_caps.h>
+#endif
 
 #include "Devices/DeviceAudio.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
@@ -21,6 +24,10 @@ namespace {
 
 constexpr std::size_t kMaxMidiMessagesPerFrame = 24;
 constexpr std::size_t kMaxUserPresets = 32;
+#if defined(ESP_PLATFORM)
+// Reading one more user preset needs its values as a map for a moment (about 5 KB for a DX7).
+constexpr std::size_t kUserPresetHeapFloorBytes = 24 * 1024;
+#endif
 
 bool IsUserPresetId(const std::string& id)
 {
@@ -310,11 +317,11 @@ bool PagedSynthEngine::LoadPreset(const std::string& presetId)
     return false;
   }
 
-  for (SynthParameterInfo& parameter : parameters_)
+  for (std::size_t index = 0; index < parameters_.size(); ++index)
   {
-    const auto valueIterator = stored ? stored->values.find(parameter.id) : std::map<std::string, int>::const_iterator{};
-    parameter.value = stored && valueIterator != stored->values.end() ? ClampToParameterRange(parameter, valueIterator->second)
-                                                                     : FactoryParameterValue(stored ? stored->basePresetId : presetId, parameter);
+    SynthParameterInfo& parameter = parameters_[index];
+    const PresetValue* value = stored ? FindPresetValue(*stored, index) : nullptr;
+    parameter.value = value ? ClampToParameterRange(parameter, value->value) : FactoryParameterValue(stored ? stored->basePresetId : presetId, parameter);
   }
 
   currentPresetId_ = presetId;
@@ -364,8 +371,10 @@ bool PagedSynthEngine::SavePreset(const std::string& presetId, const std::string
   };
   for (const PresetState& preset : presets_)
   {
-    if (preset.info.writable && preset.info.id != resolvedId)
-      write({preset.basePresetId, preset.info.id, preset.info.name, preset.values});
+    if (!preset.info.writable || preset.info.id == resolvedId) continue;
+    file << std::quoted(preset.info.id) << ' ' << std::quoted(preset.info.name) << ' ' << std::quoted(preset.basePresetId) << ' '
+         << preset.values.size() << '\n';
+    for (const PresetValue& value : preset.values) file << std::quoted(parameters_[value.parameter].id) << ' ' << value.value << '\n';
   }
   write(saved);
   file.flush();
@@ -424,6 +433,11 @@ bool PagedSynthEngine::ValidState(const SynthEngineState& state) const
     if (!parameter || entry.second < parameter->minValue || entry.second > parameter->maxValue) return false;
   }
   return true;
+}
+
+bool PagedSynthEngine::CanRestore(const SynthEngineState& state) const
+{
+  return ValidState(state);
 }
 
 bool PagedSynthEngine::RestoreState(const SynthEngineState& state)
@@ -494,6 +508,16 @@ bool PagedSynthEngine::ReadUserPresets()
   std::vector<PresetState> loaded;
   while (file >> std::ws && file.peek() != std::char_traits<char>::eof())
   {
+#if defined(ESP_PLATFORM)
+    // A plain allocation that fails ends the program: a bank that does not fit is not read (and
+    // SavePreset, which rewrites the whole bank, refuses rather than lose what it could not read).
+    if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < kUserPresetHeapFloorBytes)
+    {
+      std::printf("presets: %s bank not read, no memory (%u free)\n", descriptor_.id.c_str(),
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)));
+      return false;
+    }
+#endif
     SynthEngineState state;
     std::size_t count = 0;
     if (loaded.size() >= kMaxUserPresets || !ReadQuoted(file, state.presetId, 16) || !ReadQuoted(file, state.presetName, 48) ||
@@ -506,7 +530,9 @@ bool PagedSynthEngine::ReadUserPresets()
       if (!ReadQuoted(file, id, 64) || !(file >> value) || !state.values.emplace(id, value).second) return false;
     }
     if (!ValidState(state) || std::any_of(loaded.begin(), loaded.end(), [&](const PresetState& p) { return p.info.id == state.presetId; })) return false;
-    loaded.push_back({{state.presetId, state.presetName, true, false}, std::move(state.values), state.basePresetId});
+    PresetState preset{{state.presetId, state.presetName, true, false}, {}, state.basePresetId};
+    if (!CompactValues(state.values, preset.values)) return false;
+    loaded.push_back(std::move(preset));
   }
   if (file.bad()) return false;
   presets_.erase(std::remove_if(presets_.begin(), presets_.end(), [](const PresetState& p) { return p.info.writable; }), presets_.end());
@@ -546,6 +572,40 @@ std::string PagedSynthEngine::DebugState() const
   return stream.str();
 }
 
+void PagedSynthEngine::ReserveParameters(std::size_t engineParameterCount)
+{
+  declaredParameters_ = engineParameterCount + kTrackFxParameterCount;
+}
+
+std::size_t PagedSynthEngine::ParameterIndex(const SynthParameterInfo& parameter) const
+{
+  for (std::size_t index = 0; index < parameters_.size(); ++index)
+    if (&parameters_[index] == &parameter) return index;
+  const auto found = std::find_if(parameters_.begin(), parameters_.end(), [&](const SynthParameterInfo& p) { return p.id == parameter.id; });
+  return static_cast<std::size_t>(found - parameters_.begin());
+}
+
+bool PagedSynthEngine::CompactValues(const std::map<std::string, int>& values, std::vector<PresetValue>& compact) const
+{
+  compact.clear();
+  compact.reserve(values.size());
+  for (const auto& entry : values)
+  {
+    const SynthParameterInfo* parameter = FindParameter(entry.first);
+    if (!parameter || entry.second < INT16_MIN || entry.second > INT16_MAX) return false;
+    compact.push_back({static_cast<std::uint16_t>(ParameterIndex(*parameter)), static_cast<std::int16_t>(entry.second)});
+  }
+  std::sort(compact.begin(), compact.end(), [](const PresetValue& left, const PresetValue& right) { return left.parameter < right.parameter; });
+  return true;
+}
+
+const PagedSynthEngine::PresetValue* PagedSynthEngine::FindPresetValue(const PresetState& preset, std::size_t parameterIndex)
+{
+  const auto found = std::lower_bound(preset.values.begin(), preset.values.end(), parameterIndex,
+                                      [](const PresetValue& value, std::size_t index) { return value.parameter < index; });
+  return found != preset.values.end() && found->parameter == parameterIndex ? &*found : nullptr;
+}
+
 void PagedSynthEngine::RegisterParameter(const SynthParameterInfo& parameter)
 {
   SynthParameterInfo stored = parameter;
@@ -563,7 +623,13 @@ void PagedSynthEngine::RegisterPreset(const std::string& presetId,
   preset.info.name = NormalizePresetName(presetName);
   preset.info.writable = writable;
   preset.basePresetId = presetId;
-  preset.values = values;
+  // Factory presets name only parameters the engine registered before them (host tests check it; on
+  // the device an unknown one is left out rather than ending the program).
+  const bool known = CompactValues(values, preset.values);
+#if !defined(ESP_PLATFORM)
+  assert(known);
+#endif
+  (void)known;
   presets_.push_back(std::move(preset));
   std::stable_sort(presets_.begin(), presets_.end(), [](const PresetState& left, const PresetState& right) {
     const std::string leftName = FoldAscii(left.info.name);
@@ -654,6 +720,10 @@ void PagedSynthEngine::RegisterTrackFxParameters()
   RegisterParameter({"fx.chorus", "Chorus", "FX", SynthParameterKind::Choice, 0, 3, 1, 0, 0});
   RegisterParameter({"fx.delay", "Delay Send", "FX", SynthParameterKind::Continuous, 0, 127, 1, 0, 0});
   RegisterParameter({"fx.reverb", "Reverb Send", "FX", SynthParameterKind::Continuous, 0, 127, 1, 0, 0});
+#if !defined(ESP_PLATFORM)
+  // The constructor stated exactly its parameters (host tests check the count).
+  assert(parameters_.size() == declaredParameters_);
+#endif
 }
 
 std::string PagedSynthEngine::FormatParameterValue(const SynthParameterInfo& parameter) const
@@ -742,8 +812,7 @@ int PagedSynthEngine::FactoryParameterValue(const std::string& presetId, const S
   const auto preset = std::find_if(presets_.begin(), presets_.end(), [&](const PresetState& p) { return p.info.id == presetId; });
   if (preset != presets_.end())
   {
-    const auto value = preset->values.find(parameter.id);
-    if (value != preset->values.end()) return value->second;
+    if (const PresetValue* value = FindPresetValue(*preset, ParameterIndex(parameter))) return value->value;
   }
   return parameter.defaultValue;
 }
