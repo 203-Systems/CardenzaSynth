@@ -153,7 +153,7 @@ PADS 与四周按键上的第二功能：
 - DX7，共 13 页：VOICE、CHORD、ARP、ALGO（算法、反馈、移调，附算法图）、LEVELS（六个算子输出，附电平柱：实心是能听到的载波，dither 是调制器）、OP1–OP6（OUT、CRS、FINE、DTN / MODE（RATIO / FIXED）、AMOD / R1–R4 / L1–L4，附这一算子的包络与 CAR / MOD 标记）、LFO（SPEED、WAVE、PMD、AMD、P SENS，附波形）、FX。
 - Juno，共 8 页：VOICE、CHORD、ARP、DCO（RANGE、SAW、PULSE、PWM、PW SRC、SUB、NOISE、LFO，附示波器）、VCF（CUTOFF、RESO、ENV、POL、LFO、KBD，附滤波曲线）、ENV（ADSR、VCA 模式 ENV / GATE、LEVEL，附包络）、LFO（RATE、DELAY，附延迟渐入的波形）、FX。Juno 预设自带的 Chorus I / II 映射到 FX 页的 CHORUS。
 - Sampler，共 6 页：VOICE、CHORD、ARP、SAMPLE（文件、录音、裁剪、根音、循环、增益，附波形）、TONE（滤波、包络、电平）、FX。
-- Drums，共 3 页：VOICE、KIT（八鼓电平 + Master，附鼓垫）、FX（没有 CHORD / ARP）。
+- Drums，共 3 页：VOICE、KIT（八鼓电平 + Master，附鼓垫）、FX（没有 CHORD / ARP）。VOICE 和 KIT 上的鼓垫是一排八个小格（BD SD CH OH CP TM CB MA），和键盘上演奏区的八列一一对应（2026-11-03，用户要求；以前是两排四个，对不上键盘）。
 
 Sampler 文件与录音流程沿用原规则：录音前确认、未保存草稿阻止替换、命名重名时确认覆盖、被其它轨引用的文件不能删除。
 
