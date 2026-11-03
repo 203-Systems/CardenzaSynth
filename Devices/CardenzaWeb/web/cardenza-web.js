@@ -25,8 +25,10 @@
 
   const LEFT_ROLES = ['ESC', 'TAB', 'FN', 'CTRL'];
   const RIGHT_ROLES = ['ADD', 'SUB', 'ENTER', 'PLAY'];
-  // As printed on the device's keycaps: ADD is the backspace key.
-  const RIGHT_SYMBOLS = ['←', '↓', '↵', '▶'];
+  const RIGHT_SYMBOLS = ['↑', '↓', '↵', '▶'];
+  // The small print of a right key: its role, or the device's keycap where it says something else
+  // (ADD is the backspace key).
+  const RIGHT_PRINT = { 0: '←' };
   const LEGEND = [
     ['`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', ''],
     ['', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '[', ']', '\\'],
@@ -85,7 +87,7 @@
   const HOME_CODE = 'Home';
 
   const CODE_LABEL = {
-    Escape: 'Esc', Backquote: '`', Minus: '-', Equal: '=', Backspace: '⌫', Delete: 'Del', NumpadAdd: 'Num+',
+    Escape: 'Esc', Backquote: '`', Minus: '-', Equal: '=', Backspace: '←', Delete: 'Del', NumpadAdd: 'Num+',
     Tab: 'Tab', BracketLeft: '[', BracketRight: ']', Backslash: '\\', NumpadSubtract: 'Num−',
     CapsLock: 'Caps', ShiftLeft: '⇧L', ShiftRight: '⇧R', Semicolon: ';', Quote: "'", Enter: 'Enter', NumpadEnter: 'NumEnter',
     ControlLeft: 'Ctrl', ControlRight: 'CtrlR', AltLeft: isMac ? '⌥L' : 'AltL', AltRight: isMac ? '⌥R' : 'AltR',
@@ -178,7 +180,7 @@
         } else if (column === COLUMNS - 1) {
           key.classList.add('right');
           legend.textContent = RIGHT_SYMBOLS[row];
-          tag.textContent = role;
+          tag.textContent = RIGHT_PRINT[row] || role;
         } else {
           key.classList.add(role === 'PAD' ? 'pad' : 'grid');
           const legendText = LEGEND[row][column];

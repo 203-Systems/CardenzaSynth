@@ -78,7 +78,10 @@ def icon(name, cls=""):
 
 LEFT_ROLES = ["ESC", "TAB", "FN", "CTRL"]
 RIGHT_ROLES = ["ADD", "SUB", "OK", "PLAY"]
-RIGHT_SYMBOLS = ["←", "↓", "↵", "▶"]  # as on the keycaps: ADD is the backspace key
+RIGHT_SYMBOLS = ["↑", "↓", "↵", "▶"]
+# The small print of a right key: its role, or the device's keycap where it says something else
+# (ADD is the backspace key), as the simulator prints it.
+RIGHT_PRINT = {0: "←"}
 LEGEND = [
     ["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", ""],
     ["", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]", "\\"],
@@ -141,7 +144,7 @@ def cap_text(row, column):
     if column == 0:
         return LEFT_ROLES[row], LEGEND[row][0]
     if column == 13:
-        return RIGHT_SYMBOLS[row], RIGHT_ROLES[row]
+        return RIGHT_SYMBOLS[row], RIGHT_PRINT.get(row, RIGHT_ROLES[row])
     legend = LEGEND[row][column]
     return (legend, "") if legend.strip() else (CAP_PRINT.get((row, column), ""), "")
 
