@@ -40,7 +40,7 @@ endif
 IDF_PORT_ARG := $(if $(PORT),-p '$(PORT)',)
 CARDENZA_IDF_ARGS := -B '$(abspath $(BUILD))'
 
-.PHONY: all build run set-target flash remote-flash bootloader-flash app-flash erase monitor flash-monitor clean fullclean validate-architecture firmware firmware-target host cardenza cardenza-firmware cardenza-flash cardenza-monitor cardenza-flash-monitor cardenza-host cardenza-clean cardenza-fullclean web web-serve web-deploy learn hal-check hal-update
+.PHONY: all build run set-target flash remote-flash bootloader-flash app-flash erase monitor flash-monitor clean fullclean validate-architecture firmware firmware-target host cardenza cardenza-firmware cardenza-flash cardenza-monitor cardenza-flash-monitor cardenza-host cardenza-clean cardenza-fullclean web web-serve web-deploy web-preview learn hal-check hal-update
 
 all: build
 
@@ -111,6 +111,10 @@ learn:
 # Production page on Vercel (https://cardenza-synth.203.io); see tools/web-deploy.sh for the setup.
 web-deploy:
 	tools/web-deploy.sh
+
+# Preview site (https://cardenza-synth-preview.vercel.app): the current build before it is published.
+web-preview:
+	SITE_TARGET=preview tools/web-deploy.sh
 
 # Any static server works; the page needs no special headers.
 web-serve:
