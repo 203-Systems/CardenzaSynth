@@ -1,76 +1,87 @@
-# 4 SETUP {#setup}
+# 0 SETUP {#setup}
 
-SETUP is the fourth scene, and the only one outside the {{key:ESC}} ring: the **global** pages (the project and its files) and the **settings** (keyboard, chords, arpeggiator, system). Six pages ({{key:CTRL}} steps, hold CTRL for the page map):
+SETUP is scene 0, the first one and the only one outside the {{key:ESC}} ring: the **project** (save, load, tempo) and the **global settings** (the keyboard of every track, the device). Four pages ({{key:CTRL}} steps, hold CTRL for the page map):
 
-{{page:PROJECT}} {{page:FILES}} {{page:KEYS}} {{page:CHORD}} {{page:ARP}} {{page:SYSTEM}}
+{{page:PROJECT}} {{page:FILES}} {{page:KEYS}} {{page:SYSTEM}}
 
 | Pages | Kind | Stored |
 |---|---|---|
-| PROJECT · FILES | global | projects on the SD card; BPM, swing and LOOP / SONG belong to the project |
-| KEYS · CHORD · ARP | settings | app settings: restored at power-on, kept when you load or create a project |
-| SYSTEM | settings | device settings, shared by every app |
+| PROJECT · FILES | project | projects on the SD card; BPM and swing belong to the project |
+| KEYS | keyboard of all four tracks | in the project (SELECT is an app preference, kept for every project) |
+| SYSTEM | device settings | shared by every app, never in a project |
 
-<!-- keywords: setup, settings, global, settings page, preferences, options, project, files, keys, chord, arp, system, 设置, 全局 -->
+Chord and arpeggiator are per track, on the CHORD and ARP pages of {{scene:INSTR}} (see [[#setup-chord-arp]]).
+
+<!-- keywords: setup, settings, global, settings page, preferences, options, project, files, keys, chord, arp, system, scene 0, 设置, 全局 -->
 
 ## Getting in and out {#setup-open}
 
 {{strip
-hold ESC > map-esc @cells:1,4-4,4 | Hold {{key:ESC}}: column 4 of the scene map is 4 SETUP, set apart by a dotted rule and a dim number.
-hold ESC + G4 > setup-project @8,0,41,11 | Press any key of column 4: SETUP opens on the page you were last on.
-ESC > seq-notes @scene | Tap {{key:ESC}}: back to the scene you came from (SEQ here).
+hold ESC > map-esc @cells:1,1-4,1 | Hold {{key:ESC}}: column 1 of the scene map is 0 SETUP, set apart by a dotted rule and a dim number.
+hold ESC + G1 > setup-project @8,0,41,11 | Press any key of column 1: SETUP opens on the page you were last on.
+ESC > instr-voice @scene | Tap {{key:ESC}}: back to the scene you came from (INSTR here).
 }}
 
 - A tap on {{key:ESC}} only walks the three music scenes 1 INSTR → 2 SEQ → 3 TAPE; it never enters SETUP (see [[#nav-scenes]]).
-- The FN menu has a SETUP item on every screen (the bottom-right GRID key, see [[#fn-menus]]). Inside SETUP the same item reads BACK and the scene you came from.
+- The FN menu has SETUP (GLOBAL) on every screen, on the bottom-right GRID key ({{key:FN}} + that key runs it, see [[#fn-menus]]). Inside SETUP the same item reads BACK and the scene you came from.
 - The pads keep playing the current track in SETUP, so you hear every change at once.
 
-<!-- keywords: open setup, enter setup, leave setup, back, scene 4, column 4, 进入设置 -->
+<!-- keywords: open setup, enter setup, leave setup, back, scene 0, column 1, 进入设置 -->
 
 ## PROJECT {#setup-project}
 
 {{shot:setup-project|SETUP PROJECT: what you can do with the project, its tempo and play mode, its name and the four tracks.
-mark cells:1,1-1,4 = SAVE · SAVE AS · LOAD · NEW
+mark cells:1,1-1,3 = SAVE · LOAD · NEW
 mark cell:2,1 = BPM (focused)
 mark cell:2,2 = SWING
 mark cell:2,3 = TAP: tap tempo
 mark cell:2,4 = PLAY: LOOP / SONG
-mark 8,69,150,18 = Project name · UNSAVED / SAVED
+mark 8,69,224,18 = Project name (UNTITLED until saved) · UNSAVED / SAVED
 mark 8,89,224,25 = The four tracks: engine and sound
-key G1-G4 = Actions: half lit
+key G1-G3 G7 = Actions: half lit
 key G5 = Focus: fully lit
-key G8 = PLAY: fully lit in SONG
+key G6 G8 = SWING, PLAY: half lit (PLAY fully lit in SONG)
 }}
 
 | GRID | Does |
 |---|---|
-| row 1 | **SAVE**: save now · **SAVE AS**: type a name and save · **LOAD**: go to FILES · **NEW**: a new project with the default four tracks (asks first when there are unsaved changes) |
+| row 1 | **SAVE**: save now · **LOAD**: go to FILES · **NEW**: a new project with the default four tracks (asks first when there are unsaved changes) |
 | row 2 | **BPM** (30–300) and **SWING** (50–75 %): tap to focus, {{key:ADD}} / {{key:SUB}} change it · **TAP**: tap it in time, the interval sets the BPM · **PLAY**: switches LOOP ↔ SONG (fully lit in SONG, see [[#tape-song]]) |
 
 - {{key:OK}} saves the project; with TAP focused it taps the tempo instead.
-- {{key:FN+ADD}} / {{key:FN+SUB}} take big steps: BPM ±10, swing ±5.
-- An untitled project is saved as the first free name SONG 01, SONG 02…; SAVE AS gives it your own name (see [[#fn-text]]).
-- The FN menu here has NEW, LOAD and SAVE AS; {{key:FN+S}} saves from any screen (see [[#project-save]]).
+- {{key:FN+ADD}} / {{key:FN+SUB}} take big steps: BPM ±10, swing ±5. Hold BPM or SWING: the 32 pads become its values, lowest top left, highest bottom right; press one to jump there.
+- An untitled project is saved as the first free name SONG 01, SONG 02…; to give it your own name use SAVE AS in the FN menu (up to 24 letters, digits, spaces and -, see [[#fn-text]]). A name that is already on the card asks before it overwrites ({{key:OK}} = yes, {{key:ESC}} = no).
+- NEW starts with the default four tracks, C major, no chords, every arpeggiator off; SELECT stays as it was.
+- The PLAY switch is a performance control: it is not saved in the project.
 
-<!-- keywords: project, save, save as, load, new, bpm, swing, tap tempo, loop, song mode, project page, untitled, unsaved, 工程, 保存 -->
+The FN menu of PROJECT and FILES:
+
+| GRID | Item |
+|---|---|
+| row 1 | **NEW** PROJECT · **LOAD** PROJECT (goes to FILES) · **SAVE AS** PROJECT (type a name) |
+| row 4 | **SAVE** ({{key:FN+S}}, reads UNSAVED while there are changes) · **TAP** ({{key:FN+T}}) · **REC** ({{key:FN+PLAY}}) · **BACK** to the scene you came from |
+
+<!-- keywords: project, save, save as, load, new, bpm, swing, tap tempo, loop, song mode, project page, untitled, unsaved, overwrite, 工程, 保存 -->
 
 ## FILES {#setup-files}
 
-All projects on the SD card, by name.
+All projects on the SD card, by name; the open one is marked `>`.
 
-{{shot:setup-files|SETUP FILES: no projects on the card yet.
+{{shot:setup-files|SETUP FILES: the projects on the card (NO PROJECTS ON THE CARD while there are none).
 mark content = Project list
-mark footer = FILES: page 2 of 6
+mark footer = FILES: page 2 of 4
 }}
 
 - {{key:ADD}} / {{key:SUB}} choose ({{key:FN+ADD}} / {{key:FN+SUB}} 8 at a time), {{key:OK}} loads.
 - With unsaved changes it asks first: {{key:OK}} loads anyway, {{key:ESC}} keeps your work.
-- LOAD on the PROJECT page and LOAD in the FN menu lead here too.
+- A loaded project opens on T1 and brings its own keyboard, chords and arpeggiators (a project saved by older firmware has none and keeps the current ones).
+- LOAD on the PROJECT page and LOAD in the FN menu lead here too. The list also shows the projects of release 0.1.0 (see [[#storage-layout]]).
 
 <!-- keywords: files, load project, open project, project list, load, open, 载入工程, 打开工程, 工程列表 -->
 
 ## KEYS {#setup-keys}
 
-How the pads play, for all four tracks:
+How the pads play, for all four tracks. The keyboard is saved with the project; SELECT is a preference of the app and stays the same for every project.
 
 {{shot:setup-keys|SETUP KEYS: seven settings and a two-octave preview of the keyboard.
 mark cell:1,1 = LAYOUT (focused)
@@ -90,16 +101,17 @@ key G2-G7 = Settings: half lit
 | LAYOUT | PIANO / SCALE / CHROMA | [[#play-keyboard]] |
 | SCALE · ROOT | 14 scales · C–B | [[#play-scale]] |
 | OCTAVE | −3 … +3 | [[#play-octave]] |
-| VELO | 1–127, the velocity of every pad | [[#play-velocity]] |
+| VELO | 1–127 (default 110), the velocity of every pad | [[#play-velocity]] |
 | LOCK | OFF / MUTE / SNAP | [[#play-lock]] |
 | SELECT | ONE: a GRID tap in ROLL goes to one step · MULTI: it selects several | [[#seq-edit]] |
 
-The four settings pages (KEYS, CHORD, ARP, SYSTEM) all work the same way:
+Both settings pages (KEYS and SYSTEM) work the same way:
 
 | To | Do |
 |---|---|
 | pick a setting | tap its GRID key (the focused cell is inverse) |
 | change it | {{key:ADD}} / {{key:SUB}}, held they repeat; {{key:FN+ADD}} / {{key:FN+SUB}} 5 at a time |
+| jump to a value | hold its GRID key: the pads are its values, lowest top left, highest bottom right |
 | step a choice or a switch | tap the focused key again, or {{key:OK}} |
 | restore the default | {{key:FN+OK}}, or RESET in the FN menu |
 
@@ -107,14 +119,11 @@ Each page remembers which setting was focused.
 
 <!-- keywords: keys, keyboard settings, layout, scale, root, octave, velocity, lock, select, multi select, settings page, 键盘设置 -->
 
-## CHORD and ARP {#setup-chord-arp}
+## Chord and arpeggiator {#setup-chord-arp}
 
-{{strip
-hold CTRL + G4 > setup-chord @cells:1,1-1,2 | **CHORD**: CHORD and VOICING; below, the notes the root key plays and the triad on every degree of the key. See [[#play-chords]].
-hold CTRL + G5 > setup-arp @cells:1,1-2,1 | **ARP**: ARP (mode), RATE, RANGE, GATE / LATCH; below, the playing order, dimmed while ARP is OFF. See [[#play-arp]].
-}}
+Chord and arpeggiator are no longer SETUP pages: every track has its own, on the **CHORD** and **ARP** pages of {{scene:INSTR}} right after VOICE (not on the drum track), and they are saved with the project. See [[#play-chords]] and [[#play-arp]].
 
-<!-- keywords: chord page, arp page, chord settings, arpeggiator settings, 和弦设置, 琶音设置 -->
+<!-- keywords: chord page, arp page, chord settings, arpeggiator settings, where is the chord page, per track chord, 和弦设置, 琶音设置 -->
 
 ## SYSTEM {#setup-system}
 
@@ -122,27 +131,29 @@ hold CTRL + G5 > setup-arp @cells:1,1-2,1 | **ARP**: ARP (mode), RATE, RANGE, GA
 mark cell:1,1 = VOLUME (focused)
 mark cell:1,2 = KEY LED
 mark cell:1,3 = SCREEN
-mark 8,47,190,52 = Device · audio backend · SD card · memory · build
+mark 8,43,200,58 = Device · audio backend · SD card · memory · build
 key G1 = Focus: fully lit
 key G2 G3 = Settings: half lit
 }}
 
 | Setting | Range | |
 |---|---|---|
-| VOLUME | 0–100 | master volume; also {{key:FN}} + {{key:7}} / {{key:U}} anywhere ([[#fn-quick]]) |
-| KEY LED | 0–15 | overall brightness of the key lights; while it is focused the pads show the brightness ramp ([[#lights-ramp]]) |
-| SCREEN | shown in % | screen brightness |
+| VOLUME | 0–100 (default 50), steps of 2 | output volume; the same as MASTER on [[#tape-mix]] and {{key:FN}} + {{key:7}} / {{key:U}} anywhere ([[#fn-quick]]) |
+| KEY LED | 0–15 (default 15) | overall brightness of the key lights; while it is focused the pads show the brightness ramp ([[#lights-ramp]]) |
+| SCREEN | 4–100 % (default 70 %) | screen brightness |
 
-The report below is typed out line by line each time you come in: the device, the audio backend, the SD card (READY or missing, see [[#storage-card]]), free memory and the firmware's build date.
+These are device settings: every app on the Cardenza shares them, they are kept in `System/settings.cfg` and no project carries them.
+
+The report below is typed out line by line each time you come in: the device, the audio backend, the SD card (READY or NOT FOUND, see [[#storage-card]]), free memory and the firmware's build date.
 
 <!-- keywords: system, volume, master volume, key led, screen brightness, brightness, sd card, device info, build, 屏幕亮度, 系统 -->
 
 ## Every setting {#setup-ref}
 
-Every setting of the four settings pages with its range and default (generated from the firmware code):
+Every setting of the two settings pages with its range and default (generated from the firmware code):
 
 {{ref:settings}}
 
-> [!note] The old FN panel's PROJECT page is gone: BPM, SWING and PLAY are on SETUP PROJECT, the track's STEPS on SEQ TRACK ([[#seq-track]]), REC in the FN menu, {{key:FN+PLAY}} and the RECORD panel.
+> [!note] The FN panel of older firmware is gone: BPM, SWING and PLAY are on SETUP PROJECT, the track's STEPS on SEQ TRACK ([[#seq-track]]), chord and arpeggiator on INSTR ([[#setup-chord-arp]]), REC in the FN menu, {{key:FN+PLAY}} and the RECORD panel.
 
 <!-- keywords: settings list, all settings, defaults, ranges, setting reference, 设置一览 -->

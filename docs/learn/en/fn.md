@@ -10,7 +10,7 @@
 mark header = FN MENU and whose menu it is: SEQ ROLL
 mark cells:1,1-3,4 = Rows 1–3: this page's items
 mark cells:4,1-4,4 = Row 4: the same on every screen
-mark footer = Other FN combinations
+mark footer = Quick controls: BPM, volume, octave
 key FN = Hold
 key GRID = Menu items: FN + a GRID key runs it
 key C X Q D S T = Letters of the items
@@ -23,7 +23,7 @@ key PLAY = REC
 | run an item | {{key:FN}} + its GRID key, or {{key:FN}} + its letter | its GRID key; the menu closes |
 | close | let go of FN | {{key:FN}} or {{key:ESC}} |
 | pads | silent; only the letters and quick controls work | keep playing |
-| {{key:ADD}} {{key:SUB}} {{key:OK}} | big steps and the second OK (see [[#fn-shortcuts]]) | do nothing |
+| {{key:ADD}} {{key:SUB}} {{key:OK}} | big steps (SEQ note page: the GRID's page) and the second OK (see [[#fn-shortcuts]]) | ADD / SUB do nothing; {{key:FN+OK}} still runs the second OK |
 
 - A hold is 250 ms; release sooner and FN counts as a tap.
 - Rows 1–3 belong to the page you are on; row 4 is the same on every screen: **SAVE** the project, **TAP** tempo, **REC** arm, **SETUP** (in SETUP: **BACK**).
@@ -51,15 +51,15 @@ Each tile has:
 
 | Screen | Rows 1–3 |
 |---|---|
-| INSTR (every page) | **PRESETS** browse · **SAVE** / **SAVE AS** the preset · **ENGINE** picker · **RESET** `OK`: the focused parameter back to default (parameter pages only); SAMPLER also **SAMPLES** (files), **RECORD** (a sample), **PREVIEW** |
-| SEQ (every page) | **COPY** `C` · **PASTE** `V` · **CLEAR** `X` · **QUANT** `Q`: the selected steps, otherwise the whole pattern · **DUP** `D`: the pattern into the next free slot · **VIEW**: ROLL / STEP · **RECORD**: the RECORD panel and its takes · **SCOPE** `OK`: which chord note the step editor edits (with steps selected) |
+| INSTR (every page) | **PRESETS** browse · **SAVE** / **SAVE AS** the preset · **ENGINE** picker · **RESET** `OK`: the focused parameter back to default (parameter pages, CHORD and ARP included); SAMPLER also **SAMPLES** (files), **RECORD** (a sample), **PREVIEW** |
+| SEQ (every page) | **COPY** `C` · **PASTE** `V` · **CLEAR** `X` · **QUANT** `Q`: the selected steps, otherwise the whole pattern · **DUP** `D`: the pattern into the next free slot (16 at most) · **VIEW**: ROLL / STEP (dotted on a drum track) · **RECORD**: the RECORD panel and its takes · **SCOPE** `OK`: which chord note the step editor edits (with steps selected) · **PAGE −** / **PAGE +**: which page of a long pattern the GRID shows (note page, more than 16 steps) · **LEN −** / **LEN +**: the pattern's length, 1 to 256 steps (1, 2, 4, 8, 16, then 16 at a time) |
 | TAPE SESSION | **LAUNCH**: the cursor's row · **ADD** TO SONG `OK`: the patterns playing become a new SONG part |
 | TAPE SONG | **COPY** `C` · **PASTE** `V` (after the cursor) · **DELETE** `X` · **DUP** `D`: the part under the cursor (ROW n) · **PLAY** `OK`: SONG / LOOP |
 | TAPE MIX | **UNMUTE** ALL · **UNSOLO** ALL |
 | TAPE SENDS · FX | **RESET** `OK` |
 | SETUP PROJECT · FILES | **NEW** · **LOAD** · **SAVE AS** (the project) |
-| SETUP KEYS · CHORD · ARP · SYSTEM | **RESET** `OK`: the focused setting back to default |
-| **row 4, every screen** | **SAVE** `S`: the project (UNSAVED when there are changes) · **TAP** `T`: tap tempo, shows the BPM · **REC** `PLAY`: record arm, fully lit when armed · **SETUP**: to 4 SETUP; in SETUP **BACK** to the scene you came from |
+| SETUP KEYS · SYSTEM | **RESET** `OK`: the focused setting back to default |
+| **row 4, every screen** | **SAVE** `S`: the project (UNSAVED when there are changes) · **TAP** `T`: tap tempo, shows the BPM · **REC** `PLAY`: record arm, fully lit when armed · **SETUP**: to 0 SETUP; in SETUP **BACK** to the scene you came from |
 
 {{shot:fn-menu-instr|Holding FN on INSTR VOICE (T2 Juno): the sound's items; RESET is dotted because VOICE has no parameter to reset.
 mark cells:1,1-1,4 = PRESETS · SAVE · SAVE AS · ENGINE
@@ -69,7 +69,7 @@ key G1-G4 = Available: half lit
 key G5 = Not available: off
 }}
 
-<!-- keywords: menu items, menus, per screen, copy, paste, launch, unmute all, unsolo all, reset, new, load, save as, back, 菜单项 -->
+<!-- keywords: menu items, menus, per screen, copy, paste, launch, unmute all, unsolo all, reset, new, load, save as, back, page, length, pattern length, long pattern, 256 steps, 菜单项 -->
 
 ## Quick controls: BPM, volume, octave {#fn-quick}
 
@@ -115,10 +115,10 @@ S = Save
 | FN + | Does |
 |---|---|
 | GRID | run that menu item |
-| {{key:ESC}} | stop all (like HOME) |
+| {{key:ESC}} | stop all: the sequencer, every sounding note and every ARP (ALL STOP) |
 | {{key:TAB}} | previous track |
 | {{key:CTRL}} | previous page ({{key:CTRL}} alone: next page) |
-| {{key:ADD}} / {{key:SUB}} | big steps: ×10 on wide parameters (BPM ±10), ×5 on settings; a page at a time in lists |
+| {{key:ADD}} / {{key:SUB}} | big steps: ×10 on wide parameters (BPM ±10), ×3 on narrow ones, ×5 on the SETUP settings, 10 sounds on VOICE, 8 rows in lists; SEQ note page: the GRID's page of a long pattern (with steps selected: their values in big steps) |
 | {{key:OK}} | the screen's second OK: INSTR, SENDS, master FX and the SETUP settings pages: the focused value back to its default; SEQ note page: which chord note to edit (all / one); SESSION: ADD TO SONG; SONG: SONG / LOOP; RECORD panel: merge a take into the current pattern; sample list: rename / delete |
 | {{key:PLAY}} | record arm (REC) |
 | {{key:C}} / {{key:V}} | copy / paste (selected steps or the current pattern; a part in SONG) |
@@ -126,7 +126,8 @@ S = Save
 | {{key:Q}} | quantize (selected steps or the current pattern) |
 | {{key:D}} | duplicate the current pattern into the next free slot; the part in SONG |
 | {{key:T}} | tap tempo: tap two or more times, the interval sets the BPM |
-| {{key:S}} | save the project (an untitled one becomes SONG 01, SONG 02…) |
+| {{key:S}} | save the project (an untitled one gets the first free name, SONG 01, SONG 02…, without asking) |
+| {{key:F}} | in the preset and sample lists: search, see [[#fn-yellow]] |
 | {{key:1}}–{{key:5}} | nothing |
 
 > [!note] A letter works where the menu has its item (the pad is half lit then); {{key:S}} and {{key:T}} work everywhere. Each shows its name and result at the bottom of the screen. In the menu kept open (FN not held) the pads play notes, not letters.
@@ -135,7 +136,7 @@ S = Save
 
 ## FN in input screens: the yellow legends {#fn-yellow}
 
-In text entry, the preset and sample lists and confirmations, holding FN shows no menu; it uses the **yellow legends** printed on the key caps instead:
+In every pop-up (text entry, the preset and sample lists, the engine picker, the RECORD panel, confirmations) holding FN shows no menu; it uses the **yellow legends** printed on the key caps instead:
 
 {{keymap:Hold FN: the four keys at the lower right of the GRID are arrows
 FN = Hold
@@ -144,9 +145,13 @@ FN = Hold
 , = Left
 / = Right
 ADD SUB = Page up / down
+F = Search (lists)
 }}
 
-<!-- keywords: arrows, arrow keys, cursor keys, up down left right, yellow legend, list, 方向键 -->
+- In the preset and sample lists the pads do not type: {{key:FN}} + {{key:F}} opens a search field (up to 16 characters), {{key:OK}} filters the list by it. {{key:ESC}} clears the search first, a second {{key:ESC}} closes the list.
+- {{key:FN+ESC}} stops all here too, except in text entry, where ESC cancels.
+
+<!-- keywords: arrows, arrow keys, cursor keys, up down left right, yellow legend, list, search, find, filter, fn f, 方向键 -->
 
 ## Typing text {#fn-text}
 
@@ -163,7 +168,7 @@ key ESC = Cancel
 key PLAY = Space
 }}
 
-- Letters, digits, space (the PLAY key) and `-`; up to 24 characters.
+- Letters, digits, space (the PLAY key, not as the first character) and `-`; up to 24 characters (a search: 16). SAVE AS starts from the current name, or SONG.
 - The top-right key (the del cap) erases before the cursor; {{key:OK}} accepts; {{key:ESC}} cancels.
 - {{key:FN}} + {{key:,}} / {{key:/}} move the cursor, {{key:FN}} + {{key:;}} / {{key:.}} jump to the start / end, {{key:FN}} + del deletes after the cursor.
 - The cursor is a bar between characters, a block at the end.

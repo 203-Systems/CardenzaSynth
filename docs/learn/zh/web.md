@@ -25,9 +25,12 @@
 
 - 键会送到你最后点开的那一节的设备；如果还没有打开，就在当前阅读位置的那一节自动打开。
 - 真机本身照常运行，说明书里的设备只是跟着按。
-- 再点一次按钮断开。只有支持 Web Serial 的浏览器（电脑上的 Chrome、Edge）会显示这个按钮。
+- 再点一次按钮断开。只有电脑上的 Chrome、Edge 会显示这个按钮。
+- 它通过 USB MIDI 和机器通信（Web MIDI）：第一次浏览器会问能不能使用 MIDI 设备（包括 SysEx），选允许。不需要装驱动，USB MIDI 和 USB 音频照常可用。
 
-<!-- keywords: usb, 连接, 真机, 实体设备, 串口, 数据线, connect, device, cable, web serial, hardware, real device -->
+> [!note] 按住 HOME 侧键开机时，机器不做 USB MIDI，而是保留串口（给开发用）；这时按钮会改用串口，在列表里选择设备。
+
+<!-- keywords: usb, 连接, 真机, 实体设备, 串口, 数据线, 找不到设备, midi, web midi, sysex, 允许, connect, device, cable, web serial, hardware, real device -->
 
 ## 电脑键盘对应哪个键 {#web-keys}
 
@@ -47,10 +50,12 @@ ADD SUB OK PLAY = Backspace · \ · Enter · 空格
 | {{key:ESC}} {{key:TAB}} {{key:FN}} {{key:CTRL}} | Esc / Tab / Caps Lock 或左 Shift / Ctrl |
 | {{key:ADD}} {{key:SUB}} {{key:OK}} {{key:PLAY}} | Backspace / `\` / Enter / 空格 |
 | HOME 侧键 | Home |
+| 没有字母的演奏键 | 右 Shift（第 3 行）· 左 / 右 Alt（第 4 行） |
 
-也可以直接用鼠标或手指点屏幕上的键。
+- {{key:ESC}} 也可以用反引号键（1 左边那个）。macOS 上 Caps Lock 会锁住 {{key:FN}}（再按一次松开）；按住左 Shift 则是松手就放开的 {{key:FN}}。
+- 也可以直接用鼠标或手指点屏幕上的键，触屏可以多点同时按。右键点一个键会把它锁住按下（方便按住 ESC、FN……再点 GRID），再右键一次松开。
 
-<!-- keywords: 键盘对应, 键位映射, 电脑键盘, keyboard mapping, computer keyboard, which key, key bindings, shortcuts -->
+<!-- keywords: 键盘对应, 键位映射, 电脑键盘, 右键, 锁住, keyboard mapping, computer keyboard, which key, key bindings, shortcuts, caps lock, right click -->
 
 ## 声音 {#web-audio}
 
@@ -60,7 +65,9 @@ ADD SUB OK PLAY = Backspace · \ · Enter · 空格
 
 ## 存储与采样 {#web-storage}
 
-- 设置、工程和音色存在浏览器里（IndexedDB），目录结构和 SD 卡一样，刷新页面后还在。清除网站数据会把它们删掉。
-- 「Load WAV…」把电脑上的 WAV 放进共用采样目录 `Shared/Samples`，之后在 SAMPLER 的文件列表里就能选到。
+- 设置、工程和音色存在浏览器里（IndexedDB），目录结构和 SD 卡一样，刷新页面后还在。清除网站数据会把它们删掉。模拟器和说明书里的设备用的是同一份。
+- 机器自动保留的工作状态（[[#project-session]]）浏览器也保留：边做边存，刷新或关闭页面后回来还在，和真机拔电一样。要留成一个工程，仍然用 {{key:FN+S}} 保存。
+- 模拟器页面上的「Load project…」把 Cardenza 卡上的 `.ccproj` 文件复制到浏览器里（不会覆盖已有工程，重名的自动加编号），并打开第一个；其余的在 SETUP FILES 里。
+- 「Load WAV…」把电脑上的音频文件放进共用采样目录 `Shared/Samples`，之后在 SAMPLER 的文件列表里就能选到。不是单声道 16 位 WAV 的文件（立体声、24 位、MP3……）会转换成单声道 16 位 44.1 kHz，并截到 5 秒。
 
-<!-- keywords: 浏览器存储, 导入 wav, 上传采样, 保存在哪, browser storage, indexeddb, load wav, upload sample -->
+<!-- keywords: 浏览器存储, 自动保存, 刷新不丢, 导入 wav, 上传采样, 导入工程, 保存在哪, 刷新, browser storage, indexeddb, load wav, upload sample, load project, ccproj -->

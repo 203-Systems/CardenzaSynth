@@ -281,6 +281,16 @@ private:
   {
     os::system::RunFrame();
     ++frames_;
+    // What the firmware said to the computer (the guide), in <out>/app.log after what was sent.
+    std::string message;
+    while (CardenzaSim::Input::TakeDeviceApp(message)) LogApp('<', message);
+  }
+
+  void LogApp(char direction, const std::string& message)
+  {
+    if (!appLog_.is_open()) appLog_.open(options_.outputDirectory / "app.log", std::ios::trunc);
+    appLog_ << frames_ << ' ' << direction << ' ' << message << '\n';
+    appLog_.flush();
   }
 
   void SetKey(const KeyTarget& key, bool pressed)
@@ -314,6 +324,11 @@ private:
         return true;
       case CommandType::Screenshot:
         return Screenshot(command, errorMessage);
+      case CommandType::App:
+        LogApp('>', command.name);
+        CardenzaSim::Input::SendComputerApp(command.name);
+        RunFrame();
+        return true;
       case CommandType::Wait:
       case CommandType::Quit:
         return true;
@@ -372,6 +387,7 @@ private:
   std::uint64_t frames_ = 0;
   std::uint64_t lateTicks_ = 0;
   int screenshots_ = 0;
+  std::ofstream appLog_;
 };
 
 }  // namespace

@@ -5,37 +5,37 @@ INSTR 管当前轨的声音：用哪个音源（引擎）、哪个音色、这�
 | 音源 | 默认轨道 | 页面（{{key:CTRL}} 翻） |
 |---|---|---|
 | DRUMS 鼓机 | {{track:1}} | VOICE、KIT、FX |
-| JUNO 模拟合成器 | {{track:2}} | VOICE、DCO、VCF、ENV、LFO、FX |
-| DX7 FM 合成器 | {{track:3}} | VOICE、ALGO、LEVELS、OP1–OP6、LFO、FX |
-| SAMPLER 采样器 | {{track:4}} | VOICE、SAMPLE、TONE、FX |
+| JUNO 模拟合成器 | {{track:2}} | VOICE、CHORD、ARP、DCO、VCF、ENV、LFO、FX |
+| DX7 FM 合成器 | {{track:3}} | VOICE、CHORD、ARP、ALGO、LEVELS、OP1–OP6、LFO、FX |
+| SAMPLER 采样器 | {{track:4}} | VOICE、CHORD、ARP、SAMPLE、TONE、FX |
+
+页面按信号顺序排：音色（VOICE）、这一轨的 MIDI 效果（CHORD、ARP：按键先经过它们）、音源的参数页、最后是效果（FX）。页签放不下时，底部只显示当前页附近的几个，两端用 `<` `>` 提示，右边是「当前 / 总数」；按住 {{key:CTRL}} 看所有页面的地图。
 
 <!-- keywords: 乐器, 音源, 合成器, 音色, 引擎, instrument, synth, synthesizer, engine, sound, patch -->
 
 ## VOICE：音源和音色 {#instr-voice}
 
-每个音源的第一页：大字是音色名，下面是实时键盘。
+每个音源的第一页：大字是音色名，下面是实时键盘（鼓轨画着八个鼓垫）。
 
 {{shot:instr-voice|INSTR VOICE（T2 Juno）。
 mark cell:1,1 = ENGINE 换音源
 mark cell:1,2 = PRESET 浏览
-mark cell:1,3 = SAVE 保存
-mark cell:1,4 = SAVE AS 另存
 mark 8,40,200,26 = 音色名
-mark 8,66,120,8 = 音源 · 音阶 · 八度
+mark 8,66,120,8 = 音源 · 键盘排列 · 八度
 mark 8,75,222,44 = 实时键盘
-key ADD SUB = 下一个 / 上一个音色
+key ADD SUB = 列表里的上一个 / 下一个音色
 key OK = 音色浏览
-key G1-G4 = ENGINE PRESET SAVE SAVE AS
+key G1 G2 = ENGINE PRESET
 }}
 
-- {{key:ADD}} / {{key:SUB}}：直接切到下一个 / 上一个音色，马上可以试听。
+- {{key:ADD}} / {{key:SUB}}：直接切到列表里上一个 / 下一个音色（ADD 往上走，和浏览列表一样），马上可以试听。按住 {{key:FN}} 一次跳 10 个。
 - {{key:OK}}：打开音色浏览。
-- INSTR 的每一页，FN 菜单里都有 PRESETS、SAVE、SAVE AS、ENGINE，不用回到 VOICE 也能浏览和保存音色（见 [[#fn-menus]]）。
+- 保存在 FN 菜单里：INSTR 的每一页，FN 菜单都有 PRESETS、SAVE、SAVE AS、ENGINE，不用回到 VOICE 也能浏览和保存音色（见 [[#fn-menus]]）。
 
-换音源会把这条轨道换成新音源的默认音色；同一轨的音序不受影响。
+换音源会把这条轨道换成新音源的默认音色，并回到 VOICE 页；这一轨的音序、和弦和 ARP 都不受影响。
 
 {{strip
-G1 > engine-picker @cells:2,1-2,4 | ENGINE：四个音源，当前的写着 NOW。
+G1 > engine-picker @cells:2,1-2,4 | ENGINE：四个音源，当前的写着 NOW。在 GRID 上点一个（或 {{key:ADD}} / {{key:SUB}} 再按 {{key:OK}}）切换；{{key:ESC}} 不换。
 ADD > instr-voice @8,40,200,26 | {{key:ADD}} / {{key:SUB}} 在 VOICE 页直接换音色。
 }}
 
@@ -45,19 +45,20 @@ ADD > instr-voice @8,40,200,26 | {{key:ADD}} / {{key:SUB}} 在 VOICE 页直接�
 
 {{strip
 G2 > preset-browser @0,13,240,10 | PRESET：音色列表，右上角是「第几个 / 总数」。
-B, A, S, S > preset-filtered @0,13,240,10 | 直接在键盘上打字过滤（例如 `BASS`）。
+FN + F, B, A, S, S, OK > preset-filtered @0,13,240,10 | {{key:FN+F}} 打开搜索框：输入（例如 `BASS`）后按 {{key:OK}}，列表只留下匹配的音色。
 OK > instr-voice @8,40,200,26 | {{key:ADD}} / {{key:SUB}} 移动，{{key:OK}} 载入。
 }}
 
+- 列表里演奏区和 GRID 不打字，误按不会开始过滤：搜索总是 {{key:FN+F}}。搜索框留空就显示全部。
 - {{key:ESC}} 先清空过滤，再按一次关闭。
-- {{key:FN}} + {{key:;}} {{key:.}} 上下移动，{{key:FN+ADD}} / {{key:FN+SUB}} 一次翻一页。
-- SAVE 覆盖保存当前音色（自己的音色），SAVE AS 起个新名字另存。自己的音色存在 SD 卡上本应用的 Presets 目录里。
+- {{key:ADD}} 往上、{{key:SUB}} 往下；{{key:FN}} + {{key:;}} {{key:.}} 也可以。{{key:FN+ADD}} / {{key:FN+SUB}} 一次走 8 行。
+- **SAVE**（FN 菜单）：自己的音色直接覆盖；出厂音色存成一个新的自己的音色，名字自动加上下一个空着的编号（例如 `LEAD I 2`），不用起名。**SAVE AS** 会让你输入名字。自己的音色存在 SD 卡上本应用的 Presets 目录里（`Cardenza/Apps/Cardenza/Synth/Presets/<音源>/`）。
 
-<!-- keywords: 音色库, 预设, 浏览, 搜索音色, 保存音色, 另存, preset, presets, browse, search, save sound, patch library -->
+<!-- keywords: 音色库, 预设, 浏览, 搜索音色, 查找, 过滤, 保存音色, 另存, preset, presets, browse, search, find, filter, fn f, save sound, patch library -->
 
 ## 参数页 {#instr-params}
 
-音源的其它页面都是参数页：**GRID 上每个键直接选中一个参数**，{{key:ADD}} / {{key:SUB}} 调值（按住连发），{{key:FN+OK}}（或 FN 菜单的 RESET）恢复默认。开关和选项型参数再按一次同一个键就切换。
+音源的其它页面（还有 CHORD 和 ARP）都是参数页：**GRID 上每个键直接选中一个参数**，{{key:ADD}} / {{key:SUB}} 调值（按住连发，按住 {{key:FN}} 大步走），{{key:FN+OK}}（或 FN 菜单的 RESET）恢复默认。开关和选项型参数再按一次同一个键就切换，按 {{key:OK}} 也行。
 
 {{shot:instr-juno-vcf|Juno VCF 页：上面两行是参数，下面画着滤波曲线。
 mark cell:1,1 = 焦点参数：白底
@@ -67,13 +68,26 @@ mark cell:1,4 = POL
 mark cells:3,1-4,4 = 这一组的图：滤波曲线
 key G1 = 焦点：全亮
 key G2-G6 = 参数：半亮
-key G9-G16 = 空格：灭
+key G7-G16 = 空格：灭
 key ADD SUB = 调值
 }}
 
 没有参数的格子画着这一组的图：包络、滤波曲线、算法、波形、示波器……每个参数的范围、默认值和全部选项见下面各音源的参考表。
 
-<!-- keywords: 参数, 调参数, 旋钮, 编辑音色, 恢复默认, parameter, parameters, edit sound, knob, default, reset -->
+**按住参数格**一会儿，演奏区就变成它的档位：每个值一个键（值太多时均匀分布在所有键上），当前值全亮。按一个键直接跳到那一档，屏幕底部弹出新值。松开参数格，演奏区又变回键盘。短按还是原来的选中。
+
+<!-- keywords: 参数, 调参数, 旋钮, 编辑音色, 恢复默认, 按住选值, parameter, parameters, edit sound, knob, default, reset, hold cell, pick value -->
+
+## CHORD 和 ARP 页 {#instr-midifx}
+
+紧跟在 VOICE 后面，每个旋律音源都有这一轨的两个 MIDI 效果：**CHORD**（一个键弹出一个和弦）和 **ARP**（按住的键轮流发声）。它们属于轨道而不是音色：换音色或换音源都保留，随工程保存。鼓轨没有这两页。用法见 [[#play-chords]] 和 [[#play-arp]]。
+
+{{strip
+hold CTRL + G2 > instr-chord @cells:1,1-1,2 | CHORD：CHORD 和 VOICING，根音上的键弹出的音，这个调的各级三和弦。
+hold CTRL + G3 > instr-arp @cells:1,1-2,1 | ARP：模式、RATE、RANGE、GATE 和 HOLD，下面是演奏顺序。
+}}
+
+<!-- keywords: 和弦页, 琶音页, MIDI 效果, 每轨和弦, 每轨琶音, chord page, arp page, midi fx, midi effects -->
 
 ## FX 页：这一轨的效果 {#instr-fx}
 
@@ -113,7 +127,7 @@ mark cells:3,2-4,4 = 鼓垫（按下时亮）
 经典减法合成：DCO 振荡器 → VCF 滤波器 → VCA 包络，加上 LFO 和 Juno 合唱。
 
 {{strip
-CTRL > instr-juno-dco @cells:3,1-4,4 | **DCO**：RANGE、SAW、PULSE、PWM、PW SRC、SUB、NOISE、LFO，附示波器。
+hold CTRL + G4 > instr-juno-dco @cells:3,1-4,4 | **DCO**：RANGE、SAW、PULSE、PWM、PW SRC、SUB、NOISE、LFO，附示波器。
 CTRL > instr-juno-vcf @cells:3,1-4,4 | **VCF**：CUTOFF、RESO、ENV、POL、LFO、KBD，附滤波曲线。
 CTRL > instr-juno-env @cells:3,1-4,4 | **ENV**：ADSR、VCA 模式（ENV / GATE）、LEVEL，附包络图。
 CTRL > instr-juno-lfo @cells:3,1-4,4 | **LFO**：RATE、DELAY（延迟渐入），附波形。
@@ -130,10 +144,10 @@ Juno 预设自带的 Chorus I / II 映射到 FX 页的 CHORUS。
 六算子 FM 合成，兼容 DX7 音色：
 
 {{strip
-CTRL > instr-dx7-algo @cells:3,1-4,4 | **ALGO**：32 种算法、反馈、移调，附算法图。
+hold CTRL + G4 > instr-dx7-algo @cells:3,1-4,4 | **ALGO**：32 种算法、反馈、移调，附算法图。
 CTRL > instr-dx7-levels @cells:3,1-4,4 | **LEVELS**：六个算子的输出电平。实心是能听到的载波，点阵是调制器。
 CTRL > instr-dx7-op1 @cell:2,3 | **OP1–OP6**：OUT、CRS、FINE、DTN、MODE、AMOD、R1–R4 / L1–L4 包络，CAR / MOD 标记。
-CTRL > instr-dx7-lfo @cells:3,1-4,4 | **LFO**：SPEED、WAVE、PMD、AMD、P SENS，附波形。
+hold CTRL + G12 > instr-dx7-lfo @cells:3,1-4,4 | **LFO**：SPEED、WAVE、PMD、AMD、P SENS，附波形。
 }}
 
 {{ref:engine:DX7}}

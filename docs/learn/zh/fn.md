@@ -10,7 +10,7 @@
 mark header = FN MENU 和这是哪个画面的菜单：SEQ ROLL
 mark cells:1,1-3,4 = 行 1–3：这一页的菜单项
 mark cells:4,1-4,4 = 行 4：所有画面都一样
-mark footer = 其它 FN 组合键
+mark footer = 快捷调节：BPM、音量、八度
 key FN = 按住
 key GRID = 菜单项：FN + GRID 执行
 key C X Q D S T = 菜单项的字母键
@@ -23,7 +23,7 @@ key PLAY = 录音待命
 | 执行一项 | {{key:FN}} + 它的 GRID 键，或 {{key:FN}} + 它的字母 | 它的 GRID 键；执行后菜单关闭 |
 | 关闭 | 松开 FN | {{key:FN}} 或 {{key:ESC}} |
 | 演奏区 | 不发声；只有字母键和快捷调节起作用 | 照常弹 |
-| {{key:ADD}} {{key:SUB}} {{key:OK}} | 大步调整和第二个 OK（见 [[#fn-shortcuts]]） | 不起作用 |
+| {{key:ADD}} {{key:SUB}} {{key:OK}} | 大步调整（SEQ 音符页：GRID 翻页）和第二个 OK（见 [[#fn-shortcuts]]） | ADD / SUB 不起作用；{{key:FN+OK}} 仍是第二个 OK |
 
 - 按住的判定是 250 毫秒；更快松开就算单击。
 - 行 1–3 属于你所在的页面；行 4 在所有画面都一样：**SAVE** 保存工程、**TAP** 敲速度、**REC** 录音待命、**SETUP**（在 SETUP 里是 **BACK**）。
@@ -51,15 +51,15 @@ key PADS = 照常弹
 
 | 画面 | 行 1–3 |
 |---|---|
-| INSTR（所有页） | **PRESETS** 浏览音色 · **SAVE** / **SAVE AS** 保存 / 另存音色 · **ENGINE** 选音源 · **RESET** `OK`：焦点参数恢复默认（只在参数页）；SAMPLER 另有 **SAMPLES**（采样文件）、**RECORD**（录采样）、**PREVIEW**（试听） |
-| SEQ（所有页） | **COPY** `C` · **PASTE** `V` · **CLEAR** `X` · **QUANT** `Q`：对选中的步，没有选中时对整个 Pattern · **DUP** `D`：Pattern 复制到下一个空位 · **VIEW**：ROLL / STEP · **RECORD**：RECORD 面板和 take · **SCOPE** `OK`：步编辑改和弦里的哪个音（有选中的步时） |
+| INSTR（所有页） | **PRESETS** 浏览音色 · **SAVE** / **SAVE AS** 保存 / 另存音色 · **ENGINE** 选音源 · **RESET** `OK`：焦点参数恢复默认（参数页，包括 CHORD 和 ARP）；SAMPLER 另有 **SAMPLES**（采样文件）、**RECORD**（录采样）、**PREVIEW**（试听） |
+| SEQ（所有页） | **COPY** `C` · **PASTE** `V` · **CLEAR** `X` · **QUANT** `Q`：对选中的步，没有选中时对整个 Pattern · **DUP** `D`：Pattern 复制到下一个空位（最多 16 个）· **VIEW**：ROLL / STEP（鼓轨是虚线）· **RECORD**：RECORD 面板和 take · **SCOPE** `OK`：步编辑改和弦里的哪个音（有选中的步时）· **PAGE −** / **PAGE +**：长 Pattern 在 GRID 上显示哪一页（音符页，超过 16 步时）· **LEN −** / **LEN +**：Pattern 长度，1 到 256 步（1、2、4、8、16，之后每次 16 步） |
 | TAPE SESSION | **LAUNCH**：发射光标所在的行 · **ADD** TO SONG `OK`：正在播的 Pattern 记成 SONG 的新一段 |
 | TAPE SONG | **COPY** `C` · **PASTE** `V`（插在光标之后）· **DELETE** `X` · **DUP** `D`：光标所在的一段（ROW n）· **PLAY** `OK`：SONG / LOOP |
 | TAPE MIX | **UNMUTE** ALL 全部取消静音 · **UNSOLO** ALL 全部取消独奏 |
 | TAPE SENDS · FX | **RESET** `OK` |
 | SETUP PROJECT · FILES | **NEW** · **LOAD** · **SAVE AS**（工程） |
-| SETUP KEYS · CHORD · ARP · SYSTEM | **RESET** `OK`：焦点设置恢复默认 |
-| **行 4，所有画面** | **SAVE** `S`：保存工程（有改动时写 UNSAVED）· **TAP** `T`：敲速度，显示 BPM · **REC** `PLAY`：录音待命，开着时全亮 · **SETUP**：到 4 SETUP；在 SETUP 里是 **BACK**，回到进来之前的场景 |
+| SETUP KEYS · SYSTEM | **RESET** `OK`：焦点设置恢复默认 |
+| **行 4，所有画面** | **SAVE** `S`：保存工程（有改动时写 UNSAVED）· **TAP** `T`：敲速度，显示 BPM · **REC** `PLAY`：录音待命，开着时全亮 · **SETUP**：到 0 SETUP；在 SETUP 里是 **BACK**，回到进来之前的场景 |
 
 {{shot:fn-menu-instr|在 INSTR VOICE（T2 Juno）按住 FN：音色相关的几项；VOICE 页没有参数可恢复，所以 RESET 是虚线。
 mark cells:1,1-1,4 = PRESETS · SAVE · SAVE AS · ENGINE
@@ -69,7 +69,7 @@ key G1-G4 = 能用：半亮
 key G5 = 用不了：灭
 }}
 
-<!-- keywords: 菜单项, 每个画面, 复制, 粘贴, 发射, 全部取消静音, 取消独奏, 恢复默认, 新建, 载入, 另存, 返回, menu items, menus, per screen, launch, reset, back -->
+<!-- keywords: 菜单项, 每个画面, 复制, 粘贴, 发射, 全部取消静音, 取消独奏, 恢复默认, 新建, 载入, 另存, 返回, 翻页, 长度, Pattern 长度, 长 Pattern, 256 步, menu items, menus, per screen, launch, reset, back, length -->
 
 ## 快捷调节：BPM、音量、八度 {#fn-quick}
 
@@ -115,10 +115,10 @@ S = 保存
 | FN + | 作用 |
 |---|---|
 | GRID | 执行菜单里这一格 |
-| {{key:ESC}} | 全部停止（同 HOME） |
+| {{key:ESC}} | 全部停止：音序器、所有正在响的音和所有 ARP（ALL STOP） |
 | {{key:TAB}} | 上一条轨道 |
 | {{key:CTRL}} | 上一页（单按 {{key:CTRL}} 是下一页） |
-| {{key:ADD}} / {{key:SUB}} | 大步调整：宽范围参数 ×10（BPM 一次 10），设置 ×5；列表里一次翻一页 |
+| {{key:ADD}} / {{key:SUB}} | 大步调整：宽范围参数 ×10（BPM 一次 10），窄范围 ×3，SETUP 设置 ×5，VOICE 页一次 10 个音色，列表一次 8 行；SEQ 音符页：长 Pattern 的 GRID 翻页（有选中的步时：大步改它们的值） |
 | {{key:OK}} | 这个画面的第二个 OK：INSTR、SENDS、总线 FX 和 SETUP 设置页：焦点值恢复默认；SEQ 音符页：和弦里的编辑对象（全部 / 单音）；SESSION：ADD TO SONG；SONG：SONG / LOOP 切换；RECORD 面板：把 take 合并进当前 Pattern；采样列表：改名 / 删除 |
 | {{key:PLAY}} | 录音待命（REC） |
 | {{key:C}} / {{key:V}} | 复制 / 粘贴（选中的步或当前 Pattern；SONG 里是一段） |
@@ -126,7 +126,8 @@ S = 保存
 | {{key:Q}} | 量化（选中的步或当前 Pattern） |
 | {{key:D}} | 把当前 Pattern 复制到下一个空位；SONG 里复制这一段 |
 | {{key:T}} | Tap tempo：连按两次以上，按间隔设 BPM |
-| {{key:S}} | 保存工程（还没起名时自动叫 SONG 01、SONG 02……） |
+| {{key:S}} | 保存工程（还没起名时不问名字，直接用第一个空着的 SONG 01、SONG 02……） |
+| {{key:F}} | 音色和采样列表里：搜索，见 [[#fn-yellow]] |
 | {{key:1}}–{{key:5}} | 没有作用 |
 
 > [!note] 字母键只在菜单里有对应项的画面起作用（那时它半亮）；{{key:S}} 和 {{key:T}} 到处都能用。执行后屏幕底部弹出名称和结果。菜单常驻（没有按住 FN）时演奏区弹的是音，不是字母功能。
@@ -135,7 +136,7 @@ S = 保存
 
 ## 输入画面里的 FN：黄色丝印 {#fn-yellow}
 
-在文字输入、预设 / 采样列表、确认框这些弹窗里，按住 FN 不出菜单，而是用键帽上的**黄色丝印**：
+在所有弹窗里（文字输入、音色 / 采样列表、音源选择、RECORD 面板、确认框），按住 FN 不出菜单，而是用键帽上的**黄色丝印**：
 
 {{keymap:按住 FN：GRID 右下角四个键是方向键
 FN = 按住
@@ -144,9 +145,13 @@ FN = 按住
 , = 左
 / = 右
 ADD SUB = 翻页
+F = 搜索（列表）
 }}
 
-<!-- keywords: 方向键, 上下左右, 黄色, 丝印, 列表, arrows, cursor keys, up down left right, yellow legend -->
+- 音色和采样列表里演奏区不打字：{{key:FN}} + {{key:F}} 打开搜索框（最多 16 个字符），{{key:OK}} 按它筛选列表。{{key:ESC}} 先清掉搜索，再按一次 {{key:ESC}} 关闭列表。
+- {{key:FN+ESC}} 在这里同样是全部停止；文字输入里除外，那里 ESC 是取消。
+
+<!-- keywords: 方向键, 上下左右, 黄色, 丝印, 列表, 搜索, 查找, 筛选, arrows, cursor keys, up down left right, yellow legend, search, fn f -->
 
 ## 输入文字 {#fn-text}
 
@@ -163,7 +168,7 @@ key ESC = 取消
 key PLAY = 空格
 }}
 
-- 字母、数字、空格（PLAY 键）、`-`；最多 24 个字符。
+- 字母、数字、空格（PLAY 键，不能放在第一个）、`-`；最多 24 个字符（搜索 16 个）。SAVE AS 从当前名字开始，没有名字时是 SONG。
 - 右上角键（键帽 del）删除光标前的字符；{{key:OK}} 确定；{{key:ESC}} 取消。
 - {{key:FN}} + {{key:,}} / {{key:/}} 左右移动光标，{{key:FN}} + {{key:;}} / {{key:.}} 跳到开头 / 结尾，{{key:FN}} + del 删除光标后的字符。
 - 光标是字符之间的竖线，在末尾时是方块。

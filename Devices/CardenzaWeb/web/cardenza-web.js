@@ -9,6 +9,9 @@
   const WIDTH = 240;
   const HEIGHT = 135;
   const STORAGE_MOUNT = '/sdcard';
+  // The device's internal flash (Device::Storage internal records): the groovebox's autosaved working
+  // state lives there, so it is kept in the browser like the card.
+  const INTERNAL_MOUNT = '/internal';
   const loadStarted = performance.now();
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   // ?embed=1: just the device (screen, keys, HOME) inside another page, the Learn manual. The host
@@ -259,9 +262,22 @@
     RGB565[value] = (0xff000000 | (blue << 16) | (green << 8) | red) >>> 0;
   }
 
+  // The guide page around an embedded device (tools/learn/guide.js) hears the firmware's app messages,
+  // the same text a Cardenza sends it over USB.
+  let guideListener = null;
+  function pumpGuide() {
+    if (!guideListener) return;
+    for (let count = 0; count < 32; count++) {
+      const text = mod.UTF8ToString(mod._cardenza_web_app_take());
+      if (!text) break;
+      try { guideListener(text); } catch (error) { console.error(error); }
+    }
+  }
+
   function present() {
     if (!booted) return;
     audio.onDeviceFrame();
+    pumpGuide();
     const frame = mod._cardenza_web_frame_counter();
     if (frame === lastPresented) return;
     lastPresented = frame;
@@ -294,14 +310,17 @@
 
   function mountStorage(module) {
     const FS = module.FS;
-    try {
-      FS.mkdir(STORAGE_MOUNT);
-    } catch (error) { /* exists */ }
+    for (const mount of [STORAGE_MOUNT, INTERNAL_MOUNT]) {
+      try {
+        FS.mkdir(mount);
+      } catch (error) { /* exists */ }
+    }
     let persistent = true;
     try {
       if (typeof indexedDB === 'undefined') throw new Error('IndexedDB unavailable');
       // autoPersist writes every closed file, rename and delete back to IndexedDB.
       FS.mount(module.IDBFS, { autoPersist: true }, STORAGE_MOUNT);
+      FS.mount(module.IDBFS, { autoPersist: true }, INTERNAL_MOUNT);
     } catch (error) {
       persistent = false;
       console.warn('CardenzaWeb: no persistent storage, using memory only', error);
@@ -325,7 +344,7 @@
   }
 
   // Settings are written a second after the last change; leaving the page writes them at once,
-  // then commits /sdcard to IndexedDB.
+  // then commits /sdcard and /internal to IndexedDB.
   function flushStorage() {
     if (booted && mod && typeof mod._cardenza_web_flush_storage === 'function') {
       try { mod._cardenza_web_flush_storage(); } catch (error) { /* ignore */ }
@@ -443,7 +462,7 @@
   }
 
   function reportKey(source, detail, row, column, held) {
-    const what = row < 0 ? '<b>HOME</b> (all stop)' : '<b>row ' + row + ' col ' + column + '</b>  (' + escapeHtml(describeKey(row, column)) + ')';
+    const what = row < 0 ? '<b>HOME</b> (unused; all stop is FN + ESC)' : '<b>row ' + row + ' col ' + column + '</b>  (' + escapeHtml(describeKey(row, column)) + ')';
     showStatus(source + (detail ? '  ' + escapeHtml(detail) : '') + '  →  ' + what + (held ? '' : '  ↑'));
   }
 
@@ -996,6 +1015,11 @@
     },
     releaseAll: () => releaseAll(),
     gesture: () => audio.userGesture(),
+    // The guide: a message to the firmware, and who hears its messages (one listener).
+    guide(text) {
+      if (booted) mod.ccall('cardenza_web_app_send', null, ['string'], [String(text)]);
+    },
+    listen(fn) { guideListener = typeof fn === 'function' ? fn : null; },
   };
   if (EMBED) {
     new ResizeObserver(reportSize).observe(document.querySelector('.device'));

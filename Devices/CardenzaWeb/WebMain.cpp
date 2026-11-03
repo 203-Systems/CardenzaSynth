@@ -160,14 +160,16 @@ EMSCRIPTEN_KEEPALIVE int cardenza_web_open_project(const char* name)
   return 1;
 }
 
-// Writes pending settings now instead of a second after the last change. The page calls it when
-// it is hidden or closed; IDBFS (autoPersist) then commits the files to IndexedDB.
+// Writes pending settings and the groovebox's autosave now instead of after the next quiet moment.
+// The page calls it when it is hidden or closed; IDBFS (autoPersist) then commits the files to
+// IndexedDB.
 EMSCRIPTEN_KEEPALIVE int cardenza_web_flush_storage()
 {
   if (!g_booted)
   {
     return 0;
   }
+  if (auto* groove = dynamic_cast<apps::GrooveApp*>(os::system::ActiveApplication())) groove->FlushSession();
   return os::storage::FlushAllSettings() ? 1 : 0;
 }
 
@@ -191,6 +193,23 @@ EMSCRIPTEN_KEEPALIVE void cardenza_web_set_home(int pressed)
   }
   CardenzaSim::Input::SetHomeButton(pressed != 0);
   RunDeviceFrame();
+}
+
+// The guide (tools/learn/guide.js): app messages between the page and the firmware, the same text as
+// a Cardenza exchanges with the page over USB (Device::USB::ReadAppMessage / WriteAppMessage).
+EMSCRIPTEN_KEEPALIVE void cardenza_web_app_send(const char* text)
+{
+  if (!g_booted || text == nullptr) return;
+  CardenzaSim::Input::SendComputerApp(text);
+  RunDeviceFrame();
+}
+
+// The oldest message from the firmware, or an empty string when there is none.
+EMSCRIPTEN_KEEPALIVE const char* cardenza_web_app_take()
+{
+  static std::string message;
+  if (!CardenzaSim::Input::TakeDeviceApp(message)) message.clear();
+  return message.c_str();
 }
 
 // Focus loss: nothing may stay held.

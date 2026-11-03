@@ -1,43 +1,51 @@
 # Projects and storage {#projects}
 
-A **project** is one song: the four tracks' engines and sounds, every pattern, the arrangement, the mix, track and master effects, BPM and swing. Projects live on the SD card; they are saved, loaded and created on the PROJECT and FILES pages of {{scene:SETUP}}.
+A **project** is one song: the four tracks' engines and sounds, every pattern, the arrangement, the mix, track and master effects, BPM and swing, the keyboard and every track's chord and arpeggiator. Projects live on the SD card; they are saved, loaded and created on the PROJECT and FILES pages of {{scene:SETUP}}. Your current work is also kept by itself inside the device (see [[#project-session]]).
 
-| Kept in the project | Not in the project (saved automatically) |
+| Kept in the project | Not in the project |
 |---|---|
-| Engines, sounds, patterns, arrangement, mix, effects, BPM, swing | Play settings (keyboard, scale, chords, ARP), device settings (volume, lights, screen) |
+| Engines, sounds, samples (by file name), patterns, song, mix (levels, mute, solo, SEQ), track and master effects, BPM, swing, keyboard (KEYS), chords and arpeggiators | SELECT (an app preference), device settings (volume, key lights, screen), LOOP / SONG, REC |
 
-<!-- keywords: project, file, save, storage, song file, 工程 -->
+<!-- keywords: project, file, save, storage, song file, what is saved, 工程 -->
 
 ## Save, save as, new, open {#project-save}
 
 {{strip
-FN+S > save-name @footer | {{key:FN+S}} on any screen (or SAVE in the FN menu): saved, SAVED and the name show at the bottom. A project without a name gets the first free one: SONG 01, SONG 02…
-hold ESC + G4 > setup-project @cells:1,1-1,4 | {{scene:SETUP}} {{page:PROJECT}}: SAVE, SAVE AS (type your own name), LOAD, NEW.
+FN+S > save-done @footer | {{key:FN+S}} on any screen (or SAVE in the FN menu): saved at once, SAVED and the name show at the bottom. A project without a name gets the first free one: SONG 01, SONG 02…
+hold ESC + G1 > setup-project @cells:1,1-1,3 | {{scene:SETUP}} {{page:PROJECT}}: SAVE, LOAD, NEW; SAVE AS (type your own name) is in the FN menu of this page.
 CTRL > setup-files @content | {{page:FILES}}: the projects on the card; {{key:ADD}} / {{key:SUB}} choose, {{key:OK}} loads.
 }}
 
 {{shot:setup-project|The PROJECT page of SETUP.
 mark cell:1,1 = SAVE: save now
-mark cell:1,2 = SAVE AS: save under a new name
-mark cell:1,3 = LOAD: open the FILES list
-mark cell:1,4 = NEW: start a new project
-mark 108,74,46,10 = UNSAVED: changes not saved yet
+mark cell:1,2 = LOAD: open the FILES list
+mark cell:1,3 = NEW: start a new project
+mark 8,69,224,18 = Name · UNSAVED: changes not saved yet
 }}
 
 - With unsaved changes the PROJECT page says UNSAVED next to the name, and SAVE in the FN menu reads UNSAVED; creating or opening another project asks first ({{key:OK}} = yes, {{key:ESC}} = no).
 - The FN menu on PROJECT and FILES has NEW, LOAD and SAVE AS. More in [[#setup-project]] and [[#setup-files]].
-- A NEW project has the default four tracks: {{track:1}} {{track:2}} {{track:3}} {{track:4}}.
-- Projects are written as format v4 (`.ccproj`); v1–v3 and the v5 of development builds also load. Writing is atomic: a temporary file is written first and then replaces the old one, so a power cut never leaves a broken project.
+- A NEW project has the default four tracks {{track:1}} {{track:2}} {{track:3}} {{track:4}} and the default play settings (C major, no chords, arpeggiators off).
+- Saving can fail with a message at the bottom: SD CARD ERROR (no card or it cannot be written), SAVE SAMPLE FIRST (a sample recording is not saved yet), NO MEMORY. Loading: INVALID PROJECT, SAMPLE MISSING (a sample the project names is not in `Shared/Samples`).
+- Projects are plain text files, format 7 (`.ccproj`); formats 1–6 also load (before 6 they carry no keyboard, chords or arpeggiators, so the current ones stay). Samples are named by file name, so renaming or deleting a sample on the card affects every project that uses it.
+- Writing is atomic: a temporary file is written first and then replaces the old one, so a power cut while saving never leaves a broken project.
 
-<!-- keywords: save, save project, how to save, save as, new project, open project, load project, unsaved, 保存工程 -->
+<!-- keywords: save, save project, how to save, save as, new project, open project, load project, unsaved, save failed, sd card error, 保存工程 -->
 
 ## Your work is kept {#project-session}
 
-Before switching to another app or an orderly power-off, the working state (unsaved changes included) is stored as a session and restored just as it was when you come back. A session is used only once, so an old state never returns after a power cut.
+You can switch the Cardenza off or pull the power at any moment: the working state is saved by itself in the device's internal memory, card or no card, and comes back as it was at the next start.
 
-> [!tip] Settings (volume, lights, keyboard, ARP and so on) reach the SD card about a second after you change them; there is nothing to save by hand.
+- It holds everything a project holds, plus the project's name and whether it was UNSAVED (loading another project still asks first). It opens on T1.
+- It is written when you pause: 1.5 s after the last key, with no key held, the transport stopped and nothing recording; while something keeps playing, after 60 s at the latest. Switching to another app writes it at once.
+- It is not a project: only SAVE writes a named project to the card. Save what you want to keep, and before you load or create another project.
+- If it cannot be written, the screen says AUTOSAVE FAILED: FN+S TO CARD. A very long piece (over about 12 KB) is kept without the patterns that are not playing, and the screen says TOO LONG TO AUTOSAVE: FN+S TO CARD. In both cases save to the card with {{key:FN+S}}.
+- A sample recording you have not saved yet waits on the card (`Session/take-<track>.wav`); after a restart it comes back with UNSAVED TAKE IS BACK. A sample the work uses that is on a card not inserted is loaded as soon as the card is back.
+- If the device fails to start three times in a row, the next start skips the working state once.
 
-<!-- keywords: autosave, session, restore, resume, power off, 自动保存 -->
+> [!tip] Settings (SELECT, volume, key lights, screen) reach the SD card about a second after you change them; there is nothing to save by hand.
+
+<!-- keywords: autosave, session, restore, resume, power off, power cut, pull the plug, battery, lost my work, autosave failed, too long to autosave, 自动保存 -->
 
 ## Folders on the SD card {#storage-layout}
 
@@ -46,13 +54,13 @@ Before switching to another app or an orderly power-off, the working state (unsa
   System/settings.cfg        device settings (volume, lights, screen)
   Shared/Samples/            samples shared by every app
   Apps/Cardenza/Synth/
-    settings.cfg             this app's settings (keyboard, scale, chords, arp)
+    settings.cfg             this app's preferences (SELECT)
     Projects/                projects (.ccproj)
     Presets/<engine>/        sounds you saved
-    Session/                 the working state across an app switch
+    Session/                 a sample recording not saved yet
 ```
 
-Every app follows the same storage protocol: each app writes only its own folder and the shared sample folder. The folders of older firmware (`CardenzaSynth/Sample`, `CardenzaSynth/Project`) are moved to the new place automatically on the first start.
+Every app follows the same storage protocol: each app writes only its own folder and the shared sample folder. The folders of older firmware (`CardenzaSynth/Project`, `Preset`, `Sample`) are moved to the new place automatically at start. The projects and samples of release 0.1.0 (`CardenzaSynth/Projects`, `CardenzaSynth/Samples`) stay where they are and show up in FILES and the sample list; saving such a project writes a copy to `Projects/`.
 
 <!-- keywords: folder, directory, path, sd card layout, where are my files, 目录 -->
 
@@ -62,22 +70,21 @@ Every app follows the same storage protocol: each app writes only its own folder
 
 ```text
 # Cardenza settings: Cardenza/Synth (storage protocol 1)
-keys.scale=4
-arp.latch=1
+keys.select=1
 ```
 
-Reading is forgiving: broken lines are skipped and unknown keys are kept as they are (newer and older firmware can share a card).
+Reading is forgiving: broken lines are skipped and unknown keys are kept as they are (newer and older firmware can share a card). The keyboard values older firmware kept here are read once at start and are no longer written: the keyboard belongs to the project now.
 
 <!-- keywords: settings file, config, cfg, text file, 设置文件 -->
 
 ## No card, or a bad card {#storage-card}
 
 {{shot:setup-system|SETUP SYSTEM: the SD card state.
-mark 8,66,150,10 = SD card: READY / no card
+mark 8,66,150,10 = SD card: READY / NOT FOUND
 mark cells:1,1-1,3 = VOLUME · KEY LED · SCREEN
 }}
 
-- Without an SD card, device and app settings are kept inside the device for now and written to the card automatically once it is in (retried every 10 seconds).
-- Projects, sounds and samples need the SD card; saving without one reports an error.
+- Without an SD card, device and app settings are kept inside the device for now and written to the card automatically once it is in (retried every 10 seconds). Your working state is in internal memory anyway (see [[#project-session]]).
+- Projects, sounds and samples need the SD card; saving without one reports SD CARD ERROR.
 
 <!-- keywords: no sd card, card missing, storage error, cannot save, sd card not found, 没有卡 -->

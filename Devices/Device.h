@@ -147,6 +147,16 @@ namespace USB {
 bool Connected();
 bool ReadMidi(std::uint8_t packet[4]);
 bool WriteMidi(const std::uint8_t packet[4]);
+// Messages between the firmware and a page or tool on the computer (the guide, docs/groovebox-design.md):
+// short 7-bit ASCII, over HID or as SysEx F0 23 7F <bytes> F7 (CardenzaHAL's app channel). Read takes
+// the oldest waiting message (false when none); Write is false when it could not be queued.
+inline constexpr std::size_t kAppMessageSize = 60;
+struct AppMessage {
+  std::size_t length = 0;
+  char data[kAppMessageSize] = {};
+};
+bool ReadAppMessage(AppMessage& message);
+bool WriteAppMessage(const char* data, std::size_t length);
 }  // namespace USB
 
 namespace Storage {

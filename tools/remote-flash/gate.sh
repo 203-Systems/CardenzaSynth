@@ -43,6 +43,7 @@ usage:
   usb-stats              what the firmware has seen go through USB
   usb-console [seconds]  the console of a board running USB firmware (it has no serial port)
   usb-test               MIDI both ways, audio both ways, commands; ok / FAIL per check
+  usb-guide              CardenzaSynth's guide link over SysEx (the Learn page's way); ok / FAIL per check
 A board running USB firmware has no serial port: flash first asks it (usb-command download) to
 restart into the ROM download mode, and log reads usb-console instead.
 EOF
@@ -124,7 +125,7 @@ import signal
 import subprocess
 import sys
 
-LIMITS = {"list": 30, "command": 20, "stats": 15, "test": 90}
+LIMITS = {"list": 30, "command": 20, "stats": 15, "test": 90, "guide": 30}
 GRACE_SECONDS = 1
 
 
@@ -190,12 +191,13 @@ if __name__ == "__main__":
 Talks only to devices with 203 Systems' vendor ID: the HID system channel (report 0xCB), the firmware's
 app reports (0xFF), MIDI ports and audio devices whose name contains "Cardenza".
 
-usage: usb_tool.py list | command <identify|reboot|launcher|download> | stats | console <seconds> | test
+usage: usb_tool.py list | command <identify|reboot|launcher|download> | stats | console <seconds> | test | guide
 """
 
 import collections
 import contextlib
 import os
+import re
 import struct
 import sys
 import threading
@@ -420,6 +422,67 @@ def sysex_command(code, seconds=1.5):
         port.close()
 
 
+def guide():
+    """The guide link (CardenzaSynth docs/groovebox-design.md) as the Learn page uses it, over SysEx
+    F0 23 7F <text> F7: start, a lesson start, the state, a key from the page, the end."""
+    port, error = midi()
+    if port is None:
+        raise SystemExit("usb: %s" % error)
+    failures = []
+    buffered = [b""]
+
+    def check(name, ok, detail=""):
+        print("%s %s %s" % ("ok  " if ok else "FAIL", name, detail))
+        if not ok:
+            failures.append(name)
+
+    def exchange(text, seconds=0.8):
+        port.send(bytes([0xF0, 0x23, 0x7F]) + text.encode("ascii") + b"\xf7")
+        answers = []
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            buffered[0] += port.take()
+            while True:
+                data = buffered[0]
+                start = data.find(bytes([0xF0, 0x24, 0x7F]))
+                stop = data.find(b"\xf7", start) if start >= 0 else -1
+                if stop < 0:
+                    break
+                answers.append(data[start + 3:stop].decode("ascii", "replace"))
+                buffered[0] = data[stop + 1:]
+            time.sleep(0.01)
+        return answers
+
+    def field(answers, name):
+        states = [a[2:].split("n", 1)[0] for a in answers if a.startswith("GS")]
+        for state in reversed(states):
+            found = [int(v) for k, v in re.findall(r"([a-z])(\d+)", state) if k == name]
+            if found:
+                return found[0]
+        return None
+
+    try:
+        port.take()
+        hello = exchange("G?")
+        check("guide link", any(a.startswith("G!1") for a in hello), " ".join(hello))
+        started = exchange("GE", 3.0)
+        check("guide starts", "GE1" in started, " ".join(a for a in started if not a.startswith("GS")))
+        lesson = exchange("GLs2p0t1", 1.0)
+        check("lesson start: SEQ, T1", field(lesson, "s") == 2 and field(lesson, "t") == 0, (lesson or [""])[-1])
+        exchange("GH0d1b", 0.3)
+        asked = exchange("GQ")
+        check("state on request", field(asked, "s") == 2, (asked or [""])[-1])
+        exchange("GK0e1", 0.3)
+        moved = exchange("GK0e0", 1.0)
+        check("TAB from the page: next track", field(moved, "t") == 1, (moved or [""])[-1])
+        ended = exchange("GX", 3.0)
+        check("guide ends, the working state is back", "GX" in ended, " ".join(a for a in ended if not a.startswith("GS")))
+    finally:
+        port.close()
+    print("failures: %d" % len(failures))
+    return 1 if failures else 0
+
+
 def command(name):
     code = COMMANDS[name]
     device, error = open_hid()
@@ -619,7 +682,7 @@ def main():
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
     action = sys.argv[1]
-    limits = {"list": 30, "command": 20, "stats": 15, "test": 90}
+    limits = {"list": 30, "command": 20, "stats": 15, "test": 90, "guide": 30}
     watchdog(limits.get(action, 0) or (float(sys.argv[2]) + 15 if action == "console" and len(sys.argv) == 3 else 30))
     if action == "list":
         list_all()
@@ -632,6 +695,8 @@ def main():
         console(float(sys.argv[2]))
     elif action == "test":
         raise SystemExit(test())
+    elif action == "guide":
+        raise SystemExit(guide())
     else:
         raise SystemExit(__doc__)
 
@@ -774,5 +839,6 @@ case ${ARGS[0]}:${#ARGS[@]} in
   usb-stats:1) lock; usb_py stats ;;
   usb-console:1 | usb-console:2) check_seconds "${ARGS[1]:-10}"; lock; usb_py console "${ARGS[1]:-10}" ;;
   usb-test:1) lock; usb_py test ;;
+  usb-guide:1) lock; usb_py guide ;;
   *) usage ;;
 esac

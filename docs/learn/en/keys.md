@@ -1,6 +1,6 @@
 # Keys {#keys}
 
-The keyboard has 4 rows × 14 columns in four blocks, each with its own colour and role; every key has a single-colour light that tells you what it can do **right now**. There is also a HOME key on the side.
+The keyboard has 4 rows × 14 columns in four blocks, each with its own colour and role; every key has a single-colour light that tells you what it can do **right now**. There is also a HOME key on the side, which the groovebox leaves unused.
 
 {{keymap:The left column navigates, the 4×8 in the middle plays, the 4×4 on the right is the screen's cells, the last column sets values and plays
 ESC = ESC: scenes
@@ -29,29 +29,31 @@ All four keys work the same way: **a tap does one thing, a hold shows a map**:
 
 | Key | {{icon:tap}} Tap | {{icon:hold}} Hold |
 |---|---|---|
-| {{key:ESC}} | walks the scenes {{scene:INSTR}} → {{scene:SEQ}} → {{scene:TAPE}}; in {{scene:SETUP}} goes back; cancels in a pop-up | scene map: the GRID's four columns = the four scenes, column 4 = SETUP |
+| {{key:ESC}} | walks the scenes {{scene:INSTR}} → {{scene:SEQ}} → {{scene:TAPE}}; in {{scene:SETUP}} goes back; cancels in a pop-up | scene map: the GRID's four columns = the four scenes, column 1 = 0 SETUP |
 | {{key:TAB}} | next track {{track:1}} → {{track:2}} → {{track:3}} → {{track:4}} | track map: select, mute, solo, sequencer on |
-| {{key:FN}} | opens / closes the menu of this screen | the FN menu and second functions, see [[#fn-menu]] |
+| {{key:FN}} | opens / closes the menu of this screen | the FN menu and second functions, see [[#fn-menu]]; in input screens the yellow legends, see [[#fn-yellow]] |
 | {{key:CTRL}} | next page | page map: every page of the current scene |
 
 {{shot:map-esc|Holding ESC: the screen becomes the scene map, and the GRID's columns are the scenes.
-mark cells:1,1-4,1 = 1 INSTR
-mark cells:1,2-4,2 = 2 SEQ (current)
-mark cells:1,3-4,3 = 3 TAPE
-mark cells:1,4-4,4 = 4 SETUP: only from here
+mark cells:1,1-4,1 = 0 SETUP: only from here
+mark cells:1,2-4,2 = 1 INSTR
+mark cells:1,3-4,3 = 2 SEQ (current)
+mark cells:1,4-4,4 = 3 TAPE
 mark strip:ESC = ESC held
 key ESC = Hold
 key GRID = Scenes: current fully lit, others half lit
 }}
 
-The four strips on the screen's left edge are these four keys (top to bottom: ESC red-orange, TAB cyan, FN yellow, CTRL violet). The small marks inside the strips:
+The four strips on the screen's left edge are these four keys (top to bottom: ESC red-orange, TAB cyan, FN yellow, CTRL violet), each with its icon. Where you are is in the status line and the page tabs, not in the strips:
 
-| Strip | Marks |
-|---|---|
-| {{key:ESC}} | 4 marks = 4 scenes, the white one is the current scene |
-| {{key:TAB}} | 4 marks = 4 tracks (in track colours), the white one is the current track |
-| {{key:FN}} | 1 mark, turns red while recording is armed |
-| {{key:CTRL}} | one mark per page of the current scene, the white one is the current page |
+| Strip | Icon | Shows |
+|---|---|---|
+| {{key:ESC}} | back arrow | half lit: always works (scenes, back, cancel) |
+| {{key:TAB}} | tab arrow | off in a pop-up; after a track change only the strip of the new track's row lights for a moment (T1 = ESC … T4 = CTRL) |
+| {{key:FN}} | menu | fully lit while the menu is kept open |
+| {{key:CTRL}} | pages | off when the screen has a single page or a pop-up is open |
+
+A held key fills its strip from the bottom.
 
 <!-- keywords: left keys, function keys, modifiers, escape, tab, fn, ctrl, 左键, 功能键 -->
 
@@ -65,10 +67,13 @@ PLAY = Play / stop
 
 | Key | Cap | Does |
 |---|---|---|
-| {{key:ADD}} | del | increase / next in a list; held it repeats, faster and faster |
-| {{key:SUB}} | `\` | decrease / previous in a list |
-| {{key:OK}} | ↵ Enter | confirm, run, switch; on the SEQ note page it is the {{icon:rec}} **record key**: a tap switches ROLL / STEP, a hold opens the RECORD panel |
+| {{key:ADD}} | del | increase; up in a list; held it repeats, faster and faster |
+| {{key:SUB}} | `\` | decrease; down in a list |
+| {{key:OK}} | ↵ Enter | confirm, run, switch; on the SEQ note page it is the {{icon:rec}} **record key**: a tap switches ROLL / STEP, a hold (0.45 s) opens the RECORD panel |
 | {{key:PLAY}} | space | play / stop; {{key:FN+PLAY}} arms / disarms live recording |
+
+- With {{key:TAB}} held, {{key:ADD}} / {{key:SUB}} pick the next / previous track; with {{key:CTRL}} held, the next / previous page.
+- The icons on the right strips say what ADD and SUB do on this screen: + −, ↑ ↓ in a list, → ← sideways (steps, the engine picker).
 
 > [!note] In text entry the top key (the del cap) erases.
 
@@ -76,11 +81,11 @@ PLAY = Play / stop
 
 ## The PADS {#keys-pads}
 
-The 4×8 keys in the middle always play the **current track**, whatever scene or page you are on (except while you hold ESC, TAB or CTRL to see a map).
+The 4×8 keys in the middle always play the **current track**, whatever scene or page you are on. Except: while you hold ESC, TAB or CTRL (a map, the pads are silent), while you hold FN (letters and quick controls, see [[#fn-shortcuts]]), while you hold a parameter cell (the pads are its values) and in the preset and sample lists (silent; search is {{key:FN}} + {{key:F}}).
 
 {{strip
-hold r3c1~Kick > seq-drum-held | Drum track {{track:1}}: each **column** is one drum: kick, snare, closed hat, open hat, clap, tom, cowbell, maracas.
-hold r3c1~C > seq-hold-pad | Melodic tracks: the bottom row is white keys, the row above black keys, the two rows above those one octave up. See [[#play-keyboard]].
+hold r3c1~Kick > seq-drum-held | Drum track {{track:1}}: each **column** is one drum: kick, snare, closed hat, open hat, clap, tom, cowbell, maracas. The row says how hard: the top row hardest, the bottom row softest.
+hold r2c1~C3 > seq-hold-pad | Melodic tracks (PIANO layout): rows 1 and 3 are white keys, rows 2 and 4 black keys; C3 is the shift key, the top row an octave up. See [[#play-keyboard]].
 - > text-entry | In text entry the whole keyboard types the characters on its caps.
 }}
 
@@ -91,7 +96,7 @@ hold r3c1~C > seq-hold-pad | Melodic tracks: the bottom row is white keys, the r
 The 16 keys of the 4×4 on the right = the 4×4 cells in the middle of the screen. **What is drawn on the screen is what the key does:**
 
 {{strip
-G1 > seq-step @cell:1,1 | Sequencer: 16 cells = 16 steps.
+G1 > seq-step @cell:1,1 | Sequencer: 16 cells = 16 steps. A pattern can be up to 256 steps; the GRID shows one page of 16 at a time.
 G1 > instr-juno-vcf @cell:1,1 | Instrument pages: 16 cells = 16 parameters; tap one to select it.
 G6 > tape-mix @cells:1,2-4,2 | MIX: each column is one track's select, mute, solo and sequencer switches.
 }}
@@ -102,11 +107,11 @@ While a left key is held the GRID becomes that key's "map", see [[#nav-maps]].
 
 ## HOME side key {#keys-home}
 
-{{icon:stop}} The HOME key on the side is **stop all**: it stops the sequencer and silences everything that is sounding (stuck notes, the ARP and recording included). All key lights flash once and settle back.
+The HOME key on the side does nothing in the groovebox. {{icon:stop}} **Stop all** is {{key:FN+ESC}}: it stops the sequencer and silences everything that is sounding (stuck notes and every ARP included), and the screen says ALL STOP.
 
-> [!note] HOME belongs to the running app; switching apps is the job of the device's own launcher.
+> [!note] Switching apps is the job of the device's own launcher.
 
-<!-- keywords: stop all, panic, all notes off, stuck notes, silence, home, 全部停止 -->
+<!-- keywords: stop all, panic, all notes off, stuck notes, silence, home, home key, fn esc, 全部停止 -->
 
 ## One rule for everything {#keys-rules}
 
@@ -115,6 +120,6 @@ While a left key is held the GRID becomes that key's "map", see [[#nav-maps]].
 | {{hold:ESC}} {{hold:TAB}} {{hold:CTRL}} | **While a left key is held, choose on the GRID.** Each cell of a map sits on the key that picks it |
 | {{hold:FN}} | While FN is held, **no key does its usual job**: the GRID is the menu, keys with an FN function do only that (lit), the others do nothing (off) |
 | {{icon:tap}} | A modifier that was used in a combination does not also fire its tap when released |
-| {{icon:hold}} | A hold is 250 ms; {{key:ADD}} / {{key:SUB}} start repeating after 0.4 s and move 5 at a time after 12 repeats |
+| {{icon:hold}} | A hold is 250 ms (OK on the SEQ note page: 0.45 s); {{key:ADD}} / {{key:SUB}} start repeating after 0.4 s and move 5 at a time after 12 repeats |
 
 <!-- keywords: rules, hold, long press, combination, chord, repeat, auto repeat, 规则, 长按 -->

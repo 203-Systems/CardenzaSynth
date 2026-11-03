@@ -21,13 +21,17 @@
     <span class="logo" aria-hidden="true"></span>
     <span class="brand-text"><b>Cardenza</b> <span data-l="zh">学习</span><span data-l="en">Learn</span></span>
   </a>
+  <nav class="modes" aria-label="Manual">
+    <a href="./"><span data-l="zh">教程</span><span data-l="en">Guide</span></a>
+    <a class="on" href="reference.html" aria-current="page"><span data-l="zh">字典</span><span data-l="en">Reference</span></a>
+  </nav>
   <a class="version" href="#changelog" title="Manual version · firmware build · date">v{{VERSION}} <small>· {{BUILD}} · {{DATE}}</small></a>
   <div class="search" role="search">
     <input id="search" type="search" autocomplete="off" spellcheck="false"
            placeholder="搜索 / Search  ( / )" aria-label="Search" aria-controls="results" aria-expanded="false">
     <div id="results" class="results" role="listbox" hidden></div>
   </div>
-  <button class="btn usb" id="usb-btn" hidden title="Connect a Cardenza over USB: its keys operate the live device in the tutorial (Chrome / Edge)">
+  <button class="btn usb" id="usb-btn" hidden title="Connect a Cardenza over USB (Web MIDI): its keys operate the live device in the tutorial (Chrome / Edge)">
     <span class="usb-dot" aria-hidden="true"></span><span class="btn-text"><span data-l="zh">连接设备</span><span data-l="en">Device</span> USB</span>
   </button>
   <button class="btn" id="map-btn" aria-haspopup="dialog" aria-label="Map"><svg class="ico" aria-hidden="true"><use href="#i-map"/></svg><span class="btn-text"><span data-l="zh">地图</span><span data-l="en">Map</span></span> <kbd>M</kbd></button>

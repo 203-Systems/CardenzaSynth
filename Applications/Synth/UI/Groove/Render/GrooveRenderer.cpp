@@ -172,7 +172,14 @@ void DrawHeader(Gfx& g, const Controller& controller, Animator& animator)
   char bpm[8];
   std::snprintf(bpm, sizeof(bpm), "%u", static_cast<unsigned>(seq.bpm));
   int right = kContentRight;
-  if (state.dirty)
+  // A lesson page on a computer drives the device (the guide): its working state is set aside.
+  if (controller.Guide())
+  {
+    right -= Gfx::Measure("GUIDE");
+    g.Text(right, kHeaderY, "GUIDE", kInk);
+    right -= 6;
+  }
+  else if (state.dirty)
   {
     g.Text(right - 6, kHeaderY, "*", (now / 700) % 2 ? kFn : kDim);
     right -= 9;

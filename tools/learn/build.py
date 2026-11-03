@@ -51,6 +51,7 @@ import subprocess
 import sys
 
 import figures
+import guide as guide_lessons
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 LEARN = ROOT / "docs" / "learn"
@@ -83,7 +84,8 @@ class Script:
         return self
 
     def scene(self, number):
-        return self.act("down esc", f"tap {grid_key(number - 1)}", "up esc").wait(30)
+        # The on-screen scene number: 0 SETUP, 1 INSTR, 2 SEQ, 3 TAPE (ESC map column = number).
+        return self.act("down esc", f"tap {grid_key(number)}", "up esc").wait(30)
 
     def track(self, number):
         return self.act("down tab", f"tap {grid_key(number - 1)}", "up tab").wait(30)
@@ -94,7 +96,7 @@ class Script:
 
 def shot_script():
     s = Script()
-    # The boot screen: INSTR VOICE on T2, the pads a piano. Then SEQ, T1 drums and a first beat (kick,
+    # The boot screen: INSTR VOICE on T1 (the drums). Then SEQ, T1 drums and a first beat (kick,
     # snare, hat).
     s.shot("instr-boot")
     s.scene(2).shot("seq-empty")
@@ -104,17 +106,20 @@ def shot_script():
     s.act("down 3,2", f"tap {grid_key(4)}", f"tap {grid_key(12)}", "up 3,2")
     s.act("down 3,3", *[f"tap {grid_key(i)}" for i in range(0, 16, 2)], "up 3,3")
     s.shot("seq-drums")
+    # Hold a hit (CH on step 1) and ADD: its velocity on screen; a changed hit stays.
+    s.act(f"down {grid_key(0)}").wait(20).act("tap del").shot("seq-drum-edit", 10).act(f"up {grid_key(0)}").wait(120)
     s.act("tap space").shot("seq-drums-playing", 40)
     s.act("tap space").wait(40)
     # TAB: next track; the left keys show which one for a moment.
     s.act("tap tab").shot("tab-hint", 22)
     s.shot("seq-keyboard", 60)
     # Notes: hold a pad, tap steps.
-    s.act("down 3,1").shot("seq-hold-pad", 20)
+    # On a melodic track C3 is pad 2,1 (row 3 is the white keys' gap row).
+    s.act("down 2,1").shot("seq-hold-pad", 20)
     s.act(f"tap {grid_key(0)}").shot("seq-hold-tap", 10)
-    s.act(f"tap {grid_key(4)}", f"tap {grid_key(8)}", "up 3,1")
-    s.act("down 3,3", f"tap {grid_key(2)}", f"tap {grid_key(10)}", "up 3,3")
-    s.act("down 3,5", f"tap {grid_key(12)}", f"tap {grid_key(14)}", "up 3,5")
+    s.act(f"tap {grid_key(4)}", f"tap {grid_key(8)}", "up 2,1")
+    s.act("down 2,3", f"tap {grid_key(2)}", f"tap {grid_key(10)}", "up 2,3")
+    s.act("down 2,5", f"tap {grid_key(12)}", f"tap {grid_key(14)}", "up 2,5")
     s.shot("seq-notes")
     s.act(f"tap {grid_key(4)}")
     s.shot("seq-selected")
@@ -124,14 +129,14 @@ def shot_script():
     s.act("tap space").shot("seq-playing", 30)
     s.act("tap space").wait(40)
     # STEP REC: OK switches the view; pads write into the cursor step.
-    s.act("tap enter").shot("seq-step-view", 30).act(f"tap {grid_key(1)}", "tap 3,2", "tap 3,4")
+    s.act("tap enter").shot("seq-step-view", 30).act(f"tap {grid_key(1)}", "tap 2,2", "tap 2,3")
     s.shot("seq-step", 140)
     s.act("tap enter").wait(200)
     # Capture: a few phrases, then hold OK for the RECORD panel; OK puts a bar into a new pattern.
-    for pad in ("3,1", "3,3", "3,5", "3,3", "3,1"):
+    for pad in ("2,1", "2,3", "2,5", "2,3", "2,1"):
         s.act(f"down {pad}").wait(8).act(f"up {pad}").wait(10)
     s.wait(200)
-    for pad in ("3,5", "2,5", "3,8"):
+    for pad in ("2,5", "2,6", "2,8"):
         s.act(f"down {pad}").wait(12).act(f"up {pad}").wait(6)
     s.act("down enter").wait(40).act("up enter").wait(10).act(f"tap {grid_key(5)}")
     s.shot("record", 30)
@@ -153,43 +158,44 @@ def shot_script():
     s.act("tap 1,8").act("up fn").wait(60)
     # A tap on FN keeps the menu open.
     s.act("tap fn").shot("fn-menu-open", 30).act("tap fn").wait(40)
-    # INSTR on T2 (Juno), and its FN menu.
+    # INSTR on T2 (Juno): VOICE, CHORD, ARP, DCO, VCF, ENV, LFO, FX; and its FN menu.
     s.scene(1).page(0).shot("instr-voice")
     s.act("down fn").shot("fn-menu-instr", 30).act("up fn").wait(40)
     s.act(f"tap {grid_key(0)}").shot("engine-picker").act("tap esc").wait(30)
     s.act(f"tap {grid_key(1)}").shot("preset-browser")
-    s.act("tap b", "tap a", "tap s", "tap s").shot("preset-filtered", 30).act("tap esc").wait(10).act("tap esc").wait(30)
-    for index, name in enumerate(["dco", "vcf", "env", "lfo", "fx"], start=1):
+    # The pads do not type in a browser: FN + F opens the search field.
+    s.act("down fn", "tap f", "up fn").wait(10).act("tap b", "tap a", "tap s", "tap s").shot("preset-search", 30)
+    s.act("tap enter").shot("preset-filtered", 30).act("tap esc").wait(10).act("tap esc").wait(30)
+    # CHORD and ARP: the track's own MIDI effects.
+    s.page(1).shot("instr-chord")
+    s.act(f"tap {grid_key(0)}").shot("chord-on")
+    s.act("down 2,1").shot("chord-held", 20).act("up 2,1").wait(10)
+    s.act(*["tap 1,13"] * 12).wait(20)
+    s.page(2).shot("instr-arp")
+    s.act(f"tap {grid_key(0)}").wait(10)
+    s.act("down 2,1", "down 2,3", "down 2,5").shot("arp-running", 50).act("up 2,1", "up 2,3", "up 2,5")
+    s.act(f"tap {grid_key(0)}", *["tap 1,13"] * 8).wait(20)
+    for index, name in enumerate(["dco", "vcf", "env", "lfo", "fx"], start=3):
         s.page(index).shot(f"instr-juno-{name}")
-    # T3 DX7.
+    # T3 DX7: VOICE, CHORD, ARP, ALGO, LEVELS, OP1-OP6, LFO, FX.
     s.track(3)
-    for index, name in [(0, "voice"), (1, "algo"), (2, "levels"), (3, "op1"), (9, "lfo")]:
+    for index, name in [(0, "voice"), (3, "algo"), (4, "levels"), (5, "op1"), (11, "lfo")]:
         s.page(index).shot(f"instr-dx7-{name}")
-    # T1 drums, T4 sampler.
+    # T1 drums (VOICE, KIT, FX), T4 sampler (VOICE, CHORD, ARP, SAMPLE, TONE, FX).
     s.track(1).page(1).shot("instr-drums-kit")
-    s.track(4).page(1).shot("instr-sampler-sample")
+    s.track(4).page(3).shot("instr-sampler-sample")
     s.act(f"tap {grid_key(0)}").shot("sampler-files", 30).act("tap esc").wait(30)
     s.act(f"tap {grid_key(1)}").shot("sampler-rec", 30).act("tap esc").wait(30)
-    s.page(2).shot("instr-sampler-tone")
+    s.page(4).shot("instr-sampler-tone")
     s.track(2).page(0)
-    # SETUP (ESC + GRID column 4): the settings pages, with the keyboard layouts, a chord and the
-    # arpeggiator; ESC goes back to INSTR.
-    s.scene(4)
-    for page, name in [(2, "keys"), (3, "chord"), (4, "arp"), (5, "system")]:
-        s.page(page).shot(f"setup-{name}")
-        if name == "keys":
-            s.act(f"tap {grid_key(0)}").shot("keys-scale").act(f"tap {grid_key(0)}").shot("keys-chroma")
-            s.act(f"tap {grid_key(0)}").wait(20)
-        elif name == "chord":
-            s.act(f"tap {grid_key(0)}").shot("chord-on")
-            s.act("down 3,3").shot("chord-held", 20).act("up 3,3").wait(10)
-            s.act(*["tap 1,13"] * 12).wait(20)
-        elif name == "arp":
-            s.act(f"tap {grid_key(0)}").wait(10)
-            s.act("down 3,1", "down 3,3", "down 3,5").shot("arp-running", 50).act("up 3,1", "up 3,3", "up 3,5")
-            s.act(f"tap {grid_key(0)}", *["tap 1,13"] * 8).wait(20)
+    # SETUP (scene 0, ESC + GRID column 1): KEYS with the keyboard layouts, SYSTEM with the LED ramp.
+    s.scene(0)
+    s.page(2).shot("setup-keys")
+    s.act(f"tap {grid_key(0)}").shot("keys-scale").act(f"tap {grid_key(0)}").shot("keys-chroma")
+    s.act(f"tap {grid_key(0)}").wait(20)
+    s.page(3).shot("setup-system")
     s.act(f"tap {grid_key(1)}").shot("setup-keyled")
-    s.act(f"tap {grid_key(0)}").page(2).act("tap esc").wait(40)
+    s.act(f"tap {grid_key(0)}").act("tap esc").wait(40)
     # TAPE: a few song rows first (SESSION capture).
     s.scene(3).page(0).shot("tape-session")
     s.act("tap space").wait(20).act(f"tap {grid_key(5)}").shot("tape-session-queued", 8)
@@ -200,20 +206,26 @@ def shot_script():
     s.page(2).shot("tape-mix")
     s.page(3).shot("tape-sends")
     s.page(4).shot("tape-fx")
-    # SETUP PROJECT and FILES.
-    s.scene(4).page(0).shot("setup-project")
-    s.act(f"tap {grid_key(1)}").shot("text-entry")
+    # SETUP PROJECT (SAVE, LOAD, NEW) and FILES; SAVE AS is in the FN menu.
+    s.scene(0).page(0).shot("setup-project")
+    s.act("down fn", f"tap {grid_key(2)}", "up fn").shot("text-entry", 30)
     s.act("tap esc").wait(30)
-    s.act(f"tap {grid_key(3)}").shot("confirm")
+    s.act(f"tap {grid_key(2)}").shot("confirm")
     s.act("tap esc").wait(30)
-    s.page(1).shot("setup-files")
+    s.act("down fn").shot("fn-menu-setup", 30).act("up fn").wait(40)
+    s.act("tap esc").wait(30)
     # Recording armed while playing.
     s.scene(2).page(0).act("down fn", "tap space", "up fn", "tap space").shot("seq-recording", 30)
     s.act("tap space", "down fn", "tap space", "up fn").wait(40)
-    # Save with FN+S: a name first, then the confirmation.
-    s.act("down fn", "tap s", "up fn").shot("save-name", 30)
-    s.act("tap enter").shot("save-done", 30)
+    # FN + S: a new project is saved at once as SONG 01, no name field.
+    s.act("down fn", "tap s", "up fn").shot("save-done", 30)
     s.wait(60)
+    # FILES after the save: the list shows the project.
+    s.scene(0).page(1).shot("setup-files")
+    s.act("tap esc").wait(30)
+    # A long pattern: SEQ menu LEN + twice (16 -> 48 steps), then FN + ADD to its second page.
+    s.scene(2).page(0)
+    s.act("down fn", f"tap {grid_key(11)}", f"tap {grid_key(11)}", "tap del", "up fn").shot("seq-long", 30)
     return "\n".join(s.lines) + "\n"
 
 
@@ -225,8 +237,10 @@ def run_shots(sim_build, out_dir, work):
     script.write_text(shot_script())
     raw = work / "shots"
     shutil.rmtree(raw, ignore_errors=True)
-    # A fresh card every run: settings and projects from the last run would change the screens.
+    # A fresh card and internal flash every run: settings, projects and the autosaved working state
+    # from the last run would change the screens.
     shutil.rmtree(work / "sdcard", ignore_errors=True)
+    shutil.rmtree(work / "internal", ignore_errors=True)
     subprocess.run([str(shot_tool), "--script", str(script), "--out", str(raw), "--scale", "2"], check=True,
                    cwd=work, stdout=subprocess.DEVNULL)
     leds = {}
@@ -255,25 +269,24 @@ def run_shots(sim_build, out_dir, work):
 # Where the live device goes when a screenshot's "try it" opens it: scene, track and page, picked
 # through the hold maps like a person would (tools/learn/learn.js runs them).
 def shot_setup(name):
-    first_track = ("seq-drum-held", "seq-drums", "seq-drums-playing")
+    # Scenes by their on-screen number (0 SETUP, 1 INSTR, 2 SEQ, 3 TAPE); tracks 1-4; pages from 0.
+    first_track = ("seq-drum-held", "seq-drums", "seq-drum-edit", "seq-drums-playing")
     steps = []
-    setup_pages = {"setup-project": 0, "text-entry": 0, "confirm": 0, "setup-files": 1, "setup-keys": 2, "keys-scale": 2,
-                   "keys-chroma": 2, "setup-chord": 3, "chord-on": 3, "chord-held": 3, "setup-arp": 4, "arp-running": 4,
-                   "setup-system": 5, "setup-keyled": 5}
+    setup_pages = {"setup-project": 0, "text-entry": 0, "confirm": 0, "fn-menu-setup": 0, "setup-files": 1, "setup-keys": 2, "keys-scale": 2,
+                   "keys-chroma": 2, "setup-system": 3, "setup-keyled": 3}
+    instr_pages = {"instr-chord": (2, 1), "chord-on": (2, 1), "chord-held": (2, 1), "instr-arp": (2, 2), "arp-running": (2, 2),
+                   "instr-juno-dco": (2, 3), "instr-juno-vcf": (2, 4), "instr-juno-env": (2, 5), "instr-juno-lfo": (2, 6),
+                   "instr-juno-fx": (2, 7), "instr-dx7-voice": (3, 0), "instr-dx7-algo": (3, 3), "instr-dx7-levels": (3, 4),
+                   "instr-dx7-op1": (3, 5), "instr-dx7-lfo": (3, 11), "instr-drums-kit": (1, 1), "instr-sampler-sample": (4, 3),
+                   "instr-sampler-tone": (4, 4), "sampler-files": (4, 3), "sampler-rec": (4, 3)}
     if name in setup_pages:
-        steps = [["scene", 4], ["track", 2], ["page", setup_pages[name]]]
-    elif name in ("instr-boot", "fn-menu-instr"):
-        steps = [["scene", 1], ["track", 2], ["page", 0]]
+        steps = [["scene", 0], ["track", 2], ["page", setup_pages[name]]]
+    elif name in instr_pages or name.startswith(("instr-", "engine-", "preset-", "fn-menu-instr")):
+        track, page = instr_pages.get(name, (2, 0))
+        steps = [["scene", 1], ["track", track], ["page", page]]
     elif name.startswith(("seq-", "record", "fn-", "map-", "tab-", "save-")):
         steps = [["scene", 2], ["track", 1 if name in first_track else 2]]
         steps.append(["page", 1 if name == "seq-pattern" else 2 if name == "seq-track" else 0])
-    elif name.startswith(("instr-", "engine-", "preset-", "sampler-")):
-        pages = {"instr-juno-dco": (2, 1), "instr-juno-vcf": (2, 2), "instr-juno-env": (2, 3), "instr-juno-lfo": (2, 4),
-                 "instr-juno-fx": (2, 5), "instr-dx7-voice": (3, 0), "instr-dx7-algo": (3, 1), "instr-dx7-levels": (3, 2),
-                 "instr-dx7-op1": (3, 3), "instr-dx7-lfo": (3, 9), "instr-drums-kit": (1, 1), "instr-sampler-sample": (4, 1),
-                 "instr-sampler-tone": (4, 2), "sampler-files": (4, 1), "sampler-rec": (4, 1)}
-        track, page = pages.get(name, (2, 0))
-        steps = [["scene", 1], ["track", track], ["page", page]]
     elif name.startswith("tape-"):
         pages = {"tape-session": 0, "tape-session-queued": 0, "tape-song": 1, "tape-mix": 2, "tape-sends": 3, "tape-fx": 4}
         steps = [["scene", 3], ["page", pages.get(name, 0)]]
@@ -430,12 +443,12 @@ MAP_TEXT = {
            "add": "ADD：加", "sub": "SUB：减", "enter": "ENTER：确认", "play": "PLAY：播放 / 停止",
            "pads": "演奏区：弹当前轨", "grid": "GRID：屏幕 4×4", "quick": "FN 快捷：BPM / 音量 / 八度",
            "screen": "屏幕", "header": "状态行", "footer": "页签", "content": "内容区（对应 GRID）", "strips": "两侧色块 = 两侧按键",
-           "home": "HOME 侧键：全部停止"},
+           "home": "HOME 侧键：不用（全部停止是 FN + ESC）"},
     "en": {"esc": "ESC: scenes / back", "tab": "TAB: tracks", "fn": "FN: the menu of this screen", "ctrl": "CTRL: pages",
            "add": "ADD: increase", "sub": "SUB: decrease", "enter": "ENTER: confirm", "play": "PLAY: play / stop",
            "pads": "Pads: play the current track", "grid": "GRID: the screen's 4×4", "quick": "FN quick: BPM / volume / octave",
            "screen": "Screen", "header": "Status line", "footer": "Page tabs", "content": "Content (mirrors the GRID)",
-           "strips": "Edge strips = edge keys", "home": "HOME side key: stop all"},
+           "strips": "Edge strips = edge keys", "home": "HOME side key: unused (stop all is FN + ESC)"},
 }
 
 
@@ -489,16 +502,16 @@ def device_map(lang):
 
 SCENE_MAP = [
     # (title, section, [(label, section, shot)])
-    ("1 INSTR", "instr", [("VOICE", "instr-voice", "instr-voice"), ("DRUMS · KIT", "engine-drums", "instr-drums-kit"),
-                          ("JUNO · DCO VCF ENV LFO", "engine-juno", "instr-juno-dco"), ("DX7 · ALGO LEVELS OP1–6 LFO", "engine-dx7", "instr-dx7-algo"),
+    ("0 SETUP", "setup", [("PROJECT", "setup-project", "setup-project"), ("FILES", "setup-files", "setup-files"),
+                          ("KEYS", "setup-keys", "setup-keys"), ("SYSTEM", "setup-system", "setup-system")]),
+    ("1 INSTR", "instr", [("VOICE", "instr-voice", "instr-voice"), ("CHORD", "play-chords", "instr-chord"), ("ARP", "play-arp", "instr-arp"),
+                          ("DRUMS · KIT", "engine-drums", "instr-drums-kit"), ("JUNO · DCO VCF ENV LFO", "engine-juno", "instr-juno-dco"),
+                          ("DX7 · ALGO LEVELS OP1–6 LFO", "engine-dx7", "instr-dx7-algo"),
                           ("SAMPLER · SAMPLE TONE", "engine-sampler", "instr-sampler-sample"), ("FX", "instr-fx", "instr-juno-fx")]),
     ("2 SEQ", "seq", [("ROLL", "seq-roll", "seq-notes"), ("STEP REC", "seq-step-rec", "seq-step"), ("RECORD", "record-panel", "record"),
                       ("PATTERN", "seq-patterns", "seq-pattern"), ("TRACK", "seq-track", "seq-track")]),
     ("3 TAPE", "tape", [("SESSION", "tape-session", "tape-session"), ("SONG", "tape-song", "tape-song"), ("MIX", "tape-mix", "tape-mix"),
                         ("SENDS", "tape-sends", "tape-sends"), ("FX", "tape-fx", "tape-fx")]),
-    ("4 SETUP", "setup", [("PROJECT", "setup-project", "setup-project"), ("FILES", "setup-files", "setup-files"),
-                          ("KEYS", "setup-keys", "setup-keys"), ("CHORD", "play-chords", "setup-chord"), ("ARP", "play-arp", "setup-arp"),
-                          ("SYSTEM", "setup-system", "setup-system")]),
     ("HOLD", "nav-maps", [("ESC", "nav-scenes", "map-esc"), ("TAB", "nav-tracks", "map-tab"), ("CTRL", "nav-pages", "map-ctrl"),
                           ("FN", "fn-menu", "fn-held")]),
 ]
@@ -530,7 +543,7 @@ def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
-SCENES = {"INSTR": ("1", "instr"), "SEQ": ("2", "seq"), "TAPE": ("3", "tape"), "SETUP": ("4", "setup"), "FN": ("FN", "fn")}
+SCENES = {"INSTR": ("1", "instr"), "SEQ": ("2", "seq"), "TAPE": ("3", "tape"), "SETUP": ("0", "setup"), "FN": ("FN", "fn")}
 TRACKS = {"1": "DRUMS", "2": "JUNO", "3": "DX7", "4": "SAMPLER"}
 LED_STATES = ("off", "half", "full", "blink")
 CHAPTER_ICONS = {"start": "book", "keys": "keyboard", "navigate": "map", "play": "note", "fn": "fn", "instr": "instr", "setup": "list",
@@ -915,10 +928,10 @@ def build(out_dir, sim_build, skip_shots):
     version = manual["version"]
 
     contents, tocs, index_sections = {}, {}, []
-    all_ids = {}
+    all_ids, docs = {}, {}
     for lang in LANGS:
         titles = collect_titles(lang, chapters)
-        doc = Doc(lang, dump, leds, titles)
+        doc = docs[lang] = Doc(lang, dump, leds, titles)
         articles = []
         for number, chapter_id in enumerate(chapters):
             text = (LEARN / lang / f"{chapter_id}.md").read_text(encoding="utf-8")
@@ -992,8 +1005,10 @@ def build(out_dir, sim_build, skip_shots):
             .replace("{{CONTENT_ZH}}", contents["zh"]).replace("{{CONTENT_EN}}", contents["en"])
             .replace("{{MAP_ZH}}", device_map("zh") + scene_map("zh"))
             .replace("{{MAP_EN}}", device_map("en") + scene_map("en")))
-    (out_dir / "index.html").write_text(page, encoding="utf-8")
-    for name in ("learn.css", "learn.js", "learn-search.js"):
+    # The manual is the reference; the site opens on the guide.
+    (out_dir / "reference.html").write_text(page, encoding="utf-8")
+    lessons = build_guide(out_dir, work, sim_build, skip_shots, docs, all_ids["zh"], leds, version, commit, date)
+    for name in ("learn.css", "learn.js", "learn-search.js", "guide.css", "guide.js", "guide-anim.js"):
         shutil.copyfile(HERE / name, out_dir / name)
     # The search backend: a serverless function next to the site (Vercel api/), same core.
     api = out_dir.parent / "api"
@@ -1003,7 +1018,30 @@ def build(out_dir, sim_build, skip_shots):
     if shutil.which("node"):
         subprocess.run(["node", str(HERE / "search.test.js"), str(out_dir)], check=True)
     print(f"learn: {out_dir} v{version} ({commit or 'dev'}), {len(index_sections) // 2} sections per language, "
-          f"{len(leds)} screenshots, {len(synonyms['groups'])} synonym groups")
+          f"{len(leds)} screenshots, {len(synonyms['groups'])} synonym groups, {lessons} guide lessons")
+
+
+def build_guide(out_dir, work, sim_build, skip_shots, docs, dictionary_ids, leds, version, commit, date):
+    """The guide (tools/learn/guide.py) as the site's index.html. Its lessons run on the firmware first."""
+    guide = guide_lessons.load()
+    img = out_dir / "img"
+    shots = sorted(img.glob("guide-*.png")) if img.exists() else []
+    if not (skip_shots and shots):
+        guide_lessons.run(guide, sim_build, work, img)
+    say = lambda text, lang: inline(text, docs[lang])
+    rail, cards, lessons, index = guide_lessons.render(guide, say, set(dictionary_ids), leds)
+    live, _items = figures.keymap([], "Cardenza", "guide:live")
+    template = (HERE / "guide.html").read_text(encoding="utf-8")
+    page = (template.replace("{{ICONS}}", figures.icon_sprite())
+            .replace("{{VERSION}}", html.escape(version))
+            .replace("{{BUILD}}", html.escape(commit or "dev"))
+            .replace("{{DATE}}", date)
+            .replace("{{DICTIONARY_IDS}}", json.dumps(sorted(dictionary_ids)))
+            .replace("{{RAIL}}", rail).replace("{{CARDS}}", cards).replace("{{LESSONS}}", lessons)
+            .replace("{{LIVE_KEYS}}", live)
+            .replace("{{GUIDE_INDEX}}", json.dumps(index, ensure_ascii=False)))
+    (out_dir / "index.html").write_text(page, encoding="utf-8")
+    return len(index["order"])
 
 
 def main():

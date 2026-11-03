@@ -12,7 +12,7 @@ Three places to set effects:
 
 {{strip
 - > instr-juno-fx @cells:1,1-2,4 | {{scene:INSTR}} {{page:FX}}: the track's inserts and its two sends.
-- > tape-sends @cells:1,1-4,4 | {{scene:TAPE}} {{page:SENDS}}: all four tracks' effects on one screen.
+- > tape-sends @cells:1,1-4,4 | {{scene:TAPE}} {{page:SENDS}}: all four tracks' FILTER, CHORUS and two sends on one screen.
 - > tape-fx @cells:1,1-3,4 | {{scene:TAPE}} {{page:FX}}: master delay, reverb, EQ, compressor, tape.
 }}
 
@@ -20,7 +20,7 @@ Three places to set effects:
 
 ## Track effects (inserts) {#fx-inserts}
 
-On each engine's FX page (see [[#instr-fx]]), or all four tracks at once on TAPE's SENDS page:
+On each engine's FX page (see [[#instr-fx]]); FILTER and CHORUS of all four tracks are also on TAPE's SENDS page:
 
 {{shot:instr-juno-fx|The FX page: effect parameters on top, the track's signal chain below.
 mark cell:1,1 = DRIVE: soft saturation, higher is dirtier
@@ -41,9 +41,11 @@ They are sound parameters (`fx.*`), saved with the sound and the project; changi
 Each track has two send amounts, DELAY and REVERB. Once sent to the buses, their RETURN levels set how much comes back overall.
 
 {{shot:tape-sends|SENDS: one column per track. While a track sounds with a send on, that cell's right edge glows.
-mark cells:3,1-3,4 = DELAY send
-mark cells:4,1-4,4 = REVERB send
-key G9-G16 = On: half lit · off: off
+mark cells:1,1-1,4 = FILTER (FLT)
+mark cells:2,1-2,4 = CHORUS (CHO)
+mark cells:3,1-3,4 = DELAY send (DLY)
+mark cells:4,1-4,4 = REVERB send (REV)
+key G1-G16 = Focus: fully lit · on: half lit · off: off
 }}
 
 <!-- keywords: send, sends, delay, echo, reverb, space, ambience, 发送 -->
@@ -61,7 +63,7 @@ mark cell:3,4 = TAPE: tape saturation
 mark cells:4,1-4,4 = Echoes at the current tempo, reverb decay
 }}
 
-- **DELAY**: its feedback loop has a TONE low-pass and an 80 Hz high-pass; changing the note value glides like tape; a note value longer than about 740 ms is halved automatically.
+- **DELAY**: TIME is a note value from 1/32 to 1/2 (default 1/8D), synced to the BPM. Its feedback loop has a TONE low-pass and an 80 Hz high-pass; changing the note value glides like tape. Echoes up to 743 ms use a 16 KB line; a longer time takes a 32 KB line (up to 1.49 s), and if that does not fit the time is halved until it does.
 - **REVERB**: about 4.5 kHz wide, on the dark side.
 - Both sends are decimated to 11.025 kHz before processing, so delay and reverb sound warm and a little lo-fi.
 
@@ -75,12 +77,12 @@ The board has no PSRAM; effect buffers are allocated the first time they are use
 |---|---|
 | Effect core | about 4.6 KB |
 | Each track with effects / each chorus | 1 KB / 1 KB |
-| Delay | 16 KB |
-| Reverb | about 4.8 KB |
-| Everything on | about 31 KB |
+| Delay | 16 KB (32 KB for echoes longer than 743 ms) |
+| Reverb | about 8.8 KB |
+| Everything on | about 35 KB |
 
 - If the delay or reverb cannot get memory, that bus is silent and the FX page and the signal chain show NO MEM. With every effect off, the output is bit-identical to having no effects.
-- Audio has a budget of 5.8 ms per 256 frames. Typical effects use about 5.4–5.6 ms, so there is little headroom.
+- Audio has a budget of 5.8 ms per 256 frames. Many DX7 notes with effects come close to it. When it runs out, a voice is dropped (released notes first, the oldest next, drums last); the beat never stops.
 
 > [!warn] Very dense chords with many effects can crackle: play fewer notes at once, or turn an effect or two off.
 

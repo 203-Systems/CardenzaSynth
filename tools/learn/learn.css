@@ -369,3 +369,10 @@ figcaption { color: var(--dim); font-size: 13.5px; margin-top: 12px; max-width: 
   .topbar { gap: 5px; }
   .search input { padding-right: 6px; }
 }
+
+/* Guide | Reference: the two halves of the manual, like page tabs on the screen. */
+.modes { display: inline-flex; gap: 2px; font: 600 13px var(--mono); }
+.modes a { text-decoration: none; color: var(--dim); padding: 4px 9px; border-radius: 3px; }
+.modes a:hover { color: var(--ink); background: var(--panel-2); }
+.modes a.on { background: var(--ctrl); color: #000; }
+@media (max-width: 640px) { .modes a { padding: 4px 6px; } }

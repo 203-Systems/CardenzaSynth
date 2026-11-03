@@ -358,7 +358,8 @@
     for (const [what, value] of steps) {
       const left = holdKey[what];
       if (left === undefined) continue;
-      const index = what === 'page' ? value : value - 1;
+      // Scenes by their on-screen number (0 SETUP ... 3 TAPE) and pages from 0; tracks are 1-4.
+      const index = what === 'track' ? value - 1 : value;
       d.press(left, 0, true, 'guide');
       await sleep(330);
       d.press(Math.floor(index / 4), 9 + (index % 4), true, 'guide');
@@ -401,11 +402,15 @@
   }
 
   // ---- A real Cardenza on USB ----------------------------------------------------------------------
-  // The firmware writes every key change to its USB console as "@K<row>,<column>,<0|1>" (HOME:
-  // "@H<0|1>"); Web Serial (Chrome / Edge on a computer) reads them and the live device plays them.
+  // The firmware writes every key change to its console as "@K<row>,<column>,<0|1>" (HOME: "@H<0|1>").
+  // The device is a USB MIDI device: Web MIDI asks it for the console over SysEx (CardenzaHAL's system
+  // channel: F0 23 43 01 F7 starts it, the text comes back as F0 24 43 <text> F7). A device started
+  // with HOME held keeps its serial port instead; Web Serial reads that one.
   const usbButton = $('#usb-btn');
-  const usb = { port: null, reader: null };
-  if ('serial' in navigator) usbButton.hidden = false;
+  const usb = { port: null, reader: null, midi: null, input: null, output: null, buffer: '' };
+  const hasMidi = 'requestMIDIAccess' in navigator;
+  const hasSerial = 'serial' in navigator;
+  if (hasMidi || hasSerial) usbButton.hidden = false;
 
   function usbKey(row, column, down) {
     if (!liveFigure) {
@@ -426,22 +431,74 @@
     setTimeout(() => usbButton.classList.remove('blink'), 90);
   }
 
+  // Console text in, key lines out.
+  function usbText(text) {
+    usb.buffer += text;
+    let newline;
+    while ((newline = usb.buffer.indexOf('\n')) >= 0) {
+      const line = usb.buffer.slice(0, newline);
+      usb.buffer = usb.buffer.slice(newline + 1);
+      const key = /@K(\d+),(\d+),([01])/.exec(line);
+      if (key) usbKey(Number(key[1]), Number(key[2]), key[3] === '1');
+      const home = /@H([01])/.exec(line);
+      if (home) usbKey(-1, -1, home[1] === '1');
+    }
+    if (usb.buffer.length > 4096) usb.buffer = usb.buffer.slice(-256);
+  }
+
+  function usbConnected() { return Boolean(usb.port || usb.input); }
+
   async function usbDisconnect() {
+    if (usb.input) {
+      usb.input.onmidimessage = null;
+      try { usb.output.send([0xF0, 0x23, 0x43, 0x00, 0xF7]); } catch (error) { /* ignore */ }
+    }
     try { if (usb.reader) await usb.reader.cancel(); } catch (error) { /* ignore */ }
     try { if (usb.port) await usb.port.close(); } catch (error) { /* ignore */ }
     usb.port = null;
     usb.reader = null;
+    usb.input = null;
+    usb.output = null;
+    usb.buffer = '';
     usbButton.classList.remove('on');
     const d = device();
     if (d) d.releaseAll();
   }
 
-  async function usbConnect() {
-    if (usb.port) {
-      await usbDisconnect();
-      toast('设备已断开', 'Device disconnected');
-      return;
+  const isCardenza = (port) => /cardenza/i.test(`${port.name || ''} ${port.manufacturer || ''}`);
+
+  // True when a Cardenza answered on MIDI; false when there is none (or no Web MIDI).
+  async function usbConnectMidi() {
+    if (!hasMidi) return false;
+    try {
+      usb.midi = usb.midi || await navigator.requestMIDIAccess({ sysex: true });
+    } catch (error) {
+      toast('浏览器没有允许 MIDI（SysEx）', 'The browser did not allow MIDI (SysEx)');
+      return false;
     }
+    const input = [...usb.midi.inputs.values()].find(isCardenza);
+    const output = [...usb.midi.outputs.values()].find(isCardenza);
+    if (!input || !output) return false;
+    usb.input = input;
+    usb.output = output;
+    input.onmidimessage = (event) => {
+      const data = event.data;
+      if (data.length < 4 || data[0] !== 0xF0 || data[1] !== 0x24 || data[2] !== 0x43) return;
+      let text = '';
+      for (let index = 3; index < data.length && data[index] !== 0xF7; ++index) text += String.fromCharCode(data[index]);
+      usbText(text);
+    };
+    output.send([0xF0, 0x23, 0x43, 0x01, 0xF7]);
+    usb.midi.onstatechange = (event) => {
+      if (usb.input && event.port.state === 'disconnected' && (event.port === usb.input || event.port === usb.output)) {
+        usbDisconnect();
+        toast('设备连接中断', 'The device connection was lost');
+      }
+    };
+    return true;
+  }
+
+  async function usbConnectSerial() {
     let port;
     try {
       port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x303a }] });
@@ -456,30 +513,34 @@
     const decoder = new TextDecoderStream();
     port.readable.pipeTo(decoder.writable).catch(() => {});
     usb.reader = decoder.readable.getReader();
-    let buffer = '';
     try {
       for (;;) {
         const { value, done } = await usb.reader.read();
         if (done) break;
-        buffer += value;
-        let newline;
-        while ((newline = buffer.indexOf('\n')) >= 0) {
-          const line = buffer.slice(0, newline);
-          buffer = buffer.slice(newline + 1);
-          const key = /@K(\d+),(\d+),([01])/.exec(line);
-          if (key) usbKey(Number(key[1]), Number(key[2]), key[3] === '1');
-          const home = /@H([01])/.exec(line);
-          if (home) usbKey(-1, -1, home[1] === '1');
-        }
-        if (buffer.length > 4096) buffer = buffer.slice(-256);
+        usbText(value);
       }
     } catch (error) {
       toast('设备连接中断', 'The device connection was lost');
     }
     await usbDisconnect();
   }
+
+  async function usbConnect() {
+    if (usbConnected()) {
+      await usbDisconnect();
+      toast('设备已断开', 'Device disconnected');
+      return;
+    }
+    if (await usbConnectMidi()) {
+      usbButton.classList.add('on');
+      toast('已连接：在机器上按键，操作教程里的设备', 'Connected: keys on your Cardenza play the device in the tutorial');
+      return;
+    }
+    if (hasSerial) await usbConnectSerial();
+    else toast('没有找到 Cardenza：用 USB 线接好再试', 'No Cardenza found: connect it with a USB cable and try again');
+  }
   usbButton.addEventListener('click', usbConnect);
-  if ('serial' in navigator) navigator.serial.addEventListener('disconnect', (event) => { if (event.target === usb.port) usbDisconnect(); });
+  if (hasSerial) navigator.serial.addEventListener('disconnect', (event) => { if (event.target === usb.port) usbDisconnect(); });
 
   setLang(lang, false);
   if (location.hash.length > 1) setTimeout(fromHash, 0);

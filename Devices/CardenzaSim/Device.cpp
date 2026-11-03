@@ -4,6 +4,7 @@
 
 #include <mutex>
 #include <deque>
+#include <string>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -35,6 +36,9 @@ namespace {
 std::mutex g_usbMutex;
 bool g_usbConnected = false;
 std::deque<std::array<std::uint8_t, 4>> g_toDevice, g_fromDevice;
+// App messages (the guide): a page in the browser or a test is the computer. They need no cable.
+std::deque<std::string> g_appToDevice, g_appFromDevice;
+constexpr std::size_t kAppQueue = 64;
 
 }  // namespace
 
@@ -67,6 +71,21 @@ void SendComputerMidi(const std::uint8_t packet[4])
 {
   std::lock_guard<std::mutex> lock(g_usbMutex);
   if (g_usbConnected) g_toDevice.push_back({packet[0], packet[1], packet[2], packet[3]});
+}
+
+void SendComputerApp(const std::string& message)
+{
+  std::lock_guard<std::mutex> lock(g_usbMutex);
+  if (g_appToDevice.size() < kAppQueue) g_appToDevice.push_back(message.substr(0, Device::USB::kAppMessageSize));
+}
+
+bool TakeDeviceApp(std::string& message)
+{
+  std::lock_guard<std::mutex> lock(g_usbMutex);
+  if (g_appFromDevice.empty()) return false;
+  message = std::move(g_appFromDevice.front());
+  g_appFromDevice.pop_front();
+  return true;
 }
 
 bool TakeDeviceMidi(std::uint8_t packet[4])
@@ -138,6 +157,26 @@ bool WriteMidi(const std::uint8_t packet[4])
   std::lock_guard<std::mutex> lock(g_usbMutex);
   if (!g_usbConnected) return false;
   g_fromDevice.push_back({packet[0], packet[1], packet[2], packet[3]});
+  return true;
+}
+
+bool ReadAppMessage(AppMessage& message)
+{
+  std::lock_guard<std::mutex> lock(g_usbMutex);
+  if (g_appToDevice.empty()) return false;
+  const std::string& text = g_appToDevice.front();
+  message.length = std::min(text.size(), kAppMessageSize);
+  std::copy_n(text.data(), message.length, message.data);
+  g_appToDevice.pop_front();
+  return true;
+}
+
+bool WriteAppMessage(const char* data, std::size_t length)
+{
+  std::lock_guard<std::mutex> lock(g_usbMutex);
+  // Nobody reads: the oldest goes.
+  if (g_appFromDevice.size() >= kAppQueue) g_appFromDevice.pop_front();
+  g_appFromDevice.emplace_back(data, std::min(length, kAppMessageSize));
   return true;
 }
 

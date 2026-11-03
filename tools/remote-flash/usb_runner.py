@@ -5,7 +5,7 @@ import signal
 import subprocess
 import sys
 
-LIMITS = {"list": 30, "command": 20, "stats": 15, "test": 90}
+LIMITS = {"list": 30, "command": 20, "stats": 15, "test": 90, "guide": 30}
 GRACE_SECONDS = 1
 
 
