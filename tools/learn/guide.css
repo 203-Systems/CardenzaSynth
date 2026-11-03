@@ -112,7 +112,8 @@ body.guide { --rail: 236px; --dev: min(520px, 40vw); }
 .l-pager .redo { margin-left: auto; border: 1px solid var(--line-2); padding: 9px 13px; border-radius: 7px; background: var(--panel);
   color: var(--dim); font: 13px var(--mono); cursor: pointer; }
 .l-pager .redo:hover { border-color: var(--dim); color: var(--ink); }
-.l-pager .redo + .next { margin-left: 0; }
+.l-pager .redo[hidden] { display: none; }
+.l-pager .redo:not([hidden]) + .next { margin-left: 0; }
 .lesson.complete .l-pager .next { background: var(--fn); color: #000; border-color: var(--fn); }
 .l-more { font: 13px var(--mono); margin-top: 18px; }
 .l-more a { color: var(--tab); text-decoration: none; }
