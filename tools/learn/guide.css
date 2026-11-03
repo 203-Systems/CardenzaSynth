@@ -92,6 +92,9 @@ body.guide { --rail: 236px; --dev: min(520px, 40vw); }
 .s-keys .k.press, .d-live .k.press { --b: 1 !important; opacity: 1 !important; }
 .s-keys .k.press .cap, .d-live .k.press .cap { transform: translateY(1.5px); }
 .s-keys .k.hint:not(.press) .lamp, .d-live .k.hint:not(.press) .lamp { animation: hint 1s steps(1) infinite; }
+/* The device's own lights on the live keyboard: it blinks the hints itself. */
+.d-live.mirror .k.hint:not(.press) .lamp { animation: none; }
+.s-show:disabled { opacity: .6; cursor: default; }
 @keyframes hint { 0%, 49% { opacity: .55; } 50%, 100% { opacity: 0; } }
 
 .l-done { margin-top: 18px; padding: 16px 18px; border-radius: 10px; background: color-mix(in srgb, var(--play) 14%, var(--panel)); border: 1px solid var(--play);

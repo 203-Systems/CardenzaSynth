@@ -111,6 +111,7 @@ private:
   void FillGuideDemo();
   void SendGuide(const std::string& text);
   void SendGuideState(std::uint32_t now, bool always);
+  void SendGuideLeds(std::uint32_t now);
   void ReleaseComputerNotes(std::size_t onlyTrack = synth::kSynthTrackCount);
   static void SendComputerMidi(std::uint8_t status, std::size_t track, std::uint8_t data1, std::uint8_t data2);
   std::uint32_t NowMs() const;
@@ -169,6 +170,8 @@ private:
   std::uint32_t guideHeardAt_ = 0;
   std::uint32_t guideStateAt_ = 0;
   std::string guideState_;
+  std::uint32_t guideLedsAt_ = 0;
+  std::array<char, 2 + groove::kKeyCount> guideLeds_{};  // the last GD sent
   groove::Scene guideScene_ = groove::Scene::Instrument;  // where the user was, to go back there
   std::uint8_t guidePage_ = 0;
   synth::SessionStore session_;
