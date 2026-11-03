@@ -35,6 +35,8 @@ public:
   void Tick() override;
   void UpdateLeds() override;
   void RenderFrame() override;
+  // The render-side motion state (tests read standby's scene from it).
+  const groove::Animator& Motion() const { return animator_; }
   void HandleMatrixKeyEvent(std::size_t row, std::size_t column, bool pressed) override;
   std::uint32_t EndedOrphanNotes() const { return endedOrphanNotes_; }
   std::uint32_t loggedShedVoices_ = 0;

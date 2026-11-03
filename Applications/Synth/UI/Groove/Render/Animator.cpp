@@ -530,86 +530,156 @@ int StandbyLogoHeight()
 
 void Animator::UpdateStandby(const Controller& controller, float dt)
 {
-  StandbyLogo& logo = standby_;
+  StandbyScene& scene = standby_;
   if (!controller.Standby())
   {
-    logo.startedAt = 0;
+    scene.startedAt = 0;
     return;
   }
-  const int width = theme::kScreenWidth;
-  const int height = theme::kScreenHeight;
-  if (logo.startedAt != controller.StandbyAt())
+  const float width = static_cast<float>(theme::kScreenWidth);
+  const float height = static_cast<float>(theme::kScreenHeight);
+  const float bodyHeight = static_cast<float>(StandbyLogoHeight());
+  if (scene.startedAt != controller.StandbyAt())
   {
-    // A new standby: somewhere on the screen, heading diagonally.
-    logo = StandbyLogo{};
-    logo.startedAt = controller.StandbyAt();
-    logo.seed = fx::Hash(logo.startedAt * 2654435761u + 0x5bd1e995u);
-    const std::uint32_t seed = logo.seed;
-    logo.x = static_cast<float>(seed % static_cast<std::uint32_t>(width - StandbyLogoWidth(false)));
-    logo.y = static_cast<float>((seed >> 8) % static_cast<std::uint32_t>(height - StandbyLogoHeight()));
-    logo.vx = (seed & 0x10000u) != 0 ? 34.0f : -34.0f;
-    logo.vy = (seed & 0x20000u) != 0 ? 23.0f : -23.0f;
-    logo.color = static_cast<std::uint8_t>((seed >> 20) % theme::kStandbyPalette.size());
-    logo.nextEffectAt = now_ + 9000 + (seed >> 4) % 7000;
+    // A new standby: CARDENZA somewhere in the upper half, 203 in the lower, drifting diagonally.
+    scene = StandbyScene{};
+    scene.startedAt = controller.StandbyAt();
+    scene.seed = fx::Hash(scene.startedAt * 2654435761u + 0x5bd1e995u);
+    for (std::size_t index = 0; index < scene.bodies.size(); ++index)
+    {
+      StandbyBody& body = scene.bodies[index];
+      const std::uint32_t seed = fx::Hash(scene.seed + static_cast<std::uint32_t>(index) * 7919u);
+      body.alt = index == 1;
+      const float room = width - static_cast<float>(StandbyLogoWidth(body.alt));
+      body.x = static_cast<float>(seed % static_cast<std::uint32_t>(room));
+      body.y = index == 0 ? static_cast<float>((seed >> 8) % 24) : height - bodyHeight - static_cast<float>((seed >> 8) % 24);
+      body.vx = (seed & 0x10000u) != 0 ? 15.0f : -15.0f;
+      body.vy = index == 0 ? 10.0f : -10.0f;
+      body.color = static_cast<std::uint8_t>((seed >> 20) % theme::kStandbyPalette.size());
+      body.previousColor = body.color;
+    }
+    scene.bodies[1].color = static_cast<std::uint8_t>((scene.bodies[0].color + 4) % theme::kStandbyPalette.size());
+    scene.bodies[1].previousColor = scene.bodies[1].color;
+    scene.nextEffectAt = now_ + 12000 + (scene.seed >> 4) % 8000;
     return;
   }
 
-  const float maxX = static_cast<float>(width - StandbyLogoWidth(logo.alt));
-  const float maxY = static_cast<float>(height - StandbyLogoHeight());
-  logo.x += logo.vx * dt / 1000.0f;
-  logo.y += logo.vy * dt / 1000.0f;
-  bool hitX = false;
-  bool hitY = false;
-  if (logo.x <= 0.0f || logo.x >= maxX)
+  const float seconds = dt / 1000.0f;
+  const std::uint32_t at = now_ == 0 ? 1 : now_;
+  auto nextColor = [&](StandbyBody& body) {
+    body.previousColor = body.color;
+    body.color = static_cast<std::uint8_t>((body.color + 1) % theme::kStandbyPalette.size());
+    body.colorAt = at;
+  };
+  for (StandbyBody& body : scene.bodies)
   {
-    logo.x = std::clamp(logo.x <= 0.0f ? -logo.x : 2.0f * maxX - logo.x, 0.0f, maxX);
-    logo.vx = -logo.vx;
-    hitX = true;
-  }
-  if (logo.y <= 0.0f || logo.y >= maxY)
-  {
-    logo.y = std::clamp(logo.y <= 0.0f ? -logo.y : 2.0f * maxY - logo.y, 0.0f, maxY);
-    logo.vy = -logo.vy;
-    hitY = true;
-  }
-  // A wall hit with the other wall this close is the corner: the word is put right into it.
-  constexpr float kCornerSlack = 4.0f;
-  if (hitX != hitY)
-  {
-    float& other = hitX ? logo.y : logo.x;
-    float& speed = hitX ? logo.vy : logo.vx;
-    const float limit = hitX ? maxY : maxX;
-    if (other <= kCornerSlack || other >= limit - kCornerSlack)
+    // After a hit each word eases back to its calm speed (keeping its heading), and never travels
+    // straight along an axis.
+    const float speed = std::hypot(body.vx, body.vy);
+    if (speed > 0.01f)
     {
-      const bool far = other >= limit - kCornerSlack;
-      other = far ? limit : 0.0f;
-      speed = far ? -std::fabs(speed) : std::fabs(speed);
-      hitX = hitY = true;
+      const float ease = std::min(1.0f, seconds / 2.5f);
+      const float scale = 1.0f + (kStandbyCruise / speed - 1.0f) * ease;
+      body.vx *= scale;
+      body.vy *= scale;
+    }
+    if (std::fabs(body.vx) < 6.0f) body.vx += (body.vx < 0.0f ? -1.0f : 1.0f) * 4.0f * seconds;
+    if (std::fabs(body.vy) < 4.0f) body.vy += (body.vy < 0.0f ? -1.0f : 1.0f) * 3.0f * seconds;
+
+    const float maxX = width - static_cast<float>(StandbyLogoWidth(body.alt));
+    const float maxY = height - bodyHeight;
+    body.x += body.vx * seconds;
+    body.y += body.vy * seconds;
+    bool hitX = false;
+    bool hitY = false;
+    if (body.x <= 0.0f || body.x >= maxX)
+    {
+      body.x = std::clamp(body.x <= 0.0f ? -body.x : 2.0f * maxX - body.x, 0.0f, maxX);
+      body.vx = body.x < maxX * 0.5f ? std::fabs(body.vx) : -std::fabs(body.vx);
+      hitX = true;
+    }
+    if (body.y <= 0.0f || body.y >= maxY)
+    {
+      body.y = std::clamp(body.y <= 0.0f ? -body.y : 2.0f * maxY - body.y, 0.0f, maxY);
+      body.vy = body.y < maxY * 0.5f ? std::fabs(body.vy) : -std::fabs(body.vy);
+      hitY = true;
+    }
+    // A wall hit with the other wall this close is the corner: the word is put right into it.
+    constexpr float kCornerSlack = 4.0f;
+    if (hitX != hitY)
+    {
+      float& other = hitX ? body.y : body.x;
+      float& otherSpeed = hitX ? body.vy : body.vx;
+      const float limit = hitX ? maxY : maxX;
+      if (other <= kCornerSlack || other >= limit - kCornerSlack)
+      {
+        const bool far = other >= limit - kCornerSlack;
+        other = far ? limit : 0.0f;
+        otherSpeed = far ? -std::fabs(otherSpeed) : std::fabs(otherSpeed);
+        hitX = hitY = true;
+      }
+    }
+    if (hitX || hitY) nextColor(body);
+    if (hitX && hitY)
+    {
+      scene.corneredAt = at;
+      scene.cornerRight = body.x > maxX * 0.5f;
+      scene.cornerBottom = body.y > maxY * 0.5f;
+      scene.cornerColor = body.color;
+      std::printf("ui: standby corner, %s\n", StandbyWord(body.alt));
     }
   }
-  if (hitX || hitY)
+
+  // The two words are solid to each other: overlapping boxes are pushed apart along the shallower side
+  // and, when they were closing in, bounce off each other like two weights (the longer word heavier).
+  StandbyBody& one = scene.bodies[0];
+  StandbyBody& two = scene.bodies[1];
+  const float oneWidth = static_cast<float>(StandbyLogoWidth(one.alt));
+  const float twoWidth = static_cast<float>(StandbyLogoWidth(two.alt));
+  const float overlapX = std::min(one.x + oneWidth, two.x + twoWidth) - std::max(one.x, two.x);
+  const float overlapY = std::min(one.y + bodyHeight, two.y + bodyHeight) - std::max(one.y, two.y);
+  if (overlapX > 0.0f && overlapY > 0.0f)
   {
-    logo.color = static_cast<std::uint8_t>((logo.color + 1) % theme::kStandbyPalette.size());
-    logo.bouncedAt = now_ == 0 ? 1 : now_;
-  }
-  if (hitX && hitY)
-  {
-    // Exactly in the corner: the other word, in the same corner.
-    logo.corneredAt = now_ == 0 ? 1 : now_;
-    logo.cornerRight = logo.x > maxX * 0.5f;
-    logo.cornerBottom = logo.y > maxY * 0.5f;
-    logo.alt = !logo.alt;
-    if (logo.cornerRight) logo.x = static_cast<float>(width - StandbyLogoWidth(logo.alt));
-    std::printf("ui: standby corner, now %s\n", StandbyWord(logo.alt));
+    const bool alongX = overlapX < overlapY;
+    float& p1 = alongX ? one.x : one.y;
+    float& p2 = alongX ? two.x : two.y;
+    float& v1 = alongX ? one.vx : one.vy;
+    float& v2 = alongX ? two.vx : two.vy;
+    const float c1 = p1 + (alongX ? oneWidth : bodyHeight) * 0.5f;
+    const float c2 = p2 + (alongX ? twoWidth : bodyHeight) * 0.5f;
+    const float direction = c1 < c2 ? 1.0f : -1.0f;  // from one towards two
+    const float m1 = oneWidth;
+    const float m2 = twoWidth;
+    const float push = alongX ? overlapX : overlapY;
+    p1 -= direction * push * m2 / (m1 + m2);
+    p2 += direction * push * m1 / (m1 + m2);
+    if ((v1 - v2) * direction > 0.0f)
+    {
+      const float u1 = v1;
+      const float u2 = v2;
+      v1 = (u1 * (m1 - m2) + 2.0f * m2 * u2) / (m1 + m2);
+      v2 = (u2 * (m2 - m1) + 2.0f * m1 * u1) / (m1 + m2);
+      scene.hitAt = at;
+      scene.hitX = alongX ? (c1 < c2 ? one.x + oneWidth : two.x + twoWidth) : std::max(one.x, two.x) + overlapX * 0.5f;
+      scene.hitY = alongX ? std::max(one.y, two.y) + overlapY * 0.5f : (c1 < c2 ? one.y + bodyHeight : two.y + bodyHeight);
+      nextColor(one);
+      nextColor(two);
+    }
+    // Pushed apart against a wall: back on screen, the other one gives way.
+    for (StandbyBody* body : {&one, &two})
+    {
+      body->x = std::clamp(body->x, 0.0f, width - static_cast<float>(StandbyLogoWidth(body->alt)));
+      body->y = std::clamp(body->y, 0.0f, height - bodyHeight);
+    }
   }
 
-  // Now and then an effect, every 14..26 s.
-  if (static_cast<std::int32_t>(now_ - logo.nextEffectAt) >= 0)
+  // Now and then an effect, every 20..36 s.
+  if (static_cast<std::int32_t>(now_ - scene.nextEffectAt) >= 0)
   {
-    const std::uint32_t noise = fx::Hash(now_ ^ logo.seed);
-    logo.effect = static_cast<StandbyEffect>(1 + noise % kStandbyEffectCount);
-    logo.effectAt = now_ == 0 ? 1 : now_;
-    logo.nextEffectAt = now_ + 14000 + (noise >> 8) % 12000;
+    const std::uint32_t noise = fx::Hash(now_ ^ scene.seed);
+    scene.effect = static_cast<StandbyEffect>(1 + noise % kStandbyEffectCount);
+    scene.effectAt = at;
+    scene.nextEffectAt = now_ + 20000 + (noise >> 8) % 16000;
   }
 }
 
@@ -617,6 +687,8 @@ namespace {
 
 // The outer ring of keys, clockwise from the top left: top row, right column, bottom row, left column.
 constexpr std::size_t kRingLength = 2 * kColumns + 2 * (kRows - 2);
+// The inner ring: the second row left to right, the third right to left.
+constexpr std::size_t kInnerLength = 2 * (kColumns - 2);
 
 std::size_t RingKey(std::size_t position)
 {
@@ -630,104 +702,124 @@ std::size_t RingKey(std::size_t position)
   return KeyIndex(kRows - 2 - position, 0);
 }
 
-std::uint8_t Level(float value)
+std::size_t InnerKey(std::size_t position)
 {
-  return static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(value)), 0, 15));
+  position %= kInnerLength;
+  if (position < kColumns - 2) return KeyIndex(1, 1 + position);
+  position -= kColumns - 2;
+  return KeyIndex(2, kColumns - 2 - position);
 }
 
-}  // namespace
+// RING's path: twice round the outside, in to the middle and twice round it, back out and twice round
+// the outside again, then from the start. Every step goes to a neighbouring key, so the light flows.
+constexpr std::size_t kOuterIn = 2 * kRingLength;          // (0,0) round twice, ends at (1,0)
+constexpr std::size_t kInnerLaps = 2 * kInnerLength;       // (1,1) round twice, ends at (2,1)
+constexpr std::size_t kOuterOut = 2 * kRingLength + 2;     // from (2,0) round twice, ends at (1,0)
+constexpr std::size_t kSpiralLength = kOuterIn + kInnerLaps + kOuterOut;
 
-// Standby's key-light shows: the whole keyboard, edge keys too, running free (the user asked for it;
-// everywhere else the lights only say state).
-void Animator::StandbyLeds(const Controller& controller, std::array<std::uint8_t, kKeyCount>& levels) const
+std::size_t SpiralKey(std::size_t step)
 {
-  levels.fill(0);
-  const std::uint32_t t = now_ - controller.StandbyAt();
-  auto style = static_cast<StandbyLightStyle>(std::min<std::size_t>(controller.HostView().StandbyLights(), kStandbyLightCount - 1));
-  if (style == StandbyLightStyle::All)
-  {
-    static constexpr std::array<StandbyLightStyle, 5> kTurns{{StandbyLightStyle::Ring, StandbyLightStyle::Sweep, StandbyLightStyle::Rain,
-                                                             StandbyLightStyle::Wave, StandbyLightStyle::Stars}};
-    style = kTurns[(t / kStandbyStyleMs) % kTurns.size()];
-  }
+  step %= kSpiralLength;
+  if (step < kOuterIn) return RingKey(step);
+  step -= kOuterIn;
+  if (step < kInnerLaps) return InnerKey(step);
+  step -= kInnerLaps;
+  return RingKey(kRingLength - 2 + step);
+}
+
+float SmoothStep(float t)
+{
+  t = fx::Clamp01(t);
+  return t * t * (3.0f - 2.0f * t);
+}
+
+// One style of standby's light show, 0..15 per key, before it is dimmed. Every style moves slowly and
+// lets each light rise and fall softly.
+void StandbyStyle(StandbyLightStyle style, std::uint32_t t, std::uint32_t seed, std::array<float, kKeyCount>& levels)
+{
+  levels.fill(0.0f);
   const float seconds = static_cast<float>(t) / 1000.0f;
-  const std::uint32_t seed = standby_.seed;
   switch (style)
   {
     case StandbyLightStyle::Ring:
     {
-      // A comet runs round the outer ring, a dimmer one half a lap behind.
-      const float head = seconds * 13.0f;
-      for (std::size_t position = 0; position < kRingLength; ++position)
+      // A comet with a long soft tail goes round the outside, spirals in and round the middle, and out
+      // again (SpiralKey): three keys a second, about a minute for the whole way.
+      const float head = seconds * 3.0f;
+      const auto step = static_cast<std::size_t>(head);
+      const float frac = head - static_cast<float>(step);
+      // The key ahead brightens as the head comes; the ones behind fade along the path.
+      levels[SpiralKey(step + 1)] = std::max(levels[SpiralKey(step + 1)], 15.0f * SmoothStep(frac));
+      for (std::size_t behind = 0; behind < 9 && behind <= step; ++behind)
       {
-        float level = 0.0f;
-        for (int comet = 0; comet < 2; ++comet)
-        {
-          float behind = std::fmod(head - static_cast<float>(position) + static_cast<float>(comet * kRingLength / 2) + kRingLength * 100.0f,
-                                   static_cast<float>(kRingLength));
-          if (behind < 7.0f) level = std::max(level, (comet == 0 ? 15.0f : 8.0f) * std::pow(0.6f, behind));
-        }
-        levels[RingKey(position)] = Level(level);
+        const float glow = std::exp(-(static_cast<float>(behind) + frac) / 2.4f);
+        float& level = levels[SpiralKey(step - behind)];
+        level = std::max(level, 15.0f * glow);
       }
       break;
     }
     case StandbyLightStyle::Sweep:
     {
-      // A slanted bar of light, left to right, again and again.
-      const float span = static_cast<float>(kColumns) + 8.0f;
-      const float bar = std::fmod(seconds * 9.0f, span) - 4.0f;
+      // A wide, slanted band of light drifts from left to right, then comes round again from off the left.
+      const float span = static_cast<float>(kColumns) + 12.0f;
+      const float band = std::fmod(seconds * 1.8f, span) - 6.0f;
       for (std::size_t row = 0; row < kRows; ++row)
         for (std::size_t column = 0; column < kColumns; ++column)
         {
-          const float distance = static_cast<float>(column) - (bar - static_cast<float>(row) * 0.7f);
-          levels[KeyIndex(row, column)] = Level(15.0f * std::exp(-distance * distance / 1.4f));
+          const float distance = static_cast<float>(column) - (band - static_cast<float>(row) * 0.7f);
+          levels[KeyIndex(row, column)] = 15.0f * std::exp(-distance * distance / 3.0f);
         }
       break;
     }
     case StandbyLightStyle::Rain:
     {
-      // Drops fall down the columns, top to bottom, each column on its own time.
+      // Drops fall slowly down the columns, top to bottom, each column on its own time: a soft head
+      // that eases in above the top row and a tail that fades.
       for (std::size_t column = 0; column < kColumns; ++column)
       {
         const std::uint32_t noise = fx::Hash(seed + static_cast<std::uint32_t>(column) * 7919u);
-        const std::uint32_t period = 1300 + noise % 1700;
+        const std::uint32_t period = 4500 + noise % 5000;
         const std::uint32_t local = (t + (noise >> 12) % period) % period;
-        const float head = static_cast<float>(local) / 130.0f;  // rows
+        const float head = static_cast<float>(local) / 600.0f - 1.0f;  // rows, starting above the top
         for (std::size_t row = 0; row < kRows; ++row)
         {
           const float behind = head - static_cast<float>(row);
-          if (behind >= 0.0f && behind < 3.0f) levels[KeyIndex(row, column)] = Level(15.0f * std::pow(0.4f, behind));
+          float level = 0.0f;
+          if (behind >= -1.0f && behind < 0.0f) level = 15.0f * SmoothStep(behind + 1.0f);
+          else if (behind >= 0.0f) level = 15.0f * std::exp(-behind / 0.9f);
+          levels[KeyIndex(row, column)] = level;
         }
       }
       break;
     }
-    case StandbyLightStyle::Wave:
+    case StandbyLightStyle::Aurora:
     {
-      // The boot screen's two light waves, over and over.
-      const float cycle = std::fmod(seconds / 2.4f, 1.0f);
+      // Soft light drifting over the keyboard like an aurora: two slow waves, only their crests glow.
       for (std::size_t row = 0; row < kRows; ++row)
         for (std::size_t column = 0; column < kColumns; ++column)
         {
-          float wave = 0.0f;
-          for (int pass = 0; pass < 2; ++pass)
-          {
-            const float front = (cycle * 1.4f - static_cast<float>(pass) * 0.35f) * 22.0f - 3.0f + static_cast<float>(row) * 0.6f;
-            const float distance = static_cast<float>(column) - front;
-            wave = std::max(wave, 15.0f * std::exp(-distance * distance / 3.0f));
-          }
-          levels[KeyIndex(row, column)] = Level(wave);
+          const float x = static_cast<float>(column);
+          const float y = static_cast<float>(row);
+          const float a = std::sin(x * 0.42f - seconds * 0.34f + std::sin(y * 0.9f + seconds * 0.19f) * 1.2f);
+          const float b = std::sin(x * 0.23f + y * 0.7f + seconds * 0.23f);
+          const float crest = std::clamp((a + b) * 0.5f, 0.0f, 1.0f);
+          levels[KeyIndex(row, column)] = 15.0f * crest * crest;
         }
       break;
     }
     case StandbyLightStyle::Stars:
     {
-      // Keys twinkle here and there, each on its own time.
+      // Keys twinkle here and there: each rises and falls softly, on its own slow time.
       for (std::size_t index = 0; index < kKeyCount; ++index)
       {
         const std::uint32_t noise = fx::Hash(seed ^ (static_cast<std::uint32_t>(index) * 2246822519u));
-        const std::uint32_t period = 1700 + noise % 2900;
+        const std::uint32_t period = 6000 + noise % 7000;
         const float phase = static_cast<float>((t + (noise >> 11) % period) % period) / static_cast<float>(period);
-        if (phase < 0.22f) levels[index] = Level(15.0f * std::sin(3.14159265f * phase / 0.22f));
+        if (phase < 0.36f)
+        {
+          const float glow = std::sin(3.14159265f * phase / 0.36f);
+          levels[index] = 15.0f * glow * glow;
+        }
       }
       break;
     }
@@ -735,6 +827,38 @@ void Animator::StandbyLeds(const Controller& controller, std::array<std::uint8_t
     case StandbyLightStyle::Off:
       break;
   }
+}
+
+}  // namespace
+
+// Standby's key-light shows: the whole keyboard, edge keys too, running free (the user asked for it;
+// everywhere else the lights only say state). They fade in, stay below full brightness, and ALL lets
+// each style fade into the next.
+void Animator::StandbyLeds(const Controller& controller, std::array<std::uint8_t, kKeyCount>& levels) const
+{
+  levels.fill(0);
+  const std::uint32_t t = now_ - controller.StandbyAt();
+  const auto chosen = static_cast<StandbyLightStyle>(std::min<std::size_t>(controller.HostView().StandbyLights(), kStandbyLightCount - 1));
+  std::array<float, kKeyCount> shown{};
+  if (chosen == StandbyLightStyle::All)
+  {
+    static constexpr std::array<StandbyLightStyle, 5> kTurns{{StandbyLightStyle::Ring, StandbyLightStyle::Aurora, StandbyLightStyle::Sweep,
+                                                             StandbyLightStyle::Stars, StandbyLightStyle::Rain}};
+    const std::size_t turn = (t / kStandbyStyleMs) % kTurns.size();
+    StandbyStyle(kTurns[turn], t, standby_.seed, shown);
+    const std::uint32_t into = t % kStandbyStyleMs;
+    if (into + kStandbyBlendMs > kStandbyStyleMs)
+    {
+      std::array<float, kKeyCount> next{};
+      StandbyStyle(kTurns[(turn + 1) % kTurns.size()], t, standby_.seed, next);
+      const float blend = SmoothStep(static_cast<float>(into + kStandbyBlendMs - kStandbyStyleMs) / static_cast<float>(kStandbyBlendMs));
+      for (std::size_t index = 0; index < kKeyCount; ++index) shown[index] += (next[index] - shown[index]) * blend;
+    }
+  }
+  else StandbyStyle(chosen, t, standby_.seed, shown);
+  const float in = SmoothStep(static_cast<float>(t) / static_cast<float>(kStandbyLightsInMs));
+  for (std::size_t index = 0; index < kKeyCount; ++index)
+    levels[index] = static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(shown[index] * kStandbyLedScale * in)), 0, 15));
 }
 
 void Animator::SmoothLeds(std::array<std::uint8_t, kKeyCount>& levels)

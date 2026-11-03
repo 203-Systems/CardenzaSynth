@@ -2735,13 +2735,30 @@ void TestStandby(Harness& h)
   assert(app.Ui().Standby());
   // The screen draws (logo, corners, effects) and the lights run over the whole keyboard, edge keys too.
   std::uint8_t edge = 0;
+  bool met = false;
   for (int frame = 0; frame < 7500; ++frame)
   {
     h.Frames();
     if (frame % 25 == 0) h.Render();
+    // CARDENZA and 203 stay on screen, never sink into each other, keep a calm speed, and meet.
+    const auto& scene = app.Motion().Standby();
+    const float bodyHeight = static_cast<float>(groove::StandbyLogoHeight());
+    for (const auto& body : scene.bodies)
+    {
+      assert(body.x >= 0.0f && body.x + static_cast<float>(groove::StandbyLogoWidth(body.alt)) <= 240.0f);
+      assert(body.y >= 0.0f && body.y + bodyHeight <= 135.0f);
+      assert(std::hypot(body.vx, body.vy) < 80.0f);
+    }
+    const auto& one = scene.bodies[0];
+    const auto& two = scene.bodies[1];
+    const float overlapX = std::min(one.x + static_cast<float>(groove::StandbyLogoWidth(one.alt)), two.x + static_cast<float>(groove::StandbyLogoWidth(two.alt))) -
+                           std::max(one.x, two.x);
+    const float overlapY = std::min(one.y, two.y) + bodyHeight - std::max(one.y, two.y);
+    assert(overlapX <= 2.0f || overlapY <= 2.0f);
+    met = met || scene.hitAt != 0;
     if (frame < 400) edge = static_cast<std::uint8_t>(std::max({static_cast<int>(edge), Led(h, kEsc), Led(h, kPlay), Led(h, kAdd)}));
   }
-  assert(edge > groove::kLedEdgeMax);
+  assert(edge > groove::kLedEdgeMax && met);
   // A key wakes it and does nothing else: ESC would have gone to the next scene.
   h.Tap(kEsc);
   assert(!app.Ui().Standby() && h.State().scene == scene && h.State().track == track);
