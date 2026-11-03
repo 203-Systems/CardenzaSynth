@@ -748,8 +748,8 @@ void StandbyStyle(StandbyLightStyle style, std::uint32_t t, std::uint32_t seed, 
     case StandbyLightStyle::Ring:
     {
       // A comet with a long soft tail goes round the outside, spirals in and round the middle, and out
-      // again (SpiralKey): three keys a second, about a minute for the whole way.
-      const float head = seconds * 3.0f;
+      // again (SpiralKey): six keys a second, about half a minute for the whole way.
+      const float head = seconds * 6.0f;
       const auto step = static_cast<std::size_t>(head);
       const float frac = head - static_cast<float>(step);
       // The key ahead brightens as the head comes; the ones behind fade along the path.
@@ -811,75 +811,52 @@ void StandbyStyle(StandbyLightStyle style, std::uint32_t t, std::uint32_t seed, 
         }
       break;
     }
-    case StandbyLightStyle::Stars:
+    case StandbyLightStyle::Breathe:
     {
-      // Keys twinkle here and there: each rises and falls softly, on its own slow time.
+      // The keyboard rests in a steady glow, and keys here and there breathe out on their own time: a
+      // few at a time slowly dim and come back, never the whole board at once.
       for (std::size_t index = 0; index < kKeyCount; ++index)
       {
         const std::uint32_t noise = fx::Hash(seed ^ (static_cast<std::uint32_t>(index) * 2246822519u));
-        const std::uint32_t period = 6000 + noise % 7000;
+        const std::uint32_t period = 14000 + noise % 10000;
         const float phase = static_cast<float>((t + (noise >> 11) % period) % period) / static_cast<float>(period);
-        if (phase < 0.36f)
+        float dip = 0.0f;
+        if (phase < 0.15f)
         {
-          const float glow = std::sin(3.14159265f * phase / 0.36f);
-          levels[index] = 15.0f * glow * glow;
+          const float breath = std::sin(3.14159265f * phase / 0.15f);
+          dip = breath * breath;
         }
+        levels[index] = 12.0f * (1.0f - 0.75f * dip);
       }
-      break;
-    }
-    case StandbyLightStyle::Breathe:
-    {
-      // The whole keyboard breathes: four seconds in, six out, never quite dark.
-      const float phase = static_cast<float>(t % 10000) / 10000.0f;
-      const float breath = phase < 0.4f ? SmoothStep(phase / 0.4f) : 1.0f - SmoothStep((phase - 0.4f) / 0.6f);
-      // Now and then, for twelve seconds, a slow variation in brightness on top (one every 40 s).
+      // Now and then, for twelve seconds, a slow brightening on top (one every 40 s): RIPPLE, a soft swell
+      // from the middle to the edges, or TIDE, a broad patch of light drifting left to right and back.
       const std::uint32_t slot = t / 40000;
       const std::uint32_t noise = fx::Hash(seed + slot * 2654435761u);
       const std::uint32_t start = slot * 40000 + 12000 + noise % 14000;
       const std::uint32_t kEffectMs = 12000;
       const float into = t >= start ? static_cast<float>(t - start) / static_cast<float>(kEffectMs) : -1.0f;
       const float envelope = into >= 0.0f && into <= 1.0f ? SmoothStep(into / 0.25f) * SmoothStep((1.0f - into) / 0.25f) : 0.0f;
-      const int kind = static_cast<int>((noise >> 16) % 4);
-      // The breath steps back while a variation plays, so it shows.
-      const float base = 15.0f * (0.25f + 0.75f * breath) * (1.0f - 0.55f * envelope);
-      for (std::size_t row = 0; row < kRows; ++row)
-        for (std::size_t column = 0; column < kColumns; ++column)
-        {
-          const float x = static_cast<float>(column);
-          const float y = static_cast<float>(row);
-          float variation = 0.0f;
-          if (envelope > 0.0f)
+      if (envelope > 0.0f)
+        for (std::size_t row = 0; row < kRows; ++row)
+          for (std::size_t column = 0; column < kColumns; ++column)
           {
-            if (kind == 0)
+            const float x = static_cast<float>(column);
+            const float y = static_cast<float>(row);
+            float variation = 0.0f;
+            if (((noise >> 16) & 1u) == 0)
             {
-              // RIPPLE: a soft swell spreads from the middle to the edges, twice.
               const float distance = std::sqrt((x - 6.5f) * (x - 6.5f) + (y - 1.5f) * (y - 1.5f) * 4.0f);
               const float radius = std::fmod(into * 2.0f, 1.0f) * 10.0f - 1.0f;
               variation = std::exp(-(distance - radius) * (distance - radius) / 4.0f);
             }
-            else if (kind == 1)
+            else
             {
-              // TIDE: a broad patch of light drifts from the left to the right and back.
               const float centre = 6.5f - 8.0f * std::cos(into * 2.0f * 3.14159265f);
               variation = std::exp(-(x - centre) * (x - centre) / 12.0f);
             }
-            else if (kind == 2)
-            {
-              // GLIMMER: keys here and there slowly glow up and fade.
-              const std::uint32_t key = fx::Hash(noise ^ static_cast<std::uint32_t>(row * kColumns + column) * 40503u);
-              const float own = static_cast<float>(3500 + key % 3000);
-              const float phase = std::fmod(static_cast<float>(t) + static_cast<float>(key >> 12 & 0xFFFu), own) / own;
-              variation = (key & 3u) == 0 ? 0.5f - 0.5f * std::cos(phase * 2.0f * 3.14159265f) : 0.0f;
-            }
-            else
-            {
-              // DEEP: one long, deep breath of the whole keyboard.
-              variation = std::sin(into * 3.14159265f);
-              variation *= variation;
-            }
+            float& level = levels[KeyIndex(row, column)];
+            level = std::max(level, 15.0f * variation * envelope);
           }
-          levels[KeyIndex(row, column)] = std::max(base, 15.0f * variation * envelope);
-        }
       break;
     }
     case StandbyLightStyle::All:
@@ -901,8 +878,8 @@ void Animator::StandbyLight(const Controller& controller, std::array<float, kKey
   std::array<float, kKeyCount> shown{};
   if (chosen == StandbyLightStyle::All)
   {
-    static constexpr std::array<StandbyLightStyle, 6> kTurns{{StandbyLightStyle::Breathe, StandbyLightStyle::Ring, StandbyLightStyle::Aurora,
-                                                             StandbyLightStyle::Sweep, StandbyLightStyle::Stars, StandbyLightStyle::Rain}};
+    static constexpr std::array<StandbyLightStyle, 5> kTurns{{StandbyLightStyle::Breathe, StandbyLightStyle::Ring, StandbyLightStyle::Aurora,
+                                                             StandbyLightStyle::Sweep, StandbyLightStyle::Rain}};
     const std::size_t turn = (t / kStandbyStyleMs) % kTurns.size();
     StandbyStyle(kTurns[turn], t, standby_.seed, shown);
     const std::uint32_t into = t % kStandbyStyleMs;
