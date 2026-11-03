@@ -423,11 +423,12 @@ void GrooveApp::SyncSamplerTrim()
   }
 }
 
-// Standby dims the screen to a fifth of its brightness over a second; a key brings it back at once.
+// Standby dims the screen to a fifth of its brightness over about two and a half seconds; a key brings it
+// back at once.
 void GrooveApp::UpdateScreenDim(std::uint32_t now)
 {
   constexpr float kStandbyPercent = 20.0f;
-  constexpr float kDimPerMs = 0.08f;  // 80 points a second
+  constexpr float kDimPerMs = 0.032f;  // 32 points a second
   const float dt = screenDimAt_ == 0 ? 0.0f : static_cast<float>(std::min<std::uint32_t>(now - screenDimAt_, 200));
   screenDimAt_ = now == 0 ? 1 : now;
   const float target = controller_.Standby() ? kStandbyPercent : 100.0f;
