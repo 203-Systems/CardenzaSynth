@@ -89,9 +89,10 @@ void DrawGlyphColumn(Gfx& g, const Controller& controller, Animator& animator)
   const auto& sequencer = controller.HostView().Sequencer();
   const bool playing = sequencer.Playing();
   const bool recArmed = sequencer.RecordArmed();
-  // The icons on ADD and SUB say what they do here.
-  Glyph add = Glyph::Plus;
-  Glyph sub = Glyph::Minus;
+  // The icons on ADD and SUB say what they do here: up / down for a value and for a list alike (ADD,
+  // the upper key, raises the value and goes up the list).
+  Glyph add = Glyph::Up;
+  Glyph sub = Glyph::Down;
   switch (controller.AdjustKeysMean())
   {
     case AdjustMeaning::List: add = Glyph::Up; sub = Glyph::Down; break;

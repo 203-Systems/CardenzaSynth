@@ -25,7 +25,8 @@
 
   const LEFT_ROLES = ['ESC', 'TAB', 'FN', 'CTRL'];
   const RIGHT_ROLES = ['ADD', 'SUB', 'ENTER', 'PLAY'];
-  const RIGHT_SYMBOLS = ['↑', '↓', '↵', '▶'];
+  // As printed on the device's keycaps: ADD is the backspace key.
+  const RIGHT_SYMBOLS = ['←', '↓', '↵', '▶'];
   const LEGEND = [
     ['`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', ''],
     ['', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '[', ']', '\\'],
