@@ -127,14 +127,17 @@ body.guide { --rail: 236px; --dev: min(520px, 40vw); }
 .a-sound[aria-pressed="true"] { border-color: var(--play); color: var(--play); }
 /* The step's words under the picture, the steps as dots. */
 .anim-bar { display: flex; gap: 14px; align-items: center; margin: 12px 0 18px; }
-.anim-bar .a-back { width: 42px; height: 42px; padding: 0; font-size: 16px; flex: none; }
+.anim-bar .a-back { width: 42px; height: 42px; padding: 0; font-size: 16px; flex: none; color: var(--step);
+  border-color: color-mix(in srgb, var(--step) 55%, var(--line-2)); }
+.anim-bar .a-back:not(:disabled):hover { border-color: var(--step); }
 .anim-bar .a-back:disabled { opacity: .3; cursor: default; }
-.anim-bar .a-next { flex: none; background: var(--fn); color: #000; border-color: var(--fn); padding: 11px 16px; font-size: 14px; }
+.anim-bar .a-next { flex: none; background: var(--step); color: #000; border-color: var(--step); padding: 11px 16px; font-size: 14px; }
+.anim-bar .a-next:hover { border-color: #fff; }
 .anim-say { flex: 1; min-width: 0; }
 .anim-text { margin: 4px 0 0; font-size: 18px; line-height: 1.55; min-height: 2.6em; max-width: none; }
 .anim-dots { display: flex; gap: 6px; }
 .a-dot { width: 22px; height: 6px; border: 0; border-radius: 2px; background: var(--line-2); cursor: pointer; padding: 0; }
-.a-dot.on { background: var(--fn); }
+.a-dot.on { background: var(--step); }
 .a-dot.seen { background: var(--dim); }
 .lesson[data-kind="anim"] .l-steps { display: none; }
 
