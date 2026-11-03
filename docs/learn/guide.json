@@ -9,12 +9,12 @@
     "music-box": {
       "more": "seq",
       "title": {"zh": "一个八音盒 = 一个音序器", "en": "A music box is a sequencer"},
-      "lead": {"zh": "凸起转到梳齿，就响一个音。", "en": "A pin reaches the comb: a note plays."},
+      "lead": {"zh": "圆筒转起来，凸起拨到梳齿，就响一个音。", "en": "The drum turns, a pin plucks the comb, a note sounds."},
       "anim": "music-box",
       "steps": [
-        {"say": {"zh": "圆筒上的每个凸起，转到梳齿就响一个音。", "en": "Every pin on the drum plays a note when it reaches the comb."}},
-        {"say": {"zh": "把圆筒摊平：从左到右是时间，转一圈 16 格。这就是音序器。", "en": "Unroll the drum: time runs left to right, 16 steps a turn. That is a sequencer."}},
-        {"say": {"zh": "点格子加一个凸起，再听一遍。机器上，这 16 格就是右边的 4×4 GRID。", "en": "Tap a cell to add a pin and listen again. On Cardenza these 16 steps are the 4×4 GRID."}}
+        {"say": {"zh": "圆筒转动时，凸起碰到哪根梳齿，就发出那根梳齿的音。齿越长，音越低。", "en": "As the drum turns, each pin that reaches the comb plucks one tooth, and that tooth sounds its note. The longer the tooth, the lower the note."}},
+        {"say": {"zh": "把圆筒摊平：从左到右是时间，从下到上是音高，绿线是正在播放的位置。这里圆筒转一圈正好是一小节 4/4 拍：4 拍，每拍 4 格，一共 16 格。这就是音序器。", "en": "Unroll the drum: time runs left to right, pitch bottom to top, and the green line is what is playing now. Here one turn of the drum is one bar of 4/4: 4 beats of 4 steps, 16 steps in all. That is a sequencer."}},
+        {"say": {"zh": "点一个空格子，加一个音（就像在圆筒上多装一个凸起），再点一下就去掉。在 Cardenza 上，这 16 个时间格就是机器右边 4×4 的 16 个键，音高用左边的琴键来选。", "en": "Tap an empty cell to add a note (a new pin on the drum); tap it again to take it away. On Cardenza these 16 steps are the 16 keys of the 4×4 block on the right; you pick the pitch on the keyboard to the left."}}
       ]
     },
     "four-boxes": {
