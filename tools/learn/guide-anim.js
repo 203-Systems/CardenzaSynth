@@ -397,7 +397,7 @@
       return stepRow(lanes, svg, 150, 64 + i * 58, 450, 40, C.t[i], (s) => !!track.hits(s));
     });
     const head = el(lanes, 'rect', { y: 56, width: 2, height: 4 * 58 + 2, fill: C.play });
-    label(lanes, 375, 312, '四轨一起 = 一段', 'Four tracks together = one part', { fill: C.dim, 'font-size': 13, 'text-anchor': 'middle' });
+    label(lanes, 375, 312, '四轨一起播放 = 一段', 'Four tracks playing together = one part', { fill: C.dim, 'font-size': 13, 'text-anchor': 'middle' });
     el(lanes, 'rect', { x: 32, y: 54, width: 576, height: 4 * 58 + 4, rx: 6, fill: 'none', stroke: C.fn, 'stroke-dasharray': '5 3.5' });
     let last = -1;
     return (t, step, from, to, k) => {
