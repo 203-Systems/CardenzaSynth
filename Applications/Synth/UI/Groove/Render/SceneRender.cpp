@@ -72,16 +72,20 @@ void GridRipple(Gfx& g, Animator& animator, std::size_t index, Color color)
   fx::Ripple(g, Cell(index / kGridColumns, index % kGridColumns), fx::Progress(animator.Now(), pressed, kRippleMs), color);
 }
 
+// The kit's eight drums in one row, like the eight pad columns on the keyboard (a column is a drum).
 void DrawPads(Gfx& g, const Controller& controller, Animator& animator, const Rect& area, const synth::ISynthEngine* engine)
 {
-  const int padWidth = (area.width - 9) / 4;
-  const int padHeight = (area.height - 3) / 2;
+  constexpr int kGap = 2;
+  const int padWidth = (area.width - kGap * 7) / 8;
+  const int padHeight = std::min(area.height, 24);
+  const int left = area.x + (area.width - (padWidth * 8 + kGap * 7)) / 2;
+  const int top = area.y + (area.height - padHeight) / 2;
   static constexpr std::array<const char*, 8> kIds{{"kick.level", "snare.level", "closed_hat.level", "open_hat.level",
                                                     "clap.level", "tom.level", "cowbell.level", "maraca.level"}};
   const std::uint32_t now = animator.Now();
   for (std::size_t pad = 0; pad < 8; ++pad)
   {
-    const Rect rect{area.x + static_cast<int>(pad % 4) * (padWidth + 3), area.y + static_cast<int>(pad / 4) * (padHeight + 3), padWidth, padHeight};
+    const Rect rect{left + static_cast<int>(pad) * (padWidth + kGap), top, padWidth, padHeight};
     const bool held = controller.IsNoteHeld(kDrumNotes[pad]);
     const float hit = fx::Decay(now, animator.NoteHitAt(kDrumNotes[pad]), kAfterglowMs);
     const float level = Glide(animator, controller.State().track, engine, kIds[pad], 0.8f);
@@ -97,8 +101,9 @@ void DrawPads(Gfx& g, const Controller& controller, Animator& animator, const Re
     g.Stroke(body, held || hit > 0.0f ? kInk : kFaint);
     // The name stays readable on any density.
     const int nameWidth = Gfx::Measure(kDrumNames[pad]);
-    if (held || hit > 0.0f) g.Fill(Rect{body.x + 2, body.y + 2, nameWidth + 2, 9}, kBlack);
-    g.Text(body.x + 3, body.y + 3, kDrumNames[pad], kInk);
+    const int nameX = body.x + (body.width - nameWidth) / 2;
+    if (held || hit > 0.0f) g.Fill(Rect{nameX - 1, body.y + 2, nameWidth + 2, 9}, kBlack);
+    g.Text(nameX, body.y + 3, kDrumNames[pad], kInk);
     if (hit > 0.0f) fx::Ripple(g, body, 1.0f - hit, kInk);
   }
 }
