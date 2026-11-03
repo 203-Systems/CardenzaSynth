@@ -137,11 +137,17 @@
   const FILL = { 0: 'kick', 4: 'snare', 8: 'kick', 10: 'kick', 12: 'snare', 13: 'snare', 14: 'snare', 15: 'snare' };
   const CHORDS = { 0: 48, 8: 53, 12: 48 };
   const BASS = { 0: 36, 6: 43, 8: 41, 12: 36 };
+  // Part B: like A but its own, the tune's second line (F F E E D D C, then D back to A), its own
+  // chords and bass, and a drum fill.
+  const MELODY_B = [[0, 3], [2, 3], [4, 2], [6, 2], [8, 1], [10, 1], [12, 0], [14, 1]];
+  const CHORDS_B = { 0: 53, 4: 48, 8: 55, 12: 48 };
+  const BASS_B = { 0: 41, 4: 36, 8: 43, 12: 36, 14: 43 };
+  // hits(step, b): what a track plays on a step of part A, or of part B.
   const TRACKS = [
-    { zh: '鼓', en: 'DRUMS', hits: (s, fill) => (fill ? FILL : DRUMS)[s] || (s % 2 === 0 ? 'hat' : null) },
-    { zh: '钢琴', en: 'PIANO', hits: (s) => MELODY.find((m) => m[0] === s) },
-    { zh: '和弦', en: 'CHORDS', hits: (s) => CHORDS[s] },
-    { zh: '贝斯', en: 'BASS', hits: (s) => BASS[s] },
+    { zh: '鼓', en: 'DRUMS', hits: (s, b) => (b ? FILL : DRUMS)[s] || (s % 2 === 0 ? 'hat' : null) },
+    { zh: '钢琴', en: 'PIANO', hits: (s, b) => (b ? MELODY_B : MELODY).find((m) => m[0] === s) },
+    { zh: '和弦', en: 'CHORDS', hits: (s, b) => (b ? CHORDS_B : CHORDS)[s] },
+    { zh: '贝斯', en: 'BASS', hits: (s, b) => (b ? BASS_B : BASS)[s] },
   ];
   function sound(track, s, fill) {
     const hit = TRACKS[track].hits(s, fill);
@@ -423,7 +429,7 @@
 
   SCENES['boxes-in-a-row'] = (svg, thumb) => {
     // A part drawn small: four lanes of hits in the track colours.
-    const PARTS = [false, false, true, false];  // A A B(fill) A
+    const PARTS = [false, false, true, false];  // A A B A
     const part = (parent, x, y, w, h, fill) => {
       const g = el(parent, 'g', {});
       el(g, 'rect', { x, y, width: w, height: h, rx: 6, fill: '#0e0e0d', stroke: C.line2 });
@@ -458,7 +464,7 @@
       for (let r = 0; r < 4; r++) {
         const x = 150 + c * 112, y = 74 + r * 54;
         cells.push(el(song, 'rect', { x: x - 4, y: y - 4, width: 104, height: 46, rx: 3, fill: 'none', stroke: C.play, 'stroke-width': 2, opacity: 0, 'data-c': c }));
-        el(song, 'text', { x, y: y + 22, fill: C.ink, 'font-size': 20, 'font-weight': 700 }, r === 0 && fill ? 'P02' : 'P01');
+        el(song, 'text', { x, y: y + 22, fill: C.ink, 'font-size': 20, 'font-weight': 700 }, fill ? 'P02' : 'P01');
         el(song, 'rect', { x, y: y + 32, width: 92, height: 3, fill: C.t[r] });
       }
     });
