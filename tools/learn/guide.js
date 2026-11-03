@@ -803,10 +803,17 @@
     if (section.dataset.kind === 'device') startDeviceLesson(section);
     else startAnimLesson(section);
   }
+  // The lessons build on each other: learning one again clears its tick and those of every lesson
+  // after it in the course; the ones before keep theirs.
   function learnAgain(id) {
-    delete done[id];
+    const from = data.order.indexOf(id);
+    const again = from >= 0 ? data.order.slice(from) : [id];
+    const cleared = again.filter((lesson) => done[lesson]).length;
+    again.forEach((lesson) => { delete done[lesson]; });
     store.set('guide.done', JSON.stringify(done));
     paintProgress();
+    if (cleared > 1) toast(say(`这一课和之后的课一起重新开始：清掉了 ${cleared} 课的完成记录。`,
+      `This lesson and the ones after it start over: ${cleared} ticks cleared.`));
     startOver(id);
   }
   function learnAllAgain() {
