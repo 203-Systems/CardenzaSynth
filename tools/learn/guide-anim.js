@@ -153,52 +153,90 @@
   }
 
   // ---- Pieces ---------------------------------------------------------------------------------
-  // A music box seen from the front: the drum (pins turning up to the comb), the comb, a crank.
+  // A music box seen from the front. The pinned drum stands upright and turns towards the comb on its
+  // left, so a row of the drum is a tooth of the comb (low at the bottom, as in the grid it unrolls
+  // into), its pins come to the comb at an even speed, and the comb is where the music is now. The
+  // teeth are cut from one steel plate, longest for the lowest note, every tip on the drum; a plucked
+  // tooth bends and rings. The winding key faces us and turns slowly.
   function musicBox(parent, svg, x, y, w, h, color, pins) {
+    const sc = h / 150;
+    const lanes = 8, laneH = h / lanes;
+    const rowY = (r) => y + (lanes - r - 0.5) * laneH;
     const g = el(parent, 'g', {});
-    el(g, 'rect', { x: x - 14, y: y - 18, width: w + 28, height: h + 32, rx: 8, fill: '#0e0e0d', stroke: C.line2 });
-    // The drum, shaded round with dither bands.
-    const bands = 9;
-    for (let b = 0; b < bands; b++) {
-      const k = Math.sin(Math.PI * (b + 0.5) / bands);
-      el(g, 'rect', { x, y: y + b * h / bands, width: w, height: h / bands + 0.5, fill: svg.dither(color, Math.max(1, Math.round(k * 5))) });
+    const fx = x - 12 * sc - 4, fy = y - 14 * sc - 4, fw = w + 24 * sc + 8, fh = h + 28 * sc + 8;
+    el(g, 'rect', { x: fx, y: fy, width: fw, height: fh, rx: 8, fill: '#0e0e0d', stroke: C.line2 });
+    const combW = w * 0.34;
+    const cylX = x + combW - 6 * sc, cylW = x + w - cylX;
+    const contact = cylX + cylW * 0.1;
+    const visibleSteps = 8;  // the front half of the drum
+    const pxPerStep = (x + w - 4 * sc - contact) / visibleSteps;
+    // The drum: shaded round with dither columns, end caps and spindle.
+    const cols = 11;
+    for (let b = 0; b < cols; b++) {
+      const k = Math.sin(Math.PI * (b + 0.5) / cols);
+      el(g, 'rect', { x: cylX + b * cylW / cols, y, width: cylW / cols + 0.5, height: h, fill: svg.dither(color, Math.max(1, Math.round(k * 6))) });
     }
-    el(g, 'rect', { x, y, width: w, height: h, fill: 'none', stroke: color, 'stroke-opacity': 0.5 });
-    // The comb on top: one tooth per row.
-    const teeth = [];
-    const lanes = 8;
-    for (let i = 0; i < lanes; i++) {
-      const tx = x + (i + 0.5) * w / lanes;
-      teeth.push(el(g, 'rect', { x: tx - 3, y: y - 16, width: 6, height: 18, fill: C.dim, rx: 1 }));
-    }
-    el(g, 'rect', { x: x - 6, y: y - 20, width: w + 12, height: 6, fill: C.faint });
+    const capRy = 5 * sc;
+    for (const sy of [y - capRy - 7 * sc, y + h]) el(g, 'rect', { x: cylX + cylW / 2 - 2.5 * sc, y: sy, width: 5 * sc, height: capRy + 7 * sc, fill: C.faint });
+    el(g, 'ellipse', { cx: cylX + cylW / 2, cy: y, rx: cylW / 2, ry: capRy, fill: '#121211', stroke: color, 'stroke-opacity': 0.7 });
+    el(g, 'path', { d: `M ${cylX} ${y + h} A ${cylW / 2} ${capRy} 0 0 0 ${cylX + cylW} ${y + h}`, fill: 'none', stroke: color, 'stroke-opacity': 0.7 });
+    for (const lx of [cylX, cylX + cylW]) el(g, 'line', { x1: lx, y1: y, x2: lx, y2: y + h, stroke: color, 'stroke-opacity': 0.55 });
+    // A faint ring under each tooth: the pins of one note go round on it.
+    for (let r = 0; r < lanes; r++) el(g, 'line', { x1: cylX + 1, y1: rowY(r), x2: cylX + cylW - 1, y2: rowY(r), stroke: '#000', 'stroke-opacity': 0.35, 'stroke-width': 1 });
+    // The pins, under the teeth.
     const pinLayer = el(g, 'g', {});
-    const pinNodes = pins.map(() => el(pinLayer, 'rect', { width: 7, height: 7, fill: C.ink }));
-    const crank = el(g, 'g', {});
-    el(crank, 'line', { x1: 0, y1: 0, x2: 0, y2: -16, stroke: C.dim, 'stroke-width': 3 });
-    el(crank, 'circle', { cx: 0, cy: -16, r: 4, fill: C.ink });
-    el(g, 'circle', { cx: x + w + 22, cy: y + h / 2, r: 4, fill: C.dim });
+    const pinNodes = pins.map(() => el(pinLayer, 'circle', { r: Math.max(2, 4.4 * sc), fill: C.ink, stroke: '#000', 'stroke-width': 0.8 }));
+    // The comb: a plate cut on a slant, so the lower the note the longer its tooth.
+    const baseX = (r) => x + 4 * sc + combW * 0.42 * r / (lanes - 1);
+    el(g, 'polygon', { points: `${x},${y - 3} ${baseX(lanes - 1) + 2},${y - 3} ${baseX(0) + 2},${y + h + 3} ${x},${y + h + 3}`,
+      fill: svg.dither(C.dim, 5), stroke: C.faint });
+    for (const yy of [y + h * 0.18, y + h * 0.82]) el(g, 'circle', { cx: x + combW * 0.1, cy: yy, r: 2.6 * sc, fill: '#0e0e0d', stroke: C.faint });
+    const tipX = contact + 3 * sc;
+    const teeth = [];
+    for (let r = 0; r < lanes; r++) teeth.push(el(g, 'polygon', { fill: C.dim }));
+    // The winding key, facing us on the side of the box.
+    const kx = fx + fw + 30 * sc, ky = y + h / 2;
+    el(g, 'rect', { x: fx + fw, y: ky - 3.5 * sc, width: 26 * sc, height: 7 * sc, fill: C.faint });
+    const key = el(g, 'g', {});
+    for (const side of [-1, 1]) {
+      el(key, 'circle', { cx: 0, cy: side * 21 * sc, r: 16 * sc, fill: svg.dither(C.dim, 8), stroke: C.dim, 'stroke-width': 1.5 });
+      el(key, 'circle', { cx: 0, cy: side * 23 * sc, r: 5.5 * sc, fill: '#0e0e0d' });
+    }
+    el(key, 'rect', { x: -6 * sc, y: -12 * sc, width: 12 * sc, height: 24 * sc, fill: C.dim });
+    el(key, 'circle', { cx: 0, cy: 0, r: 6.5 * sc, fill: C.ink });
     return {
       g,
-      // phase: turns of the drum (0..1 per 16 steps). Pins at the comb line light their tooth.
+      // phase: turns of the drum (0..1 per 16 steps).
       draw(phase) {
+        const now = phase * 16;
+        const until = (step) => ((step - now) % 16 + 16) % 16;  // steps until the pin reaches the comb
         pins.forEach(([step, row], i) => {
-          // Seen from the side the pin rises on the front of the drum, reaches the comb at the top
-          // (pi / 2) and goes round the back.
-          const angle = Math.PI / 2 + 2 * Math.PI * (phase - step / 16);
-          const front = Math.cos(angle) > -0.02;
-          const yy = y + h / 2 - Math.sin(angle) * (h / 2 - 4);
+          let d = until(step);
+          if (d > 15.4) d -= 16;  // just past: going under the tooth
           const node = pinNodes[i];
-          node.setAttribute('x', x + (row + 0.5) * w / lanes - 3.5);
-          node.setAttribute('y', yy - 3.5);
-          node.setAttribute('opacity', front ? 1 : 0);
+          node.setAttribute('cx', contact + d * pxPerStep);
+          node.setAttribute('cy', rowY(row));
+          const fade = d < 0 ? 1 + d / 0.6 : d > visibleSteps - 0.7 ? (visibleSteps - d) / 0.7 : 1;
+          node.setAttribute('opacity', Math.max(0, Math.min(1, fade)));
         });
         teeth.forEach((tooth, row) => {
-          const near = pins.some(([step, r]) => r === row && Math.abs(((step / 16 - phase) % 1 + 1.5) % 1 - 0.5) < 0.03);
-          tooth.setAttribute('fill', near ? color : C.dim);
-          tooth.setAttribute('transform', near ? `translate(${Math.sin(phase * 400) * 1.5} 0)` : '');
+          let next = 99, since = 99;
+          pins.forEach(([step, r]) => {
+            if (r !== row) return;
+            const d = until(step);
+            next = Math.min(next, d);
+            since = Math.min(since, (16 - d) % 16);
+          });
+          // The pin lifts the tip, lets go, and the tooth rings down.
+          let bend = 0;
+          if (next < 0.35) bend = -(1 - next / 0.35) * 3.5 * sc;
+          else if (since < 4) bend = 3.5 * sc * Math.exp(-since / 1.1) * Math.cos(since * Math.PI * 3);
+          const cy = rowY(row), bx = baseX(row), hb = laneH * 0.32, ht = laneH * 0.17;
+          tooth.setAttribute('points', `${bx},${cy - hb} ${tipX},${cy - ht + bend} ${tipX},${cy + ht + bend} ${bx},${cy + hb}`);
+          tooth.setAttribute('fill', since < 1.6 ? color : C.dim);
         });
-        crank.setAttribute('transform', `translate(${x + w + 22} ${y + h / 2}) rotate(${phase * 360})`);
+        // Half a turn per turn of the drum (the key looks the same turned half way).
+        key.setAttribute('transform', `translate(${kx} ${ky}) rotate(${-phase * 180})`);
       },
     };
   }
@@ -231,8 +269,9 @@
   SCENES['music-box'] = (svg, thumb) => {
     const pins = MELODY.map((m) => m.slice());
     const box = el(svg, 'g', {});
-    const mb = musicBox(box, svg, 200, 110, 240, 150, C.t[1], pins);
-    label(box, 320, 312, '转动：凸起碰到梳齿就响', 'Turning: a pin plucks the comb', { fill: C.faint, 'font-size': 13, 'text-anchor': 'middle' });
+    const mb = musicBox(box, svg, 176, 92, 250, 170, C.t[1], pins);
+    label(box, 320, 322, '凸起拨到哪根梳齿，就响哪根齿的音', 'A pin plucks a tooth: that tooth sounds', { fill: C.faint, 'font-size': 13, 'text-anchor': 'middle' });
+    label(box, 196, 58, '梳齿：长的低，短的高', 'comb: long teeth low, short high', { fill: C.faint, 'font-size': 11 });
     const flat = el(svg, 'g', {});
     const gx = 70, gy = 60, gw = 400, gh = 224, rows = 8;
     const has = (s, r) => pins.some((p) => p[0] === s && p[1] === r);
@@ -248,12 +287,18 @@
       }
     }
     for (let s = 0; s < 16; s++) el(flat, 'text', { x: gx + (s + 0.5) * gw / 16, y: gy + gh + 16, fill: s % 4 === 0 ? C.dim : C.faint, 'font-size': 10, 'text-anchor': 'middle' }, s + 1);
+    // One bar of 4/4: four beats of four steps.
+    for (let b = 0; b < 4; b++) {
+      el(flat, 'line', { x1: gx + b * gw / 4 + 3, y1: gy - 7, x2: gx + (b + 1) * gw / 4 - 3, y2: gy - 7, stroke: C.line2, 'stroke-width': 2 });
+      label(flat, gx + (b + 0.5) * gw / 4, gy - 13, `第 ${b + 1} 拍`, `beat ${b + 1}`, { fill: C.dim, 'font-size': 11, 'text-anchor': 'middle' });
+    }
+    label(flat, gx - 12, gy - 13, '音高', 'pitch', { fill: C.faint, 'font-size': 11, 'text-anchor': 'end' });
     const head = el(flat, 'rect', { y: gy - 4, width: 2, height: gh + 8, fill: C.play });
-    label(flat, gx, gy - 14, '时间 →', 'time →', { fill: C.faint, 'font-size': 12 });
+    label(flat, gx + gw / 2, gy + gh + 36, '时间 →（16 格 = 一小节）', 'time → (16 steps = one bar)', { fill: C.faint, 'font-size': 12, 'text-anchor': 'middle' });
     // The device's GRID: the same 16 steps, four by four.
     const keys = el(svg, 'g', {});
     const kx = 500, ky = 92, ks = 30;
-    label(keys, kx + 2 * ks + 3, ky - 14, 'GRID 4×4', 'GRID 4×4', { fill: C.dim, 'font-size': 12, 'text-anchor': 'middle' });
+    label(keys, kx + 2 * ks + 3, ky - 14, '机器右边的 4×4 键', 'the 4×4 keys', { fill: C.dim, 'font-size': 12, 'text-anchor': 'middle' });
     const keyNodes = [];
     for (let i = 0; i < 16; i++) {
       const kxx = kx + (i % 4) * (ks + 4), kyy = ky + (i >> 2) * (ks + 4);
@@ -276,8 +321,8 @@
       box.setAttribute('opacity', boxVis);
       box.setAttribute('transform', `translate(0 ${-(1 - boxVis) * 30}) `);
       flat.setAttribute('opacity', flatVis);
-      // Unrolled from the drum: the grid opens from the middle.
-      flat.setAttribute('transform', `translate(${(1 - keysVis) * 60} 172) scale(1 ${0.25 + 0.75 * ease(flatVis)}) translate(0 -172)`);
+      // Unrolled from the drum: its rows are already the grid's rows, time opens out to the right.
+      flat.setAttribute('transform', `translate(${(1 - keysVis) * 60 + gx} 0) scale(${0.3 + 0.7 * ease(flatVis)} 1) translate(${-gx} 0)`);
       flat.style.pointerEvents = to === 2 && !thumb ? 'auto' : 'none';
       flat.style.cursor = to === 2 ? 'pointer' : 'default';
       keys.setAttribute('opacity', keysVis);
@@ -292,7 +337,8 @@
       keyNodes.forEach((node, i) => node.setAttribute('opacity', i === s ? 0.95 : pins.some((p) => p[0] === i) ? 0.35 : 0));
       if (s !== last) {
         last = s;
-        if (!thumb) pins.filter((p) => p[0] === s).forEach((p) => play(to === 0 ? 'bell' : 'piano', SCALE[p[1]]));
+        // A music box sings an octave up.
+        if (!thumb) pins.filter((p) => p[0] === s).forEach((p) => play(to === 0 ? 'bell' : 'piano', SCALE[p[1]] + (to === 0 ? 12 : 0)));
       }
     };
   };
