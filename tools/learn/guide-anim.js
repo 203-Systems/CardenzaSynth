@@ -156,18 +156,24 @@
   // A song: every track has patterns of its own (numbered as they were made) and each part picks one
   // per track, or none. A is the tune's first line; B, like it but its own, the second line (F F E E
   // D D C, then D back to A) with its own chords and bass and a drum fill; the intro has only a
-  // kick, a long chord and the bass of A.
+  // kick, a long chord and long bass notes. The bass has four patterns: A's, B's, the intro's, and a
+  // busier one jumping octaves for the second A.
   const MELODY_B = [[0, 3], [2, 3], [4, 2], [6, 2], [8, 1], [10, 1], [12, 0], [14, 1]];
   const PATTERNS = [
     { 1: drums({ 0: 'kick', 8: 'kick' }), 2: drums(DRUMS), 3: drums(FILL) },
     { 1: (s) => MELODY.find((m) => m[0] === s), 2: (s) => MELODY_B.find((m) => m[0] === s) },
     { 1: (s) => CHORDS[s], 2: (s) => ({ 0: 53, 4: 48, 8: 55, 12: 48 })[s], 3: (s) => ({ 0: 48, 8: 53 })[s] },
-    { 1: (s) => BASS[s], 2: (s) => ({ 0: 41, 4: 36, 8: 43, 12: 36, 14: 43 })[s] },
+    {
+      1: (s) => BASS[s],
+      2: (s) => ({ 0: 41, 4: 36, 8: 43, 12: 36, 14: 43 })[s],
+      3: (s) => ({ 0: 36, 8: 41 })[s],
+      4: (s) => ({ 0: 36, 2: 48, 4: 36, 6: 43, 8: 41, 10: 53, 12: 36, 14: 43 })[s],
+    },
   ];
   const SONG = [
-    { zh: '前奏', en: 'INTRO', p: [1, 0, 3, 1] },
+    { zh: '前奏', en: 'INTRO', p: [1, 0, 3, 3] },
     { zh: 'A', en: 'A', p: [2, 1, 1, 1] },
-    { zh: 'A', en: 'A', p: [2, 1, 1, 1] },
+    { zh: 'A', en: 'A', p: [2, 1, 1, 4] },
     { zh: 'B', en: 'B', p: [3, 2, 2, 2] },
     { zh: 'A', en: 'A', p: [2, 1, 1, 1] },
   ];
