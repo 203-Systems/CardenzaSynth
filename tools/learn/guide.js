@@ -565,7 +565,14 @@
 
   function startAnimLesson(section) {
     const stage = $('.anim-stage', section);
-    anim = { section, steps: $$('.step', section), index: 0, player: window.GuideAnim ? window.GuideAnim.create(stage, section.dataset.anim) : null };
+    const replayButton = $('.a-replay', section);
+    replayButton.hidden = true;
+    // Each step plays once from the top when shown; then the page offers to play it again.
+    const player = window.GuideAnim ? window.GuideAnim.create(stage, section.dataset.anim, {
+      onEnd: () => { replayButton.hidden = false; },
+      onPlay: () => { replayButton.hidden = true; },
+    }) : null;
+    anim = { section, steps: $$('.step', section), index: 0, player };
     $('.l-done', section).hidden = true;
     section.classList.remove('complete');
     showAnimStep(0);
@@ -603,6 +610,8 @@
       }
     } else if (event.target.closest('.a-back')) {
       if (anim.index > 0) showAnimStep(anim.index - 1);
+    } else if (event.target.closest('.a-replay')) {
+      if (anim.player) anim.player.replay();
     } else if (event.target.closest('.a-sound')) {
       soundOn = !soundOn;
       $$('.a-sound').forEach((b) => b.setAttribute('aria-pressed', String(soundOn)));

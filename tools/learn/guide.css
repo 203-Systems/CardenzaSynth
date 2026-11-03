@@ -113,6 +113,10 @@ body.guide { --rail: 236px; --dev: min(520px, 40vw); }
 .a-sound { position: absolute; top: 10px; right: 10px; border: 1px solid var(--line-2); background: rgba(14, 14, 13, .85); color: var(--dim);
   font: 600 12px var(--mono); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
 .a-sound[aria-pressed="true"] { border-color: var(--play); color: var(--play); }
+/* After a step has played once. */
+.a-replay { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); border: 1px solid var(--play); background: rgba(14, 14, 13, .9);
+  color: var(--play); font: 600 13px var(--mono); padding: 7px 14px; border-radius: 6px; cursor: pointer; }
+.a-replay[hidden] { display: none; }
 /* The step's words under the picture, the steps as dots. */
 .anim-bar { display: flex; gap: 14px; align-items: center; margin: 12px 0 18px; }
 .anim-bar .a-back { width: 42px; height: 42px; padding: 0; font-size: 16px; flex: none; }
