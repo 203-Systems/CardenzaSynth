@@ -150,6 +150,9 @@ int main()
   assert(os::system::ActiveApplicationId() == "Cardenza/Synth");
   auto* groove = &Groove();
   assert(groove->MasterVolume() == 50 && os::storage::kDefaultOutputVolume == 50);
+  // The clock jumps minutes at a time here: standby would take the next key for waking up.
+  assert(groove->StandbyMinutes() == os::storage::kDefaultStandbyMinutes);
+  groove->SetStandbyMinutes(0);
   assert(!fs::exists(root / "internal" / "as_p0_99.rec") && !fs::exists(root / "internal" / "as_old.rec"));
   assert(ReadText(root / "internal" / "launcher.rec") == "theirs");
 

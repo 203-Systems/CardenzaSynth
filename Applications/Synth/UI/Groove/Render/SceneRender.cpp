@@ -1128,7 +1128,6 @@ void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, co
     y += 11;
     ++line;
   };
-  row("DEVICE", "CARDENZA GROOVEBOX", kInk);
   row("BACKEND", info.backend, kInk);
   row("SD CARD", info.storageReady ? "READY" : "NOT FOUND", info.storageReady ? kPlay : kRec);
   row("MEMORY", info.freeHeap == 0 ? std::string("N/A") :

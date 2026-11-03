@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <new>
 #include <set>
@@ -118,6 +119,7 @@ GrooveApp::GrooveApp() : controller_(*this) {}
 
 GrooveApp::~GrooveApp()
 {
+  os::storage::SetScreenDim(100);  // the next app sees the screen as set
   // Silence the engines and hand the sample memory back before the next app starts.
   sampler_.KeepTakesOnCard();
   sequencer_.ArpReleaseAll();
@@ -356,6 +358,7 @@ void GrooveApp::Tick()
   ServiceGuide(now);
   controller_.Tick(now);
   animator_.Update(controller_, now);
+  UpdateScreenDim(now);
   StorePlaySettings();
   CheckCard(now);
   KeepSessionCurrent(now);
@@ -420,6 +423,21 @@ void GrooveApp::SyncSamplerTrim()
   }
 }
 
+// Standby dims the screen to a fifth of its brightness over a second; a key brings it back at once.
+void GrooveApp::UpdateScreenDim(std::uint32_t now)
+{
+  constexpr float kStandbyPercent = 20.0f;
+  constexpr float kDimPerMs = 0.08f;  // 80 points a second
+  const float dt = screenDimAt_ == 0 ? 0.0f : static_cast<float>(std::min<std::uint32_t>(now - screenDimAt_, 200));
+  screenDimAt_ = now == 0 ? 1 : now;
+  const float target = controller_.Standby() ? kStandbyPercent : 100.0f;
+  screenDim_ = target >= screenDim_ ? target : std::max(target, screenDim_ - dt * kDimPerMs);
+  const auto percent = static_cast<std::uint8_t>(std::lround(screenDim_));
+  if (percent == screenDimShown_) return;
+  screenDimShown_ = percent;
+  os::storage::SetScreenDim(percent);
+}
+
 void GrooveApp::UpdateLeds()
 {
   groove::LedFrame frame{};
@@ -428,8 +446,9 @@ void GrooveApp::UpdateLeds()
   animator_.DecorateLeds(controller_, frame, levels);
   animator_.SmoothLeds(levels);
   // The eight edge keys (ESC TAB FN CTRL, ADD SUB OK PLAY) never go above the dimmest glow: their
-  // state shows on the screen's edge strips, the keys only say they are there.
-  for (std::size_t row = 0; row < groove::kRows; ++row)
+  // state shows on the screen's edge strips, the keys only say they are there. Standby's light shows
+  // run over the whole keyboard.
+  for (std::size_t row = 0; row < (controller_.Standby() ? 0 : groove::kRows); ++row)
     for (const std::size_t column : {std::size_t{0}, groove::kColumns - 1})
     {
       std::uint8_t& level = levels[groove::KeyIndex(row, column)];
@@ -1228,6 +1247,26 @@ bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& mes
 // System
 
 // Device settings: os::storage keeps them in System/settings.cfg for every app.
+void GrooveApp::SetStandbyMinutes(std::uint8_t minutes)
+{
+  os::storage::SetStandbyMinutes(minutes);
+}
+
+std::uint8_t GrooveApp::StandbyMinutes() const
+{
+  return os::storage::StandbyMinutes();
+}
+
+void GrooveApp::SetStandbyLights(std::uint8_t style)
+{
+  os::storage::SetStandbyLights(style);
+}
+
+std::uint8_t GrooveApp::StandbyLights() const
+{
+  return os::storage::StandbyLights();
+}
+
 void GrooveApp::SetLedBrightness(std::uint8_t level)
 {
   os::storage::SetKeyLedBrightness(level);

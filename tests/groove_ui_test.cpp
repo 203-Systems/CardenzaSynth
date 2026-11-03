@@ -2713,6 +2713,84 @@ void TestEveryParameter(Harness& h)
   closeModals();
 }
 
+// Standby, the screen saver: after the chosen minutes without a key it starts, any key wakes it and does
+// nothing else, never while playing; SETUP > SYSTEM chooses the wait (NEVER keeps it away) and its key
+// lights, and the SYSTEM menu starts it at once.
+void TestStandby(Harness& h)
+{
+  auto& app = h.App();
+  GoToScene(h, 1);
+  const Scene scene = h.State().scene;
+  const std::size_t track = h.State().track;
+  // The defaults (earlier tests step every setting through its values).
+  app.SetStandbyMinutes(3);
+  app.SetStandbyLights(0);
+  h.Tap(kTab);
+  h.Tap(kTab);
+  h.Tap(kTab);
+  h.Tap(kTab);
+  h.Wait(3 * 60000 - 2000);
+  assert(!app.Ui().Standby());
+  h.Wait(2500);
+  assert(app.Ui().Standby());
+  // The screen draws (logo, corners, effects) and the lights run over the whole keyboard, edge keys too.
+  std::uint8_t edge = 0;
+  for (int frame = 0; frame < 7500; ++frame)
+  {
+    h.Frames();
+    if (frame % 25 == 0) h.Render();
+    if (frame < 400) edge = static_cast<std::uint8_t>(std::max({static_cast<int>(edge), Led(h, kEsc), Led(h, kPlay), Led(h, kAdd)}));
+  }
+  assert(edge > groove::kLedEdgeMax);
+  // A key wakes it and does nothing else: ESC would have gone to the next scene.
+  h.Tap(kEsc);
+  assert(!app.Ui().Standby() && h.State().scene == scene && h.State().track == track);
+  h.Tap(kEsc);
+  assert(h.State().scene != scene);
+  GoToScene(h, 1);
+
+  // Never while the transport runs.
+  h.Tap(kPlay);
+  assert(app.Sequencer().Playing());
+  h.Wait(4 * 60000);
+  assert(!app.Ui().Standby());
+  h.Tap(kPlay);
+  assert(!app.Sequencer().Playing());
+
+  // SETUP > SYSTEM: STANDBY (1 / 3 / 5 / 10 / 30 MIN, NEVER) and STBY LED.
+  GoToSetupPage(h, groove::kSetupSystem);
+  synth::SynthParameterInfo info;
+  std::string text;
+  assert(app.Ui().SettingValue("sys.standby", info, text) && text == "3 MIN");
+  h.Tap(Grid(4));
+  h.Tap(kSub);
+  assert(app.StandbyMinutes() == 1 && app.Ui().SettingValue("sys.standby", info, text) && text == "1 MIN");
+  h.Wait(61000);
+  assert(app.Ui().Standby());
+  h.Tap(kSub);  // wakes only
+  assert(!app.Ui().Standby() && app.StandbyMinutes() == 1);
+  for (int step = 0; step < 6; ++step) h.Tap(kAdd);
+  assert(app.StandbyMinutes() == 0 && app.Ui().SettingValue("sys.standby", info, text) && text == "NEVER");
+  h.Wait(5 * 60000);
+  assert(!app.Ui().Standby());
+  h.Tap(Grid(5));
+  h.Tap(kAdd);
+  assert(app.StandbyLights() == static_cast<std::uint8_t>(groove::StandbyLightStyle::Ring) && app.Ui().SettingValue("sys.standby.led", info, text) && text == "RING");
+  // The SYSTEM menu: STANDBY NOW, also with the wait on NEVER.
+  const groove::MenuItems menu = app.Ui().Menu();
+  assert(menu[1].action == groove::MenuAction::StandbyNow && menu[1].available);
+  h.Chord(kFn, Grid(1));
+  assert(app.Ui().Standby());
+  h.Wait(3000);
+  const std::uint8_t page = app.Ui().CurrentPage();
+  h.Tap(kCtrl);  // wakes only
+  assert(!app.Ui().Standby() && app.Ui().CurrentPage() == page);
+
+  app.SetStandbyMinutes(3);
+  app.SetStandbyLights(0);
+  GoToScene(h, 1);
+}
+
 int main()
 {
   // Projects and samples go to a scratch card under the test's working directory.
@@ -2761,6 +2839,7 @@ int main()
   TestNoStuckNotes(h);
   TestComputerMidi(h);
   TestGuide(h);
+  TestStandby(h);
   TestEveryParameter(h);
 
   std::filesystem::current_path(std::filesystem::temp_directory_path());

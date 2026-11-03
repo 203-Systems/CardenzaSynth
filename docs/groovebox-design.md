@@ -96,7 +96,7 @@ PADS 与四周按键上的第二功能：
 | PROJECT | 工程名、是否未保存、四轨摘要（引擎、音色） | 行 0：SAVE / LOAD（跳到 FILES）/ NEW（SAVE AS 在 FN 菜单：要打字的操作都不放在一级界面）；行 1：BPM / SWING / TAP / PLAY（LOOP ↔ SONG 开关，SONG 时灯全亮） | 调整 BPM / SWING；ENTER 保存（焦点在 TAP 时是打拍） |
 | FILES | 工程列表 | — | 选择；ENTER 载入（未保存时确认） |
 | KEYS | 键盘预览（中间一个八度为主，两边各半个八度、颜色更暗：F 到 F）：音阶音带点、根音带横线，按下的音用当前轨颜色亮起 | LAYOUT、SCALE、ROOT、OCTAVE / VELO、LOCK、SELECT | 选中的设置：ADD / SUB 调整，ENTER 切换选项，Fn + ENTER 恢复默认；再按一次已选中的格子切换选项或开关 |
-| SYSTEM | 设备、音频后端、SD 卡、内存、构建日期（每次进来逐行打出） | VOLUME、KEY LED、SCREEN、LOG | 同上 |
+| SYSTEM | 音频后端、SD 卡、内存、构建日期（每次进来逐行打出） | VOLUME、KEY LED、SCREEN、LOG；STANDBY、STBY FX | 同上 |
 
 键盘（LAYOUT、SCALE、ROOT、OCTAVE、VELO、LOCK）属于工程：随工程保存和载入，改动后工程变为未保存；NEW 的工程从默认键盘开始（PIANO、C MAJOR）。SELECT 是使用习惯，存在应用设置里（`Apps/Cardenza/Synth/settings.cfg`）。BPM / SWING 属于工程，PLAY 与 REC 是演奏状态；SYSTEM 是设备设置（`System/settings.cfg`，所有应用共用）。当前轨的步数在 SEQ TRACK 页，和弦与 ARP 在每条轨道的 INSTR 页。
 
@@ -104,7 +104,22 @@ PADS 与四周按键上的第二功能：
 
 - KEYS：LAYOUT PIANO（默认，黑白键）/ SCALE / CHROMA；SCALE 14 种音阶；ROOT C–B；OCTAVE −3…+3；VELO 演奏力度 1–127；LOCK OFF / MUTE / SNAP；SELECT ONE / MULTI。
 - PROJECT：BPM 30–300；SWING 50–75 %；PLAY LOOP / SONG。
-- SYSTEM：VOLUME 主音量 0–100；KEY LED 按键灯 0–15（选中它时，演奏区从左到右是亮度梯（感知等级 0、6、7、8、9、11、13、15，校正后是 HAL 的 0、1、2、3、4、7、10、15），方便用眼睛判断）；SCREEN 屏幕亮度；LOG 日志 ON / OFF（默认 ON，见第 9 节「日志」）。
+- SYSTEM：VOLUME 主音量 0–100；KEY LED 按键灯 0–15（选中它时，演奏区从左到右是亮度梯（感知等级 0、6、7、8、9、11、13、15，校正后是 HAL 的 0、1、2、3、4、7、10、15），方便用眼睛判断）；SCREEN 屏幕亮度；LOG 日志 ON / OFF（默认 ON，见第 9 节「日志」）；STANDBY 多久没按键进入待机：1 / 3 / 5 / 10 / 30 MIN、NEVER（默认 3 MIN）；STBY FX 待机时的键灯：ALL（每 12 秒换一种）、RING、SWEEP、RAIN、WAVE、STARS、OFF。SYSTEM 页的 FN 菜单有 STANDBY NOW：马上进入待机，用来看效果（走带运行时不可用）。
+
+**待机（屏保）**（2026-11-03，用户要求）：
+- 多久没有按键就进入待机，由 STANDBY 决定（`sys.standby`，设备设置）。走带在跑、正在录音、教程网页连着时都不进入；这些结束后重新计时。
+- 屏幕亮度在一秒内降到设定的 20%（`os::storage::SetScreenDim`，不改也不保存设置），醒来时立刻恢复。
+- 屏幕：黑底上几颗暗星时隐时现，CARDENZA 和下面四色短条（开机画面的四个隐藏键）像老 DVD 标志一样斜着弹来弹去，每碰一次墙换一种颜色（`theme::kStandbyPalette`）。
+- 碰墙时如果离另一面墙不到 4 像素，就算正好进了角：字被放进角里，变成另一个词（CARDENZA ⇄ 203）。字母翻动着依次定下来，角里扩出三道彩色圆弧，并溅出火花。
+- 每 14–26 秒随机来一个特效：一道亮光扫过字面、字边闪出星光、字母变成彩虹色、几行像素错位。
+- 键灯（STBY FX）：
+  - RING：一颗彗星绕最外一圈，半圈后跟着一颗暗些的；
+  - SWEEP：一道斜光条从左扫到右；
+  - RAIN：各列水滴从上往下落；
+  - WAVE：开机的两道光波循环；
+  - STARS：键随机闪烁。
+- 这是除开机外唯一一处键灯自由动画（用户要求），边缘键也跟着亮到全亮。
+- 任意键唤醒，这一下只负责唤醒，它的按下和松开都不做原来的事。日志里有 `ui: standby`、`ui: awake after N s of standby`、`ui: standby corner, now …`。
 
 - 键盘布局：PIANO 按钢琴排列（屏幕上的键盘以中间一个八度为主，两边各露半个八度，所以演奏区最高和最低的几个音不在屏幕范围内），C 在从下往上第二行的最左边（像 OP-1，C 在键盘中部而不是角上）：从上到下是高一个八度的白键、黑键、从 C 开始的白键、低一个八度的黑键（缺口处不发声）；SCALE 只放音阶内的音，每行高一个八度；CHROMA 每格一个半音。
 - 音阶：MAJOR、MINOR、DORIAN、MIXOLYD、MIN PENT、MAJ PENT、BLUES、HARM MIN、PHRYGIAN、LYDIAN、LOCRIAN、MEL MIN、WHOLE、IN SEN。
@@ -338,6 +353,7 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 | 时机 | 动效 |
 |---|---|
 | 开机 | 噪点场中扫描线掠过，CARDENZA 逐字解码，四色短条依次落下，然后经 Bayer 阈值溶解进界面（约 1.7 s） |
+| 待机 | 屏幕变暗，CARDENZA 像 DVD 标志一样弹来弹去，碰墙换色，正好进角时翻成 203（再进角翻回来）并从角里扩出彩色圆弧；偶尔有亮光扫过、星光、彩虹字、像素错位（见「待机」） |
 | 场景切换 | 新旧场景横向推移 260 ms，接缝是一条带拖影的橙色线，前半程有几帧数字撕裂；状态行的场景名重新解码 |
 | 翻页（CTRL） | 新页从侧面覆盖进来，旧页后退并沉入 dither，接缝为紫色；页签高亮滑向新页 |
 | 换轨（TAB） | 青色扫描线自上而下刷新内容；轨号反显闪一下；音色名解码 |
@@ -375,6 +391,7 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 | 时机 | 灯光 |
 |---|---|
 | 开机 | 两道光波从左到右扫过整块键盘，然后状态灯光淡入 |
+| 待机 | STBY FX 选的灯光秀（RING、SWEEP、RAIN、WAVE、STARS，ALL 每 12 秒换一种），覆盖整块键盘，边缘键也全亮（见「待机」） |
 | 场景切换、翻页 | GRID 从一角斜扫到对角 |
 | 换轨 | 左列约 0.8 s 只亮对应轨的那一行 |
 | 按住 ESC / TAB / CTRL / FN | 地图上可选的 GRID 键从左上到右下依次点亮 |
