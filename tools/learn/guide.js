@@ -24,6 +24,12 @@
     lang = next;
     root.dataset.lang = lang;
     root.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    // The simulator's own words (hints, status line) follow; its screen is the firmware's, as on the device.
+    try {
+      const frame = document.getElementById('sim-frame');
+      const embed = frame && frame.contentWindow && frame.contentWindow.cardenzaEmbed;
+      if (embed && embed.setLang) embed.setLang(lang);
+    } catch (error) { /* not loaded yet: it reads ?lang= */ }
     store.set('learn.lang', lang);
     $$('[data-set-lang]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.setLang === lang)));
     document.title = say('Cardenza 入门', 'Cardenza guide');
@@ -779,7 +785,7 @@
       return;
     }
     if (isDevice) {
-      if (!sim.frame.src) sim.frame.src = new URL('../?embed=1', location.href).href;
+      if (!sim.frame.src) sim.frame.src = new URL('../?embed=1&lang=' + lang, location.href).href;
       startDeviceLesson(section);
     } else {
       startAnimLesson(section);
