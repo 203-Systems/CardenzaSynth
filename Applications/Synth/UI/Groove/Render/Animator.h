@@ -34,7 +34,8 @@ inline constexpr std::uint32_t kSessionSweepMs = 420;
 inline constexpr std::uint32_t kStandbyStyleMs = 60000;    // ALL: each key-light style this long,
 inline constexpr std::uint32_t kStandbyBlendMs = 5000;     // the last part of it fading into the next
 inline constexpr std::uint32_t kStandbyLightsInMs = 3000;  // the key lights fade in
-inline constexpr float kStandbyLedScale = 0.45f;           // the shows stay well below full brightness
+inline constexpr float kStandbyLedScale = 0.5f;            // the shows stay at half of full (perceived)
+inline constexpr std::uint32_t kStandbyLightsOutMs = 1500; // the working lights fade out as standby starts
 inline constexpr std::uint32_t kStandbyEffectMs = 5500;    // an occasional effect
 inline constexpr std::uint32_t kStandbyHitMs = 1400;      // the two words meeting: a flash, a ring and sparks
 inline constexpr float kStandbyCruise = 18.0f;              // px/s each word eases back to after a hit
@@ -93,6 +94,9 @@ public:
     std::uint32_t startedAt = 0;  // the standby it belongs to (Controller::StandbyAt)
   };
   const StandbyScene& Standby() const { return standby_; }
+  // Standby's key lights as perceived brightness 0..1 per key (dimmed, faded in). GrooveApp drives them
+  // through the key level and the master level together: the key levels alone have few steps that dim.
+  void StandbyLight(const Controller& controller, std::array<float, kKeyCount>& perceived) const;
   // Turns the controller's LED cells (level + effect) into motion and adds the event layer
   // (ripples, sweeps, trails, playback notes).
   void DecorateLeds(const Controller& controller, const LedFrame& frame, std::array<std::uint8_t, kKeyCount>& levels) const;
@@ -156,7 +160,7 @@ public:
 
 private:
   void UpdateStandby(const Controller& controller, float dt);
-  void StandbyLeds(const Controller& controller, std::array<std::uint8_t, kKeyCount>& levels) const;
+
 
   struct SmoothEntry {
     std::uint32_t key = 0;

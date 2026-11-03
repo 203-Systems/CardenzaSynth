@@ -21,6 +21,7 @@
 #include "Applications/Synth/UI/Groove/Render/Gfx.h"
 #include "Applications/Synth/UI/Groove/Render/GrooveRenderer.h"
 #include "Devices/Device.h"
+#include "Devices/LedLight.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "OS/MIDI/MIDI.h"
 #include "OS/Storage/DeviceSettings.h"
@@ -119,7 +120,8 @@ GrooveApp::GrooveApp() : controller_(*this) {}
 
 GrooveApp::~GrooveApp()
 {
-  os::storage::SetScreenDim(100);  // the next app sees the screen as set
+  os::storage::SetScreenDim(100);  // the next app sees the screen and the key lights as set
+  if (standbyMaster_) Device::LED::SetGlobalBrightness(os::storage::KeyLedBrightness());
   // Silence the engines and hand the sample memory back before the next app starts.
   sampler_.KeepTakesOnCard();
   sequencer_.ArpReleaseAll();
@@ -439,17 +441,72 @@ void GrooveApp::UpdateScreenDim(std::uint32_t now)
   os::storage::SetScreenDim(percent);
 }
 
+// Standby's light shows dim slowly, and the key levels alone have few steps down there (perceived 1..6
+// are all the HAL's lowest duty). So the light each key should give is reached with the master level
+// and the key level together: the master just above the brightest key, the keys a share of it. The
+// user's KEY LED setting stays the ceiling, and comes back on waking.
+void GrooveApp::UpdateStandbyLeds()
+{
+  std::array<float, groove::kKeyCount> perceived{};
+  animator_.StandbyLight(controller_, perceived);
+  const std::uint32_t since = NowMs() - controller_.StandbyAt();
+  const float out = since >= groove::kStandbyLightsOutMs ? 0.0f : 1.0f - static_cast<float>(since) / static_cast<float>(groove::kStandbyLightsOutMs);
+  const float ceiling = Device::LED::GlobalDuty(os::storage::KeyLedBrightness());
+  std::array<float, groove::kKeyCount> light{};  // fraction of full
+  float brightest = 0.0f;
+  for (std::size_t index = 0; index < groove::kKeyCount; ++index)
+  {
+    const float show = std::pow(perceived[index], Device::LED::kGamma) * ceiling;
+    const float working = Device::LED::KeyDuty(Device::LED::KeyLevel(workingLeds_[index])) * ceiling * out * out;
+    light[index] = std::max(show, working);
+    brightest = std::max(brightest, light[index]);
+  }
+  std::uint8_t master = 0;
+  while (master < Device::LED::kBrightnessMax && Device::LED::GlobalDuty(master) < brightest - 1e-6f) ++master;
+  const float masterDuty = Device::LED::GlobalDuty(master);
+  for (std::size_t row = 0; row < groove::kRows; ++row)
+    for (std::size_t column = 0; column < groove::kColumns; ++column)
+    {
+      // The perceived key level whose duty comes nearest the share of the master this key needs.
+      const float share = masterDuty > 0.0f ? light[groove::KeyIndex(row, column)] / masterDuty : 0.0f;
+      std::uint8_t best = 0;
+      float bestError = share;
+      for (std::uint8_t level = 1; level <= Device::LED::kBrightnessMax; ++level)
+      {
+        const float error = std::fabs(Device::LED::KeyDuty(Device::LED::KeyLevel(level)) - share);
+        if (error < bestError)
+        {
+          best = level;
+          bestError = error;
+        }
+      }
+      Device::LED::SetKey(row, column, best);
+    }
+  Device::LED::SetGlobalBrightness(master);
+  standbyMaster_ = true;
+  Device::LED::SetEnabled(true);
+}
+
 void GrooveApp::UpdateLeds()
 {
+  if (controller_.Standby())
+  {
+    UpdateStandbyLeds();
+    return;
+  }
+  if (standbyMaster_)
+  {
+    Device::LED::SetGlobalBrightness(os::storage::KeyLedBrightness());
+    standbyMaster_ = false;
+  }
   groove::LedFrame frame{};
   controller_.ComputeLeds(frame);
   std::array<std::uint8_t, groove::kKeyCount> levels{};
   animator_.DecorateLeds(controller_, frame, levels);
   animator_.SmoothLeds(levels);
   // The eight edge keys (ESC TAB FN CTRL, ADD SUB OK PLAY) never go above the dimmest glow: their
-  // state shows on the screen's edge strips, the keys only say they are there. Standby's light shows
-  // run over the whole keyboard.
-  for (std::size_t row = 0; row < (controller_.Standby() ? 0 : groove::kRows); ++row)
+  // state shows on the screen's edge strips, the keys only say they are there.
+  for (std::size_t row = 0; row < groove::kRows; ++row)
     for (const std::size_t column : {std::size_t{0}, groove::kColumns - 1})
     {
       std::uint8_t& level = levels[groove::KeyIndex(row, column)];
@@ -459,6 +516,7 @@ void GrooveApp::UpdateLeds()
     for (std::size_t column = 0; column < groove::kColumns; ++column)
       Device::LED::SetKey(row, column, levels[groove::KeyIndex(row, column)]);
   Device::LED::SetEnabled(true);
+  workingLeds_ = levels;
 }
 
 void GrooveApp::RenderFrame()

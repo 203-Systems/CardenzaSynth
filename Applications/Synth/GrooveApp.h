@@ -189,6 +189,11 @@ private:
   std::array<std::string, synth::kSynthTrackCount> pendingSamples_;
   std::uint32_t lastKeyAt_ = 0;
   void UpdateScreenDim(std::uint32_t now);
+  void UpdateStandbyLeds();
+  // The working key lights of the last frame before standby (they fade out as it starts), and whether
+  // standby set the master level (put back on waking).
+  std::array<std::uint8_t, groove::kKeyCount> workingLeds_{};
+  bool standbyMaster_ = false;
   // Standby dims the screen (os::storage::SetScreenDim): the percent shown now and when it last moved.
   float screenDim_ = 100.0f;
   std::uint8_t screenDimShown_ = 100;
