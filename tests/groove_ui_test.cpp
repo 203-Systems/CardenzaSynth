@@ -2735,6 +2735,7 @@ void TestStandby(Harness& h)
   assert(app.Ui().Standby());
   // The screen draws (logo, corners, effects) and the lights run over the whole keyboard, edge keys too.
   std::uint8_t edge = 0;
+  std::uint8_t lowestMaster = 15;
   bool met = false;
   for (int frame = 0; frame < 7500; ++frame)
   {
@@ -2756,12 +2757,21 @@ void TestStandby(Harness& h)
     const float overlapY = std::min(one.y, two.y) + bodyHeight - std::max(one.y, two.y);
     assert(overlapX <= 2.0f || overlapY <= 2.0f);
     met = met || scene.hitAt != 0;
-    if (frame < 400) edge = static_cast<std::uint8_t>(std::max({static_cast<int>(edge), Led(h, kEsc), Led(h, kPlay), Led(h, kAdd)}));
+    if (frame < 400)
+    {
+      edge = static_cast<std::uint8_t>(std::max({static_cast<int>(edge), Led(h, kEsc), Led(h, kPlay), Led(h, kAdd)}));
+      // The shows dim through the master level, never above the KEY LED setting.
+      lowestMaster = std::min(lowestMaster, Device::LED::GlobalBrightness());
+      assert(Device::LED::GlobalBrightness() <= app.LedBrightness());
+    }
   }
-  assert(edge > groove::kLedEdgeMax && met);
+  assert(edge > groove::kLedEdgeMax && met && lowestMaster < app.LedBrightness());
   // A key wakes it and does nothing else: ESC would have gone to the next scene.
   h.Tap(kEsc);
   assert(!app.Ui().Standby() && h.State().scene == scene && h.State().track == track);
+  // The key lights are back at the KEY LED setting.
+  Led(h, kEsc);
+  assert(Device::LED::GlobalBrightness() == app.LedBrightness());
   h.Tap(kEsc);
   assert(h.State().scene != scene);
   GoToScene(h, 1);

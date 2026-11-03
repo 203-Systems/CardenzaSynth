@@ -310,10 +310,14 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
     if (value > levels[index]) levels[index] = static_cast<std::uint8_t>(value);
   };
 
-  // Standby: the key lights play their show instead of the state.
+  // Standby: the key lights play their show instead of the state (GrooveApp drives the device from
+  // StandbyLight; these levels are for anything that reads them).
   if (state.standby)
   {
-    StandbyLeds(controller, levels);
+    std::array<float, kKeyCount> perceived{};
+    StandbyLight(controller, perceived);
+    for (std::size_t index = 0; index < kKeyCount; ++index)
+      levels[index] = static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(perceived[index] * 15.0f)), 0, 15));
     return;
   }
 
@@ -823,6 +827,61 @@ void StandbyStyle(StandbyLightStyle style, std::uint32_t t, std::uint32_t seed, 
       }
       break;
     }
+    case StandbyLightStyle::Breathe:
+    {
+      // The whole keyboard breathes: four seconds in, six out, never quite dark.
+      const float phase = static_cast<float>(t % 10000) / 10000.0f;
+      const float breath = phase < 0.4f ? SmoothStep(phase / 0.4f) : 1.0f - SmoothStep((phase - 0.4f) / 0.6f);
+      // Now and then, for twelve seconds, a slow variation in brightness on top (one every 40 s).
+      const std::uint32_t slot = t / 40000;
+      const std::uint32_t noise = fx::Hash(seed + slot * 2654435761u);
+      const std::uint32_t start = slot * 40000 + 12000 + noise % 14000;
+      const std::uint32_t kEffectMs = 12000;
+      const float into = t >= start ? static_cast<float>(t - start) / static_cast<float>(kEffectMs) : -1.0f;
+      const float envelope = into >= 0.0f && into <= 1.0f ? SmoothStep(into / 0.25f) * SmoothStep((1.0f - into) / 0.25f) : 0.0f;
+      const int kind = static_cast<int>((noise >> 16) % 4);
+      // The breath steps back while a variation plays, so it shows.
+      const float base = 15.0f * (0.25f + 0.75f * breath) * (1.0f - 0.55f * envelope);
+      for (std::size_t row = 0; row < kRows; ++row)
+        for (std::size_t column = 0; column < kColumns; ++column)
+        {
+          const float x = static_cast<float>(column);
+          const float y = static_cast<float>(row);
+          float variation = 0.0f;
+          if (envelope > 0.0f)
+          {
+            if (kind == 0)
+            {
+              // RIPPLE: a soft swell spreads from the middle to the edges, twice.
+              const float distance = std::sqrt((x - 6.5f) * (x - 6.5f) + (y - 1.5f) * (y - 1.5f) * 4.0f);
+              const float radius = std::fmod(into * 2.0f, 1.0f) * 10.0f - 1.0f;
+              variation = std::exp(-(distance - radius) * (distance - radius) / 4.0f);
+            }
+            else if (kind == 1)
+            {
+              // TIDE: a broad patch of light drifts from the left to the right and back.
+              const float centre = 6.5f - 8.0f * std::cos(into * 2.0f * 3.14159265f);
+              variation = std::exp(-(x - centre) * (x - centre) / 12.0f);
+            }
+            else if (kind == 2)
+            {
+              // GLIMMER: keys here and there slowly glow up and fade.
+              const std::uint32_t key = fx::Hash(noise ^ static_cast<std::uint32_t>(row * kColumns + column) * 40503u);
+              const float own = static_cast<float>(3500 + key % 3000);
+              const float phase = std::fmod(static_cast<float>(t) + static_cast<float>(key >> 12 & 0xFFFu), own) / own;
+              variation = (key & 3u) == 0 ? 0.5f - 0.5f * std::cos(phase * 2.0f * 3.14159265f) : 0.0f;
+            }
+            else
+            {
+              // DEEP: one long, deep breath of the whole keyboard.
+              variation = std::sin(into * 3.14159265f);
+              variation *= variation;
+            }
+          }
+          levels[KeyIndex(row, column)] = std::max(base, 15.0f * variation * envelope);
+        }
+      break;
+    }
     case StandbyLightStyle::All:
     case StandbyLightStyle::Off:
       break;
@@ -832,18 +891,18 @@ void StandbyStyle(StandbyLightStyle style, std::uint32_t t, std::uint32_t seed, 
 }  // namespace
 
 // Standby's key-light shows: the whole keyboard, edge keys too, running free (the user asked for it;
-// everywhere else the lights only say state). They fade in, stay below full brightness, and ALL lets
-// each style fade into the next.
-void Animator::StandbyLeds(const Controller& controller, std::array<std::uint8_t, kKeyCount>& levels) const
+// everywhere else the lights only say state). They fade in, stay at half brightness, and ALL lets each
+// style fade into the next.
+void Animator::StandbyLight(const Controller& controller, std::array<float, kKeyCount>& perceived) const
 {
-  levels.fill(0);
+  perceived.fill(0.0f);
   const std::uint32_t t = now_ - controller.StandbyAt();
   const auto chosen = static_cast<StandbyLightStyle>(std::min<std::size_t>(controller.HostView().StandbyLights(), kStandbyLightCount - 1));
   std::array<float, kKeyCount> shown{};
   if (chosen == StandbyLightStyle::All)
   {
-    static constexpr std::array<StandbyLightStyle, 5> kTurns{{StandbyLightStyle::Ring, StandbyLightStyle::Aurora, StandbyLightStyle::Sweep,
-                                                             StandbyLightStyle::Stars, StandbyLightStyle::Rain}};
+    static constexpr std::array<StandbyLightStyle, 6> kTurns{{StandbyLightStyle::Breathe, StandbyLightStyle::Ring, StandbyLightStyle::Aurora,
+                                                             StandbyLightStyle::Sweep, StandbyLightStyle::Stars, StandbyLightStyle::Rain}};
     const std::size_t turn = (t / kStandbyStyleMs) % kTurns.size();
     StandbyStyle(kTurns[turn], t, standby_.seed, shown);
     const std::uint32_t into = t % kStandbyStyleMs;
@@ -857,8 +916,7 @@ void Animator::StandbyLeds(const Controller& controller, std::array<std::uint8_t
   }
   else StandbyStyle(chosen, t, standby_.seed, shown);
   const float in = SmoothStep(static_cast<float>(t) / static_cast<float>(kStandbyLightsInMs));
-  for (std::size_t index = 0; index < kKeyCount; ++index)
-    levels[index] = static_cast<std::uint8_t>(std::clamp(static_cast<int>(std::lround(shown[index] * kStandbyLedScale * in)), 0, 15));
+  for (std::size_t index = 0; index < kKeyCount; ++index) perceived[index] = std::clamp(shown[index] / 15.0f, 0.0f, 1.0f) * kStandbyLedScale * in;
 }
 
 void Animator::SmoothLeds(std::array<std::uint8_t, kKeyCount>& levels)
