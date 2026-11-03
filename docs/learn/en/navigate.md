@@ -13,16 +13,16 @@ CTRL = Pages
 
 ## Scenes: ESC {#nav-scenes}
 
-Four scenes in two kinds. The first three are the music itself, the fourth is everything global:
+Four scenes in two kinds, numbered as on the screen. 0 SETUP comes first and holds everything global; 1, 2 and 3 are the music itself:
 
 | Scene | For | Pages |
 |---|---|---|
-| {{scene:INSTR}} instrument | what the current track sounds like: engine, sound, parameters, effects | VOICE, engine pages, FX |
-| {{scene:SEQ}} sequencer | what the current track plays: notes, recording, patterns | ROLL / STEP, PATTERN, TRACK |
+| {{scene:SETUP}} setup | global: the project and its files, the keyboard for every track, the system | PROJECT, FILES, KEYS, SYSTEM |
+| {{scene:INSTR}} instrument | what the current track sounds like: engine, sound, its chord and ARP, parameters, effects | VOICE, CHORD, ARP, engine pages, FX (drums: VOICE, KIT, FX) |
+| {{scene:SEQ}} sequencer | what the current track plays: notes, recording, patterns | ROLL / STEP (DRUMS on a drum track), PATTERN, TRACK |
 | {{scene:TAPE}} tape | all four tracks together: launching, the song, the mix, sends, master effects | SESSION, SONG, MIX, SENDS, FX |
-| {{scene:SETUP}} setup | global and settings: the project and its files, keyboard, chords, ARP, system | PROJECT, FILES, KEYS, CHORD, ARP, SYSTEM |
 
-**Tap {{key:ESC}}**: the three music scenes in turn, 1 → 2 → 3 → 1. The groovebox starts in {{scene:INSTR}} on the VOICE page.
+**Tap {{key:ESC}}**: the three music scenes in turn, 1 → 2 → 3 → 1. The groovebox starts in {{scene:INSTR}} on the VOICE page, on track {{track:1}}.
 
 {{strip
 ESC > seq-notes @scene | {{scene:SEQ}}: write notes.
@@ -30,22 +30,22 @@ ESC > tape-session @8,0,41,11 | {{scene:TAPE}}: launch, arrange and mix.
 ESC > instr-voice @8,0,41,11 | Back to {{scene:INSTR}}: sounds and parameters.
 }}
 
-**Hold {{key:ESC}}**: the scene map, four tall columns, one per scene; press any key of a column to jump straight there. The tap ring never enters SETUP: **column 4 is the way in**.
+**Hold {{key:ESC}}**: the scene map, four tall columns, one per scene; press any key of a column to jump straight there. The tap ring never enters SETUP: **column 1 is the way in**.
 
 {{shot:map-esc|Holding ESC: four columns = four scenes, each listing its pages; the page you would land on is marked.
-mark cells:1,1-4,1 = 1 INSTR
-mark cells:1,2-4,2 = 2 SEQ (current)
-mark cells:1,3-4,3 = 3 TAPE
-mark cells:1,4-4,4 = 4 SETUP: dotted rule, dim number
+mark cells:1,1-4,1 = 0 SETUP: dotted rule, dim number
+mark cells:1,2-4,2 = 1 INSTR
+mark cells:1,3-4,3 = 2 SEQ (current)
+mark cells:1,4-4,4 = 3 TAPE
 mark 162,0,70,11 = Tap ESC = 1 > 2 > 3
 key ESC = Hold
-key G2 G6 G10 G14 = Current scene: fully lit
-key G4 G8 G12 G16 = SETUP: half lit
+key G3 G7 G11 G15 = Current scene: fully lit
+key G1 G5 G9 G13 = SETUP: half lit
 }}
 
 {{strip
-hold ESC + G1 > instr-voice @8,0,41,11 | Tap column 1: straight to {{scene:INSTR}}. Release ESC and the map folds away.
-hold ESC + G4 > setup-project @8,0,41,11 | Tap column 4: {{scene:SETUP}}, on the page you were last on.
+hold ESC + G2 > instr-voice @8,0,41,11 | Tap column 2: straight to {{scene:INSTR}}. Release ESC and the map folds away.
+hold ESC + G1 > setup-project @8,0,41,11 | Tap column 1: {{scene:SETUP}}, on the page you were last on.
 ESC > seq-notes @scene | In SETUP a tap on {{key:ESC}} goes back to the scene you came from.
 }}
 
@@ -72,7 +72,8 @@ key TAB = Hold
 key G1-G4 = Select track
 }}
 
-- {{key:TAB}} + {{key:ADD}} / {{key:SUB}}: next / previous track.
+- {{key:TAB}} + {{key:ADD}} / {{key:SUB}}: next / previous track (the map's title says so).
+- Row 1 of the map shows each track's engine and sound; rows 2 to 4 switch at once, like on MIX.
 - {{key:FN+TAB}}: previous track.
 
 <!-- keywords: track, switch track, change track, channel, which track, 轨道 -->
@@ -89,6 +90,7 @@ hold CTRL + G3 > seq-track @footer | Tap a cell to jump to that page; you stay t
 
 - {{key:CTRL}} + {{key:ADD}} / {{key:SUB}}: next / previous page; {{key:FN+CTRL}}: previous page.
 - Each track remembers which INSTR page it was on.
+- The page map's title: TAP CTRL = NEXT.
 
 <!-- keywords: page, pages, next page, sub page, tabs, 页面, 翻页 -->
 

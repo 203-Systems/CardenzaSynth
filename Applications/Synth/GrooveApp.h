@@ -42,6 +42,10 @@ public:
   // Tests replace the wall clock to make hold and repeat timing deterministic.
   void UseClock(std::uint32_t (*clock)()) { clock_ = clock; }
 
+  // Writes the autosave now if something changed (not during a sample recording). The web host calls
+  // it when the page is hidden or closed, where waiting for a quiet moment would lose the last edits.
+  void FlushSession();
+
   groove::Controller& Ui() { return controller_; }
   const groove::Controller& Ui() const { return controller_; }
   synth::SynthRack& Rack() { return rack_; }
@@ -90,6 +94,17 @@ public:
 
 private:
   void ReadComputerMidi();
+  // The guide (GrooveAppGuide.cpp): a lesson page on the computer sets the working state aside in a
+  // practice project, drives the device and follows what is pressed.
+  void ServiceGuide(std::uint32_t now);
+  void HandleGuideMessage(const char* text, std::size_t length, std::uint32_t now);
+  bool EnterGuide(std::string& reason);
+  void ExitGuide();
+  void GuideSetup(const char* fields, std::size_t length);
+  bool FreshGuideProject();
+  void FillGuideDemo();
+  void SendGuide(const std::string& text);
+  void SendGuideState(std::uint32_t now, bool always);
   void ReleaseComputerNotes(std::size_t onlyTrack = synth::kSynthTrackCount);
   static void SendComputerMidi(std::uint8_t status, std::size_t track, std::uint8_t data1, std::uint8_t data2);
   std::uint32_t NowMs() const;
@@ -117,6 +132,16 @@ private:
   static void SendSequencerMidi(void* context, std::size_t trackIndex, const midi::MidiPacket& packet);
 
   bool initialized_ = false;
+  bool guide_ = false;
+  bool guideOverUsb_ = false;      // entered over a cable: pulling it ends the lesson
+  bool guideInjecting_ = false;    // a key the page pressed (not reported back)
+  bool guideSongMode_ = false;     // SONG / LOOP before the lesson (a performance control)
+  std::uint64_t guideInjectedDown_ = 0;
+  std::uint32_t guideHeardAt_ = 0;
+  std::uint32_t guideStateAt_ = 0;
+  std::string guideState_;
+  groove::Scene guideScene_ = groove::Scene::Instrument;  // where the user was, to go back there
+  std::uint8_t guidePage_ = 0;
   synth::SessionStore session_;
   bool sessionChanged_ = false;
   bool autosavePartialShown_ = false;

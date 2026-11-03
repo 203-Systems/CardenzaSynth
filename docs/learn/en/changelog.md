@@ -4,6 +4,28 @@ The manual's version is at the top right (for example v1.2.0), followed by the f
 
 <!-- keywords: version, changelog, release notes, what's new, update, 版本 -->
 
+## 1.4.0 · 2026-11-03 {#version-1-4-0}
+
+- **The guide**: the Learn site now opens on lessons: three picture lessons on how music is built (a music box, four music boxes, a row of parts), eight on the device (the key areas, making a sound, screens, tracks, a first pattern, scales, chords and arpeggios, a first song). A few steps each; do them and they tick themselves off. No device? Every lesson has the simulator.
+- Connect a Cardenza over USB and press Connect: it enters the guide, goes to each lesson's screen and blinks the keys to press. Your own project is set aside and comes back when the guide ends. Needs the new firmware.
+- This manual is now the reference: look up a key, a page or a setting. Switch between guide and reference at the top; the guide's search looks things up here.
+
+## 1.3.0 · 2026-11-03 {#version-1-3-0}
+
+The whole manual was checked chapter by chapter against the current firmware, and every screenshot was retaken:
+
+- **Scene numbers match the screen**: 0 SETUP, 1 INSTR, 2 SEQ, 3 TAPE. With ESC held, GRID column 1 is SETUP and columns 2–4 are INSTR, SEQ and TAPE.
+- SETUP has four pages: PROJECT, FILES, KEYS, SYSTEM. **Chord and ARP belong to each track**, on INSTR's CHORD and ARP pages (not on drums); several tracks' ARPs can run at once, and the latch is called HOLD.
+- The device and every project start on {{track:1}}, the drum machine, on INSTR VOICE.
+- Patterns are 1–256 steps, the GRID shows 16 at a time, and the SEQ menu has PAGE and LEN.
+- The keys no longer type straight into the preset and sample lists: {{key:FN+F}} opens the search.
+- The working state is saved inside the device (no card needed), so pulling the power loses nothing; see [[#project-session]].
+- USB: connected to a computer it is a USB MIDI and USB audio device; see [[#faq-midi]].
+- The HOME side key is not used by the groovebox; stop all is {{key:FN+ESC}}.
+- RESET on SYSTEM VOLUME now gives 50 (it was wrongly 85).
+
+<!-- keywords: 1.3.0, 0 setup, scene numbers, chord, arp, per track, search, autosave, usb, home -->
+
 ## 1.2.0 · 2026-10-27 {#version-1-2-0}
 
 Four scenes, and FN becomes the menu of the screen:

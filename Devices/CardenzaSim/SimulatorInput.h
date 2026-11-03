@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace CardenzaSim::Input {
 
@@ -20,5 +21,9 @@ void FeedMicrophone(std::size_t frames);
 void SetComputerConnected(bool connected);
 void SendComputerMidi(const std::uint8_t packet[4]);
 bool TakeDeviceMidi(std::uint8_t packet[4]);
+// App messages (Device::USB::ReadAppMessage / WriteAppMessage): the guide page or a test talks to the
+// firmware. They work without SetComputerConnected (the browser is the computer).
+void SendComputerApp(const std::string& message);
+bool TakeDeviceApp(std::string& message);
 
 }  // namespace CardenzaSim::Input

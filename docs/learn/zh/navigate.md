@@ -13,16 +13,16 @@ CTRL = 页面
 
 ## 场景：ESC {#nav-scenes}
 
-四个场景，分两类：前三个是音乐本身，第四个管全局：
+四个场景，分两类，编号和屏幕上一样。0 SETUP 排在最前，管全局；1、2、3 是音乐本身：
 
 | 场景 | 做什么 | 页面 |
 |---|---|---|
-| {{scene:INSTR}} 乐器 | 当前轨的声音：音源、音色、参数、效果 | VOICE、音源参数页、FX |
-| {{scene:SEQ}} 音序器 | 当前轨弹什么：音符、录音、Pattern | ROLL / STEP、PATTERN、TRACK |
+| {{scene:SETUP}} 设置 | 全局：工程和工程文件、所有轨道共用的键盘、系统 | PROJECT、FILES、KEYS、SYSTEM |
+| {{scene:INSTR}} 乐器 | 当前轨的声音：音源、音色、它自己的和弦与 ARP、参数、效果 | VOICE、CHORD、ARP、音源参数页、FX（鼓：VOICE、KIT、FX） |
+| {{scene:SEQ}} 音序器 | 当前轨弹什么：音符、录音、Pattern | ROLL / STEP（鼓轨是 DRUMS）、PATTERN、TRACK |
 | {{scene:TAPE}} 走带 | 四轨合在一起：发射、编排、混音、发送、总线效果 | SESSION、SONG、MIX、SENDS、FX |
-| {{scene:SETUP}} 设置 | 全局与设置：工程和工程文件、键盘、和弦、ARP、系统 | PROJECT、FILES、KEYS、CHORD、ARP、SYSTEM |
 
-**单击 {{key:ESC}}**：三个音乐场景循环，1 → 2 → 3 → 1。开机进入 {{scene:INSTR}} 的 VOICE 页。
+**单击 {{key:ESC}}**：三个音乐场景循环，1 → 2 → 3 → 1。开机进入 {{scene:INSTR}} 的 VOICE 页，当前轨是 {{track:1}}。
 
 {{strip
 ESC > seq-notes @scene | {{scene:SEQ}}：写音符。
@@ -30,22 +30,22 @@ ESC > tape-session @8,0,41,11 | {{scene:TAPE}}：发射、编排、混音。
 ESC > instr-voice @8,0,41,11 | 回到 {{scene:INSTR}}：音色和参数。
 }}
 
-**按住 {{key:ESC}}**：场景地图，四列高卡片，一列一个场景；点那一列的任意一个键直接跳过去。单击循环永远不进 SETUP：**第 4 列就是入口**。
+**按住 {{key:ESC}}**：场景地图，四列高卡片，一列一个场景；点那一列的任意一个键直接跳过去。单击循环永远不进 SETUP：**第 1 列就是入口**。
 
 {{shot:map-esc|按住 ESC：四列 = 四个场景，每列列出它的页面，标出进去时停在哪一页。
-mark cells:1,1-4,1 = 1 INSTR
-mark cells:1,2-4,2 = 2 SEQ（当前）
-mark cells:1,3-4,3 = 3 TAPE
-mark cells:1,4-4,4 = 4 SETUP：虚线、编号暗
+mark cells:1,1-4,1 = 0 SETUP：虚线、编号暗
+mark cells:1,2-4,2 = 1 INSTR
+mark cells:1,3-4,3 = 2 SEQ（当前）
+mark cells:1,4-4,4 = 3 TAPE
 mark 162,0,70,11 = 单击 ESC = 1 > 2 > 3
 key ESC = 按住
-key G2 G6 G10 G14 = 当前场景：全亮
-key G4 G8 G12 G16 = SETUP：半亮
+key G3 G7 G11 G15 = 当前场景：全亮
+key G1 G5 G9 G13 = SETUP：半亮
 }}
 
 {{strip
-hold ESC + G1 > instr-voice @8,0,41,11 | 点第 1 列：直接到 {{scene:INSTR}}。松开 ESC 地图收起。
-hold ESC + G4 > setup-project @8,0,41,11 | 点第 4 列：到 {{scene:SETUP}}，停在上次离开时的那一页。
+hold ESC + G2 > instr-voice @8,0,41,11 | 点第 2 列：直接到 {{scene:INSTR}}。松开 ESC 地图收起。
+hold ESC + G1 > setup-project @8,0,41,11 | 点第 1 列：到 {{scene:SETUP}}，停在上次离开时的那一页。
 ESC > seq-notes @scene | 在 SETUP 里单击 {{key:ESC}}：回到进来之前的场景。
 }}
 
@@ -72,7 +72,8 @@ key TAB = 按住
 key G1-G4 = 选轨
 }}
 
-- {{key:TAB}} + {{key:ADD}} / {{key:SUB}}：前后切轨。
+- {{key:TAB}} + {{key:ADD}} / {{key:SUB}}：前后切轨（地图标题上也写着）。
+- 地图第 1 行显示每条轨道的音源和音色；第 2 到 4 行像 MIX 一样，按下立即切换。
 - {{key:FN+TAB}}：上一条轨道。
 
 <!-- keywords: 轨道, 切轨, 换轨, 第几轨, track, switch track, channel, 通道 -->
@@ -89,6 +90,7 @@ hold CTRL + G3 > seq-track @footer | 点哪格跳哪页，松开后停在新页�
 
 - {{key:CTRL}} + {{key:ADD}} / {{key:SUB}}：前后翻页；{{key:FN+CTRL}}：上一页。
 - 每条轨道各自记住自己停在 INSTR 的哪一页。
+- 页面地图的标题：TAP CTRL = NEXT（单击 CTRL 下一页）。
 
 <!-- keywords: 页面, 翻页, 下一页, 子页面, page, next page, tab, pages -->
 

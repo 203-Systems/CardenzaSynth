@@ -12,7 +12,7 @@
 
 {{strip
 - > instr-juno-fx @cells:1,1-2,4 | {{scene:INSTR}} {{page:FX}}：这一轨的插入效果和两路发送。
-- > tape-sends @cells:1,1-4,4 | {{scene:TAPE}} {{page:SENDS}}：四轨的效果一屏看完。
+- > tape-sends @cells:1,1-4,4 | {{scene:TAPE}} {{page:SENDS}}：四轨的 FILTER、CHORUS 和两路发送一屏看完。
 - > tape-fx @cells:1,1-3,4 | {{scene:TAPE}} {{page:FX}}：总线延迟、混响、EQ、压缩、磁带。
 }}
 
@@ -20,7 +20,7 @@
 
 ## 轨道效果（插入） {#fx-inserts}
 
-在每个音源的 FX 页（见 [[#instr-fx]]），也可以在 TAPE 的 SENDS 页一屏看四轨：
+在每个音源的 FX 页（见 [[#instr-fx]]）；四轨的 FILTER 和 CHORUS 也在 TAPE 的 SENDS 页上：
 
 {{shot:instr-juno-fx|FX 页：上面是效果参数，下面是这一轨的信号链。
 mark cell:1,1 = DRIVE：软饱和，越大越脏
@@ -41,9 +41,11 @@ mark cells:3,1-4,4 = 信号链：开着的效果亮起
 每轨两个发送量：DELAY 和 REVERB。发送到总线后，总线的返回电平（RETURN）决定整体有多少。
 
 {{shot:tape-sends|SENDS：每列一条轨道。轨道发声且发送打开时，那一格的右边缘会发光。
-mark cells:3,1-3,4 = DELAY 发送
-mark cells:4,1-4,4 = REVERB 发送
-key G9-G16 = 开着：半亮 · 关着：灭
+mark cells:1,1-1,4 = FILTER 滤波（FLT）
+mark cells:2,1-2,4 = CHORUS 合唱（CHO）
+mark cells:3,1-3,4 = DELAY 发送（DLY）
+mark cells:4,1-4,4 = REVERB 发送（REV）
+key G1-G16 = 焦点：全亮 · 开着：半亮 · 关着：灭
 }}
 
 <!-- keywords: 发送, 延迟, 回声, 混响, 空间感, send, delay, echo, reverb, space, ambience -->
@@ -61,7 +63,7 @@ mark cell:3,4 = TAPE：磁带饱和
 mark cells:4,1-4,4 = 当前速度下的回声和混响衰减
 }}
 
-- **DELAY**：反馈环里有 TONE 低通和 80 Hz 高通；换时值时像磁带一样滑音；时值超过约 740 毫秒时自动减半一个音符时值。
+- **DELAY**：TIME 是音符时值，1/32 到 1/2（默认 1/8D），跟 BPM 同步。反馈环里有 TONE 低通和 80 Hz 高通；换时值时像磁带一样滑音。743 毫秒以内的回声用 16 KB 的延迟线；更长的时值换成 32 KB 的线（最长 1.49 秒），放不下就把时值折半直到放得下。
 - **REVERB**：带宽约 4.5 kHz，偏暗。
 - 两路发送先抽取到 11.025 kHz 再处理，所以延迟和混响听起来偏暖、偏 lo-fi。
 
@@ -75,12 +77,12 @@ mark cells:4,1-4,4 = 当前速度下的回声和混响衰减
 |---|---|
 | 效果核心 | 约 4.6 KB |
 | 每条带效果的轨道 / 每个合唱 | 1 KB / 1 KB |
-| 延迟 | 16 KB |
-| 混响 | 约 4.8 KB |
-| 全开 | 约 31 KB |
+| 延迟 | 16 KB（超过 743 毫秒的回声 32 KB） |
+| 混响 | 约 8.8 KB |
+| 全开 | 约 35 KB |
 
 - 延迟或混响分配不到内存时那条总线静音，FX 页和信号链图上显示 NO MEM。全部效果关闭时，输出和没有效果器时逐位相同。
-- 音频每 256 帧的预算是 5.8 毫秒。常用效果大约用到 5.4–5.6 毫秒，余量不多。
+- 音频每 256 帧的预算是 5.8 毫秒。很多 DX7 音加上效果就接近上限。超出时丢掉一个声部（先丢已松开的，再丢最老的，最后才丢鼓），节拍不会停。
 
 > [!warn] 很密的和弦叠加很多效果时可能出现爆音：先减少同时发声的音，或关掉一两个效果。
 

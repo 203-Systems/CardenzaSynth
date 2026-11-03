@@ -475,6 +475,19 @@ public:
   // Levels only (no effects), for callers that do not animate.
   void ComputeLeds(std::array<std::uint8_t, kKeyCount>& levels) const;
 
+  // The guide: a lesson page on a computer drives the device (GrooveApp's guide link,
+  // docs/groovebox-design.md). The header says GUIDE, and the keys the lesson waits for blink: bit
+  // KeyIndex(row, column) of `keys`.
+  void SetGuide(bool on);
+  bool Guide() const { return guide_; }
+  void SetGuideHint(std::uint64_t keys) { guideHint_ = guide_ ? keys : 0; }
+  std::uint64_t GuideHint() const { return guideHint_; }
+  // Where a lesson starts: the track, then the scene and its page (from 0; -1 keeps the scene's page).
+  void GuideGoTo(Scene scene, int page, std::size_t track);
+  // What the lesson page checks, letter and number pairs with the page tab last:
+  // "s1p0t0e0y0m0o0h0q1w0k0z0c0a0g0l0x0v123nVOICE" (GrooveGuide.cpp says what each one is).
+  std::string GuideState() const;
+
   const UiState& State() const { return state_; }
   const Host& HostView() const { return host_; }
   const Modal* TopModal() const { return state_.modals.empty() ? nullptr : &state_.modals.back(); }
@@ -668,6 +681,9 @@ private:
   void OpenPresetBrowser();
   void RefreshPresetBrowser();
   bool pianoRollOnDrums_ = false;
+  bool guide_ = false;
+  std::uint64_t guideHint_ = 0;
+  void ComputeSceneLeds(LedFrame& frame) const;
   void FillPresetRows(Modal& modal) const;
   void SetCellParameter(std::size_t index, int value);
   void PickCellValue(std::size_t row, std::size_t column);

@@ -135,6 +135,8 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
 
 void GrooveApp::Suspend()
 {
+  // A lesson's practice project is never kept: the user's working state comes back first.
+  ExitGuide();
   StorePlaySettings();
   sampler_.KeepTakesOnCard();
   (void)SaveSessionState();
@@ -269,9 +271,16 @@ void GrooveApp::ApplyPendingSamples()
   }
 }
 
+void GrooveApp::FlushSession()
+{
+  if (guide_ || !sessionChanged_ || sampler_.RecordingTrack() >= 0) return;
+  if (SaveSessionState() != synth::SessionStore::SaveResult::Failed) sessionChanged_ = false;
+}
+
 void GrooveApp::KeepSessionCurrent(std::uint32_t now)
 {
-  if (!sessionChanged_ || sampler_.RecordingTrack() >= 0) return;
+  // The guide's practice project is not the working state.
+  if (guide_ || !sessionChanged_ || sampler_.RecordingTrack() >= 0) return;
   // Writing to flash can stop both cores for a moment, which sound would notice: so when nothing is
   // heard, or else only when the changes have waited long enough to be worth that risk.
   if (!Quiet(now) && now - sessionChangedAt_ < kSessionLongestWaitMs) return;
@@ -313,6 +322,7 @@ void GrooveApp::Tick()
     synth::audio::SetTempo(static_cast<float>(bpm));
   }
   const std::uint32_t now = NowMs();
+  ServiceGuide(now);
   controller_.Tick(now);
   animator_.Update(controller_, now);
   StorePlaySettings();
@@ -443,6 +453,13 @@ void GrooveApp::HandleMatrixKeyEvent(std::size_t row, std::size_t column, bool p
   sessionChanged_ = true;
   lastKeyAt_ = now;
   keysHeld_ = pressed ? keysHeld_ + 1 : std::max(0, keysHeld_ - 1);
+  // The lesson page follows every key, but not the ones it pressed itself.
+  if (guide_ && !guideInjecting_)
+  {
+    char text[8];
+    std::snprintf(text, sizeof(text), "GK%02x%c", static_cast<unsigned>(groove::KeyIndex(row, column)), pressed ? '1' : '0');
+    SendGuide(text);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

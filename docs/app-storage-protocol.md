@@ -241,7 +241,9 @@ as a whole: `as_g` (name, unsaved state, keyboard, tempo, mix, master effects, c
 (pattern count and lengths, track settings), `as_p<track>_<pattern>` (notes, no record when empty). Only a
 record that changed is written. After a key it waits for quiet: 1.5 s without keys, none held, transport
 stopped, not recording (an erase stalls both cores for longer than the audio buffer); while something keeps
-playing, 60 s at most. `Setup()` restores it and leaves it valid. A record outlives a firmware update, so at the start any `as_*` key this firmware does not know is
+playing, 60 s at most. `Setup()` restores it and leaves it valid. The guide (a lesson page driving the
+device, docs/groovebox-design.md) saves it before it starts, writes nothing while its practice project
+runs, and restores it when it ends. A record outlives a firmware update, so at the start any `as_*` key this firmware does not know is
 erased; other keys are left alone. The NVS partition is never erased as a whole, not even when it cannot be
 opened: under the Launcher it also holds the Launcher's settings, app list and self-update state. Nothing is written while nothing changes. `as_boot` counts starts begun and not
 finished: at 3 the autosave is skipped once, so it cannot keep crashing the start. A sample it names that

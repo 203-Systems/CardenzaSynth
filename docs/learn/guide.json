@@ -1,0 +1,172 @@
+{
+  "version": "1.0.0",
+  "title": {"zh": "Cardenza 入门", "en": "Cardenza guide"},
+  "parts": [
+    {"id": "music", "title": {"zh": "编曲基础", "en": "Making music"}, "lessons": ["music-box", "four-boxes", "boxes-in-a-row"]},
+    {"id": "device", "title": {"zh": "认识机器", "en": "The device"}, "lessons": ["key-areas", "make-sound", "screens", "tracks", "first-pattern", "scales", "chord-arp", "first-song"]}
+  ],
+  "lessons": {
+    "music-box": {
+      "more": "seq",
+      "title": {"zh": "一个八音盒 = 一个音序器", "en": "A music box is a sequencer"},
+      "lead": {"zh": "凸起转到梳齿，就响一个音。", "en": "A pin reaches the comb: a note plays."},
+      "anim": "music-box",
+      "steps": [
+        {"say": {"zh": "圆筒上的每个凸起，转到梳齿就响一个音。", "en": "Every pin on the drum plays a note when it reaches the comb."}},
+        {"say": {"zh": "把圆筒摊平：从左到右是时间，转一圈 16 格。这就是音序器。", "en": "Unroll the drum: time runs left to right, 16 steps a turn. That is a sequencer."}},
+        {"say": {"zh": "点格子加一个凸起，再听一遍。机器上，这 16 格就是右边的 4×4 GRID。", "en": "Tap a cell to add a pin and listen again. On Cardenza these 16 steps are the 4×4 GRID."}}
+      ]
+    },
+    "four-boxes": {
+      "more": "seq-patterns",
+      "title": {"zh": "四个八音盒 = 一段", "en": "Four music boxes make a part"},
+      "lead": {"zh": "一个乐器不够，就多买几个。", "en": "One instrument is not enough: get more."},
+      "anim": "four-boxes",
+      "steps": [
+        {"say": {"zh": "一个八音盒只有一种声音。", "en": "One music box has one sound."}},
+        {"say": {"zh": "再来三个：鼓、钢琴、和弦、贝斯，一起转。", "en": "Add three more: drums, piano, chords, bass, all turning together."}},
+        {"say": {"zh": "每个八音盒是一条轨道，它转的那一圈叫 Pattern。四轨一起转，就是一段完整的乐句。", "en": "Each box is a track, and its loop is a pattern. Four tracks together make a whole phrase."}}
+      ]
+    },
+    "boxes-in-a-row": {
+      "more": "tape-song",
+      "title": {"zh": "很多段排起来 = 一首歌", "en": "Parts in a row make a song"},
+      "lead": {"zh": "一段只有几秒，歌要长得多。", "en": "A part lasts seconds; a song is longer."},
+      "anim": "boxes-in-a-row",
+      "steps": [
+        {"say": {"zh": "一段只有几秒钟。", "en": "One part lasts a few seconds."}},
+        {"say": {"zh": "多做几段，从左往右一段接一段地播。", "en": "Make a few parts and play them one after another, left to right."}},
+        {"say": {"zh": "这就是一首歌（SONG）。在机器上，它在 {{scene:TAPE}} 场景里排。", "en": "That is a song. On Cardenza you arrange it in scene {{scene:TAPE}}."}}
+      ]
+    },
+
+    "key-areas": {
+      "more": "keys",
+      "title": {"zh": "按键分区", "en": "The key areas"},
+      "lead": {"zh": "四个区，各管一件事。", "en": "Four areas, one job each."},
+      "start": "s1p4t2",
+      "steps": [
+        {"say": {"zh": "左边 8 列是琴键：按一下，出声。", "en": "The 8 columns on the left are the keyboard: press one to play."},
+         "keys": "PADS", "done": [["press", "PADS"]], "demo": "tap r2c1; wait 12; tap r2c3; wait 12; tap r2c5"},
+        {"say": {"zh": "右边 4×4 对着屏幕中间的格子：点一个，选中它。", "en": "The 4×4 on the right matches the cells on the screen: tap one to pick it."},
+         "keys": "GRID", "marks": ["cells:1,1-4,4"], "done": [["press", "GRID"]], "demo": "tap G2"},
+        {"say": {"zh": "按 {{key:ADD}} 或 {{key:SUB}}：改它的值。边弹边改，就听得出来。", "en": "{{key:ADD}} or {{key:SUB}} changes its value. Play while you turn it."},
+         "keys": "ADD SUB", "done": [["press", "ADD SUB"]], "demo": "tap SUB; tap SUB; tap SUB; tap ADD"},
+        {"say": {"zh": "最左、最右各 4 个键，对着屏幕两边的竖条：左边管去哪里，右边管改值和播放。", "en": "The 4 keys at each edge match the strips at the screen's sides: the left ones move around, the right ones change and play."},
+         "keys": "LEFT RIGHT", "marks": ["strip:ESC", "strip:ADD"], "done": [["press", "LEFT RIGHT"]], "demo": "tap PLAY; wait 40; tap PLAY"}
+      ]
+    },
+    "make-sound": {
+      "more": "play-keyboard",
+      "title": {"zh": "让它响起来", "en": "Make a sound"},
+      "lead": {"zh": "弹琴键，换音色。", "en": "Play the keys, change the sound."},
+      "start": "s1p0t2",
+      "steps": [
+        {"say": {"zh": "弹琴键：第 1、3 行是白键，第 2、4 行是黑键。", "en": "Play: rows 1 and 3 are the white keys, rows 2 and 4 the black keys."},
+         "keys": "PADS", "done": [["press", "PADS"]], "demo": "tap r2c1; wait 10; tap r2c2; wait 10; tap r2c3; wait 10; tap r1c2"},
+        {"say": {"zh": "按 {{key:ADD}} 或 {{key:SUB}}：换一个音色，名字在屏幕最上面。", "en": "{{key:ADD}} or {{key:SUB}}: another sound. Its name is at the top of the screen."},
+         "keys": "ADD SUB", "marks": ["header"], "done": [["change", "v"]], "demo": "tap ADD"},
+        {"say": {"zh": "再弹一下，听听新音色。", "en": "Play again and hear the new sound."},
+         "keys": "PADS", "done": [["press", "PADS"]], "demo": "tap r2c1; wait 10; tap r2c3; wait 10; tap r2c5"}
+      ]
+    },
+    "screens": {
+      "more": "nav-scenes",
+      "title": {"zh": "换界面", "en": "Screens and pages"},
+      "lead": {"zh": "大界面叫场景，场景里有好几页。", "en": "The big screens are scenes; each has pages."},
+      "start": "s1p0t2",
+      "steps": [
+        {"say": {"zh": "单击 {{key:ESC}}：下一个场景。{{scene:INSTR}} 音色 → {{scene:SEQ}} 音符 → {{scene:TAPE}} 编排。", "en": "Tap {{key:ESC}}: the next scene. {{scene:INSTR}} sound → {{scene:SEQ}} notes → {{scene:TAPE}} arrangement."},
+         "keys": "ESC", "marks": ["scene"], "done": [["change", "s"]], "demo": "tap ESC"},
+        {"say": {"zh": "按住 {{key:ESC}}：屏幕变成地图。按住不放，再按 GRID 的一列，直接去那里。", "en": "Hold {{key:ESC}}: the screen becomes a map. Keep holding and press a GRID column to go there."},
+         "keys": "ESC GRID", "marks": ["cells:1,1-4,4"], "done": [["seen", "o", 1], ["change", "s"]], "demo": "down ESC; wait 30; shot; tap G4; up ESC"},
+        {"say": {"zh": "单击 {{key:CTRL}}：这个场景的下一页。", "en": "Tap {{key:CTRL}}: the next page of the scene."},
+         "keys": "CTRL", "marks": ["footer"], "done": [["change", "p"]], "demo": "tap CTRL"},
+        {"say": {"zh": "按住 {{key:CTRL}}：这个场景的所有页都在 GRID 上，按一个就去。", "en": "Hold {{key:CTRL}}: every page of the scene is on the GRID; press one to go."},
+         "keys": "CTRL GRID", "marks": ["cells:1,1-4,4"], "done": [["seen", "o", 4]], "demo": "down CTRL; wait 30; shot; tap G1; up CTRL"}
+      ]
+    },
+    "tracks": {
+      "more": "nav-tracks",
+      "title": {"zh": "换轨道", "en": "Tracks"},
+      "lead": {"zh": "四条轨道，四种乐器，各有颜色。", "en": "Four tracks, four instruments, a colour each."},
+      "start": "s2p0t1",
+      "steps": [
+        {"say": {"zh": "单击 {{key:TAB}}：下一条轨道。屏幕最上面的颜色跟着变。", "en": "Tap {{key:TAB}}: the next track. The colour at the top of the screen follows."},
+         "keys": "TAB", "marks": ["track"], "done": [["change", "t"]], "demo": "tap TAB"},
+        {"say": {"zh": "按住 {{key:TAB}}：一列一条轨。按住不放，按第 1 行的格子去那条轨。", "en": "Hold {{key:TAB}}: a column per track. Keep holding and press a top-row cell to go there."},
+         "keys": "TAB G1-G4", "marks": ["cells:1,1-1,4"], "done": [["seen", "o", 2], ["change", "t"]], "demo": "down TAB; wait 30; shot; tap G3; up TAB"},
+        {"say": {"zh": "回到 {{track:1}}：鼓。", "en": "Back to {{track:1}}: the drums."},
+         "keys": "TAB G1", "marks": ["track"], "done": [["state", "t", 0]], "demo": "down TAB; wait 30; tap G1; up TAB"}
+      ]
+    },
+    "first-pattern": {
+      "more": "seq-drums",
+      "title": {"zh": "写第一个 Pattern", "en": "Your first pattern"},
+      "lead": {"zh": "一个四拍的鼓点。", "en": "A four-to-the-floor beat."},
+      "start": "r1s2p0t1",
+      "steps": [
+        {"say": {"zh": "按住底鼓键（左下角），再点 GRID 1、5、9、13。", "en": "Hold the kick key (bottom left) and tap GRID 1, 5, 9 and 13."},
+         "keys": "r3c1 G1 G5 G9 G13", "done": [["min", "h", 4]], "demo": "down r3c1; wait 20; tap G1; tap G5; tap G9; tap G13; shot; up r3c1"},
+        {"say": {"zh": "按 {{key:PLAY}}：绿线走到哪一格，哪一格就响。", "en": "Press {{key:PLAY}}: each step plays as the green line reaches it."},
+         "keys": "PLAY", "done": [["state", "y", 1]], "demo": "tap PLAY"},
+        {"say": {"zh": "按住军鼓键（第 2 列），点 GRID 5、13。边放边写。", "en": "Hold the snare key (column 2) and tap GRID 5 and 13, while it plays."},
+         "keys": "r3c2 G5 G13", "done": [["press", "r3c2"], ["press", "GRID"]], "demo": "down r3c2; wait 20; tap G5; tap G13; wait 20; shot; up r3c2"},
+        {"say": {"zh": "再按 {{key:PLAY}}：停。写好的会自动留着。", "en": "{{key:PLAY}} again stops. What you wrote is kept."},
+         "keys": "PLAY", "done": [["state", "y", 0]], "demo": "tap PLAY"}
+      ]
+    },
+    "scales": {
+      "more": "play-scale",
+      "title": {"zh": "换音阶", "en": "Scales"},
+      "lead": {"zh": "选一个调，弹什么都在调上。", "en": "Pick a scale; whatever you play stays in it."},
+      "start": "s1p0t2",
+      "steps": [
+        {"say": {"zh": "按住 {{key:ESC}}，按 GRID 第 1 列：进入 {{scene:SETUP}}。", "en": "Hold {{key:ESC}} and press GRID column 1: {{scene:SETUP}}."},
+         "keys": "ESC G1 G5 G9 G13", "marks": ["cells:1,1-4,1"], "done": [["state", "s", 0]], "demo": "down ESC; wait 30; shot; tap G1; up ESC"},
+        {"say": {"zh": "单击 {{key:CTRL}}，翻到 KEYS 页。", "en": "Tap {{key:CTRL}} until the KEYS page."},
+         "keys": "CTRL", "marks": ["footer"], "done": [["state", "p", 2]], "demo": "tap CTRL; wait 10; tap CTRL"},
+        {"say": {"zh": "点 SCALE（GRID 2），按 {{key:ADD}}：换一个音阶。", "en": "Tap SCALE (GRID 2) and press {{key:ADD}}: another scale."},
+         "keys": "G2 ADD", "marks": ["cell:1,2"], "done": [["change", "k"]], "demo": "tap G2; tap ADD"},
+        {"say": {"zh": "点 LAYOUT（GRID 1），按 {{key:ADD}} 换成 SCALE：每个键都在调上，怎么按都不会错。", "en": "Tap LAYOUT (GRID 1) and press {{key:ADD}} for SCALE: every key is in the scale, no wrong notes."},
+         "keys": "G1 ADD", "marks": ["cell:1,1"], "done": [["change", "z"]], "demo": "tap G1; tap ADD"},
+        {"say": {"zh": "弹一弹，再单击 {{key:ESC}} 回去。", "en": "Play a little, then tap {{key:ESC}} to go back."},
+         "keys": "PADS ESC", "done": [["press", "PADS"], ["change", "s"]], "demo": "tap r2c1; wait 10; tap r2c2; wait 10; tap r2c3; wait 10; tap ESC"}
+      ]
+    },
+    "chord-arp": {
+      "more": "play-chords",
+      "title": {"zh": "和弦和琶音", "en": "Chords and arpeggios"},
+      "lead": {"zh": "按一个键，响一串。", "en": "One key, many notes."},
+      "start": "s1p0t2",
+      "steps": [
+        {"say": {"zh": "单击 {{key:CTRL}}：到 CHORD 页。", "en": "Tap {{key:CTRL}}: the CHORD page."},
+         "keys": "CTRL", "marks": ["footer"], "done": [["state", "p", 1]], "demo": "tap CTRL"},
+        {"say": {"zh": "点 GRID 1 选一种和弦，再按一个琴键：一下就是一个和弦。", "en": "Tap GRID 1 for a chord, then press a key: one press, a whole chord."},
+         "keys": "G1 PADS", "marks": ["cell:1,1"], "done": [["state", "c", 1], ["press", "PADS"]], "demo": "tap G1; wait 10; down r2c1; wait 10; shot; up r2c1; wait 10; tap r2c3"},
+        {"say": {"zh": "{{key:CTRL}} 到 ARP 页，点 GRID 1：打开琶音。", "en": "{{key:CTRL}} to the ARP page, GRID 1 turns the arpeggiator on."},
+         "keys": "CTRL G1", "marks": ["cell:1,1"], "done": [["state", "p", 2], ["state", "a", 1]], "demo": "tap CTRL; wait 10; tap G1"},
+        {"say": {"zh": "按住一个琴键：和弦的音一个一个弹出来。", "en": "Hold a key: the chord's notes come one after another."},
+         "keys": "PADS", "done": [["press", "PADS"]], "demo": "down r2c1; wait 60; shot; wait 20; up r2c1"}
+      ]
+    },
+    "first-song": {
+      "more": "tape-song",
+      "title": {"zh": "写第一首歌", "en": "Your first song"},
+      "lead": {"zh": "把几段排起来。", "en": "Put parts in a row."},
+      "start": "d1s3p1t1",
+      "steps": [
+        {"say": {"zh": "这是 {{scene:TAPE}} 的 SONG 页，每一列是一段。点 + 那一列：加第一段。", "en": "This is the SONG page of {{scene:TAPE}}; each column is a part. Tap the + column: the first part."},
+         "keys": "G1 G5 G9 G13", "done": [["min", "g", 1]], "demo": "tap G1"},
+        {"say": {"zh": "再点 + 那一列：第二段，和第一段一样。", "en": "Tap the + column again: a second part, the same as the first."},
+         "keys": "G2 G6 G10 G14", "marks": ["cells:1,2-4,2"], "done": [["min", "g", 2]], "demo": "tap G2"},
+        {"say": {"zh": "第二段的 {{track:1}} 格已经选中（白框）。按 {{key:ADD}}：换成 P02，另一个鼓点。", "en": "{{track:1}} in part 2 is already picked (white frame). Press {{key:ADD}}: P02, another beat."},
+         "keys": "ADD", "marks": ["cell:1,2"], "done": [["state", "x", 2]], "demo": "tap ADD"},
+        {"say": {"zh": "点第一段（GRID 1），按 {{key:OK}}：SONG 模式从这一段开始。再按 {{key:PLAY}}：整首歌播起来。", "en": "Tap part 1 (GRID 1) and press {{key:OK}}: SONG mode, from this part. Then {{key:PLAY}}: the whole song plays."},
+         "keys": "G1 OK PLAY", "marks": ["cell:1,1"], "done": [["state", "l", 1], ["state", "y", 1]], "demo": "tap G1; tap OK; wait 10; tap PLAY"},
+        {"say": {"zh": "听：第二段鼓点变了。{{key:PLAY}} 停。", "en": "Listen: the drums change in part 2. {{key:PLAY}} stops."},
+         "keys": "PLAY", "done": [["state", "y", 0]], "demo": "wait 200; tap PLAY"}
+      ]
+    }
+  }
+}

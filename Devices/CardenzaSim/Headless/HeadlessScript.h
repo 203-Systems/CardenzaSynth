@@ -22,6 +22,7 @@ enum class CommandType {
   Down,
   Up,
   Screenshot,
+  App,  // an app message to the firmware (the guide's protocol), as a page on the computer sends it
   Quit,
 };
 
@@ -30,7 +31,7 @@ struct ScriptCommand {
   int lineNumber = 0;
   int frames = 0;    // wait
   KeyTarget key{};   // tap, down, up
-  std::string name;  // screenshot
+  std::string name;  // screenshot; app: the message
 };
 
 // Accepts "row,col" (0-based), "home", or a physical legend label of the Cardputer-style

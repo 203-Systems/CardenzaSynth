@@ -278,6 +278,15 @@ int main()
   powerCut();
   restart();
   assert(groove->Sequencer().Tempo() == 141 && groove->Ui().State().projectName == "SONG 01");
+  // FlushSession (the web page closing) writes a change at once, without waiting for quiet.
+  keepWorking(133);
+  Frames(3);
+  groove->FlushSession();
+  powerCut();
+  restart();
+  assert(groove->Sequencer().Tempo() == 133);
+  keepWorking(141);
+  groove->FlushSession();
 
   // It is small: a default project with a few changes is a few hundred bytes.
   const std::uintmax_t autosaveBytes = AutosaveBytes(internal);

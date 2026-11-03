@@ -217,11 +217,32 @@ namespace {
 
 std::atomic<std::uint32_t> g_midiIn{0}, g_midiOut{0};
 
-// The HAL's app reports (0xFF) carry this firmware's test requests from a computer: 'S' answers with
-// what has gone through USB so far (tools/remote-flash/gate.sh usb-* commands read it).
+// App messages from the computer, from the USB task (HandleAppReport) to the app (ReadAppMessage).
+constexpr std::size_t kAppQueue = 8;
+AppMessage g_appMessages[kAppQueue];
+std::atomic<std::size_t> g_appHead{0}, g_appTail{0};
+
+// The HAL's app reports (0xFF, or SysEx F0 23 7F): 'S' answers with what has gone through USB so far
+// (tools/remote-flash/gate.sh usb-* commands read it); everything else is for the app.
 void HandleAppReport(const std::uint8_t* report, std::size_t length)
 {
-  if (length == 0 || report[0] != 'S') return;
+  if (length == 0) return;
+  if (report[0] != 'S')
+  {
+    const std::size_t tail = g_appTail.load(std::memory_order_relaxed);
+    const std::size_t next = (tail + 1) % kAppQueue;
+    if (next == g_appHead.load(std::memory_order_acquire)) return;  // full: the newest goes
+    AppMessage& message = g_appMessages[tail];
+    // HID reports come padded with zeros: the text ends at the first one.
+    message.length = 0;
+    while (message.length < length && message.length < kAppMessageSize && report[message.length] != 0)
+    {
+      message.data[message.length] = static_cast<char>(report[message.length] & 0x7F);
+      ++message.length;
+    }
+    g_appTail.store(next, std::memory_order_release);
+    return;
+  }
   const Audio::ComputerAudioStats audio = Audio::ComputerStats();
   char text[CardenzaHAL::USB::kReportSize] = {};
   // One report (62 characters at most); the heap and the endpoint counters are in the console.
@@ -250,7 +271,22 @@ bool WriteMidi(const std::uint8_t packet[4])
   return true;
 }
 
-void InstallTestHooks() { CardenzaHAL::USB::SetAppReportHandler(&HandleAppReport); }
+bool ReadAppMessage(AppMessage& message)
+{
+  const std::size_t head = g_appHead.load(std::memory_order_relaxed);
+  if (head == g_appTail.load(std::memory_order_acquire)) return false;
+  message = g_appMessages[head];
+  g_appHead.store((head + 1) % kAppQueue, std::memory_order_release);
+  return true;
+}
+
+bool WriteAppMessage(const char* data, std::size_t length)
+{
+  if (!CardenzaHAL::USB::Mounted()) return false;
+  return CardenzaHAL::USB::SendAppReport(reinterpret_cast<const std::uint8_t*>(data), std::min(length, kAppMessageSize));
+}
+
+void InstallAppChannel() { CardenzaHAL::USB::SetAppReportHandler(&HandleAppReport); }
 
 }  // namespace USB
 
@@ -379,7 +415,7 @@ bool Init() {
   // No HID keyboard: this firmware types nothing, and with one macOS lets host tools open the HID
   // interface only with the Input Monitoring permission.
   usb.keyboard = false;
-  if (CardenzaHAL::USB::Init(usb)) USB::InstallTestHooks();
+  if (CardenzaHAL::USB::Init(usb)) USB::InstallAppChannel();
   if (!initialized) {
     return false;
   }

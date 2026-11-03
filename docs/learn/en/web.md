@@ -25,9 +25,12 @@ Every screenshot in this manual has **▶ Try it live here** under it:
 
 - Keys go to the device of the section you opened last; if none is open, the section at your reading position opens.
 - The Cardenza itself keeps running as usual; the manual's device just follows along.
-- Press the button again to disconnect. Only browsers with Web Serial (Chrome, Edge on a computer) show the button.
+- Press the button again to disconnect. Only Chrome and Edge on a computer show the button.
+- It talks to the Cardenza over USB MIDI (Web MIDI): the first time, the browser asks whether the page may use MIDI devices (SysEx included); allow it. No driver is needed, and USB MIDI and USB audio keep working.
 
-<!-- keywords: usb, connect, device, cable, web serial, hardware, real device, 连接, 真机 -->
+> [!note] A Cardenza started with the HOME side key held does not do USB MIDI but keeps its serial port (for development); the button then uses the serial port, and you pick the device in the list.
+
+<!-- keywords: usb, connect, device, cable, web serial, hardware, real device, device not found, serial port, midi, web midi, sysex, allow, 连接, 真机 -->
 
 ## Which computer key is which {#web-keys}
 
@@ -47,10 +50,12 @@ ADD SUB OK PLAY = Backspace · \ · Enter · Space
 | {{key:ESC}} {{key:TAB}} {{key:FN}} {{key:CTRL}} | Esc / Tab / Caps Lock or left Shift / Ctrl |
 | {{key:ADD}} {{key:SUB}} {{key:OK}} {{key:PLAY}} | Backspace / `\` / Enter / Space |
 | HOME side key | Home |
+| the pads without a letter | right Shift (row 3) · left / right Alt (row 4) |
 
-You can also click or touch the keys on the page.
+- {{key:ESC}} is also the backquote key (left of 1). On macOS Caps Lock latches {{key:FN}} (press it again to release it); hold left Shift for a {{key:FN}} that lets go with the key.
+- You can also click or touch the keys on the page, several at once on a touch screen. A right-click latches a key down (to hold ESC, FN… while you click the GRID); right-click it again to release it.
 
-<!-- keywords: keyboard mapping, computer keyboard, which key, key bindings, shortcuts, 键位映射 -->
+<!-- keywords: keyboard mapping, computer keyboard, which key, key bindings, shortcuts, caps lock, mac, right click, latch, 键位映射 -->
 
 ## Sound {#web-audio}
 
@@ -60,7 +65,9 @@ You can also click or touch the keys on the page.
 
 ## Storage and samples {#web-storage}
 
-- Settings, projects and sounds are stored in the browser (IndexedDB) in the same folders as on the SD card, and survive a reload. Clearing the site's data deletes them.
-- "Load WAV…" puts a WAV from your computer into the shared sample folder `Shared/Samples`, where the SAMPLER's file list finds it.
+- Settings, projects and sounds are stored in the browser (IndexedDB) in the same folders as on the SD card, and survive a reload. Clearing the site's data deletes them. The simulator and the device in this manual share them.
+- The working state that the device keeps by itself ([[#project-session]]) is kept by the browser too: it is saved as you go and is still there after a reload or after closing the page, like pulling the power on the device. To keep it as a project, save with {{key:FN+S}} as usual.
+- On the simulator page, "Load project…" copies `.ccproj` files from a Cardenza's card into the browser (never over an existing project, a name already taken gets a number) and opens the first one; the others are in SETUP FILES.
+- "Load WAV…" puts audio files from your computer into the shared sample folder `Shared/Samples`, where the SAMPLER's file list finds them. Anything that is not a mono 16-bit WAV (stereo, 24-bit, MP3…) is converted to mono 16-bit 44.1 kHz and cut to 5 seconds.
 
-<!-- keywords: browser storage, indexeddb, load wav, upload sample, where is it saved, 浏览器存储 -->
+<!-- keywords: browser storage, autosave, kept after reload, indexeddb, load wav, upload sample, load project, import project, ccproj, where is it saved, reload, 浏览器存储 -->

@@ -28,8 +28,10 @@ function(cardenza_collect_synth_app_cpp_sources root_dir out_var)
         set(${out_var}
             ${runtime_sources}
             ${root_dir}/Applications/Synth/GrooveApp.cpp
+            ${root_dir}/Applications/Synth/GrooveAppGuide.cpp
             ${root_dir}/Applications/Synth/Runtime/SessionStore.cpp
             ${root_dir}/Applications/Synth/UI/Groove/GrooveController.cpp
+            ${root_dir}/Applications/Synth/UI/Groove/GrooveGuide.cpp
             ${root_dir}/Applications/Synth/UI/Groove/GrooveModals.cpp
             ${root_dir}/Applications/Synth/UI/Groove/GrooveRecord.cpp
             ${root_dir}/Applications/Synth/UI/Groove/GrooveScenes.cpp

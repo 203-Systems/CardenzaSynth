@@ -1,4 +1,5 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
+#include "OS/Storage/DeviceSettings.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -150,9 +151,9 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
     }
     else return false;
   }
-  else if (Is(id, "sys.volume")) number(host_.MasterVolume(), 0, 100, 85, std::to_string(host_.MasterVolume()));
-  else if (Is(id, "sys.led")) number(host_.LedBrightness(), 0, 15, 15, std::to_string(host_.LedBrightness()));
-  else if (Is(id, "sys.screen")) number(host_.Backlight(), 10, 255, 180, std::to_string(host_.Backlight() * 100 / 255) + "%");
+  else if (Is(id, "sys.volume")) number(host_.MasterVolume(), 0, 100, os::storage::kDefaultOutputVolume, std::to_string(host_.MasterVolume()));
+  else if (Is(id, "sys.led")) number(host_.LedBrightness(), 0, 15, os::storage::kDefaultKeyLedBrightness, std::to_string(host_.LedBrightness()));
+  else if (Is(id, "sys.screen")) number(host_.Backlight(), 10, 255, os::storage::kDefaultScreenBacklight, std::to_string(host_.Backlight() * 100 / 255) + "%");
   else return false;
   return true;
 }

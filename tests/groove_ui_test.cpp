@@ -2395,6 +2395,125 @@ void TestComputerMidi(Harness& h)
   settle(4);
 }
 
+// The guide: a lesson page sets the working state aside in a practice project, drives the device,
+// follows its keys and state, and the working state comes back however the lesson ends.
+void TestGuide(Harness& h)
+{
+  auto& app = h.App();
+  auto& ui = app.Ui();
+  std::vector<std::string> heard;
+  const auto listen = [&]() {
+    std::string message;
+    while (CardenzaSim::Input::TakeDeviceApp(message)) heard.push_back(message);
+  };
+  const auto send = [&](const std::string& text) {
+    CardenzaSim::Input::SendComputerApp(text);
+    h.Frames(2);
+    listen();
+  };
+  const auto sent = [&](const std::string& text) { return std::find(heard.begin(), heard.end(), text) != heard.end(); };
+  // The last state, and one field of it ('n' is the page tab: not a number).
+  const auto state = [&]() {
+    for (auto it = heard.rbegin(); it != heard.rend(); ++it)
+      if (it->rfind("GS", 0) == 0) return it->substr(2);
+    return std::string();
+  };
+  const auto field = [&](char name) {
+    const std::string text = state();
+    const std::size_t at = text.find(name);
+    assert(at != std::string::npos);
+    return std::atoi(text.c_str() + at + 1);
+  };
+  const auto hits = [&](std::size_t track) {
+    std::size_t count = 0;
+    std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+    for (std::size_t step = 0; step < 16; ++step) count += app.Sequencer().StepNoteEvents(track, step, notes) > 0 ? 1 : 0;
+    return count;
+  };
+  listen();
+  heard.clear();
+  // The working state: SEQ, T1 with one hit on step 3.
+  GoToScene(h, 2);
+  h.Chord(kTab, Grid(0));
+  const std::uint8_t kick = 36;
+  for (std::size_t step = 0; step < 16; ++step) (void)app.Sequencer().SetStepNotes(0, step, &kick, 0, 100);
+  assert(app.Sequencer().SetStepNotes(0, 2, &kick, 1, 100));
+  assert(hits(0) == 1);
+
+  send("G?");
+  assert(sent("G!1 g0"));
+  // Keys are not reported, nor do the guide's commands work, before it starts.
+  send("GLs3");
+  assert(h.State().scene == Scene::Sequence);
+  send("GE");
+  assert(sent("GE1") && ui.Guide());
+  // A fresh practice project on INSTR VOICE, T1.
+  assert(field('s') == 1 && field('p') == 0 && field('t') == 0 && field('h') == 0 && hits(0) == 0);
+  assert(state().find("nVOICE") != std::string::npos);
+  h.Render();
+
+  // The hint: ESC and ADD blink, and only while the guide runs.
+  send("GH000d");
+  groove::LedFrame frame{};
+  ui.ComputeLeds(frame);
+  assert(frame[0].effect == groove::LedEffect::Blink && frame[13].effect == groove::LedEffect::Blink);
+  assert(frame[groove::KeyIndex(1, 0)].effect != groove::LedEffect::Blink);
+  send("GH");
+  ui.ComputeLeds(frame);
+  assert(frame[0].effect != groove::LedEffect::Blink);
+
+  // Keys the user presses go to the page; keys the page presses do not come back.
+  heard.clear();
+  h.Tap(kTab);
+  listen();
+  assert(sent("GK0e1") && sent("GK0e0"));
+  h.Frames(4);
+  listen();
+  assert(field('t') == 1);
+  heard.clear();
+  send("GK0e1");
+  send("GK0e0");
+  h.Frames(4);
+  listen();
+  assert(!sent("GK0e1") && field('t') == 2);
+
+  // A lesson start: SEQ on T1, where hits written by the page's keys count.
+  send("GLs2p0t1");
+  assert(field('s') == 2 && field('t') == 0 && h.State().track == 0);
+  const std::string pad = "GK" + std::string(1, "0123456789abcdef"[groove::KeyIndex(3, 2) / 16]) + "0123456789abcdef"[groove::KeyIndex(3, 2) % 16];
+  send(pad + "1");
+  send("GK091");
+  send("GK090");
+  send(pad + "0");
+  h.Frames(4);
+  listen();
+  assert(field('h') == 1 && hits(0) == 1);
+  // The song lesson's demo: two patterns on T1, a beat on both, the song page.
+  send("GLd1s3p1t1");
+  assert(field('s') == 3 && field('p') == 1 && field('q') == 2 && field('h') > 4 && field('g') == 0);
+
+  // The end: the working state is back, where the user left it.
+  send("GX");
+  assert(sent("GX") && !ui.Guide());
+  assert(h.State().scene == Scene::Sequence && h.State().track == 0 && hits(0) == 1);
+  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+  assert(app.Sequencer().StepNoteEvents(0, 2, notes) == 1 && app.Sequencer().PatternCount(0) == 1);
+  ui.ComputeLeds(frame);
+  assert(frame[0].effect != groove::LedEffect::Blink);
+
+  // A page that goes quiet ends the guide by itself.
+  send("GE");
+  assert(ui.Guide() && hits(0) == 0);
+  heard.clear();
+  h.Wait(31000);
+  listen();
+  assert(!ui.Guide() && sent("GX") && hits(0) == 1);
+  // While nothing runs, messages without G are ignored, and a guide message after the end is too.
+  send("GH000d");
+  ui.ComputeLeds(frame);
+  assert(frame[0].effect != groove::LedEffect::Blink);
+}
+
 // Every cell of every page of every scene, on every engine, stopped and playing: moved both ways, in
 // big steps to both ends, ENTER, picked from the pads; then every parameter of every engine at both ends,
 // and every preset. Whatever falls over here shows as an assertion or under ASan. Running out of memory
@@ -2558,6 +2677,7 @@ int main()
   TestHeldNotesEnd(h);
   TestNoStuckNotes(h);
   TestComputerMidi(h);
+  TestGuide(h);
   TestEveryParameter(h);
 
   std::filesystem::current_path(std::filesystem::temp_directory_path());

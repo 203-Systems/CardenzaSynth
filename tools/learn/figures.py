@@ -363,7 +363,7 @@ def keyboard(levels, light, marks=(), seed="kbd", label="", first=1, focus_only=
             cls = f"k {role}{' dim' if dim else ''}{' lit' if glow > 0.55 else ''}"
             small = " small" if 0 < column < 13 and not LEGEND[row][column].strip() else ""
             parts.append(
-                f'<g class="{cls}" style="--b:{glow}">'
+                f'<g class="{cls}" data-k="{row * 14 + column}" style="--b:{glow}">'
                 f'<rect class="glow" x="{x - 3}" y="{y - 3}" width="{w + 6}" height="{h + 6}" rx="9"/>'
                 f'<rect class="cap" x="{x}" y="{y}" width="{w}" height="{h}" rx="6"/>'
                 f'<rect class="lamp" x="{x}" y="{y}" width="{w}" height="{h}" rx="6"/>'

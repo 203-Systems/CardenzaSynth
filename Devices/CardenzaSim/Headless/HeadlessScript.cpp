@@ -231,6 +231,10 @@ bool LoadScript(const std::filesystem::path& path, std::vector<ScriptCommand>& c
     {
       command.type = CommandType::Screenshot;
     }
+    else if (name == "app")
+    {
+      command.type = CommandType::App;
+    }
     else if (name == "quit")
     {
       command.type = CommandType::Quit;
@@ -283,6 +287,7 @@ bool LoadScript(const std::filesystem::path& path, std::vector<ScriptCommand>& c
       }
 
       case CommandType::Screenshot:
+      case CommandType::App:
         command.name = tokens[1];
         break;
 

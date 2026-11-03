@@ -600,7 +600,7 @@ void Controller::PressGrid(std::size_t index)
   if (index >= kGridCount) return;
   const std::size_t row = index / kGridColumns;
   const std::size_t column = kGridFirstColumn + index % kGridColumns;
-  // Hold maps. ESC: the GRID columns are the four scenes; column 4 is the only way into SETUP.
+  // Hold maps. ESC: the GRID columns are the four scenes; column 1 (0 SETUP) is the only way into SETUP.
   auto& esc = state_.left[LeftIndex(KeyRole::Esc)];
   if (esc.down)
   {
@@ -1168,6 +1168,14 @@ void Controller::ComputeLeds(std::array<std::uint8_t, kKeyCount>& levels) const
 
 void Controller::ComputeLeds(LedFrame& frame) const
 {
+  ComputeSceneLeds(frame);
+  // The guide's hint: the keys a lesson waits for blink (the only effect: waiting).
+  for (std::size_t index = 0; index < kKeyCount; ++index)
+    if ((guideHint_ >> index) & 1u) frame[index] = LedCell{kLedFull, LedEffect::Blink};
+}
+
+void Controller::ComputeSceneLeds(LedFrame& frame) const
+{
   frame.fill(LedCell{});
   const auto& sequencer = host_.Sequencer();
   const auto seq = sequencer.BuildUiState(state_.track);
@@ -1285,7 +1293,7 @@ void Controller::ComputeLeds(LedFrame& frame) const
   }
   if (EscOverlay())
   {
-    // One column per scene: the current one full, the others half (column 4 is SETUP).
+    // One column per scene: the current one full, the others half (column 1 is SETUP).
     for (std::size_t index = 0; index < kGridCount; ++index)
       if (index % kGridColumns < kSceneCount) setGrid(index, choice(index % kGridColumns == static_cast<std::size_t>(state_.scene)));
     finish();
