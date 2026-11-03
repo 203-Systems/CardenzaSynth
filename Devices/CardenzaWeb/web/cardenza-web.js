@@ -18,6 +18,10 @@
   // page sizes the frame from the height reported here and can press keys (window.cardenzaEmbed).
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
+  // The simulator's own words (status line, hints, HOME, key tips) in Chinese or English: ?lang=zh, or
+  // cardenzaEmbed.setLang from the Learn page. The screen is the firmware's and reads as on the device.
+  let lang = new URLSearchParams(location.search).get('lang') === 'zh' ? 'zh' : 'en';
+  const say = (zh, en) => (lang === 'zh' ? zh : en);
 
   // ---------------------------------------------------------------------------------------
   // Device keys (mirrors RoleFor / kLegend in Applications/Synth/UI/Groove/GrooveTypes.h and
@@ -42,6 +46,11 @@
     if (column === 0) return LEFT_ROLES[row];
     if (column === COLUMNS - 1) return RIGHT_ROLES[row];
     return column <= 8 ? 'PAD' : 'GRID';
+  }
+
+  function keyTitle(row, column) {
+    return say('第 ' + (row + 1) + ' 行第 ' + (column + 1) + ' 列 — ' + describeKey(row, column) + ' — 电脑键：' + (pcLabelsFor(row, column) || '无'),
+      'row ' + row + ' col ' + column + ' — ' + describeKey(row, column) + ' — computer: ' + (pcLabelsFor(row, column) || 'none'));
   }
 
   function describeKey(row, column) {
@@ -207,7 +216,7 @@
         }
 
         key.append(legend, tag, pc);
-        key.title = 'row ' + row + ' col ' + column + ' — ' + describeKey(row, column) + ' — computer: ' + (pcLabelsFor(row, column) || 'none');
+        key.title = keyTitle(row, column);
         ui.keyboard.appendChild(key);
         keyElements.push({ element: key, level: -1 });
       }
@@ -368,7 +377,7 @@
       return;
     }
     setState('loading wasm…');
-    showOverlay('LOADING', 'cardenza.wasm\nIf this stays, check the browser console.');
+    showLoading();
     window.createCardenzaModule({
       preRun: [mountStorage],
       print: (text) => console.log(text),
@@ -408,7 +417,7 @@
     failed = true;
     console.error('CardenzaWeb:', message);
     setState('error', 'err');
-    showOverlay('ERROR', message, true);
+    showOverlay(say('出错了', 'ERROR'), message, true);
   }
 
   // ---------------------------------------------------------------------------------------
@@ -456,15 +465,45 @@
     if (reason && held) showStatus(reason);
   }
 
+  let statusShown = false;
   function showStatus(html) {
+    statusShown = true;
     ui.status.innerHTML = html;
+  }
+
+  // Words of the page around the screen, in the current language.
+  function applyLang() {
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    if (!statusShown) {
+      ui.status.textContent = say('按电脑键盘，或者点模拟器的键。右键点一个键会锁住它（像一直按着），再右键点一下松开。',
+        'Press a computer key or click a key. Right-click latches a key (hold it with the mouse).');
+    }
+    ui.audioHint.innerHTML = '<span class="audio-hint-icon" aria-hidden="true">♪</span> ' +
+      escapeHtml(say('点一下任意地方或按一个键，打开声音', 'Click anywhere or press a key to start audio'));
+    const homeSub = ui.home.querySelector('.home-sub');
+    if (homeSub) homeSub.textContent = say('未用', 'unused');
+    ui.home.title = say('HOME 侧键：还没有功能（电脑键：Home）', 'HOME side button: not assigned yet (PC key: Home)');
+    keyElements.forEach((slot, index) => { slot.element.title = keyTitle(Math.floor(index / COLUMNS), index % COLUMNS); });
+    if (!ui.overlay.hidden && !failed) showLoading();
+  }
+
+  function showLoading() {
+    showOverlay(say('加载中', 'LOADING'), say('cardenza.wasm\n一直停在这里的话，看一下浏览器的控制台。', 'cardenza.wasm\nIf this stays, check the browser console.'));
   }
 
   function escapeHtml(text) {
     return text.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   }
 
+  const SOURCE_ZH = { PC: '电脑键', MOUSE: '鼠标', TOUCH: '触摸', PEN: '笔', USB: 'USB', GUIDE: '教程' };
   function reportKey(source, detail, row, column, held) {
+    if (lang === 'zh') {
+      const who = source === 'LATCH' ? (detail === 'on' ? '锁住' : '松开') : (SOURCE_ZH[source] || source) + (detail ? '  ' + escapeHtml(detail) : '');
+      const where = row < 0 ? '<b>HOME</b>（还没有功能；全部停止是 FN + ESC）'
+        : '<b>第 ' + (row + 1) + ' 行第 ' + (column + 1) + ' 列</b>（' + escapeHtml(describeKey(row, column)) + '）';
+      showStatus(who + '  →  ' + where + (held ? '' : '  ↑'));
+      return;
+    }
     const what = row < 0 ? '<b>HOME</b> (unused; all stop is FN + ESC)' : '<b>row ' + row + ' col ' + column + '</b>  (' + escapeHtml(describeKey(row, column)) + ')';
     showStatus(source + (detail ? '  ' + escapeHtml(detail) : '') + '  →  ' + what + (held ? '' : '  ↑'));
   }
@@ -486,7 +525,7 @@
     }
     const position = KEYMAP.get(event.code);
     if (!position) {
-      if (!event.repeat && event.code) showStatus('PC  ' + escapeHtml(event.code) + '  →  not mapped');
+      if (!event.repeat && event.code) showStatus(say('电脑键  ' + escapeHtml(event.code) + '  →  模拟器上没有这个键', 'PC  ' + escapeHtml(event.code) + '  →  not mapped'));
       return;
     }
     event.preventDefault();
@@ -559,10 +598,10 @@
   function bindInput() {
     window.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('keyup', onKeyUp, true);
-    window.addEventListener('blur', () => releaseAll('Window lost focus: all keys released.'));
+    window.addEventListener('blur', () => releaseAll(say('窗口没有焦点了：按着的键都已松开。', 'Window lost focus: all keys released.')));
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
-        releaseAll('Page hidden: all keys released.');
+        releaseAll(say('页面被隐藏：按着的键都已松开。', 'Page hidden: all keys released.'));
         flushStorage();
       }
     });
@@ -991,6 +1030,7 @@
   // ---------------------------------------------------------------------------------------
 
   buildKeyboard();
+  applyLang();
   layout();
   bindInput();
   setState('loading…');
@@ -1023,6 +1063,10 @@
       if (booted) mod.ccall('cardenza_web_app_send', null, ['string'], [String(text)]);
     },
     listen(fn) { guideListener = typeof fn === 'function' ? fn : null; },
+    setLang(next) {
+      lang = next === 'zh' ? 'zh' : 'en';
+      applyLang();
+    },
   };
   if (EMBED) {
     new ResizeObserver(reportSize).observe(document.querySelector('.device'));
