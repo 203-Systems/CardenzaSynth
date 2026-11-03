@@ -828,13 +828,7 @@
       learnAllAgain();
     }
   }, true);
-  document.addEventListener('keydown', (event) => {
-    const redo = event.target.closest && event.target.closest('span.redo[data-lesson]');
-    if (redo && (event.key === 'Enter' || event.key === ' ')) {
-      event.preventDefault();
-      learnAgain(redo.dataset.lesson);
-    }
-  });
+
 
   // Small looping pictures on the home page and the cards.
   if (window.GuideAnim) $$('[data-anim-thumb]').forEach((el) => window.GuideAnim.thumb(el, el.dataset.animThumb));
