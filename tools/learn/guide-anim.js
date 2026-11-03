@@ -156,7 +156,7 @@
   // A music box seen from the front. The pinned drum stands upright and turns towards the comb on its
   // left, so a row of the drum is a tooth of the comb (low at the bottom, as in the grid it unrolls
   // into), its pins come to the comb at an even speed, and the comb is where the music is now. The
-  // teeth are cut from one steel plate, longest for the lowest note, every tip on the drum; a plucked
+  // teeth (all alike, kept simple) are cut from one steel plate, every tip on the drum; a plucked
   // tooth bends and rings. The drum's surface lines and the marks on its top turn with it; pins and
   // lines narrow and darken towards its sides, so it reads round while everything on it moves at one
   // speed.
@@ -201,10 +201,9 @@
     const pinLayer = el(g, 'g', {});
     const pinR = Math.max(2, 4.4 * sc);
     const pinNodes = pins.map(() => el(pinLayer, 'ellipse', { rx: pinR, ry: pinR, fill: C.ink, stroke: '#000', 'stroke-width': 0.8 }));
-    // The comb: a plate cut on a slant, so the lower the note the longer its tooth.
-    const baseX = (r) => x + 4 * sc + combW * 0.42 * r / (lanes - 1);
-    el(g, 'polygon', { points: `${x},${y - 3} ${baseX(lanes - 1) + 2},${y - 3} ${baseX(0) + 2},${y + h + 3} ${x},${y + h + 3}`,
-      fill: svg.dither(C.dim, 5), stroke: C.faint });
+    // The comb: a plate with one tooth per row, all the same length.
+    const baseX = () => x + combW * 0.3;
+    el(g, 'rect', { x, y: y - 3, width: baseX() + 2 - x, height: h + 6, fill: svg.dither(C.dim, 5), stroke: C.faint });
     for (const yy of [y + h * 0.18, y + h * 0.82]) el(g, 'circle', { cx: x + combW * 0.1, cy: yy, r: 2.6 * sc, fill: '#0e0e0d', stroke: C.faint });
     const tipX = contact + 3 * sc;
     const teeth = [];
@@ -298,8 +297,7 @@
     const pins = MELODY.map((m) => m.slice());
     const box = el(svg, 'g', {});
     const mb = musicBox(box, svg, 176, 92, 250, 170, C.t[1], pins);
-    label(box, 320, 322, '凸起拨到哪根梳齿，就响哪根齿的音', 'A pin plucks a tooth: that tooth sounds', { fill: C.faint, 'font-size': 13, 'text-anchor': 'middle' });
-    label(box, 196, 58, '梳齿：长的低，短的高', 'comb: long teeth low, short high', { fill: C.faint, 'font-size': 11 });
+    label(box, 320, 322, '梳齿碰到凸起就发出声音', 'A tooth meets a pin: it sounds', { fill: C.faint, 'font-size': 13, 'text-anchor': 'middle' });
     const flat = el(svg, 'g', {});
     const gx = 70, gy = 60, gw = 400, gh = 224, rows = 8;
     const has = (s, r) => pins.some((p) => p[0] === s && p[1] === r);
