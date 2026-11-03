@@ -157,7 +157,9 @@
   // left, so a row of the drum is a tooth of the comb (low at the bottom, as in the grid it unrolls
   // into), its pins come to the comb at an even speed, and the comb is where the music is now. The
   // teeth are cut from one steel plate, longest for the lowest note, every tip on the drum; a plucked
-  // tooth bends and rings. The winding key faces us and turns slowly.
+  // tooth bends and rings. The drum's surface lines and the marks on its top turn with it; pins and
+  // lines narrow and darken towards its sides, so it reads round while everything on it moves at one
+  // speed.
   function musicBox(parent, svg, x, y, w, h, color, pins) {
     const sc = h / 150;
     const lanes = 8, laneH = h / lanes;
@@ -170,22 +172,35 @@
     const contact = cylX + cylW * 0.1;
     const visibleSteps = 8;  // the front half of the drum
     const pxPerStep = (x + w - 4 * sc - contact) / visibleSteps;
-    // The drum: shaded round with dither columns, end caps and spindle.
+    // The drum: spindle, round bottom, a body shaded round with dither columns, the top cap.
+    const capRy = 8 * sc;
+    for (const sy of [y - capRy - 7 * sc, y + h]) el(g, 'rect', { x: cylX + cylW / 2 - 2.5 * sc, y: sy, width: 5 * sc, height: capRy + 7 * sc, fill: C.faint });
+    el(g, 'ellipse', { cx: cylX + cylW / 2, cy: y + h, rx: cylW / 2, ry: capRy, fill: svg.dither(color, 3) });
     const cols = 11;
     for (let b = 0; b < cols; b++) {
       const k = Math.sin(Math.PI * (b + 0.5) / cols);
       el(g, 'rect', { x: cylX + b * cylW / cols, y, width: cylW / cols + 0.5, height: h, fill: svg.dither(color, Math.max(1, Math.round(k * 6))) });
     }
-    const capRy = 5 * sc;
-    for (const sy of [y - capRy - 7 * sc, y + h]) el(g, 'rect', { x: cylX + cylW / 2 - 2.5 * sc, y: sy, width: 5 * sc, height: capRy + 7 * sc, fill: C.faint });
     el(g, 'ellipse', { cx: cylX + cylW / 2, cy: y, rx: cylW / 2, ry: capRy, fill: '#121211', stroke: color, 'stroke-opacity': 0.7 });
     el(g, 'path', { d: `M ${cylX} ${y + h} A ${cylW / 2} ${capRy} 0 0 0 ${cylX + cylW} ${y + h}`, fill: 'none', stroke: color, 'stroke-opacity': 0.7 });
     for (const lx of [cylX, cylX + cylW]) el(g, 'line', { x1: lx, y1: y, x2: lx, y2: y + h, stroke: color, 'stroke-opacity': 0.55 });
     // A faint ring under each tooth: the pins of one note go round on it.
     for (let r = 0; r < lanes; r++) el(g, 'line', { x1: cylX + 1, y1: rowY(r), x2: cylX + cylW - 1, y2: rowY(r), stroke: '#000', 'stroke-opacity': 0.35, 'stroke-width': 1 });
+    // Lines along the drum, one per step, that turn with it; marks round the top cap.
+    const depth = (px) => Math.sin(Math.PI * Math.min(1, Math.max(0, (px - cylX) / cylW)));
+    const ribs = [];
+    for (let k = 0; k < 16; k++) ribs.push(el(g, 'line', { y1: y + 1, y2: y + h - 1, stroke: '#000' }));
+    const capCx = cylX + cylW / 2, capRx = cylW / 2;
+    const marks = [];
+    const markCount = 12;
+    for (let k = 0; k < markCount; k++) marks.push(el(g, 'line', { stroke: C.ink, 'stroke-width': 1.5 * sc, 'stroke-linecap': 'round' }));
+    // The marks move like the surface at the front; a whole turn moves them a whole number of marks.
+    const markStep = 2 * Math.PI / markCount;
+    const markTurn = Math.max(markStep, Math.round(16 * pxPerStep / capRx / markStep) * markStep);
     // The pins, under the teeth.
     const pinLayer = el(g, 'g', {});
-    const pinNodes = pins.map(() => el(pinLayer, 'circle', { r: Math.max(2, 4.4 * sc), fill: C.ink, stroke: '#000', 'stroke-width': 0.8 }));
+    const pinR = Math.max(2, 4.4 * sc);
+    const pinNodes = pins.map(() => el(pinLayer, 'ellipse', { rx: pinR, ry: pinR, fill: C.ink, stroke: '#000', 'stroke-width': 0.8 }));
     // The comb: a plate cut on a slant, so the lower the note the longer its tooth.
     const baseX = (r) => x + 4 * sc + combW * 0.42 * r / (lanes - 1);
     el(g, 'polygon', { points: `${x},${y - 3} ${baseX(lanes - 1) + 2},${y - 3} ${baseX(0) + 2},${y + h + 3} ${x},${y + h + 3}`,
@@ -194,30 +209,45 @@
     const tipX = contact + 3 * sc;
     const teeth = [];
     for (let r = 0; r < lanes; r++) teeth.push(el(g, 'polygon', { fill: C.dim }));
-    // The winding key, facing us on the side of the box.
-    const kx = fx + fw + 30 * sc, ky = y + h / 2;
-    el(g, 'rect', { x: fx + fw, y: ky - 3.5 * sc, width: 26 * sc, height: 7 * sc, fill: C.faint });
-    const key = el(g, 'g', {});
-    for (const side of [-1, 1]) {
-      el(key, 'circle', { cx: 0, cy: side * 21 * sc, r: 16 * sc, fill: svg.dither(C.dim, 8), stroke: C.dim, 'stroke-width': 1.5 });
-      el(key, 'circle', { cx: 0, cy: side * 23 * sc, r: 5.5 * sc, fill: '#0e0e0d' });
-    }
-    el(key, 'rect', { x: -6 * sc, y: -12 * sc, width: 12 * sc, height: 24 * sc, fill: C.dim });
-    el(key, 'circle', { cx: 0, cy: 0, r: 6.5 * sc, fill: C.ink });
     return {
       g,
       // phase: turns of the drum (0..1 per 16 steps).
       draw(phase) {
         const now = phase * 16;
         const until = (step) => ((step - now) % 16 + 16) % 16;  // steps until the pin reaches the comb
+        const leftmost = (cylX - contact) / pxPerStep, rightmost = (cylX + cylW - contact) / pxPerStep;
+        ribs.forEach((rib, k) => {
+          let d = until(k + 0.5);
+          if (d > rightmost) d -= 16;
+          const rx = contact + d * pxPerStep, depthAt = depth(rx);
+          const on = d >= leftmost && d <= rightmost;
+          const u = Math.min(1, Math.abs(rx - capCx) / capRx);
+          rib.setAttribute('x1', rx);
+          rib.setAttribute('x2', rx);
+          rib.setAttribute('y1', y + capRy * Math.sqrt(1 - u * u));
+          rib.setAttribute('stroke-width', (0.8 + 2 * depthAt) * Math.max(0.6, sc));
+          rib.setAttribute('stroke-opacity', on ? 0.25 + 0.5 * depthAt : 0);
+        });
+        const turn = -phase * markTurn;
+        marks.forEach((mark, k) => {
+          const a = k * markStep - turn;
+          const c = Math.cos(a), s = Math.sin(a);
+          mark.setAttribute('x1', capCx + capRx * 0.92 * c);
+          mark.setAttribute('y1', y + capRy * 0.92 * s);
+          mark.setAttribute('x2', capCx + capRx * 0.7 * c);
+          mark.setAttribute('y2', y + capRy * 0.7 * s);
+          mark.setAttribute('stroke-opacity', 0.25 + 0.45 * (s + 1) / 2);
+        });
         pins.forEach(([step, row], i) => {
           let d = until(step);
           if (d > 15.4) d -= 16;  // just past: going under the tooth
           const node = pinNodes[i];
-          node.setAttribute('cx', contact + d * pxPerStep);
+          const px = contact + d * pxPerStep, depthAt = depth(px);
+          node.setAttribute('cx', px);
           node.setAttribute('cy', rowY(row));
+          node.setAttribute('rx', pinR * (0.45 + 0.55 * depthAt));
           const fade = d < 0 ? 1 + d / 0.6 : d > visibleSteps - 0.7 ? (visibleSteps - d) / 0.7 : 1;
-          node.setAttribute('opacity', Math.max(0, Math.min(1, fade)));
+          node.setAttribute('opacity', Math.max(0, Math.min(1, fade)) * (0.5 + 0.5 * depthAt));
         });
         teeth.forEach((tooth, row) => {
           let next = 99, since = 99;
@@ -227,16 +257,14 @@
             next = Math.min(next, d);
             since = Math.min(since, (16 - d) % 16);
           });
-          // The pin lifts the tip, lets go, and the tooth rings down.
+          // The pin lifts the tip a little, lets go, and the tooth rings down.
           let bend = 0;
-          if (next < 0.35) bend = -(1 - next / 0.35) * 3.5 * sc;
-          else if (since < 4) bend = 3.5 * sc * Math.exp(-since / 1.1) * Math.cos(since * Math.PI * 3);
+          if (next < 0.3) bend = -(1 - next / 0.3) * 1.6 * sc;
+          else if (since < 3) bend = 1.4 * sc * Math.exp(-since / 0.7) * Math.cos(since * Math.PI * 2.5);
           const cy = rowY(row), bx = baseX(row), hb = laneH * 0.32, ht = laneH * 0.17;
           tooth.setAttribute('points', `${bx},${cy - hb} ${tipX},${cy - ht + bend} ${tipX},${cy + ht + bend} ${bx},${cy + hb}`);
           tooth.setAttribute('fill', since < 1.6 ? color : C.dim);
         });
-        // Half a turn per turn of the drum (the key looks the same turned half way).
-        key.setAttribute('transform', `translate(${kx} ${ky}) rotate(${-phase * 180})`);
       },
     };
   }
