@@ -11,3 +11,19 @@ CONFIG_FATFS_LFN_HEAP=y
 
 # AMY runs from flash on both cores: a bigger instruction cache for sound, measured on the board.
 CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+
+# The chip's 2 MB PSRAM (ESP32-S3R2, quad, on the flash bus), mapped but not given to malloc: the
+# firmware adds it to the heap for what asks for it (Library/Memory/Memory.h, Devices/Cardenza/app_main.cpp),
+# so driver objects and the audio path stay in internal RAM. A board without it still starts.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_BOOT_INIT=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+CONFIG_SPIRAM_USE_MEMMAP=y
+
+# FAT only on the SD card (512-byte sectors), no wear-levelled FAT in flash: with 4096 every open-file
+# slot of the card carried a 4 KB buffer, 27 KB of internal RAM for five slots and the volume.
+CONFIG_FATFS_SECTOR_512=y
+CONFIG_WL_SECTOR_SIZE_512=y

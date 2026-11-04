@@ -33,6 +33,23 @@ function(cardenza_forbid_text relative_path forbidden_text)
 endfunction()
 
 cardenza_require_file("docs/AGENT.md")
+
+# With PSRAM the firmware is built with -mdisable-hardware-atomics: GCC turns std::atomic_flag::test_and_set
+# into a plain load and store there (no library call exists for it), which froze the device (2026-11-04).
+file(GLOB_RECURSE cardenza_own_sources
+    "${CARDENZA_ROOT}/Applications/*.cpp" "${CARDENZA_ROOT}/Applications/*.h"
+    "${CARDENZA_ROOT}/OS/*.cpp" "${CARDENZA_ROOT}/OS/*.h"
+    "${CARDENZA_ROOT}/Library/Synth/*.cpp" "${CARDENZA_ROOT}/Library/Synth/*.h"
+    "${CARDENZA_ROOT}/Library/Memory/*.h"
+    "${CARDENZA_ROOT}/Devices/*.h" "${CARDENZA_ROOT}/Devices/Cardenza/*.cpp" "${CARDENZA_ROOT}/Devices/Cardenza/*.h")
+foreach(source IN LISTS cardenza_own_sources)
+    file(READ "${source}" source_text)
+    string(FIND "${source_text}" "atomic_flag " flag_index)
+    string(FIND "${source_text}" ".test_and_set(" test_index)
+    if(NOT flag_index EQUAL -1 OR NOT test_index EQUAL -1)
+        message(FATAL_ERROR "${source} uses std::atomic_flag / test_and_set, which is not atomic in the PSRAM build: use std::atomic<bool>::exchange")
+    endif()
+endforeach()
 cardenza_forbid_path("Devices/CardenzaSim/WebUI")
 cardenza_forbid_path("Library/Synth/UI")
 cardenza_forbid_path("third_party/amy")

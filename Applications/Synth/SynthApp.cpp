@@ -1,5 +1,7 @@
 #include "Applications/Synth/SynthApp.h"
 
+#include "Library/Memory/Memory.h"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -540,7 +542,7 @@ void SynthApp::ChangeProject(const std::string& name, bool createNew)
 
   synth::ProjectData project;
   if (createNew) {
-    project.sequence.reset(new (std::nothrow) synth::SynthSequencer::ProjectState);
+    project.sequence.reset(new (memory::slow) synth::SynthSequencer::ProjectState);
     if (!project.sequence) {
       ui_.ProjectResult(name, "NO MEMORY", false);
       return;

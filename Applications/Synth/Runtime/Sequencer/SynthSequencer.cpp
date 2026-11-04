@@ -1,5 +1,7 @@
 #include "Applications/Synth/Runtime/Sequencer/SynthSequencer.h"
 
+#include "Library/Memory/Memory.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -8,7 +10,6 @@
 #include <utility>
 
 #if defined(ESP_PLATFORM)
-#include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -67,13 +68,13 @@ bool StepHasNotes(const SynthSequencer::StepData& step)
 {
   return std::any_of(step.notes.begin(), step.notes.end(), [](const auto& note) { return note.active; });
 }
-#if defined(ESP_PLATFORM)
-// Pages stop here: file IO, the event queues, the effects, the autosave (12 KB) and building an engine
-// (which checks for itself) need the rest of the heap. It was 40 KB when the board had about 68 KB
-// free; since the USB functions about 48 KB are free with a session, which left room for some ten
-// pages and a 0.1.0 project like DEMO-2 (seven) did not load (2026-11-03).
+// Pattern steps live in PSRAM (Library/Memory/Memory.h): the clock reads one step at a time, the UI a
+// page. Pages stop when PSRAM is down to this, which samples and snapshots share: about 1300 pages more
+// than the 1024 every pattern of every track can have.
+constexpr std::size_t kPatternSlowReserveBytes = 256 * 1024;
+// Without PSRAM they come from internal RAM and stop here: file IO, the event queues, the effects, the
+// autosave (12 KB) and building an engine need the rest (2026-11-03, when that was all the board used).
 constexpr std::size_t kPatternHeapFloorBytes = 24 * 1024;
-#endif
 #if defined(CARDENZA_SEQUENCER_TEST_HOOKS)
 int testPageBudget = -1;
 #endif
@@ -136,10 +137,8 @@ SynthSequencer::StepStore::Page* SynthSequencer::StepStore::NewPage()
   if (testPageBudget == 0) return nullptr;
   if (testPageBudget > 0) --testPageBudget;
 #endif
-#if defined(ESP_PLATFORM)
-  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < sizeof(Page) + kPatternHeapFloorBytes) return nullptr;
-#endif
-  return new (std::nothrow) Page;
+  if (!memory::SlowRoom(sizeof(Page), kPatternSlowReserveBytes, kPatternHeapFloorBytes)) return nullptr;
+  return new (memory::slow) Page;
 }
 
 const SynthSequencer::StepData& SynthSequencer::StepStore::operator[](std::size_t step) const
@@ -257,7 +256,7 @@ bool SynthSequencer::PatternBank::Allocated(std::size_t index) const
 bool SynthSequencer::PatternBank::Ensure(std::size_t index)
 {
   if (index >= patterns_.size()) return false;
-  if (!patterns_[index]) patterns_[index].reset(new (std::nothrow) PatternData);
+  if (!patterns_[index]) patterns_[index].reset(new (memory::slow) PatternData);
   return patterns_[index] != nullptr;
 }
 
@@ -503,7 +502,7 @@ void SynthSequencer::Reset()
 
 std::unique_ptr<SynthSequencer::ProjectState> SynthSequencer::CaptureState() const
 {
-  auto state = std::unique_ptr<ProjectState>(new (std::nothrow) ProjectState);
+  auto state = std::unique_ptr<ProjectState>(new (memory::slow) ProjectState);
   if (!state) return nullptr;
   std::lock_guard<std::mutex> lock(mutex_);
   // Reserve first so the copy below cannot silently drop patterns when memory runs out.

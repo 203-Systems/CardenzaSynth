@@ -26,9 +26,7 @@
 #include <string>
 #include <utility>
 
-#if defined(ESP_PLATFORM)
-#include <esp_heap_caps.h>
-#endif
+#include "Library/Memory/Memory.h"
 
 #include "Devices/Device.h"
 
@@ -187,7 +185,7 @@ bool GrooveApp::EnterGuide(std::string& reason)
     return false;
   }
 #if defined(ESP_PLATFORM)
-  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < kGuideHeapBytes)
+  if (memory::FastFree() < kGuideHeapBytes)
   {
     reason = "mem";
     return false;

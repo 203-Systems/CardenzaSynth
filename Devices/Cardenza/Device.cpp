@@ -3,6 +3,7 @@
 #include "Devices/KeySettle.h"
 #include "Devices/LedFrameBuffer.h"
 #include "Devices/LedLight.h"
+#include "Library/Memory/Memory.h"
 
 #include <atomic>
 #include <new>
@@ -437,23 +438,46 @@ void Start() {}
 // libstdc++'s nothrow new calls plain new and catches what it throws, but this firmware is built
 // without exceptions: the throw itself aborts, so every `new (std::nothrow)` that ran out of memory
 // rebooted the device. These replace them for the whole program: out of memory is a null pointer.
-// A large block is something the device can do without (a delay line, a sample in RAM), and it must
-// not take what the small plain allocations need, which do end the program when they fail. Small
-// nothrow blocks get no floor: libraries use them for what they need (NVS refused to write the
-// autosave when they had one, 2026-11-03); our own optional small pieces check for themselves
-// (the effects' choruses and buses).
+// A large block must not take the internal RAM the small plain allocations need: below the floor it
+// goes to PSRAM (slower, but there). Any block goes to PSRAM when internal RAM has none, and is null
+// only when PSRAM is full too. Small nothrow blocks get no floor: libraries use them for what they
+// need (NVS refused to write the autosave when they had one, 2026-11-03); our own optional small
+// pieces check for themselves (the effects' choruses and buses). Data that belongs in PSRAM asks for
+// it (Library/Memory/Memory.h); malloc itself never goes there, so C code and the drivers stay in
+// internal RAM.
 namespace {
 
 constexpr std::size_t kLargeAllocationBytes = 4 * 1024;
 constexpr std::size_t kHeapFloorBytes = 20 * 1024;
 
+// Internal RAM, else PSRAM; a failure is logged (Log::NoteFailedAllocation) only when both are full.
+void* AllocateInternalOrSlow(std::size_t size)
+{
+  return heap_caps_malloc_prefer(size, 2, MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL, memory::kSlowCaps);
+}
+
 void* AllocateOrNull(std::size_t size)
 {
-  if (size >= kLargeAllocationBytes && heap_caps_get_free_size(MALLOC_CAP_8BIT) < size + kHeapFloorBytes) return nullptr;
-  return std::malloc(size != 0 ? size : 1);
+  if (size == 0) size = 1;
+  if (size >= kLargeAllocationBytes && memory::FastFree() < size + kHeapFloorBytes)
+    return heap_caps_malloc(size, memory::kSlowCaps);
+  return AllocateInternalOrSlow(size);
 }
 
 }  // namespace
+
+// Plain new as well: internal RAM, PSRAM when that is full, and the end of the program (as before:
+// the firmware has no exceptions) only when both are.
+void* operator new(std::size_t size)
+{
+  if (void* block = AllocateInternalOrSlow(size != 0 ? size : 1)) return block;
+  std::abort();
+}
+
+void* operator new[](std::size_t size)
+{
+  return operator new(size);
+}
 
 void* operator new(std::size_t size, const std::nothrow_t&) noexcept
 {

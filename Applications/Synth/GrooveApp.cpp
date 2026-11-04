@@ -1,5 +1,7 @@
 #include "Applications/Synth/GrooveApp.h"
 
+#include "Library/Memory/Memory.h"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -11,7 +13,6 @@
 
 #if defined(ESP_PLATFORM)
 #include <dirent.h>
-#include <esp_heap_caps.h>
 #else
 #include <filesystem>
 #endif
@@ -323,7 +324,7 @@ void GrooveApp::KeepSessionCurrent(std::uint32_t now)
   lastSessionTryAt_ = now;
 #if defined(ESP_PLATFORM)
   // A plain allocation that fails ends the program. Later is fine.
-  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < kSessionHeapBytes || heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < kSessionBlockBytes) return;
+  if (memory::FastFree() < kSessionHeapBytes || memory::FastLargest() < kSessionBlockBytes) return;
 #endif
   const auto result = SaveSessionState();
   if (result == synth::SessionStore::SaveResult::Failed)
@@ -532,9 +533,11 @@ void GrooveApp::RenderFrame()
   renderMaxUs_ = std::max(renderMaxUs_, elapsed);
   if (++renderFrames_ >= 600)
   {
-    std::printf("Groove: render avg=%luus max=%luus heap=%u min=%u\n", static_cast<unsigned long>(renderTotalUs_ / renderFrames_),
-                static_cast<unsigned long>(renderMaxUs_), static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
-                static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)));
+    std::printf("Groove: render avg=%luus max=%luus heap=%u min=%u largest=%u psram=%u min=%u\n",
+                static_cast<unsigned long>(renderTotalUs_ / renderFrames_), static_cast<unsigned long>(renderMaxUs_),
+                static_cast<unsigned>(memory::FastFree()), static_cast<unsigned>(memory::FastMinimum()),
+                static_cast<unsigned>(memory::FastLargest()), static_cast<unsigned>(memory::SlowFree()),
+                static_cast<unsigned>(memory::SlowMinimum()));
     // The key LED levels this frame (0..f per key, rows top to bottom), to check the lights from
     // the serial console.
     char leds[4 * 15 + 1] = {};
@@ -937,11 +940,12 @@ groove::SaveResult GrooveApp::SaveProject(const std::string& name, bool overwrit
   }
 #if defined(ESP_PLATFORM)
   // The file gets every parameter of every track, copied first in many small blocks, and a plain
-  // allocation that fails ends the program: about 64 bytes each, and room for the rest.
+  // allocation that fails ends the program: about 64 bytes each, and room for the rest. Plain
+  // allocations spill into PSRAM when internal RAM is full.
   std::size_t needed = kProjectSaveHeapBytes;
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
     if (const synth::ISynthEngine* engine = Engine(track)) needed += engine->ListParameters({0, 0}).totalCount * 64;
-  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < needed)
+  if (memory::FastFree() + memory::SlowFree() < needed)
   {
     message = "NO MEMORY";
     return groove::SaveResult::Failed;
@@ -971,12 +975,10 @@ GrooveApp::HeapRoom GrooveApp::Heap() const
     heapProbe_(room.freeBytes, room.largestBlock);
     return room;
   }
-#if defined(ESP_PLATFORM)
-  room.freeBytes = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-  room.largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-#else
-  room.freeBytes = room.largestBlock = SIZE_MAX / 4;
-#endif
+  // Internal RAM: an engine is many small plain blocks there (its parameter list and presets are in
+  // PSRAM, which samples and patterns check for themselves).
+  room.freeBytes = memory::FastFree();
+  room.largestBlock = memory::FastLargest();
   return room;
 }
 
@@ -1191,7 +1193,7 @@ bool GrooveApp::MakeRoom(std::string& message)
   bool saved = true;
 #if defined(ESP_PLATFORM)
   // The autosave is many small plain allocations as well.
-  saved = heap_caps_get_free_size(MALLOC_CAP_8BIT) >= kSessionHeapBytes && heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= kSessionBlockBytes;
+  saved = memory::FastFree() >= kSessionHeapBytes && memory::FastLargest() >= kSessionBlockBytes;
 #endif
   saved = saved && SaveSessionState() == synth::SessionStore::SaveResult::Ok;
   if (!saved)
@@ -1269,7 +1271,7 @@ bool GrooveApp::LoadProject(const std::string& name, groove::ProjectUiSettings& 
 bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& message)
 {
   synth::ProjectData project;
-  project.sequence.reset(new (std::nothrow) synth::SynthSequencer::ProjectState);
+  project.sequence.reset(new (memory::slow) synth::SynthSequencer::ProjectState);
   if (!project.sequence)
   {
     message = "NO MEMORY";
@@ -1363,8 +1365,10 @@ groove::SystemInfo GrooveApp::QuerySystem() const
   info.backend = Device::BackendName();
   info.storageReady = storageReady_;
 #if defined(ESP_PLATFORM)
-  info.freeHeap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-  info.minimumFreeHeap = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
+  info.freeHeap = memory::FastFree();
+  info.minimumFreeHeap = memory::FastMinimum();
+  info.freePsram = memory::SlowFree();
+  info.totalPsram = memory::SlowTotal();
 #endif
   return info;
 }

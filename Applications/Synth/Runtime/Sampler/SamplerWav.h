@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Library/Memory/Memory.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 
 #include <algorithm>
@@ -11,16 +12,17 @@
 #include <string>
 #include <string_view>
 
-#if defined(ESP_PLATFORM)
-#include <esp_heap_caps.h>
-#endif
-
 namespace synth::sampler {
 
-// Five minutes. Only samples up to kMaxRamSampleFrames are read into RAM (16 KB, 186 ms at 44.1 kHz:
-// drum hits and the like); the longer ones play from the card.
+// Five minutes. Samples up to RamSampleFrameLimit() are read into RAM, the longer ones play from the
+// card: with PSRAM (where they are kept, read once per voice per block, in order) two seconds,
+// 176 KB, drum hits, one-shots and short loops; without it 186 ms, 16 KB of internal RAM.
 inline constexpr std::size_t kMaxSampleFrames = 44100 * 300;
 inline constexpr std::size_t kMaxRamSampleFrames = 8192;
+inline constexpr std::size_t kMaxSlowRamSampleFrames = 44100 * 2;
+inline std::size_t RamSampleFrameLimit() { return memory::HasSlow() ? kMaxSlowRamSampleFrames : kMaxRamSampleFrames; }
+// What samples leave in PSRAM for patterns and snapshots (a sample that does not fit streams).
+inline constexpr std::size_t kSampleSlowReserveBytes = 256 * 1024;
 inline constexpr std::uint32_t kMinSampleRate = 8000;
 inline constexpr std::uint32_t kMaxSampleRate = 96000;
 
@@ -30,17 +32,13 @@ inline std::shared_ptr<audio::SampleBuffer> AllocateFrames(std::size_t frameCoun
   {
     return {};
   }
-#if defined(ESP_PLATFORM)
-  // Keep room for file IO, event queues and the UI on boards without PSRAM.
-  constexpr std::size_t reserveBytes = 32 * 1024;
-  const std::size_t bytes = frameCount * sizeof(std::int16_t);
-  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < bytes + reserveBytes ||
-      heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < bytes)
+  // In PSRAM; without it in internal RAM, keeping room for file IO, the event queues and the UI.
+  constexpr std::size_t kFastReserveBytes = 32 * 1024;
+  if (!memory::SlowRoom(frameCount * sizeof(std::int16_t), kSampleSlowReserveBytes, kFastReserveBytes))
   {
     return {};
   }
-#endif
-  std::unique_ptr<std::int16_t[]> frames(new (std::nothrow) std::int16_t[frameCount]);
+  std::unique_ptr<std::int16_t[]> frames(new (memory::slow) std::int16_t[frameCount]);
   if (!frames)
   {
     return {};
@@ -164,7 +162,7 @@ inline bool ReadMono16Wav(const std::string& path, audio::SharedSampleBuffer& fr
   {
     return false;
   }
-  auto loaded = info.frameCount <= kMaxRamSampleFrames ? AllocateFrames(info.frameCount) : nullptr;
+  auto loaded = info.frameCount <= RamSampleFrameLimit() ? AllocateFrames(info.frameCount) : nullptr;
   if (!loaded)
   {
     auto streamed = std::make_shared<audio::SampleBuffer>();
@@ -179,11 +177,26 @@ inline bool ReadMono16Wav(const std::string& path, audio::SharedSampleBuffer& fr
     return true;
   }
   file.seekg(static_cast<std::streamoff>(info.dataOffset));
-  const auto byteCount = static_cast<std::streamsize>(info.frameCount * sizeof(std::int16_t));
-  file.read(reinterpret_cast<char*>(loaded->frames.get()), byteCount);
-  if (!file || file.gcount() != byteCount)
+  // Through a piece of internal RAM: the card's DMA cannot reach PSRAM, and read straight into it the
+  // driver would fetch one sector per command.
+  constexpr std::size_t kChunkBytes = 4096;
+  std::unique_ptr<char[]> chunk(new (std::nothrow) char[kChunkBytes]);
+  if (!chunk)
   {
     return false;
+  }
+  char* destination = reinterpret_cast<char*>(loaded->frames.get());
+  for (std::size_t left = info.frameCount * sizeof(std::int16_t); left > 0;)
+  {
+    const auto count = static_cast<std::streamsize>(std::min(left, kChunkBytes));
+    file.read(chunk.get(), count);
+    if (!file || file.gcount() != count)
+    {
+      return false;
+    }
+    std::copy(chunk.get(), chunk.get() + count, destination);
+    destination += count;
+    left -= static_cast<std::size_t>(count);
   }
   frames = std::move(loaded);
   sampleRate = info.sampleRate;

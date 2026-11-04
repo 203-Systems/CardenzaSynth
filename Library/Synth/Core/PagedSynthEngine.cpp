@@ -8,9 +8,6 @@
 #include <fstream>
 #include <iomanip>
 #include <sstream>
-#if defined(ESP_PLATFORM)
-#include <esp_heap_caps.h>
-#endif
 
 #include "Devices/DeviceAudio.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
@@ -24,10 +21,11 @@ namespace {
 
 constexpr std::size_t kMaxMidiMessagesPerFrame = 24;
 constexpr std::size_t kMaxUserPresets = 32;
-#if defined(ESP_PLATFORM)
-// Reading one more user preset needs its values as a map for a moment (about 5 KB for a DX7).
+// Without PSRAM: reading one more user preset needs its values as a map for a moment (about 5 KB for
+// a DX7) in internal RAM.
 constexpr std::size_t kUserPresetHeapFloorBytes = 24 * 1024;
-#endif
+// With PSRAM: what reading a bank leaves there for patterns and samples.
+constexpr std::size_t kUserPresetSlowReserveBytes = 128 * 1024;
 
 bool IsUserPresetId(const std::string& id)
 {
@@ -505,19 +503,18 @@ bool PagedSynthEngine::ReadUserPresets()
   int version = 0;
   if (!(file >> std::setw(16) >> magic >> version) || !ReadQuoted(file, engineId, 16) ||
       magic != "CARDENZA_PRESETS" || version != 1 || engineId != descriptor_.id) return false;
-  std::vector<PresetState> loaded;
+  PresetStates loaded;
   while (file >> std::ws && file.peek() != std::char_traits<char>::eof())
   {
-#if defined(ESP_PLATFORM)
-    // A plain allocation that fails ends the program: a bank that does not fit is not read (and
-    // SavePreset, which rewrites the whole bank, refuses rather than lose what it could not read).
-    if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < kUserPresetHeapFloorBytes)
+    // A bank that does not fit is not read (and SavePreset, which rewrites the whole bank, refuses
+    // rather than lose what it could not read). It is kept in PSRAM; without PSRAM in internal RAM,
+    // where a plain allocation that fails ends the program.
+    if (!memory::SlowRoom(0, kUserPresetSlowReserveBytes, kUserPresetHeapFloorBytes))
     {
-      std::printf("presets: %s bank not read, no memory (%u free)\n", descriptor_.id.c_str(),
-                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)));
+      std::printf("presets: %s bank not read, no memory (%u internal, %u PSRAM free)\n", descriptor_.id.c_str(),
+                  static_cast<unsigned>(memory::FastFree()), static_cast<unsigned>(memory::SlowFree()));
       return false;
     }
-#endif
     SynthEngineState state;
     std::size_t count = 0;
     if (loaded.size() >= kMaxUserPresets || !ReadQuoted(file, state.presetId, 16) || !ReadQuoted(file, state.presetName, 48) ||
@@ -585,7 +582,7 @@ std::size_t PagedSynthEngine::ParameterIndex(const SynthParameterInfo& parameter
   return static_cast<std::size_t>(found - parameters_.begin());
 }
 
-bool PagedSynthEngine::CompactValues(const std::map<std::string, int>& values, std::vector<PresetValue>& compact) const
+bool PagedSynthEngine::CompactValues(const std::map<std::string, int>& values, PresetValues& compact) const
 {
   compact.clear();
   compact.reserve(values.size());

@@ -1,5 +1,7 @@
 #include "Library/Synth/Audio/SampleStream.h"
 
+#include "Library/Memory/Memory.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -9,7 +11,6 @@
 #include <new>
 
 #if defined(ESP_PLATFORM)
-#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #elif !defined(__EMSCRIPTEN__)
@@ -26,9 +27,9 @@ constexpr std::size_t kMaxOpenFiles = 2;     // the card driver has five file sl
 constexpr std::size_t kBlocksPerStream = 8;
 constexpr std::size_t kMaxBlocks = 16;
 constexpr std::size_t kMinBlocks = 4;
-#if defined(ESP_PLATFORM)
+// The blocks stay in internal RAM, which the card reads into by DMA (into PSRAM the driver would fetch
+// one sector per command). They stop where internal RAM is down to this.
 constexpr std::size_t kHeapFloorBytes = 40 * 1024;
-#endif
 
 struct Block {
   std::atomic<std::uint64_t> key{0};  // stream id << 32 | block index + 1, 0 = empty
@@ -153,9 +154,7 @@ void GrowCache(Pool& pool, std::size_t target)
   target = std::min(target, kMaxBlocks);
   while (count < target)
   {
-#if defined(ESP_PLATFORM)
-    if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < sizeof(Block) + kHeapFloorBytes) break;
-#endif
+    if (memory::FastFree() < sizeof(Block) + kHeapFloorBytes) break;
     Block* block = new (std::nothrow) Block;
     if (block == nullptr) break;
     pool.blocks[count].store(block, std::memory_order_relaxed);

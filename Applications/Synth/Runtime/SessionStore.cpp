@@ -1,5 +1,7 @@
 #include "Applications/Synth/Runtime/SessionStore.h"
 
+#include "Library/Memory/Memory.h"
+
 #include <algorithm>
 #include <cstdlib>
 #include <new>
@@ -437,7 +439,7 @@ bool SessionStore::Load(SessionInfo& info, ProjectData& project)
     stored_[section] = HashOf(bytes);
     return true;
   };
-  project.sequence.reset(new (std::nothrow) SynthSequencer::ProjectState);
+  project.sequence.reset(new (memory::slow) SynthSequencer::ProjectState);
   if (!project.sequence) return false;
   auto& sequence = *project.sequence;
   bool valid = read(kGeneral) && DecodeGeneral(bytes, info, project);

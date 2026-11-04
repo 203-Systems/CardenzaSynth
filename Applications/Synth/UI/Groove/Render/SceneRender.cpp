@@ -1135,8 +1135,14 @@ void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, co
   };
   row("BACKEND", info.backend, kInk);
   row("SD CARD", info.storageReady ? "READY" : "NOT FOUND", info.storageReady ? kPlay : kRec);
-  row("MEMORY", info.freeHeap == 0 ? std::string("N/A") :
-      std::to_string(info.freeHeap / 1024) + "K FREE  MIN " + std::to_string(info.minimumFreeHeap / 1024) + "K", kInk);
+  // Internal RAM, and PSRAM beside it when there is some (one row: a fifth would run into the tabs).
+  std::string memory = "N/A";
+  if (info.freeHeap != 0 && info.totalPsram != 0)
+    memory = std::to_string(info.freeHeap / 1024) + "K MIN " + std::to_string(info.minimumFreeHeap / 1024) + "K  PSRAM " +
+             std::to_string(info.freePsram / 1024) + "K";
+  else if (info.freeHeap != 0)
+    memory = std::to_string(info.freeHeap / 1024) + "K FREE  MIN " + std::to_string(info.minimumFreeHeap / 1024) + "K";
+  row("MEMORY", memory, kInk);
   row("BUILD", std::string(__DATE__), kDim);
 }
 
