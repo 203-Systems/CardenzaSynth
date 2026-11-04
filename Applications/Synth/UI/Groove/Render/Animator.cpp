@@ -322,7 +322,8 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
   for (std::size_t index = 0; index < kKeyCount; ++index)
   {
     const LedCell& cell = frame[index];
-    levels[index] = cell.effect == LedEffect::Blink && !blinkOn ? 0 : cell.level;
+    const bool off = (cell.effect == LedEffect::Blink && !blinkOn) || (cell.effect == LedEffect::Hint && !hintOn);
+    levels[index] = off ? 0 : cell.level;
   }
 
   // Boot: two light waves sweep the keyboard, then the working lights fade in.

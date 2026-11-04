@@ -64,7 +64,7 @@ body.guide { --rail: 236px; }
 /* The steps' words and checks: the page shows one at a time under the stage. */
 .l-steps { display: none; }
 /* The demo on the key picture: a key pressed goes down and lights, as on the device. The keys to press
-   are framed (nothing blinks, here or on the device: the device lights them). */
+   are framed (nothing blinks on the page; the device blinks them until the step is learned). */
 .st-keys .k .cap { transition: transform .08s; transform-box: fill-box; }
 .st-keys .k.press { --b: 1 !important; opacity: 1 !important; }
 .st-keys .k.press .cap { transform: translateY(1.5px); }
@@ -119,12 +119,22 @@ body.guide { --rail: 236px; }
 .a-show { position: absolute; top: 10px; right: 10px; border: 1px solid var(--line-2); background: rgba(14, 14, 13, .85); color: var(--dim);
   font: 600 12px var(--mono); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
 .a-show:hover { color: var(--ink); border-color: var(--dim); }
-/* A step done on the device: a green tick over the stage, then the next step. */
-.st-stage::after { content: ""; position: absolute; inset: 0; margin: auto; width: 84px; height: 84px; background: var(--play); opacity: 0; pointer-events: none;
-  -webkit-mask: var(--tick) center / contain no-repeat; mask: var(--tick) center / contain no-repeat; }
-.st-stage.ticked::after { animation: tick .65s ease-out; }
-@keyframes tick { 0% { opacity: 0; transform: scale(.6); } 30% { opacity: .95; transform: scale(1); } 100% { opacity: 0; transform: scale(1.1); } }
-.a-dot.done { background: var(--play); }
+.a-dot.done, .a-dot.on.done { background: var(--play); }
+/* With a Cardenza following: Next is grey until the step is learned on it; then a "learned" line under
+   the words (nothing covers the picture), and Next lights up. The user moves on. */
+.anim-bar .a-next.idle { background: var(--panel); color: var(--faint); border-color: var(--line-2); }
+.anim-bar .a-next.idle:hover { color: var(--dim); border-color: var(--dim); }
+.anim-bar .a-next.pop { animation: next-ready 1.3s ease-out 3; }
+@keyframes next-ready { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--step) 75%, transparent); } 100% { box-shadow: 0 0 0 16px transparent; } }
+.anim-pass { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; color: var(--play); font: 700 15px/1.4 var(--sans); max-width: none; }
+.anim-pass[hidden] { display: none; }
+.pass-badge { position: relative; width: 26px; height: 26px; flex: none; border-radius: 50%; background: var(--play); }
+.pass-badge::before { content: ""; position: absolute; inset: 6px; background: #000; -webkit-mask: var(--tick) center / contain no-repeat; mask: var(--tick) center / contain no-repeat; }
+.pass-badge::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--play); opacity: 0; }
+.anim-pass.pop { animation: pass-in .45s cubic-bezier(.2, 1.5, .4, 1); }
+.anim-pass.pop .pass-badge::after { animation: pass-ring .9s ease-out .1s 2; }
+@keyframes pass-in { 0% { opacity: 0; transform: translateY(6px) scale(.92); } 100% { opacity: 1; transform: none; } }
+@keyframes pass-ring { 0% { opacity: .9; transform: scale(.8); } 100% { opacity: 0; transform: scale(1.9); } }
 /* The step's words under the picture, the steps as dots. */
 .anim-bar { display: flex; gap: 14px; align-items: center; margin: 12px 0 18px; }
 .anim-bar .a-back { width: 42px; height: 42px; padding: 0; font-size: 16px; flex: none; color: var(--step);
@@ -166,4 +176,4 @@ body.guide { --rail: 236px; }
   .anim-text { font-size: 16px; }
   .modes { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { .st-stage.ticked::after { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .anim-bar .a-next.pop, .anim-pass.pop, .anim-pass.pop .pass-badge::after { animation: none; } }

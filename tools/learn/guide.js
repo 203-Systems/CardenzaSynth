@@ -155,7 +155,7 @@
   // A Cardenza on USB, through Web MIDI. The page asks for MIDI (SysEx) as it opens: the browser asks
   // the user once, and from then on a Cardenza plugged in, now or later, is found by itself. A device
   // lesson starts the guide on it (GE): the device sets the user's work aside in a practice project,
-  // goes where the lesson starts (GL), lights the keys of the step (GH) and reports its state (GS) and
+  // goes where the lesson starts (GL), blinks the keys of the step until it is learned (GH, then GT steady) and reports its state (GS) and
   // every key pressed (GK). Its key lights (GD) are on the device itself; the page does not show them.
   //   status: nomidi (no Web MIDI here) | denied | waiting (allowed, no Cardenza) | hello (asking it) |
   //           old (its firmware has no guide) | on
@@ -288,7 +288,7 @@
     waiting: ['用 USB 线接上 Cardenza，它会跟着这一课走；没有机器也可以看图跟着学。', 'Plug in your Cardenza with a USB cable and it follows this lesson; no device, follow the pictures.'],
     hello: ['正在连接 Cardenza…', 'Connecting to your Cardenza…'],
     old: ['这台 Cardenza 的固件还不支持教程：更新到最新固件，再接上。', 'This Cardenza\'s firmware has no guide yet: update it, then plug it in again.'],
-    on: ['Cardenza 已连接：照着机器上亮着的键按，做对了自动打勾。', 'Your Cardenza is connected: press the keys lit on it; the steps tick themselves off.'],
+    on: ['Cardenza 已连接：照着机器上闪的键按，学会了再点「下一步」。', 'Your Cardenza is connected: press the keys blinking on it; when you have got it, press Next.'],
   };
   $$('.l-device').forEach((line) => line.addEventListener('click', () => {
     if (!device.reason) return;
@@ -298,6 +298,7 @@
 
   function paintDevice() {
     const live = connected() && device.guide;
+    if (run) paintRun();
     document.body.classList.toggle('usb-on', live);
     const words = device.reason ? REASONS[device.reason] || REASONS.other
       : connected() && !device.guide ? STATUS.hello : STATUS[device.status];
@@ -364,7 +365,10 @@
 
   function startDeviceLesson(section) {
     run = { section, steps: $$('.step', section), index: 0, base: null, latched: [], pressed: [], waitingStart: true };
-    run.steps.forEach((li) => li.classList.remove('current', 'done', 'ticked'));
+    run.steps.forEach((li) => {
+      li.classList.remove('current', 'done', 'ticked');
+      delete li.dataset.learned;
+    });
     $('.l-done', section).hidden = true;
     section.classList.remove('complete');
     activateStep(0);
@@ -418,18 +422,38 @@
   // lessons). The demo plays once on the key picture when the step comes up; Show me plays it again.
   function pageOf(index) { return $(`.st-page[data-step="${index}"]`, run.section); }
 
-  function paintRun() {
+  // With a Cardenza following, Next is grey until the step is learned on it; then "learned" shows
+  // under the step's words (nothing covers the picture) and Next lights up. The page never moves on by
+  // itself: the user tries more keys, then presses Next. Without one, Next is how the lesson goes on.
+  function paintRun(justLearned) {
     const { section, steps, index } = run;
+    const li = steps[index];
+    const follows = connected() && device.guide;
+    const learned = li.dataset.learned === '1';
     $$('.st-page', section).forEach((page) => { page.hidden = Number(page.dataset.step) !== index; });
-    $('.anim-text', section).innerHTML = $('.s-say', steps[index]).innerHTML;
+    $('.anim-text', section).innerHTML = $('.s-say', li).innerHTML;
     $$('.a-dot', section).forEach((dot, i) => {
       dot.classList.toggle('on', i === index);
-      dot.classList.toggle('done', i !== index && steps[i].classList.contains('done'));
+      dot.classList.toggle('done', steps[i].classList.contains('done'));
     });
     $('.a-back', section).disabled = index === 0;
     const complete = section.classList.contains('complete');
     const last = index === steps.length - 1;
-    $('.a-next', section).innerHTML = complete ? say('下一课 →', 'Next lesson →') : last ? say('完成 ✓', 'Done ✓') : say('下一步 →', 'Next →');
+    const next = $('.a-next', section);
+    next.innerHTML = complete ? say('下一课 →', 'Next lesson →') : last ? say('完成 ✓', 'Done ✓') : say('下一步 →', 'Next →');
+    next.classList.toggle('idle', follows && !learned && !complete);
+    const pass = $('.anim-pass', section);
+    pass.hidden = !learned;
+    $('.pass-text', pass).textContent = last
+      ? say('学会了！再多按几下试试，然后点「完成」。', 'You have got it! Try a few more keys, then press Done.')
+      : say('学会了！再多按几下试试，然后点「下一步」。', 'You have got it! Try a few more keys, then press Next.');
+    if (justLearned) {
+      for (const node of [pass, next]) {
+        node.classList.remove('pop');
+        void node.offsetWidth;
+        node.classList.add('pop');
+      }
+    }
   }
 
   function activateStep(index) {
@@ -448,8 +472,9 @@
   function sendHint() {
     if (!run) return;
     const li = run.steps[run.index];
-    const keys = li && !li.classList.contains('done') ? (li.dataset.keys || '').split(',').filter(Boolean).map(Number) : [];
-    if (device.guide) send('GH' + keys.map((k) => k.toString(16).padStart(2, '0')).join(''));
+    const keys = li ? (li.dataset.keys || '').split(',').filter(Boolean).map(Number) : [];
+    // Blinking while the step waits for the user, steady once it is learned (they try more keys).
+    if (device.guide) send((li && li.dataset.learned === '1' ? 'GT' : 'GH') + keys.map((k) => k.toString(16).padStart(2, '0')).join(''));
   }
 
   function onState(state) {
@@ -484,7 +509,7 @@
   function evaluate(state) {
     if (!run || run.waitingStart || run.demo || run.catchingUp || !run.base) return;
     const li = run.steps[run.index];
-    if (li.classList.contains('done')) return;
+    if (li.dataset.learned === '1') return;
     conditions(li).forEach((condition, i) => {
       const [kind, field, value] = condition;
       if ((kind === 'state' || kind === 'seen') && state[field] === value) run.latched[i] = true;
@@ -496,31 +521,31 @@
 
   function finishIfDone() {
     if (!run || !run.latched.length || !run.latched.every(Boolean)) return;
-    if (run.steps[run.index].classList.contains('done')) return;
     completeStep(run.index, 'device');
   }
 
-  // by: 'device' (it was done on the Cardenza: a tick, then the next step) or 'next' (the Next button).
+  // by: 'device' (it was done on the Cardenza: learned, the page stays) or 'next' (the Next button: on to
+  // the next step, or the lesson is done).
   function completeStep(index, by) {
     const li = run.steps[index];
     const section = run.section;
+    if (by === 'device') {
+      if (li.dataset.learned === '1') return;
+      stopDemo();
+      li.dataset.learned = '1';
+      li.classList.add('done');
+      sendHint();
+      paintRun(true);
+      return;
+    }
     stopDemo();
-    const wasDone = li.classList.contains('done');
     li.classList.add('done');
-    sendHint();
-    const advance = () => {
-      if (!run || run.section !== section) return;
-      if (index + 1 < run.steps.length) activateStep(index + 1);
-      else if (!section.classList.contains('complete')) lessonComplete(section);
-    };
-    if (by === 'device' && !wasDone) {
-      const stage = $('.st-stage', section);
-      stage.classList.remove('ticked');
-      void stage.offsetWidth;
-      stage.classList.add('ticked');
-      paintRun();
-      setTimeout(advance, 650);
-    } else advance();
+    if (index + 1 < run.steps.length) activateStep(index + 1);
+    else if (!section.classList.contains('complete')) {
+      lessonComplete(section);
+      const nextLink = $('.l-pager .next', section);
+      if (nextLink) setTimeout(() => { location.hash = nextLink.getAttribute('href'); }, 900);
+    }
   }
 
   function lessonComplete(section) {
