@@ -2201,8 +2201,15 @@ std::uint32_t PlanVoiceRunsNoLock()
     }
     from = to;
   }
-  std::stable_sort(g_voiceRuns.begin(), g_voiceRuns.begin() + static_cast<std::ptrdiff_t>(g_voiceRunCount),
-                   [](const VoiceRun& left, const VoiceRun& right) { return left.weight > right.weight; });
+  // Heaviest first, equal weights in their order. An insertion sort: std::stable_sort takes a buffer
+  // from the heap, and this runs every block under the render lock (a few dozen runs at most).
+  for (std::size_t index = 1; index < g_voiceRunCount; ++index)
+  {
+    const VoiceRun run = g_voiceRuns[index];
+    std::size_t to = index;
+    for (; to > 0 && g_voiceRuns[to - 1].weight < run.weight; --to) g_voiceRuns[to] = g_voiceRuns[to - 1];
+    g_voiceRuns[to] = run;
+  }
   g_nextVoiceRun.store(0, std::memory_order_relaxed);
   return total;
 }

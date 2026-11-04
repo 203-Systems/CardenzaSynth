@@ -80,6 +80,10 @@ struct Stream {
   StreamWrite write = nullptr;
   // The next byte starts a line. Used under the stream's own lock.
   bool lineStart = true;
+  // The current line starts with '@': console traffic, not log (OS/System/System.cpp mirrors every key
+  // change to the Learn guide as "@K..." / "@H..."). Kept out of the ring, so a few hundred presses do
+  // not push out what came before a crash, and out of log.txt with it.
+  bool skipping = false;
 };
 Stream g_out, g_err;
 std::uint32_t g_allocationNotes = 0;
@@ -176,10 +180,14 @@ void Keep(Stream& stream, const char* data, std::size_t size)
     std::size_t start = 0;
     while (start < size)
     {
-      if (stream.lineStart) PutNoLock(stamp, stampLength);
+      if (stream.lineStart) stream.skipping = data[start] == '@';
       const void* newline = std::memchr(data + start, '\n', size - start);
       const std::size_t end = newline != nullptr ? static_cast<std::size_t>(static_cast<const char*>(newline) - data) + 1 : size;
-      PutNoLock(data + start, end - start);
+      if (!stream.skipping)
+      {
+        if (stream.lineStart) PutNoLock(stamp, stampLength);
+        PutNoLock(data + start, end - start);
+      }
       stream.lineStart = newline != nullptr;
       start = end;
     }

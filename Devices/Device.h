@@ -143,7 +143,7 @@ std::size_t ReadComputerAudio(std::int16_t* stereoFrames, std::size_t frameCount
 // the times the queue ran dry (underruns: a click), and the longest render since the last call.
 struct RenderTiming {
   std::uint32_t blocks = 0;
-  std::uint64_t renderMicros = 0;
+  std::uint32_t renderMicros = 0;  // wraps (about 71 minutes of rendering): take differences
   std::uint32_t overruns = 0;
   std::uint32_t underruns = 0;
   std::uint32_t longestRenderMicros = 0;
