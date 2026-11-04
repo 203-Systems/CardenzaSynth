@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -27,8 +28,14 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#if defined(CARDENZA_STRESS_TRACE) && defined(CONFIG_HEAP_TRACING_STANDALONE)
+#include <esp_heap_trace.h>
+#include <esp_memory_utils.h>
+#define CARDENZA_STRESS_HEAP_TRACE 1
+#endif
 
 extern "C" const char* cardenza_previous_crash();
+extern "C" unsigned cardenza_failed_allocations();
 
 namespace apps {
 namespace {
@@ -371,6 +378,18 @@ std::vector<Scenario> BuildScenarios()
     const std::string label = "card:" + name;
     add(label.c_str(), Kind::Card, Variant::None, 10, name);
   }
+#if defined(CARDENZA_STRESS_LOOPS)
+  // `STRESS_LOOPS=4`: the list that many times over in one run (`worst#2` ...), for what happens only
+  // now and then.
+  const std::size_t once = list.size();
+  for (int loop = 2; loop <= CARDENZA_STRESS_LOOPS; ++loop)
+    for (std::size_t index = 0; index < once && list.size() < kMaxScenarios; ++index)
+    {
+      Scenario again = list[index];
+      again.name += "#" + std::to_string(loop);
+      list.push_back(again);
+    }
+#endif
   return list;
 }
 
@@ -528,6 +547,216 @@ void PrintResult(std::size_t index)
 }
 
 // One short line a scenario for the summary repeated at the end: the USB console drops long bursts.
+// `make DEVICE=Cardenza stress STRESS_TRACE=worst`: while that scenario plays, ESP-IDF's heap trace
+// keeps every allocation not given back yet (records and their map in PSRAM, eight callers each).
+// When internal RAM first drops below 10 KB, and at the scenario's end, the internal blocks still
+// held are summed by their nearest callers; that report and the internal RAM left each second come
+// back with the summary (`stress: H`, `stress: M` lines; decode the addresses with addr2line).
+#if CARDENZA_STRESS_HEAP_TRACE
+constexpr std::size_t kTraceRecords = 3000;
+constexpr std::size_t kTraceLineBytes = 168;
+// The report survives a restart (the device has restarted after a run that got low): RTC memory,
+// beside the log ring, which is smaller in stress builds for it.
+struct TraceKeep {
+  std::uint32_t magic;
+  std::uint32_t build;
+  std::uint32_t length;
+  char text[1500];
+};
+static_assert(std::is_trivially_default_constructible_v<TraceKeep>, "a constructor would clear it at every start");
+constexpr std::uint32_t kTraceKeepMagic = 0x54524331u;  // "TRC1"
+RTC_NOINIT_ATTR TraceKeep g_traceKeep;
+constexpr std::size_t kTraceGroups = 64;
+constexpr std::uint32_t kTraceLowBytes = 10 * 1024;
+struct TraceGroup {
+  std::uint32_t key;
+  std::uint32_t bytes;
+  std::uint32_t count;
+  void* frames[CONFIG_HEAP_TRACING_STACK_DEPTH];
+};
+struct Trace {
+  heap_trace_record_t* records = nullptr;
+  TraceGroup* groups = nullptr;
+  bool active = false;
+  bool lowTaken = false;
+  bool done = false;  // a run got low: its report is kept and the test ends there
+  std::uint32_t startMs = 0;
+  std::uint32_t second = 0;
+  std::uint32_t secondMin = 0xFFFFFFFFu;
+  std::uint32_t secondLargest = 0;
+  std::array<std::uint16_t, 128> minTenths{};  // internal RAM left, the lowest each second, in 100 bytes
+  std::array<std::uint8_t, 128> largestKb{};   // the largest internal block then
+  std::size_t seconds = 0;
+};
+Trace g_trace;
+
+bool TraceKept() { return g_traceKeep.magic == kTraceKeepMagic && g_traceKeep.build == g_persist.build && g_traceKeep.length < sizeof(g_traceKeep.text); }
+
+void TraceClear()
+{
+  g_traceKeep.magic = kTraceKeepMagic;
+  g_traceKeep.build = g_persist.build;
+  g_traceKeep.length = 0;
+}
+
+// One line of the report: printed now and kept.
+void TraceLine(const char* format, ...) __attribute__((format(printf, 1, 2)));
+void TraceLine(const char* format, ...)
+{
+  char line[kTraceLineBytes];
+  va_list args;
+  va_start(args, format);
+  const int length = std::vsnprintf(line, sizeof(line), format, args);
+  va_end(args);
+  std::printf("%s\n", line);
+  if (!TraceKept() || length <= 0) return;
+  const std::size_t size = (std::min<std::size_t>)(static_cast<std::size_t>(length), sizeof(line) - 1);
+  if (g_traceKeep.length + size + 1 >= sizeof(g_traceKeep.text)) return;
+  std::memcpy(g_traceKeep.text + g_traceKeep.length, line, size);
+  g_traceKeep.length += static_cast<std::uint32_t>(size);
+  g_traceKeep.text[g_traceKeep.length++] = '\n';
+}
+
+void TraceSummarize(const char* when)
+{
+  (void)heap_trace_stop();
+  std::size_t used = 0;
+  std::uint32_t internalBytes = 0, internalCount = 0, slowBytes = 0, otherBytes = 0;
+  heap_trace_record_t record;
+  const std::size_t count = heap_trace_get_count();
+  for (std::size_t index = 0; index < count; ++index)
+  {
+    if (heap_trace_get(index, &record) != ESP_OK || record.address == nullptr) continue;
+    if (!esp_ptr_internal(record.address))
+    {
+      slowBytes += record.size;
+      continue;
+    }
+    internalBytes += record.size;
+    ++internalCount;
+    std::uint32_t key = 0;
+    for (int frame = 1; frame < 5 && frame < CONFIG_HEAP_TRACING_STACK_DEPTH; ++frame)
+      key = key * 2654435761u + reinterpret_cast<std::uintptr_t>(record.alloced_by[frame]);
+    std::size_t group = 0;
+    while (group < used && g_trace.groups[group].key != key) ++group;
+    if (group == used)
+    {
+      if (used == kTraceGroups)
+      {
+        otherBytes += record.size;
+        continue;
+      }
+      TraceGroup& fresh = g_trace.groups[used++];
+      fresh.key = key;
+      fresh.bytes = 0;
+      fresh.count = 0;
+      std::memcpy(fresh.frames, record.alloced_by, sizeof(fresh.frames));
+    }
+    g_trace.groups[group].bytes += record.size;
+    ++g_trace.groups[group].count;
+  }
+  std::sort(g_trace.groups, g_trace.groups + used, [](const TraceGroup& a, const TraceGroup& b) { return a.bytes > b.bytes; });
+  TraceLine("stress: H %s at %u s: internal %u B held in %u blocks (%u B past the groups), PSRAM %u B; records %u of %u; free %u largest %u; failed %u",
+            when, static_cast<unsigned>((NowMs() - g_trace.startMs) / 1000), static_cast<unsigned>(internalBytes), static_cast<unsigned>(internalCount),
+            static_cast<unsigned>(otherBytes), static_cast<unsigned>(slowBytes), static_cast<unsigned>(count), static_cast<unsigned>(kTraceRecords),
+            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+            static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)), cardenza_failed_allocations());
+  for (std::size_t group = 0; group < used && group < 8; ++group)
+  {
+    const TraceGroup& g = g_trace.groups[group];
+    char frames[96];
+    int length = 0;
+    // Frames 0 and 1 are heap_caps_malloc and operator new / malloc.
+    for (int frame = 2; frame < CONFIG_HEAP_TRACING_STACK_DEPTH && length < static_cast<int>(sizeof(frames)) - 12; ++frame)
+      length += std::snprintf(frames + length, sizeof(frames) - static_cast<std::size_t>(length), " %08x",
+                              static_cast<unsigned>(reinterpret_cast<std::uintptr_t>(g.frames[frame])));
+    TraceLine("stress: H %s %u B x%u:%s", when, static_cast<unsigned>(g.bytes), static_cast<unsigned>(g.count), frames);
+  }
+  (void)heap_trace_resume();
+}
+
+void TraceStart()
+{
+  if (g_trace.records == nullptr)
+  {
+    g_trace.records = static_cast<heap_trace_record_t*>(heap_caps_calloc(kTraceRecords, sizeof(heap_trace_record_t), MALLOC_CAP_SPIRAM));
+    g_trace.groups = static_cast<TraceGroup*>(heap_caps_calloc(kTraceGroups, sizeof(TraceGroup), MALLOC_CAP_SPIRAM));
+    if (g_trace.records == nullptr || g_trace.groups == nullptr ||
+        heap_trace_init_standalone(g_trace.records, kTraceRecords) != ESP_OK)
+    {
+      std::printf("stress: heap trace not started (no PSRAM for it)\n");
+      return;
+    }
+  }
+  TraceClear();
+  g_trace.lowTaken = false;
+  g_trace.seconds = 0;
+  g_trace.second = 0;
+  g_trace.secondMin = 0xFFFFFFFFu;
+  g_trace.startMs = NowMs();
+  g_trace.active = heap_trace_start(HEAP_TRACE_LEAKS) == ESP_OK;
+  std::printf("stress: heap trace %s\n", g_trace.active ? "on" : "failed to start");
+}
+
+// Each frame of the traced scenario: the internal RAM left, and the report at the first low.
+void TraceTick()
+{
+  if (!g_trace.active) return;
+  const std::uint32_t free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (free < g_trace.secondMin)
+  {
+    g_trace.secondMin = free;
+    g_trace.secondLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
+  const std::uint32_t second = (NowMs() - g_trace.startMs) / 1000;
+  if (second != g_trace.second)
+  {
+    // A frame may span seconds (an engine switch holds the UI): those seconds share its reading.
+    while (g_trace.seconds < second && g_trace.seconds < g_trace.minTenths.size())
+    {
+      g_trace.minTenths[g_trace.seconds] = static_cast<std::uint16_t>((std::min<std::uint32_t>)(g_trace.secondMin / 100, 65535u));
+      g_trace.largestKb[g_trace.seconds] = static_cast<std::uint8_t>((std::min<std::uint32_t>)(g_trace.secondLargest / 1024, 255u));
+      ++g_trace.seconds;
+    }
+    g_trace.second = second;
+    g_trace.secondMin = 0xFFFFFFFFu;
+  }
+  if (!g_trace.lowTaken && free < kTraceLowBytes)
+  {
+    g_trace.lowTaken = true;
+    TraceSummarize("low");
+  }
+}
+
+void TraceFinish()
+{
+  if (!g_trace.active) return;
+  if (!g_trace.lowTaken) TraceClear();  // nothing to see: the next run's report from scratch
+  TraceSummarize("end");
+  (void)heap_trace_stop();
+  g_trace.active = false;
+  // Internal RAM left each second (KB, the lowest that second / the largest block then).
+  for (std::size_t first = 0; first < g_trace.seconds; first += 10)
+  {
+    char text[kTraceLineBytes];
+    int length = std::snprintf(text, sizeof(text), "stress: M %u:", static_cast<unsigned>(first));
+    for (std::size_t index = first; index < g_trace.seconds && index < first + 10; ++index)
+      length += std::snprintf(text + length, sizeof(text) - static_cast<std::size_t>(length), " %u.%u/%u", g_trace.minTenths[index] / 10u,
+                              g_trace.minTenths[index] % 10u, static_cast<unsigned>(g_trace.largestKb[index]));
+    TraceLine("%s", text);
+  }
+  g_trace.done = g_trace.lowTaken;
+}
+
+bool Traced(std::size_t index)
+{
+  if (g_trace.done || index >= g_runner.scenarios.size()) return false;
+  const std::string& name = g_runner.scenarios[index].name;
+  const std::string traced = CARDENZA_STRESS_TRACE;
+  return name == traced || name.rfind(traced + "#", 0) == 0;
+}
+#endif
+
 void PrintShortResult(std::size_t index)
 {
   const Result& r = g_persist.results[index];
@@ -762,6 +991,26 @@ void Summary(std::uint32_t now)
     g_runner.summaryMs = now + 40;
     return;
   }
+#if CARDENZA_STRESS_HEAP_TRACE
+  if (TraceKept())
+  {
+    // The kept report, a line a tick.
+    std::size_t start = 0, line = g_runner.summaryLine - g_runner.scenarios.size();
+    while (line > 0 && start < g_traceKeep.length)
+    {
+      if (g_traceKeep.text[start++] == '\n') --line;
+    }
+    if (start < g_traceKeep.length)
+    {
+      std::size_t end = start;
+      while (end < g_traceKeep.length && g_traceKeep.text[end] != '\n') ++end;
+      std::printf("%.*s\n", static_cast<int>(end - start), g_traceKeep.text + start);
+      ++g_runner.summaryLine;
+      g_runner.summaryMs = now + 40;
+      return;
+    }
+  }
+#endif
   g_runner.summaryLine = 0;
   g_runner.summaryMs = now + 20000;
 }
@@ -780,6 +1029,15 @@ void StressTestTick(GrooveApp& app)
     const char* crash = cardenza_previous_crash();
     std::printf("stress: this start: reset reason %d, %u restarts in this run; the previous crash: %s\n", static_cast<int>(esp_reset_reason()),
                 static_cast<unsigned>(g_persist.magic == kMagic ? g_persist.reboots : 0u), crash != nullptr && crash[0] != 0 ? crash : "(none recorded)\n");
+#if CARDENZA_STRESS_HEAP_TRACE
+    if (g_persist.magic == kMagic && g_traceKeep.magic == kTraceKeepMagic && g_traceKeep.build == g_persist.build && g_traceKeep.length != 0)
+    {
+      char first[112] = {};
+      if (crash != nullptr)
+        for (std::size_t index = 0; index + 1 < sizeof(first) && crash[index] != 0; ++index) first[index] = crash[index] == '\n' ? ' ' : crash[index];
+      TraceLine("stress: H restarted after it: reset reason %d; %s", static_cast<int>(esp_reset_reason()), first[0] != 0 ? first : "no crash recorded");
+    }
+#endif
   }
   // The cores' load while the device starts (where the task watchdog has struck), then per scenario.
   static std::int64_t nextLoadUs = 2000000;
@@ -842,6 +1100,9 @@ void StressTestTick(GrooveApp& app)
     }
     (void)app.Sequencer().TakeClockLateness();
     runner.active = true;
+#if CARDENZA_STRESS_HEAP_TRACE
+    if (Traced(index)) TraceStart();
+#endif
     runner.endMs = NowMs() + scenario.seconds * 1000;
     runner.nextOpMs = NowMs() + 1500;
     runner.op = 0;
@@ -849,6 +1110,9 @@ void StressTestTick(GrooveApp& app)
     return;
   }
 
+#if CARDENZA_STRESS_HEAP_TRACE
+  TraceTick();
+#endif
   // Measuring: the frame time first (what came before this tick).
   const std::uint32_t frame = now - runner.window.lastTickMs;
   runner.window.uiMaxMs = (std::max)(runner.window.uiMaxMs, frame);
@@ -884,9 +1148,15 @@ void StressTestTick(GrooveApp& app)
   if (now < runner.endMs) return;
 
   ReleaseKeys(app);
+#if CARDENZA_STRESS_HEAP_TRACE
+  if (Traced(index)) TraceFinish();
+#endif
   FinishWindow(app, index);
   runner.active = false;
   ++g_persist.next;
+#if CARDENZA_STRESS_HEAP_TRACE
+  if (g_trace.done) g_persist.next = static_cast<std::uint32_t>(runner.scenarios.size());
+#endif
 }
 
 }  // namespace apps

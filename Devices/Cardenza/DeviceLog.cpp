@@ -51,7 +51,11 @@ namespace Device::Log {
 namespace {
 
 constexpr std::uint32_t kMagic = 0x31474F4CU;  // "LOG1"
+#if defined(CARDENZA_STRESS_TEST)
+constexpr std::uint32_t kRingBytes = 4608;  // the stress test keeps its heap report beside it (RTC memory is 8 KB)
+#else
 constexpr std::uint32_t kRingBytes = 6 * 1024;
+#endif
 // head and taken count every byte ever written and taken; they move back together by whole rings
 // long before they could wrap.
 constexpr std::uint32_t kRebaseAt = 0x40000000U;
@@ -82,6 +86,7 @@ struct Stream {
 };
 Stream g_out, g_err;
 std::uint32_t g_allocationNotes = 0;
+std::atomic<std::uint32_t> g_failedAllocations{0};  // every one since the start, noted or not
 bool g_previousCrashed = false;
 bool g_previousKept = false;
 
@@ -336,6 +341,7 @@ void Hook()
 
 void NoteFailedAllocation(std::size_t size, std::uint32_t caps, const char* function)
 {
+  g_failedAllocations.fetch_add(1, std::memory_order_relaxed);
   if (g_allocationNotes >= kAllocationNotes) return;
   ++g_allocationNotes;
   portENTER_CRITICAL_SAFE(&g_lock);
@@ -461,4 +467,6 @@ extern "C" void __wrap_esp_panic_handler(panic_info_t* info)
 
 #if defined(CARDENZA_STRESS_TEST)
 extern "C" const char* cardenza_previous_crash() { return Device::Log::g_previousCrash; }
+// Every allocation that failed since the start, noted or not (the stress test reports it).
+extern "C" unsigned cardenza_failed_allocations() { return Device::Log::g_failedAllocations.load(std::memory_order_relaxed); }
 #endif
