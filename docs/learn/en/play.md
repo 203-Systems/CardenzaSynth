@@ -12,17 +12,17 @@ PADS = PADS
 
 Melodic tracks have three layouts (LAYOUT on the KEYS page); the key lights show which keys can sound:
 
-{{shot:seq-keyboard|The PIANO layout (default): C sits in the middle, white keys and black keys row by row; the gaps are off and silent.
-key r0c1-r0c8 = White keys, one octave up
-key r1c2 r1c3 r1c5 r1c6 r1c7 = Black keys
-key r2c1-r2c8 = White keys C D E F G A B C
-key r3c2 r3c3 r3c5 r3c6 r3c7 = Black keys, one octave down
-key r1c1 r1c4 r1c8 r3c1 r3c4 r3c8 = Gaps: off
+{{shot:seq-keyboard|The PIANO layout (default): two whole octaves, a pair of rows each, black keys above white keys; the gaps are off and silent.
+key r0c2 r0c3 r0c5 r0c6 r0c7 = Black keys, one octave up
+key r1c1-r1c8 = White keys C D E F G A B C, one octave up
+key r2c2 r2c3 r2c5 r2c6 r2c7 = Black keys
+key r3c1-r3c8 = White keys C D E F G A B C, C3 at the bottom left
+key r0c1 r0c4 r0c8 r2c1 r2c4 r2c8 = Gaps: off
 }}
 
 | Layout | Arrangement | Lights |
 |---|---|---|
-| **PIANO** (default) | from the top: white keys one octave up, black keys, white keys C D E F G A B C (second row from the bottom), black keys of the octave below. The gaps (before C#, between E and F, after A#) are silent | gaps {{led:off}} |
+| **PIANO** (default) | two whole octaves: the lower two rows from C3 at the bottom left, the upper two an octave up; in each pair the white keys C D E F G A B C below and the black keys above. The gaps (before C#, between E and F, after A#) are silent | gaps {{led:off}} |
 | **SCALE** | only the notes of the scale, from the root left to right up the scale, each row one octave up. No wrong notes | all {{led:half}} |
 | **CHROMA** | one semitone per key from the root, left to right and bottom to top | all {{led:half}} |
 

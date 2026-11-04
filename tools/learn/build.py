@@ -114,12 +114,12 @@ def shot_script():
     s.act("tap tab").shot("tab-hint", 22)
     s.shot("seq-keyboard", 60)
     # Notes: hold a pad, tap steps.
-    # On a melodic track C3 is pad 2,1 (row 3 is the white keys' gap row).
-    s.act("down 2,1").shot("seq-hold-pad", 20)
+    # On a melodic track C3 is pad 3,1: the bottom row is the lower octave's white keys.
+    s.act("down 3,1").shot("seq-hold-pad", 20)
     s.act(f"tap {grid_key(0)}").shot("seq-hold-tap", 10)
-    s.act(f"tap {grid_key(4)}", f"tap {grid_key(8)}", "up 2,1")
-    s.act("down 2,3", f"tap {grid_key(2)}", f"tap {grid_key(10)}", "up 2,3")
-    s.act("down 2,5", f"tap {grid_key(12)}", f"tap {grid_key(14)}", "up 2,5")
+    s.act(f"tap {grid_key(4)}", f"tap {grid_key(8)}", "up 3,1")
+    s.act("down 3,3", f"tap {grid_key(2)}", f"tap {grid_key(10)}", "up 3,3")
+    s.act("down 3,5", f"tap {grid_key(12)}", f"tap {grid_key(14)}", "up 3,5")
     s.shot("seq-notes")
     s.act(f"tap {grid_key(4)}")
     s.shot("seq-selected")
@@ -129,14 +129,14 @@ def shot_script():
     s.act("tap space").shot("seq-playing", 30)
     s.act("tap space").wait(40)
     # STEP REC: OK switches the view; pads write into the cursor step.
-    s.act("tap enter").shot("seq-step-view", 30).act(f"tap {grid_key(1)}", "tap 2,2", "tap 2,3")
+    s.act("tap enter").shot("seq-step-view", 30).act(f"tap {grid_key(1)}", "tap 3,2", "tap 3,3")
     s.shot("seq-step", 140)
     s.act("tap enter").wait(200)
     # Capture: a few phrases, then hold OK for the RECORD panel; OK puts a bar into a new pattern.
-    for pad in ("2,1", "2,3", "2,5", "2,3", "2,1"):
+    for pad in ("3,1", "3,3", "3,5", "3,3", "3,1"):
         s.act(f"down {pad}").wait(8).act(f"up {pad}").wait(10)
     s.wait(200)
-    for pad in ("2,5", "2,6", "2,8"):
+    for pad in ("3,5", "3,6", "3,8"):
         s.act(f"down {pad}").wait(12).act(f"up {pad}").wait(6)
     s.act("down enter").wait(40).act("up enter").wait(10).act(f"tap {grid_key(5)}")
     s.shot("record", 30)
@@ -169,11 +169,11 @@ def shot_script():
     # CHORD and ARP: the track's own MIDI effects.
     s.page(1).shot("instr-chord")
     s.act(f"tap {grid_key(0)}").shot("chord-on")
-    s.act("down 2,1").shot("chord-held", 20).act("up 2,1").wait(10)
+    s.act("down 3,1").shot("chord-held", 20).act("up 3,1").wait(10)
     s.act(*["tap 1,13"] * 12).wait(20)
     s.page(2).shot("instr-arp")
     s.act(f"tap {grid_key(0)}").wait(10)
-    s.act("down 2,1", "down 2,3", "down 2,5").shot("arp-running", 50).act("up 2,1", "up 2,3", "up 2,5")
+    s.act("down 3,1", "down 3,3", "down 3,5").shot("arp-running", 50).act("up 3,1", "up 3,3", "up 3,5")
     s.act(f"tap {grid_key(0)}", *["tap 1,13"] * 8).wait(20)
     for index, name in enumerate(["dco", "vcf", "env", "lfo", "fx"], start=3):
         s.page(index).shot(f"instr-juno-{name}")

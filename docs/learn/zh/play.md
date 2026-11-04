@@ -12,17 +12,17 @@ PADS = 演奏区
 
 旋律轨有三种排列（KEYS 页的 LAYOUT），看键灯就知道哪些键能发声：
 
-{{shot:seq-keyboard|PIANO 钢琴排列（默认）：C 在键盘中部，白键和黑键一行一行排；缺口不亮也不发声。
-key r0c1-r0c8 = 白键，高一个八度
-key r1c2 r1c3 r1c5 r1c6 r1c7 = 黑键
-key r2c1-r2c8 = 白键 C D E F G A B C
-key r3c2 r3c3 r3c5 r3c6 r3c7 = 黑键，低一个八度
-key r1c1 r1c4 r1c8 r3c1 r3c4 r3c8 = 缺口：灭
+{{shot:seq-keyboard|PIANO 钢琴排列（默认）：两个完整的八度，每两行一个，黑键在白键上面；缺口不亮也不发声。
+key r0c2 r0c3 r0c5 r0c6 r0c7 = 黑键，高一个八度
+key r1c1-r1c8 = 白键 C D E F G A B C，高一个八度
+key r2c2 r2c3 r2c5 r2c6 r2c7 = 黑键
+key r3c1-r3c8 = 白键 C D E F G A B C，C3 在左下角
+key r0c1 r0c4 r0c8 r2c1 r2c4 r2c8 = 缺口：灭
 }}
 
 | 排列 | 怎么排 | 灯 |
 |---|---|---|
-| **PIANO 钢琴**（默认） | 从上到下：高一个八度的白键、黑键、白键 C D E F G A B C（从下往上第二行）、低一个八度的黑键。缺口（C# 之前、E–F 之间、A# 之后）不发声 | 缺口 {{led:off}} |
+| **PIANO 钢琴**（默认） | 两个完整的八度：下面两行从左下角的 C3 开始，上面两行高一个八度；每两行里白键 C D E F G A B C 在下，黑键在上。缺口（C# 之前、E–F 之间、A# 之后）不发声 | 缺口 {{led:off}} |
 | **SCALE 音阶** | 只放音阶里的音，从根音开始从左到右按音阶走，每往上一行高一个八度。不会弹错音 | 全部 {{led:half}} |
 | **CHROMA 半音** | 从根音开始每个键一个半音，从左到右、从下到上 | 全部 {{led:half}} |
 
