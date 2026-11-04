@@ -130,3 +130,15 @@ foreach(target CardenzaCoreTests CardenzaStorageTests CardenzaSamplerTests ${car
     target_link_libraries(${target} PRIVATE pthread)
   endif()
 endforeach()
+
+# MSVC: a failed assert ends the test at once instead of waiting on the debug runtime's dialog
+# (WindowsTestGuard.cpp).
+if(MSVC)
+  get_property(cardenza_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+  foreach(target ${cardenza_test_targets})
+    get_target_property(target_type ${target} TYPE)
+    if(target_type STREQUAL "EXECUTABLE")
+      target_sources(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/WindowsTestGuard.cpp)
+    endif()
+  endforeach()
+endif()

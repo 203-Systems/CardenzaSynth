@@ -2,6 +2,8 @@
 #include <windows.h>
 
 #include <cctype>
+#include <filesystem>
+#include <system_error>
 #include <string>
 #include <vector>
 
@@ -109,6 +111,15 @@ CardenzaSim::DesktopHost::DebugScriptOptions ParseDebugOptions(const std::vector
 
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR commandLine, int)
 {
+  // The simulator's card (sdcard/) is in the working directory (Devices/CardenzaSim/Storage.cpp): keep it
+  // beside the executable wherever the simulator is started from.
+  char executable[MAX_PATH] = {};
+  const DWORD length = GetModuleFileNameA(nullptr, executable, MAX_PATH);
+  if (length != 0 && length < MAX_PATH)
+  {
+    std::error_code error;
+    std::filesystem::current_path(std::filesystem::path(std::string(executable, length)).parent_path(), error);
+  }
   const std::vector<std::string> arguments = TokenizeArguments(commandLine ? std::string(commandLine) : std::string{});
   CardenzaSim::DesktopHost::DesktopSimulator simulator(ParseInitialScale(arguments), ParseDebugOptions(arguments));
   if (!simulator.Initialize())

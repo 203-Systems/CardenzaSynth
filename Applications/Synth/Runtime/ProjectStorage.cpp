@@ -159,7 +159,8 @@ ProjectResult WriteProject(const std::string& path, const ProjectData& project) 
   const bool existing = Exists(path);
   const std::string temporary = path + ".tmp";
   const std::string backup = path + ".bak";
-  std::ofstream file(temporary, std::ios::trunc);
+  // Binary: the same bytes on every host (a Windows text stream wrote CRLF).
+  std::ofstream file(temporary, std::ios::trunc | std::ios::binary);
   if (!file) return ProjectResult::StorageError;
   file << "CARDENZA_PROJECT " << kProjectVersion << "\nBUILD CardenzaSynth 1\nUI " << project.activeTrack << ' ' << project.octave << ' '
        << project.root << ' ' << project.scale << ' ' << project.layout << ' ' << project.ledBrightness << '\n';

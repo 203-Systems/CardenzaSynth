@@ -1,6 +1,7 @@
 // Device::Storage for host builds: the "card" is the sdcard/ folder and internal flash is the
-// internal/ folder, both in the working directory (beside the executable on Windows). Self-contained
-// so other host devices can compile it unchanged.
+// internal/ folder, both in the working directory, so each test run gets its own card by starting in
+// a folder of its own (the desktop simulator starts beside its executable). Self-contained so other
+// host devices can compile it unchanged.
 #include "Devices/Device.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
 
@@ -15,11 +16,6 @@
 #include <utility>
 #include <vector>
 
-#if defined(_WIN32)
-#define NOMINMAX
-#include <Windows.h>
-#endif
-
 namespace {
 
 namespace fs = std::filesystem;
@@ -27,14 +23,9 @@ namespace fs = std::filesystem;
 std::atomic<bool> cardInserted{true};
 
 fs::path BaseDirectory() {
-#if defined(_WIN32)
-  std::array<char, MAX_PATH> buffer{};
-  const DWORD length = GetModuleFileNameA(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-  if (length != 0 && length < buffer.size()) {
-    return fs::path(std::string(buffer.data(), length)).parent_path();
-  }
-#endif
-
+  // The working directory everywhere: on Windows this was the executable's folder, which every test
+  // shared (they start in a scratch folder of their own), so their cards and records ran into each
+  // other across tests and runs.
   std::error_code error;
   const fs::path currentDirectory = fs::current_path(error);
   return error ? fs::path{"."} : currentDirectory;

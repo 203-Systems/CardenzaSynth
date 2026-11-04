@@ -24,7 +24,9 @@ device::SynthAudioRenderProvider g_audioProvider{};
 std::mutex g_audioProviderMutex;
 bool g_audioInputEnabled = false;
 Device::Audio::InputStreamInfo g_inputStreamInfo{};
-bool g_simulatedMicrophone = false;
+// The microphone: the host's own (Windows wave-in) until a test picks a simulated one or none.
+enum class Microphone { Host, Simulated, Absent };
+Microphone g_microphone = Microphone::Host;
 std::size_t g_simulatedMicrophoneFrames = 0;
 std::uint32_t g_simulatedMicrophonePhase = 0;
 std::atomic<std::uint8_t> g_outputVolume{Device::Audio::kDefaultOutputVolume};
@@ -528,13 +530,14 @@ std::uint8_t OutputVolume()
 
 InputStreamInfo InputInfo()
 {
-  if (g_simulatedMicrophone) return InputStreamInfo{kDefaultInputSampleRate, kInputChannels, kInputBitsPerSample};
+  if (g_microphone == Microphone::Simulated) return InputStreamInfo{kDefaultInputSampleRate, kInputChannels, kInputBitsPerSample};
   return g_inputStreamInfo;
 }
 
 InputStatus StartInput()
 {
-  if (g_simulatedMicrophone)
+  if (g_microphone == Microphone::Absent) return InputStatus::NotReady;
+  if (g_microphone == Microphone::Simulated)
   {
     g_audioInputEnabled = true;
     g_simulatedMicrophoneFrames = 0;
@@ -571,7 +574,7 @@ InputStatus ReadInputFrames(std::int16_t* destination,
     return InputStatus::Ready;
   }
 
-  if (g_simulatedMicrophone)
+  if (g_microphone == Microphone::Simulated)
   {
     framesRead = std::min(frameCount, g_simulatedMicrophoneFrames);
     g_simulatedMicrophoneFrames -= framesRead;
@@ -606,7 +609,7 @@ SynthAudioPipelineBinding ConnectSynthAudioPipeline(std::size_t engineIndex) {
 
 namespace CardenzaSim::Input {
 
-void SetMicrophonePresent(bool present) { g_simulatedMicrophone = present; }
+void SetMicrophonePresent(bool present) { g_microphone = present ? Microphone::Simulated : Microphone::Absent; }
 void FeedMicrophone(std::size_t frames) { g_simulatedMicrophoneFrames += frames; }
 
 }  // namespace CardenzaSim::Input

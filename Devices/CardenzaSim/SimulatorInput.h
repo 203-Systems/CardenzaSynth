@@ -12,7 +12,8 @@ void ClearMatrixKeys();
 // Simulates taking the SD card out (false) and putting it back (true, the default).
 void SetCardInserted(bool inserted);
 // A microphone for hosts without capture hardware: StartInput succeeds and frames of a test tone
-// become readable as they are fed.
+// become readable as they are fed. False: no microphone at all, not even the host's own (a Windows
+// host has one), so a test sees the device without one.
 void SetMicrophonePresent(bool present);
 void FeedMicrophone(std::size_t frames);
 
