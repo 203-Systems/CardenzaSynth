@@ -6,8 +6,8 @@ The manual's version is at the top right (for example v1.2.0), followed by the f
 
 ## 1.4.0 · 2026-11-03 {#version-1-4-0}
 
-- **The guide**: the Learn site now opens on lessons: three picture lessons on how music is built (a music box, four music boxes, a row of parts), eight on the device (the key areas, making a sound, screens, tracks, a first pattern, scales, chords and arpeggios, a first song). A few steps each; do them and they tick themselves off. No device? Every lesson has the simulator.
-- Connect a Cardenza over USB and press Connect: it enters the guide, goes to each lesson's screen and blinks the keys to press. Your own project is set aside and comes back when the guide ends. Needs the new firmware.
+- **The guide**: the Learn site now opens on lessons: three picture lessons on how music is built (a music box, four music boxes, a row of parts), eight on the device (the key areas, making a sound, screens, tracks, a first pattern, scales, chords and arpeggios, a first song). A few steps each, with pictures; with a Cardenza plugged in they tick themselves off.
+- Plug a Cardenza in over USB and allow MIDI when the browser asks: it enters the guide, goes to each lesson's screen and blinks the keys to press. Your own project is set aside and comes back when the guide ends. Needs the new firmware.
 - This manual is now the reference: look up a key, a page or a setting. Switch between guide and reference at the top; the guide's search looks things up here.
 
 ## 1.3.0 · 2026-11-03 {#version-1-3-0}

@@ -274,8 +274,8 @@
     RGB565[value] = (0xff000000 | (blue << 16) | (green << 8) | red) >>> 0;
   }
 
-  // The guide page around an embedded device (tools/learn/guide.js) hears the firmware's app messages,
-  // the same text a Cardenza sends it over USB.
+  // The guide link: whoever embeds the device hears the firmware's app messages, the same text a
+  // Cardenza sends over USB (the guide's browser test plays a Cardenza on USB with it).
   let guideListener = null;
   function pumpGuide() {
     if (!guideListener) return;

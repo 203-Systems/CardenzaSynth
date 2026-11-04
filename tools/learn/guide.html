@@ -39,9 +39,6 @@
            placeholder="查字典 / Look up  ( / )" aria-label="Search the reference" aria-controls="results" aria-expanded="false">
     <div id="results" class="results" role="listbox" hidden></div>
   </div>
-  <button class="btn usb" id="usb-btn" hidden title="Connect a Cardenza over USB (Web MIDI, Chrome / Edge): it follows the lessons">
-    <span class="usb-dot" aria-hidden="true"></span><span class="btn-text"><span data-l="zh">连接设备</span><span data-l="en">Connect</span></span>
-  </button>
   <div class="lang" role="group" aria-label="Language">
     <button data-set-lang="zh" aria-pressed="true">中</button><button data-set-lang="en" aria-pressed="false">EN</button>
   </div>
@@ -70,7 +67,7 @@
       <section class="device-card">
         <div class="dc-text">
           <h2><span data-l="zh">有一台 Cardenza？</span><span data-l="en">Got a Cardenza?</span></h2>
-          <p><span data-l="zh">用 USB 线接上电脑，点上面的「连接设备」：机器会跟着课程走，该按的键会闪。没有也没关系，每一课都有模拟器。</span><span data-l="en">Plug it in with a USB cable and press Connect above: the device follows the lessons and the keys to press blink. No device? Every lesson has the simulator.</span></p>
+          <p><span data-l="zh">用 USB 线接上电脑，浏览器问能不能使用 MIDI 设备时点「允许」：机器会跟着课程走，该按的键会闪，做对了自动打勾。没有机器也没关系，看图就能跟着学。</span><span data-l="en">Plug it in with a USB cable and allow MIDI when the browser asks: the device follows the lessons, the keys to press blink, and steps tick themselves off. No device? The pictures show every step.</span></p>
           <p class="dc-small"><span data-l="zh">教程用一个练习工程，你自己的工程不会被改动；关掉这一页，机器就回到原来的样子。</span><span data-l="en">The lessons use a practice project: your own work is left alone, and it is back as soon as you close this page.</span></p>
         </div>
       </section>
@@ -82,22 +79,6 @@
     </footer>
   </main>
 
-  <!-- The device of the lessons: the simulator, or the user's Cardenza on USB (guide.js). -->
-  <aside class="g-device" id="device" hidden>
-    <div class="d-head">
-      <span class="d-dot" id="d-dot" aria-hidden="true"></span>
-      <span class="d-title" id="d-title"></span>
-      <button type="button" class="d-switch" id="d-switch" hidden></button>
-    </div>
-    <div class="d-sim" id="d-sim"><iframe id="sim-frame" title="Cardenza simulator" allow="autoplay"></iframe>
-      <p class="d-tip"><span data-l="zh">点模拟器的键，或者用电脑键盘。闪的键就是下一步要按的。</span><span data-l="en">Click the simulator's keys or use your computer keyboard. The blinking keys are the next ones to press.</span></p>
-    </div>
-    <div class="d-usb" id="d-usb" hidden>
-      <div class="d-live" id="d-live">{{LIVE_KEYS}}</div>
-      <p class="d-tip"><span data-l="zh">看你的 Cardenza：闪的键就是下一步要按的。这里亮的是你按下的键。</span><span data-l="en">Look at your Cardenza: the blinking keys are the next ones to press. Keys light up here as you press them.</span></p>
-    </div>
-    <p class="d-msg" id="d-msg" hidden></p>
-  </aside>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 
