@@ -19,10 +19,12 @@ namespace os::storage {
 
 namespace {
 
-constexpr std::string_view kRootFolder = "CardenzaSynth";
-constexpr std::string_view kSettingsFolder = "Settings";
+constexpr std::string_view kRootFolder = "Cardenza";
+constexpr std::string_view kSystemFolder = "System";
+constexpr std::string_view kSharedFolder = "Shared";
 constexpr std::string_view kSamplesFolder = "Samples";
 constexpr std::string_view kAppsFolder = "Apps";
+constexpr std::string_view kSettingsFile = "settings.cfg";
 constexpr std::size_t kMaxIdPart = 24;
 constexpr std::size_t kMaxFolderName = 32;
 
@@ -60,17 +62,17 @@ std::string Root()
 
 std::string SystemDirectory()
 {
-  return JoinPath(Root(), kSettingsFolder);
+  return JoinPath(Root(), kSystemFolder);
 }
 
 std::string SystemSettingsPath()
 {
-  return JoinPath(SystemDirectory(), "system.cfg");
+  return JoinPath(SystemDirectory(), kSettingsFile);
 }
 
 std::string SharedDirectory()
 {
-  return Root();
+  return JoinPath(Root(), kSharedFolder);
 }
 
 std::string SharedSamplesDirectory()
@@ -102,13 +104,12 @@ AppFolder::AppFolder(std::string_view id)
 
 std::string AppFolder::Root() const
 {
-  if (!Valid()) return {};
-  return id_ == kPrimaryAppId ? os::storage::Root() : JoinPath(AppsDirectory(), id_);
+  return Valid() ? JoinPath(AppsDirectory(), id_) : std::string();
 }
 
 std::string AppFolder::SettingsPath() const
 {
-  return Valid() ? JoinPath(JoinPath(Root(), kSettingsFolder), id_ == kPrimaryAppId ? "synth.cfg" : "app.cfg") : std::string();
+  return Valid() ? JoinPath(Root(), kSettingsFile) : std::string();
 }
 
 std::string AppFolder::Projects() const
@@ -141,11 +142,6 @@ bool CardPresent()
   return Device::Storage::Mount();
 }
 
-bool CardMounted()
-{
-  return Device::Storage::IsMounted();
-}
-
 std::uint64_t CardCapacityBytes()
 {
   return CardPresent() ? Device::Storage::CapacityBytes() : 0;
@@ -159,7 +155,7 @@ std::uint64_t CardFreeBytes()
 bool EnsureSystemLayout()
 {
   if (!CardPresent()) return false;
-  for (const std::string& path : {Root(), SystemDirectory(), SharedSamplesDirectory()})
+  for (const std::string& path : {Root(), SystemDirectory(), SharedDirectory(), SharedSamplesDirectory(), AppsDirectory()})
     if (!CreateDirectories(path)) return false;
   return true;
 }
@@ -167,7 +163,7 @@ bool EnsureSystemLayout()
 bool EnsureAppLayout(const AppFolder& app, const std::vector<std::string>& presetGroups)
 {
   if (!app.Valid() || !EnsureSystemLayout()) return false;
-  for (const std::string& path : {app.Root(), JoinPath(app.Root(), kSettingsFolder), app.Projects(), app.Presets(), app.Session()})
+  for (const std::string& path : {app.Root(), app.Projects(), app.Presets(), app.Session()})
     if (!CreateDirectories(path)) return false;
   for (const std::string& group : presetGroups)
   {
@@ -218,11 +214,7 @@ bool CreateDirectories(const std::string& path)
     const std::string prefix = path.substr(0, next);
     position = next;
     if (prefix.empty() || prefix == "/" || IsDirectory(prefix)) continue;
-    if (mkdir(prefix.c_str(), 0775) != 0 && !IsDirectory(prefix))
-    {
-      NotifyWriteFailure();
-      return false;
-    }
+    if (mkdir(prefix.c_str(), 0775) != 0 && !IsDirectory(prefix)) return false;
   }
   return IsDirectory(path);
 }
@@ -309,20 +301,13 @@ std::vector<DirectoryEntry> ListDirectory(const std::string& path)
 
 #endif
 
-void NotifyWriteFailure()
-{
-  Device::Storage::NotifyWriteFailure();
-}
-
 bool WriteFileAtomic(const std::string& path, std::string_view contents)
 {
-  if (path.empty()) return false;
-  const auto failed = [] { NotifyWriteFailure(); return false; };
-  if (!IsDirectory(ParentPath(path))) return failed();
+  if (path.empty() || !IsDirectory(ParentPath(path))) return false;
   const std::string temporary = path + ".tmp";
   const std::string backup = path + ".bak";
   std::FILE* file = std::fopen(temporary.c_str(), "wb");
-  if (file == nullptr) return failed();
+  if (file == nullptr) return false;
   bool written = contents.empty() || std::fwrite(contents.data(), 1, contents.size(), file) == contents.size();
   written = std::fflush(file) == 0 && written;
 #if defined(ESP_PLATFORM)
@@ -332,7 +317,7 @@ bool WriteFileAtomic(const std::string& path, std::string_view contents)
   if (!written)
   {
     std::remove(temporary.c_str());
-    return failed();
+    return false;
   }
   // FAT and Windows cannot rename over a file: keep the old one as the backup until the new one
   // is in place, so an interruption leaves either the old file, the backup or the new file.
@@ -342,19 +327,19 @@ bool WriteFileAtomic(const std::string& path, std::string_view contents)
     if (IsFile(backup) && std::remove(backup.c_str()) != 0)
     {
       std::remove(temporary.c_str());
-      return failed();
+      return false;
     }
     if (std::rename(path.c_str(), backup.c_str()) != 0)
     {
       std::remove(temporary.c_str());
-      return failed();
+      return false;
     }
   }
   if (std::rename(temporary.c_str(), path.c_str()) != 0)
   {
     if (existing) std::rename(backup.c_str(), path.c_str());
     std::remove(temporary.c_str());
-    return failed();
+    return false;
   }
   // The new file replaces both the old one and a backup left by an earlier interruption.
   if (IsFile(backup)) std::remove(backup.c_str());

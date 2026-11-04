@@ -2,8 +2,6 @@ DEVICE ?= Cardenza
 IDF_TARGET ?= esp32s3
 PORT ?=
 AMY_MULTICORE ?= 0
-# Only for HAL edits explicitly requested by the user; normal builds stay pristine.
-HAL_LOCAL ?= 0
 REMOTE ?= macbook
 
 # Browser simulator (DEVICE=CardenzaWeb): Emscripten from $(EMSDK), page in $(WEB_BUILD)/site.
@@ -42,7 +40,6 @@ endif
 
 IDF_PORT_ARG := $(if $(PORT),-p '$(PORT)',)
 CARDENZA_IDF_ARGS := -B '$(abspath $(BUILD))'
-CARDENZA_IDF_ARGS += -DCARDENZA_ALLOW_LOCAL_HAL_CHANGES=$(if $(filter 1,$(HAL_LOCAL)),ON,OFF)
 ifeq ($(AMY_MULTICORE),1)
 CARDENZA_IDF_ARGS += -DCARDENZA_AMY_EXPERIMENTAL_MULTICORE=ON
 else
@@ -53,20 +50,20 @@ endif
 
 all: build
 
-# CardenzaHAL (Devices/Cardenza/CardenzaHAL) is the upstream submodule
+# CardenzaHAL (Devices/Cardenza/cardenza) is the upstream submodule
 # https://github.com/203-Systems/CardenzaHAL, a read-only dependency (AGENT.md): no local changes, no
 # local commits, never a push. hal-check enforces it before every firmware build; hal-update pulls.
-HAL_DIR := Devices/Cardenza/CardenzaHAL
+HAL_DIR := Devices/Cardenza/cardenza
 HAL_NO_PUSH := no-push://CardenzaHAL-is-a-read-only-dependency
 
 hal-check:
 	@test -e $(HAL_DIR)/.git || git submodule update --init $(HAL_DIR)
 	@git -C $(HAL_DIR) config remote.origin.pushurl $(HAL_NO_PUSH)
-	@test -z "$$(git -C $(HAL_DIR) status --porcelain)" || test "$(HAL_LOCAL)" = "1" || { \
+	@test -z "$$(git -C $(HAL_DIR) status --porcelain)" || { \
 	  echo "hal-check: $(HAL_DIR) has local changes. CardenzaHAL is a read-only dependency (AGENT.md);" >&2; \
-	  echo "hal-check: for user-approved local HAL work only, build with HAL_LOCAL=1. Do not discard these edits." >&2; \
+	  echo "hal-check: work above it in Devices/Cardenza and restore it: git -C $(HAL_DIR) checkout -- . && git -C $(HAL_DIR) clean -fd" >&2; \
 	  git -C $(HAL_DIR) status --short >&2; exit 1; }
-	@test "$(HAL_LOCAL)" = "1" || git -C $(HAL_DIR) merge-base --is-ancestor HEAD origin/main 2>/dev/null || \
+	@git -C $(HAL_DIR) merge-base --is-ancestor HEAD origin/main 2>/dev/null || \
 	  { git -C $(HAL_DIR) fetch -q origin && git -C $(HAL_DIR) merge-base --is-ancestor HEAD origin/main; } || { \
 	  echo "hal-check: $(HAL_DIR) is on a commit that is not on upstream main (a local commit?)." >&2; \
 	  echo "hal-check: CardenzaHAL is read-only: make hal-update (or git submodule update $(HAL_DIR))." >&2; exit 1; }

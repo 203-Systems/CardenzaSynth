@@ -13,7 +13,6 @@
 #endif
 
 #include "Applications/Synth/Runtime/Sequencer/SynthSequencerTypes.h"
-#include "Library/Memory/ExternalRam.h"
 #include "OS/Framework/Midi/MidiPacket.h"
 
 namespace synth {
@@ -210,7 +209,8 @@ public:
     std::array<StepData, kSequencerStepCount> steps{};
   };
 
-  // Patterns are allocated in PSRAM on first write. Unallocated patterns read as empty.
+  // Patterns are allocated on first write: inline 16-pattern banks for every track cost about 48 KB
+  // of internal RAM, which the firmware cannot spare. Unallocated patterns read as empty.
   class PatternBank {
   public:
     PatternBank() = default;
@@ -234,7 +234,7 @@ public:
     void Clear();
 
   private:
-    std::array<memory::ExternalPtr<PatternData>, kSequencerMaxPatternCount> patterns_{};
+    std::array<std::unique_ptr<PatternData>, kSequencerMaxPatternCount> patterns_{};
   };
 
   struct TrackData {
@@ -257,7 +257,7 @@ public:
     std::size_t songLength = 0;
     bool songLoop = true;
   };
-  memory::ExternalPtr<ProjectState> CaptureState() const;
+  std::unique_ptr<ProjectState> CaptureState() const;
   static bool ValidateState(const ProjectState& state);
   bool RestoreState(const ProjectState& state);
 

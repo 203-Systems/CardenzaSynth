@@ -5,7 +5,6 @@
 #include <memory>
 #include <string_view>
 
-#include "Library/Memory/ExternalRam.h"
 #include "Library/Synth/Audio/SynthFx.h"
 #include "Library/Synth/Core/SynthTypes.h"
 
@@ -16,7 +15,7 @@ inline constexpr std::uint32_t kSampleRate = 44100;
 // A published sample is immutable; replacing it only transfers shared ownership
 // at the audio boundary, without allocating or copying PCM in the render loop.
 struct SampleBuffer {
-  memory::ExternalArray<std::int16_t> frames;
+  std::unique_ptr<std::int16_t[]> frames;
   std::size_t frameCount = 0;
 };
 using SharedSampleBuffer = std::shared_ptr<const SampleBuffer>;
@@ -28,8 +27,6 @@ void SetSamplerFrames(std::size_t engineIndex, SharedSampleBuffer frames, std::u
 void NoteOn(std::size_t engineIndex, std::uint8_t note, std::uint8_t velocity);
 void NoteOff(std::size_t engineIndex, std::uint8_t note);
 void AllNotesOff(std::size_t engineIndex);
-// Initialize backend resources without consuming queued commands or advancing audio. Safe to
-// call again when attaching/replacing an engine while other tracks are playing.
 void WarmUp();
 std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount);
 

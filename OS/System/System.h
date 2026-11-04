@@ -24,7 +24,7 @@ const std::string& ActiveApplicationId();
 
 // Asks for another app. The switch happens before the next frame, never inside an app's own call:
 // the active app is suspended (Suspend, then every settings store is flushed) and destroyed, then
-// the new one is created and set up. The last non-system app is remembered (Settings/system.cfg
+// the new one is created and set up. The last non-system app is remembered (System/settings.cfg
 // boot.app). False for an id that is not registered.
 bool SwitchApplication(const std::string& id);
 // The remembered app when it is registered and not a system app, else app::DefaultApplicationId().

@@ -19,7 +19,7 @@ RIGHT = Right four keys: values · play
 | {{key:CTRL}} violet | pages | the tabs at the bottom of the screen, like {{page:ROLL}} |
 | {{key:PLAY}} green | transport | play / stop |
 
-How to use this manual: {{icon:map}} the **Map** (top right) jumps straight to any key or page you click; {{icon:search}} search for any word at the top ("音量", "volume" and "too quiet" all find the same place); {{icon:play}} under every screenshot, **Try it live here** swaps in a running device (see [[#web-live]]).
+How to use this manual: {{icon:map}} the **Map** (top right) jumps straight to any key or page you click; {{icon:search}} search for any word at the top ("音量", "volume" and "too quiet" all find the same place); {{icon:play}} under every screenshot, **Try it live here** swaps in a running device; {{icon:usb}} connect your Cardenza over USB and play the manual's device with its real keys (see [[#web-live]], [[#web-usb]]).
 
 <!-- keywords: overview, introduction, about, what is, beginner, colours, 介绍, 概览 -->
 

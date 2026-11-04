@@ -19,6 +19,16 @@
 
 <!-- keywords: 跟着操作, 跟着做, 实机, 试一试, 在线操作, 交互, try it, live, follow along, interactive, hands on -->
 
+## 连接真机（USB） {#web-usb}
+
+{{icon:usb}} 用 USB 线把 Cardenza 接到电脑上，在说明书顶部点 **连接设备 USB**（Chrome 或 Edge），选择设备：之后在真机上按的每个键都会同时按在说明书里正在运行的那台设备上，一边看说明一边用真机按键操作。
+
+- 键会送到你最后点开的那一节的设备；如果还没有打开，就在当前阅读位置的那一节自动打开。
+- 真机本身照常运行，说明书里的设备只是跟着按。
+- 再点一次按钮断开。只有支持 Web Serial 的浏览器（电脑上的 Chrome、Edge）会显示这个按钮。
+
+<!-- keywords: usb, 连接, 真机, 实体设备, 串口, 数据线, connect, device, cable, web serial, hardware, real device -->
+
 ## 电脑键盘对应哪个键 {#web-keys}
 
 {{icon:keyboard}} 电脑键盘按**物理位置**对应设备的 4×14 键盘，每个键帽上都标着对应的电脑键，按下时屏幕上的键会亮：
@@ -51,6 +61,6 @@ ADD SUB OK PLAY = Backspace · \ · Enter · 空格
 ## 存储与采样 {#web-storage}
 
 - 设置、工程和音色存在浏览器里（IndexedDB），目录结构和 SD 卡一样，刷新页面后还在。清除网站数据会把它们删掉。
-- 「Load WAV…」把电脑上的 WAV 放进采样目录 `CardenzaSynth/Samples`，之后在 SAMPLER 的文件列表里就能选到。
+- 「Load WAV…」把电脑上的 WAV 放进共用采样目录 `Shared/Samples`，之后在 SAMPLER 的文件列表里就能选到。
 
 <!-- keywords: 浏览器存储, 导入 wav, 上传采样, 保存在哪, browser storage, indexeddb, load wav, upload sample -->

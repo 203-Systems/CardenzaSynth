@@ -29,7 +29,7 @@ namespace apps {
 
 namespace {
 
-// Session handover files in CardenzaSynth/Session.
+// Session handover files in Apps/Cardenza/Synth/Session.
 constexpr const char* kSessionProject = "session.ccproj";
 constexpr const char* kSessionState = "session.cfg";
 
@@ -101,7 +101,7 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
     rack_.AttachEngine(track, kDefaultKinds[track]);
     sampler_.OnTrackEngineChanged(track, kDefaultKinds[track]);
   }
-  (void)synth::storage::EnsureLayout();
+  storageReady_ = synth::storage::EnsureLayout();
   ApplyMix();
   ApplyMasterFx(synth::ProjectData::DefaultMasterFx());
   // Volume, key LEDs and screen are device settings: the system applied them at boot.
@@ -292,13 +292,9 @@ void GrooveApp::RenderFrame()
   renderMaxUs_ = std::max(renderMaxUs_, elapsed);
   if (++renderFrames_ >= 600)
   {
-    constexpr std::uint32_t kInternalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-    std::printf("Groove: render avg=%luus max=%luus internal=%u min=%u largest=%u psram=%u\n",
-                static_cast<unsigned long>(renderTotalUs_ / renderFrames_), static_cast<unsigned long>(renderMaxUs_),
-                static_cast<unsigned>(heap_caps_get_free_size(kInternalCaps)),
-                static_cast<unsigned>(heap_caps_get_minimum_free_size(kInternalCaps)),
-                static_cast<unsigned>(heap_caps_get_largest_free_block(kInternalCaps)),
-                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+    std::printf("Groove: render avg=%luus max=%luus heap=%u min=%u\n", static_cast<unsigned long>(renderTotalUs_ / renderFrames_),
+                static_cast<unsigned long>(renderMaxUs_), static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)),
+                static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)));
     // The key LED levels this frame (0..f per key, rows top to bottom), to check the lights from
     // the serial console.
     char leds[4 * 15 + 1] = {};
@@ -502,7 +498,7 @@ bool GrooveApp::TrackAudible(std::size_t track) const
 
 void GrooveApp::SetMasterVolume(std::uint8_t percent)
 {
-  // A device setting (Settings/system.cfg) on the system's perceptual curve.
+  // A device setting (System/settings.cfg) on the system's perceptual curve.
   os::storage::SetOutputVolume(percent);
 }
 
@@ -618,6 +614,7 @@ groove::SaveResult GrooveApp::SaveProject(const std::string& name, bool overwrit
   synth::ProjectData project;
   if (!CaptureProject(settings, project, message)) return groove::SaveResult::Failed;
   const auto result = synth::SaveProjectFile(name, project, overwrite);
+  storageReady_ = result != synth::ProjectResult::StorageError;
   switch (result)
   {
     case synth::ProjectResult::Ok: return groove::SaveResult::Ok;
@@ -747,7 +744,7 @@ bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& mes
 // ---------------------------------------------------------------------------------------------
 // System
 
-// Device settings: os::storage keeps them in CardenzaSynth/Settings/system.cfg.
+// Device settings: os::storage keeps them in System/settings.cfg for every app.
 void GrooveApp::SetLedBrightness(std::uint8_t level)
 {
   os::storage::SetKeyLedBrightness(level);
@@ -771,16 +768,11 @@ std::uint8_t GrooveApp::Backlight() const
 groove::SystemInfo GrooveApp::QuerySystem() const
 {
   groove::SystemInfo info;
-  info.storageReady = os::storage::CardMounted();
+  info.backend = Device::BackendName();
+  info.storageReady = storageReady_;
 #if defined(ESP_PLATFORM)
-  constexpr std::uint32_t kInternalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-  constexpr std::uint32_t kPsramCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-  info.totalHeap = heap_caps_get_total_size(kInternalCaps);
-  info.freeHeap = heap_caps_get_free_size(kInternalCaps);
-  info.minimumFreeHeap = heap_caps_get_minimum_free_size(kInternalCaps);
-  info.largestFreeHeap = heap_caps_get_largest_free_block(kInternalCaps);
-  info.freePsram = heap_caps_get_free_size(kPsramCaps);
-  info.totalPsram = heap_caps_get_total_size(kPsramCaps);
+  info.freeHeap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  info.minimumFreeHeap = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
 #endif
   return info;
 }

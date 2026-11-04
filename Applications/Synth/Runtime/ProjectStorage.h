@@ -42,7 +42,7 @@ struct ProjectData {
   std::array<SynthEngineKind, kSynthTrackCount> kinds{};
   std::array<SynthEngineState, kSynthTrackCount> engines{};
   std::array<std::string, kSynthTrackCount> samples{};
-  memory::ExternalPtr<SynthSequencer::ProjectState> sequence;
+  std::unique_ptr<SynthSequencer::ProjectState> sequence;
   std::size_t activeTrack = kDefaultActiveTrack;
   int octave = 0;
   int root = 0;

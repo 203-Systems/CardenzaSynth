@@ -1,6 +1,6 @@
 # Sampling {#sampler}
 
-{{icon:sample}} The SAMPLER engine ({{track:4}} by default) plays a WAV recording. Load samples from the SD card or record one with the built-in microphone. Samples live in `CardenzaSynth/Samples` on the SD card.
+{{icon:sample}} The SAMPLER engine ({{track:4}} by default) plays a WAV recording. Load samples from the SD card or record one with the built-in microphone. All apps share the `Cardenza/Shared/Samples` folder on the card.
 
 Supported files: mono 16-bit PCM WAV, 8–96 kHz sample rate.
 
@@ -28,8 +28,6 @@ OK > sampler-rec @8,40,222,30 | {{key:OK}} starts, {{key:OK}} again stops. The l
 }}
 
 > [!warn] If an unsaved take (a draft) exists, it asks before replacing it, so nothing is lost by accident.
-
-On the hardware, microphone recording temporarily mutes the speaker. Output resumes automatically when recording stops; synthesis and the sequencer keep advancing.
 
 <!-- keywords: record sample, microphone, mic, record audio, vocals, 录采样 -->
 

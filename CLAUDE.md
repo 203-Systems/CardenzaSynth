@@ -4,10 +4,10 @@ The project rules are in AGENT.md; read and follow them: @AGENT.md
 
 ## Hard rule: CardenzaHAL is read-only
 
-`Devices/Cardenza/CardenzaHAL` is the git submodule https://github.com/203-Systems/CardenzaHAL, a dependency we
+`Devices/Cardenza/cardenza` is the git submodule https://github.com/203-Systems/CardenzaHAL, a dependency we
 do not maintain.
 
-- Never edit, add or delete anything under `Devices/Cardenza/CardenzaHAL`, never commit inside it, and never
+- Never edit, add or delete anything under `Devices/Cardenza/cardenza`, never commit inside it, and never
   push to github.com/203-Systems/CardenzaHAL (no fixes, branches, tags or pull requests), even if the
   account could.
 - Pull updates only: `make hal-update`, then commit the new submodule pointer in this repository.

@@ -4,9 +4,8 @@
 
 ## 1. 硬件
 
-- 屏幕 240×135，RGB565，UI 约每 16 ms 重绘。实机以 16×8 像素块检测变化，合并脏区域后分带传输；静态帧跳过传输，每 120 帧完整刷新一次。大面积变化或区域过多时回退到全屏传输，失败后重新同步。
+- 屏幕 240×135，RGB565，全帧刷新，约 60 fps（16 ms 一帧）。
 - 键盘 4 行 × 14 列，每键一颗单色 LED（0–15 级）。另有侧边 HOME 键（GPIO0）。
-- 实机超过 4 个矩阵按键时，HAL 保留已确认键并屏蔽可疑新按键；松键仍通过原有 3 ms 去抖处理。被屏蔽键稳定松开后才能重新按下，不补发仍按住的可疑键；HOME 独立，不计入上限。
 - 单声道扬声器输出；麦克风；SD 卡。
 
 ```text
@@ -63,7 +62,6 @@ FN 是**当前画面的菜单**。按住 FN 时内容区换成菜单：4×4 的�
 - 快捷调节：最常用的三项不用找页面，按住 FN 直接调。演奏区最右边紧挨 GRID 的 2×3 块，上排加、下排减（和右侧 ADD 在 SUB 上面一样）：`6` / `Y` 调 BPM，`7` / `U` 调主音量，`8` / `I` 调八度。按住连续调，屏幕底部弹出新值，这 6 个键在按住 FN 时半亮。
 - Fn + ADD / SUB 是大步调整：宽范围参数 ×10（BPM 一次 10），设置 ×5。
 - 底行列出菜单以外的 Fn 组合（Fn + ESC / TAB / CTRL / PLAY / ADD / SUB 和快捷调节）。
-- 设备设置和应用偏好只持久化到 SD 卡；无卡或写入失败时改动留在 RAM，成功写入前断电会丢失。KEYS、每轨 CHORD / ARP 随格式 6 工程保存，不写应用设置。
 
 **输入画面里的 FN**：文字输入、预设 / 采样列表、确认框等弹窗打开时，按住 FN 不出菜单，而是键帽上的黄色丝印层：`;` `.` `,` `/` 是上、下、左、右，ADD / SUB 一次翻一页。文字输入里 Fn + `,` `/` 左右移动光标，Fn + `;` `.` 跳到开头 / 结尾，Fn + del 删除光标后的字符（不按 FN 的 del 删除光标前的字符）；光标是字符之间的竖线，在末尾时是方块。
 
@@ -98,7 +96,7 @@ PADS 与四周按键上的第二功能：
 | PROJECT | 工程名、是否未保存、四轨摘要（引擎、音色） | 行 0：SAVE / SAVE AS / LOAD（跳到 FILES）/ NEW；行 1：BPM / SWING / TAP / PLAY（LOOP ↔ SONG 开关，SONG 时灯全亮） | 调整 BPM / SWING；ENTER 保存（焦点在 TAP 时是打拍） |
 | FILES | 工程列表 | — | 选择；ENTER 载入（未保存时确认） |
 | KEYS | 两个八度的键盘预览：音阶音带点、根音带横线，按下的音用当前轨颜色亮起 | LAYOUT、SCALE、ROOT、OCTAVE / VELO、LOCK、SELECT | 选中的设置：ADD / SUB 调整，ENTER 切换选项，Fn + ENTER 恢复默认；再按一次已选中的格子切换选项或开关 |
-| SYSTEM | 顶部显示固件版本，之后是 SD 卡、内部 RAM、最大连续空闲块和 PSRAM；底部显示 Git 构建 hash（未提交改动标记 dirty）和 UTC 构建日期时间，每次进来逐行打出 | VOLUME、KEY LED、SCREEN | 同上 |
+| SYSTEM | 设备、音频后端、SD 卡、内存、构建日期（每次进来逐行打出） | VOLUME、KEY LED、SCREEN | 同上 |
 
 键盘（LAYOUT、SCALE、ROOT、OCTAVE、VELO、LOCK）属于工程：随工程保存和载入，改动后工程变为未保存；NEW 的工程从默认键盘开始（PIANO、C MAJOR）。SELECT 是使用习惯，存在应用设置里（`Apps/Cardenza/Synth/settings.cfg`）。BPM / SWING 属于工程，PLAY 与 REC 是演奏状态；SYSTEM 是设备设置（`System/settings.cfg`，所有应用共用）。当前轨的步数在 SEQ TRACK 页，和弦与 ARP 在每条轨道的 INSTR 页。
 

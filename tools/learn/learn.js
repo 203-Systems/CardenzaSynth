@@ -255,8 +255,8 @@
   // ---- The live device ---------------------------------------------------------------------------
   // One simulator (the firmware compiled to WebAssembly, in a frame) for the whole page. It sits
   // over the figure last opened with "try it", in that figure's place; opening another figure moves
-  // it there without restarting it, so only one device is ever operated. Keyboard input goes to
-  // it only while the simulator has focus.
+  // it there without restarting it, so only one device is ever operated. Keys typed while it has
+  // focus, and the keys of a Cardenza on USB, go to it.
   const layer = $('#device-layer');
   const frame = $('#device-frame');
   const toastBox = $('#toast');
@@ -399,6 +399,87 @@
     if (twin && twin !== liveFigure) openDevice(twin, false);
     else placeDevice();
   }
+
+  // ---- A real Cardenza on USB ----------------------------------------------------------------------
+  // The firmware writes every key change to its USB console as "@K<row>,<column>,<0|1>" (HOME:
+  // "@H<0|1>"); Web Serial (Chrome / Edge on a computer) reads them and the live device plays them.
+  const usbButton = $('#usb-btn');
+  const usb = { port: null, reader: null };
+  if ('serial' in navigator) usbButton.hidden = false;
+
+  function usbKey(row, column, down) {
+    if (!liveFigure) {
+      // No device open yet: open the one in the figure nearest the reading position.
+      const figures = $$(`.content[data-l="${lang}"] figure.shot`);
+      const near = figures.find((f) => f.getBoundingClientRect().bottom > 80) || figures[0];
+      if (!near) return;
+      openDevice(near, false);
+      toast('设备已在这一节打开：用机器上的键操作它', 'Opened the device in this section: play it with your Cardenza');
+    }
+    whenBooted().then(() => {
+      const d = device();
+      if (!d) return;
+      if (row < 0) d.home(down, 'usb');
+      else d.press(row, column, down, 'usb');
+    });
+    usbButton.classList.add('blink');
+    setTimeout(() => usbButton.classList.remove('blink'), 90);
+  }
+
+  async function usbDisconnect() {
+    try { if (usb.reader) await usb.reader.cancel(); } catch (error) { /* ignore */ }
+    try { if (usb.port) await usb.port.close(); } catch (error) { /* ignore */ }
+    usb.port = null;
+    usb.reader = null;
+    usbButton.classList.remove('on');
+    const d = device();
+    if (d) d.releaseAll();
+  }
+
+  async function usbConnect() {
+    if (usb.port) {
+      await usbDisconnect();
+      toast('设备已断开', 'Device disconnected');
+      return;
+    }
+    let port;
+    try {
+      port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x303a }] });
+      await port.open({ baudRate: 115200 });
+    } catch (error) {
+      if (error && error.name !== 'NotFoundError') toast('无法打开设备：' + error.message, 'Could not open the device: ' + error.message);
+      return;
+    }
+    usb.port = port;
+    usbButton.classList.add('on');
+    toast('已连接：在机器上按键，操作教程里的设备', 'Connected: keys on your Cardenza play the device in the tutorial');
+    const decoder = new TextDecoderStream();
+    port.readable.pipeTo(decoder.writable).catch(() => {});
+    usb.reader = decoder.readable.getReader();
+    let buffer = '';
+    try {
+      for (;;) {
+        const { value, done } = await usb.reader.read();
+        if (done) break;
+        buffer += value;
+        let newline;
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, newline);
+          buffer = buffer.slice(newline + 1);
+          const key = /@K(\d+),(\d+),([01])/.exec(line);
+          if (key) usbKey(Number(key[1]), Number(key[2]), key[3] === '1');
+          const home = /@H([01])/.exec(line);
+          if (home) usbKey(-1, -1, home[1] === '1');
+        }
+        if (buffer.length > 4096) buffer = buffer.slice(-256);
+      }
+    } catch (error) {
+      toast('设备连接中断', 'The device connection was lost');
+    }
+    await usbDisconnect();
+  }
+  usbButton.addEventListener('click', usbConnect);
+  if ('serial' in navigator) navigator.serial.addEventListener('disconnect', (event) => { if (event.target === usb.port) usbDisconnect(); });
 
   setLang(lang, false);
   if (location.hash.length > 1) setTimeout(fromHash, 0);

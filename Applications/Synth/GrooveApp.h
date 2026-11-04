@@ -19,12 +19,11 @@ namespace apps {
 // The Cardenza groovebox: four engine tracks, the step sequencer, sampler, mixer and project
 // storage behind the terminal / dither UI in Applications/Synth/UI/Groove.
 //
-// Storage (docs/app-storage-protocol.md): all paths are below /CardenzaSynth on the SD card.
-// Projects live in Projects/, preset banks in Presets/<engine>/, and samples in Samples/. FN SETUP
-// play settings (keys.*, arp.*) use Settings/synth.cfg; volume, key LEDs and screen use
-// Settings/system.cfg (os::storage). Neither changes when a project is loaded or created. Suspend
-// attempts to save the working project to Session/ and the next Setup restores a saved session.
-// Without a writable card, settings changes remain only in RAM.
+// Storage (docs/app-storage-protocol.md): projects in Apps/Cardenza/Synth/Projects, preset banks in
+// Apps/Cardenza/Synth/Presets/<engine>, samples in Shared/Samples. The FN SETUP play settings
+// (keys.*, arp.*) are app settings in Apps/Cardenza/Synth/settings.cfg; volume, key LEDs and screen
+// are device settings (os::storage). Neither changes when a project is loaded or created. Suspend
+// saves the working project to Apps/Cardenza/Synth/Session and the next Setup restores it.
 class GrooveApp : public app::Application, public groove::Host {
 public:
   GrooveApp();
@@ -120,6 +119,8 @@ private:
   bool storedMultiSelect_ = false;
   // Tempo last sent to the synced delay.
   std::uint16_t fxTempo_ = 0;
+  // Probed at boot and after saves; the SYSTEM page reads it every frame.
+  bool storageReady_ = false;
   std::uint32_t renderFrames_ = 0;
   std::uint64_t renderTotalUs_ = 0;
   std::uint32_t renderMaxUs_ = 0;

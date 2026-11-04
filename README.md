@@ -55,21 +55,16 @@ FN 是当前画面的菜单。按住 FN 时屏幕的 4×4 格子变成这个画�
 
 设备可以装多个应用（组件），一次运行一个，由设备自带的启动器选择；本固件不带自己的启动器。切换前应用会保存当前工作状态（session），回来时原样恢复。
 
-Synth 的 SD 卡数据集中在 `/CardenzaSynth`，目录和格式见[存储协议](docs/app-storage-protocol.md)：
+SD 卡上每个应用有自己的目录，内置和用户自己写的应用都遵守同一份[存储协议](docs/app-storage-protocol.md)：
 
 ```text
-/sdcard/CardenzaSynth/
-  Settings/system.cfg        设备设置：主音量、按键灯、屏幕亮度、上次的应用、协议版本
-  Settings/synth.cfg         演奏设置：键盘、音阶、和弦、ARP
-  Projects/*.ccproj          工程
-  Presets/<引擎>/            用户音色库 user.ccpreset
-  Samples/*.wav              采样
-  Session/                  工作状态 session.ccproj + session.cfg
+/sdcard/Cardenza/
+  System/settings.cfg        设备设置：主音量、按键灯、屏幕亮度、上次的应用、协议版本
+  Shared/Samples/            所有应用共用的采样
+  Apps/<作者>/<名称>/         settings.cfg、Projects/、Presets/<组>/、Session/
 ```
 
-所有数据都放在 SD 卡的 `/CardenzaSynth` 下。设置文件是 `key=value` 文本；工程仍写格式 v4，音色库仍用格式 v1。设置改动约 1 秒后自动保存；无卡或写入失败时只留在 RAM，每 5 秒重试，成功写入前断电会丢失。固件不读取、写入或擦除 NVS。
-
-固件只使用上面的新目录。旧 `/Cardenza` 布局和更早的 `/CardenzaSynth/{Project,Preset,Sample}` 保持原样，不会自动读取、导入、移动或删除其中的数据；需要迁移时先单独商量。
+Groovebox 是 `Apps/Cardenza/Synth/`：工程在 `Projects/`，用户音色在 `Presets/<引擎>/`，SETUP 的演奏设置在 `settings.cfg`。设置文件是 `key=value` 文本，原子写入；没有 SD 卡时设置暂存在设备内部（NVS），插卡后自动写回卡上。旧版固件的 `/sdcard/CardenzaSynth/{Project,Preset,Sample}` 在第一次开机时自动搬到新位置，不会覆盖或丢失文件。
 
 ## Linux 截图与测试
 
@@ -86,7 +81,7 @@ build/linux/Devices/CardenzaSim/CardenzaSimShot --script tests/groove/tour.scrip
 
 ## 浏览器模拟器
 
-同一套 C++ 代码（GrooveApp、Groove 界面、AMY 音源与运行时、CardenzaSim 设备层）用 Emscripten 编译成 WebAssembly，在网页里显示同样的屏幕和 4×14 键盘（含按键灯），声音来自 `synth::audio::RenderFrames`。电脑键盘按物理位置映射到设备键（数字行 = 第 0 行，Q 行 = 第 1 行，A 行 = 第 2 行，Z 行 = 第 3 行；Esc = ESC，Tab = TAB，Caps / 左 Shift = FN，Ctrl = CTRL，Backspace = ADD，`\` = SUB，Enter = ENTER，空格 = PLAY，Home = HOME）。每个键帽上都标着对应的电脑键。设置、工程和音色保存在浏览器里（IndexedDB，目录结构同 SD 卡），「Load WAV…」可以把 WAV 放进采样目录 `CardenzaSynth/Samples`。
+同一套 C++ 代码（GrooveApp、Groove 界面、AMY 音源与运行时、CardenzaSim 设备层）用 Emscripten 编译成 WebAssembly，在网页里显示同样的屏幕和 4×14 键盘（含按键灯），声音来自 `synth::audio::RenderFrames`。电脑键盘按物理位置映射到设备键（数字行 = 第 0 行，Q 行 = 第 1 行，A 行 = 第 2 行，Z 行 = 第 3 行；Esc = ESC，Tab = TAB，Caps / 左 Shift = FN，Ctrl = CTRL，Backspace = ADD，`\` = SUB，Enter = ENTER，空格 = PLAY，Home = HOME）。每个键帽上都标着对应的电脑键。设置、工程和音色保存在浏览器里（IndexedDB，目录结构同 SD 卡），「Load WAV…」可以把 WAV 放进共用采样目录 `Shared/Samples`。
 
 ```bash
 git clone https://github.com/emscripten-core/emsdk.git ~/emsdk && ~/emsdk/emsdk install latest && ~/emsdk/emsdk activate latest
@@ -108,7 +103,7 @@ ctest --test-dir build/CardenzaSim -C Debug --output-on-failure
 cmake --build build/CardenzaSim --target ValidateArchitecture --config Debug
 ```
 
-程序位于 `build/CardenzaSim/Devices/CardenzaSim/Debug/CardenzaSimDesktop.exe`。模拟器的 SD 卡是程序旁的 `sdcard/`，目录结构见[存储协议](docs/app-storage-protocol.md)（`sdcard/CardenzaSynth/...`）；无卡时设置改动只保留在 RAM。脚本截图参数见 [模拟器说明](Devices/CardenzaSim/README.md)。
+程序位于 `build/CardenzaSim/Devices/CardenzaSim/Debug/CardenzaSimDesktop.exe`。模拟器的 SD 卡是程序旁的 `sdcard/`，目录结构见[存储协议](docs/app-storage-protocol.md)（`sdcard/Cardenza/...`）；没有卡时的设备内部存储是旁边的 `internal/`。脚本截图参数见 [模拟器说明](Devices/CardenzaSim/README.md)。
 
 真实音源回归独立构建：
 

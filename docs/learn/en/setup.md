@@ -122,7 +122,7 @@ hold CTRL + G5 > setup-arp @cells:1,1-2,1 | **ARP**: ARP (mode), RATE, RANGE, GA
 mark cell:1,1 = VOLUME (focused)
 mark cell:1,2 = KEY LED
 mark cell:1,3 = SCREEN
-mark 8,47,190,52 = Version · SD card · memory · build hash and time
+mark 8,47,190,52 = Device · audio backend · SD card · memory · build
 key G1 = Focus: fully lit
 key G2 G3 = Settings: half lit
 }}
@@ -133,7 +133,7 @@ key G2 G3 = Settings: half lit
 | KEY LED | 0–15 | overall brightness of the key lights; while it is focused the pads show the brightness ramp ([[#lights-ramp]]) |
 | SCREEN | shown in % | screen brightness |
 
-The report below is typed out line by line each time you come in. The firmware version is at the top, followed by the SD card (READY or missing, see [[#storage-card]]), internal RAM, its largest free block and PSRAM. The bottom two lines show the Git build hash and build date and time in UTC. A `dirty` suffix means the build includes uncommitted changes, including changes in a submodule. RAM shows the current free space and the lowest free space since boot (MIN); PSRAM shows free space separately, so it does not hide a shortage of internal RAM.
+The report below is typed out line by line each time you come in: the device, the audio backend, the SD card (READY or missing, see [[#storage-card]]), free memory and the firmware's build date.
 
 <!-- keywords: system, volume, master volume, key led, screen brightness, brightness, sd card, device info, build, 屏幕亮度, 系统 -->
 

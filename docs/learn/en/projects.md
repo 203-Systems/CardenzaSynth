@@ -27,46 +27,46 @@ mark 108,74,46,10 = UNSAVED: changes not saved yet
 - With unsaved changes the PROJECT page says UNSAVED next to the name, and SAVE in the FN menu reads UNSAVED; creating or opening another project asks first ({{key:OK}} = yes, {{key:ESC}} = no).
 - The FN menu on PROJECT and FILES has NEW, LOAD and SAVE AS. More in [[#setup-project]] and [[#setup-files]].
 - A NEW project has the default four tracks: {{track:1}} {{track:2}} {{track:3}} {{track:4}}.
-- Projects are written as format v4 (`.ccproj`); v1–v3 and the v5 of development builds also load. Saving writes a temporary file before replacing the old one. Check for SAVED before removing the card or powering off.
+- Projects are written as format v4 (`.ccproj`); v1–v3 and the v5 of development builds also load. Writing is atomic: a temporary file is written first and then replaces the old one, so a power cut never leaves a broken project.
 
 <!-- keywords: save, save project, how to save, save as, new project, open project, load project, unsaved, 保存工程 -->
 
-## Resume a saved session {#project-session}
+## Your work is kept {#project-session}
 
-When the application is suspended or the runtime shuts down, it tries to save the working state (unsaved project changes included) as a session on the SD card. The next start restores a successfully saved session once. This needs a writable card and a saved or discarded sampler take. Cutting power or rebooting into the device's Launcher does not guarantee a session save; save the project first.
+Before switching to another app or an orderly power-off, the working state (unsaved changes included) is stored as a session and restored just as it was when you come back. A session is used only once, so an old state never returns after a power cut.
 
-> [!tip] With a writable SD card, settings (volume, lights, keyboard, ARP and so on) save about a second after you change them; there is nothing to save by hand.
+> [!tip] Settings (volume, lights, keyboard, ARP and so on) reach the SD card about a second after you change them; there is nothing to save by hand.
 
 <!-- keywords: autosave, session, restore, resume, power off, 自动保存 -->
 
 ## Folders on the SD card {#storage-layout}
 
 ```text
-<SD card>/CardenzaSynth/
-  Settings/
-    system.cfg               volume, lights, screen
-    synth.cfg                keyboard, scale, chords, ARP
-  Projects/*.ccproj          projects
-  Presets/<engine>/          saved sounds (user.ccpreset)
-  Samples/*.wav              sample files
-  Session/                  saved session (session.ccproj + session.cfg)
+<SD card>/Cardenza/
+  System/settings.cfg        device settings (volume, lights, screen)
+  Shared/Samples/            samples shared by every app
+  Apps/Cardenza/Synth/
+    settings.cfg             this app's settings (keyboard, scale, chords, arp)
+    Projects/                projects (.ccproj)
+    Presets/<engine>/        sounds you saved
+    Session/                 the working state across an app switch
 ```
 
-The Synth uses only the folders shown above. Older `Cardenza/` and singular `CardenzaSynth/{Project,Preset,Sample}` folders stay untouched: their files are not automatically discovered, imported, moved or deleted. Any migration needs to be discussed separately before it is implemented or run.
+Every app follows the same storage protocol: each app writes only its own folder and the shared sample folder. The folders of older firmware (`CardenzaSynth/Sample`, `CardenzaSynth/Project`) are moved to the new place automatically on the first start.
 
 <!-- keywords: folder, directory, path, sd card layout, where are my files, 目录 -->
 
 ## Settings files {#storage-settings}
 
-`Settings/system.cfg` and `Settings/synth.cfg` are plain text, one `key=value` per line, readable and editable on a computer. For example, in `synth.cfg`:
+`settings.cfg` is plain text, one `key=value` per line, readable and editable on a computer:
 
 ```text
-# Cardenza settings: Cardenza/Synth (storage protocol 2)
+# Cardenza settings: Cardenza/Synth (storage protocol 1)
 keys.scale=4
 arp.latch=1
 ```
 
-Reading is forgiving: broken lines are skipped and unknown keys are kept as they are. This preserves settings compatibility within these files; it does not make older storage locations discoverable.
+Reading is forgiving: broken lines are skipped and unknown keys are kept as they are (newer and older firmware can share a card).
 
 <!-- keywords: settings file, config, cfg, text file, 设置文件 -->
 
@@ -77,8 +77,7 @@ mark 8,66,150,10 = SD card: READY / no card
 mark cells:1,1-1,3 = VOLUME · KEY LED · SCREEN
 }}
 
-- Without a writable SD card, changed device and app settings stay only in RAM. The system retries saving them when the card becomes available; they are lost if you power off first.
+- Without an SD card, device and app settings are kept inside the device for now and written to the card automatically once it is in (retried every 10 seconds).
 - Projects, sounds and samples need the SD card; saving without one reports an error.
-- The hardware checks card connectivity after a failed save and retries a lost card after about five seconds. A full card still counts as present; it needs free space before saving can succeed.
 
 <!-- keywords: no sd card, card missing, storage error, cannot save, sd card not found, 没有卡 -->

@@ -6,22 +6,24 @@
 #include <string_view>
 #include <vector>
 
-// SD-only storage protocol, version 2 (docs/app-storage-protocol.md). All persistent data lives
-// below one product folder. Applications reach the card only through this API:
+// The Cardenza app storage protocol, version 1 (docs/app-storage-protocol.md). Every app, built in
+// or user-made, keeps its files in its own folder on the SD card and reaches the card only through
+// this API:
 //
-//   <card>/CardenzaSynth/
-//     Settings/system.cfg     device settings
-//     Settings/synth.cfg      groovebox play settings
-//     Projects/ Presets/<engine>/ Samples/ Session/
+//   <card>/Cardenza/
+//     System/settings.cfg      device settings (os::storage::SystemSettings)
+//     Shared/Samples/          audio any app may read and write
+//     Apps/<Author>/<Name>/    one folder per app id "Author/Name"
+//       settings.cfg           the app's settings (os::storage::AppSettings)
+//       Projects/ Presets/<group>/ Session/ and any folder of the app's own
 //
-// Other registered apps use Apps/<Author>/<Name>/ on demand; the primary app uses the product
-// root directly. FAT long names are required. Device::Storage provides only card capabilities.
+// Folder names are 8.3-safe. The device layer (Device::Storage) only provides the card root, the
+// mount state and a small internal-flash record store used while the card is missing.
 namespace os::storage {
 
-inline constexpr int kProtocolVersion = 2;
-inline constexpr std::string_view kPrimaryAppId = "Cardenza/Synth";
+inline constexpr int kProtocolVersion = 1;
 
-// <card>/CardenzaSynth and its folders. SystemDirectory is Settings; SharedDirectory is Root.
+// <card>/Cardenza and its system folders.
 std::string Root();
 std::string SystemDirectory();
 std::string SystemSettingsPath();
@@ -43,8 +45,8 @@ public:
   bool Valid() const { return !id_.empty(); }
   const std::string& Id() const { return id_; }
 
-  std::string Root() const;          // product root for the primary app; Apps/<Author>/<Name> otherwise
-  std::string SettingsPath() const;  // Settings/synth.cfg for the primary app; Settings/app.cfg otherwise
+  std::string Root() const;          // Apps/<Author>/<Name>
+  std::string SettingsPath() const;  // .../settings.cfg
   std::string Projects() const;      // .../Projects
   std::string Presets() const;       // .../Presets
   std::string Presets(std::string_view group) const;  // .../Presets/<group>
@@ -59,12 +61,10 @@ private:
 // Card state. CardPresent() asks the device to mount the card when it is not mounted yet (the
 // device decides how often a missing card is probed).
 bool CardPresent();
-// Non-mounting status query for UI; reports the device driver's last known mount state.
-bool CardMounted();
 std::uint64_t CardCapacityBytes();
 std::uint64_t CardFreeBytes();
 
-// Creates CardenzaSynth/, Settings/ and Samples/. False without a writable card.
+// Creates Cardenza/, System/, Shared/, Shared/Samples/ and Apps/. False without a writable card.
 bool EnsureSystemLayout();
 // The system layout plus the app's settings folder, Projects/, Presets/, Session/ and one
 // Presets/<group>/ per entry of `presetGroups`.
@@ -94,8 +94,6 @@ std::vector<DirectoryEntry> ListDirectory(const std::string& path);
 // closed first; an existing file stays as <path>.bak until the new one is in place, because FAT and
 // Windows cannot rename over a file. The parent folder must exist.
 bool WriteFileAtomic(const std::string& path, std::string_view contents);
-// For streaming serializers: notify only after failed file I/O and close/rollback.
-void NotifyWriteFailure();
 // Reads `path`, or <path>.bak when an interrupted write left only the backup. Fails for files over
 // `maxBytes`.
 bool ReadFileWithBackup(const std::string& path, std::string& contents, std::size_t maxBytes);

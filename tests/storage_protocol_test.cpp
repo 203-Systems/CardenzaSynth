@@ -1,5 +1,5 @@
-// Protocol 2: flat CardenzaSynth layout and SD-only settings; earlier layouts remain untouched.
-// The simulator card is taken out and put back without resetting the settings cache.
+// The app storage protocol (docs/app-storage-protocol.md): OS/Storage on the simulator's card and
+// internal-flash store (Devices/CardenzaSim/Storage.cpp), with the SD card taken out and put back.
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -9,12 +9,11 @@
 #include <iostream>
 #include <iterator>
 #include <string>
-#include <utility>
-#include <vector>
 
 #include "Devices/CardenzaSim/SimulatorInput.h"
 #include "Devices/Device.h"
 #include "OS/Storage/DeviceSettings.h"
+#include "OS/Storage/Migration.h"
 #include "OS/Storage/Settings.h"
 #include "OS/Storage/Storage.h"
 
@@ -69,20 +68,18 @@ void ResetCard()
 
 void TestAppPaths()
 {
-  const std::string root = Card().generic_string() + "/CardenzaSynth";
+  const std::string root = Card().generic_string() + "/Cardenza";
   assert(Root() == root);
-  assert(kProtocolVersion == 2);
-  assert(SystemDirectory() == root + "/Settings");
-  assert(SystemSettingsPath() == root + "/Settings/system.cfg");
-  assert(SharedDirectory() == root && SharedSamplesDirectory() == root + "/Samples");
+  assert(SystemSettingsPath() == root + "/System/settings.cfg");
+  assert(SharedSamplesDirectory() == root + "/Shared/Samples");
   const AppFolder synth("Cardenza/Synth");
   assert(synth.Valid() && synth.Id() == "Cardenza/Synth");
-  assert(synth.Root() == root);
-  assert(synth.SettingsPath() == root + "/Settings/synth.cfg");
-  assert(synth.Projects() == root + "/Projects");
-  assert(synth.Presets("DX7") == root + "/Presets/DX7");
-  assert(synth.Session() == root + "/Session");
-  assert(synth.Folder("Wavetables") == root + "/Wavetables");
+  assert(synth.Root() == root + "/Apps/Cardenza/Synth");
+  assert(synth.SettingsPath() == root + "/Apps/Cardenza/Synth/settings.cfg");
+  assert(synth.Projects() == root + "/Apps/Cardenza/Synth/Projects");
+  assert(synth.Presets("DX7") == root + "/Apps/Cardenza/Synth/Presets/DX7");
+  assert(synth.Session() == root + "/Apps/Cardenza/Synth/Session");
+  assert(synth.Folder("Wavetables") == root + "/Apps/Cardenza/Synth/Wavetables");
   assert(synth.Folder("..").empty() && synth.Folder("a/b").empty() && synth.Presets("").empty());
   for (const char* bad : {"", "Synth", "a/b/c", "../x", "a/..", "a b/c", "a/", "/a", "Cardenza/Synth!",
                           "Author/ThisNameIsLongerThan24Chars"})
@@ -94,14 +91,9 @@ void TestAppPaths()
 
   assert(CardPresent());
   assert(EnsureAppLayout(synth, {"DX7", "Juno"}));
-  for (const char* folder : {"Settings", "Samples", "Projects", "Presets/DX7", "Presets/Juno", "Session"})
+  for (const char* folder : {"System", "Shared/Samples", "Apps/Cardenza/Synth/Projects", "Apps/Cardenza/Synth/Presets/DX7",
+                             "Apps/Cardenza/Synth/Presets/Juno", "Apps/Cardenza/Synth/Session"})
     assert(fs::is_directory(fs::path(root) / folder));
-  assert(!fs::exists(fs::path(root) / "Apps") && !fs::exists(Card() / "Cardenza"));
-  const AppFolder other("Other/Tool");
-  assert(other.Root() == root + "/Apps/Other/Tool");
-  assert(other.SettingsPath() == root + "/Apps/Other/Tool/Settings/app.cfg");
-  assert(EnsureAppLayout(other, {}));
-  assert(other.Projects() != synth.Projects() && other.Session() != synth.Session());
   assert(!EnsureAppLayout(AppFolder("bad id"), {}));
   assert(!EnsureAppLayout(synth, {"../escape"}));
   std::cout << "app paths passed\n";
@@ -152,11 +144,11 @@ void TestSettingsRoundTrip()
   assert(!settings.SetString("Bad Key", "1") && !settings.SetString("ok", "line\nbreak"));
   const std::uint32_t revision = settings.Revision();
   assert(settings.SetInt("volume", 42) && settings.Revision() == revision);  // unchanged value: not dirty again
-  assert(settings.Dirty() && settings.Flush() && !settings.Dirty());
+  assert(settings.Dirty() && settings.Flush() && !settings.Dirty() && !settings.PendingCardSync());
   // The app folder is created on demand.
   assert(fs::is_regular_file(app.SettingsPath()));
   const std::string file = ReadText(app.SettingsPath());
-  assert(file.find("# Cardenza settings: Test/RoundTrip (storage protocol 2)\n") == 0);
+  assert(file.find("# Cardenza settings: Test/RoundTrip (storage protocol 1)\n") == 0);
   assert(file.find("\nvolume=42\nlatch=1\nlast=Cardenza/Synth\n") != std::string::npos);
   assert(!fs::exists(app.SettingsPath() + ".tmp") && !fs::exists(app.SettingsPath() + ".bak"));
 
@@ -183,7 +175,7 @@ void TestAtomicWriteRecovery()
 {
   ResetCard();
   assert(EnsureSystemLayout());
-  const std::string path = (fs::path(SystemDirectory()) / "atomic.cfg").generic_string();
+  const std::string path = (Card() / "Cardenza" / "System" / "atomic.cfg").generic_string();
   assert(WriteFileAtomic(path, "first\n") && ReadText(path) == "first\n");
   assert(WriteFileAtomic(path, "second\n") && ReadText(path) == "second\n");
   assert(!fs::exists(path + ".bak") && !fs::exists(path + ".tmp"));
@@ -196,11 +188,11 @@ void TestAtomicWriteRecovery()
   // The next write replaces the leftovers and removes the stale backup.
   assert(WriteFileAtomic(path, "third\n") && ReadText(path) == "third\n");
   assert(!fs::exists(path + ".bak") && !fs::exists(path + ".tmp"));
-  assert(!WriteFileAtomic((fs::path(Root()) / "NoSuchFolder" / "x.cfg").generic_string(), "x"));
+  assert(!WriteFileAtomic((Card() / "Cardenza" / "NoSuchFolder" / "x.cfg").generic_string(), "x"));
 
   // A settings file that only exists as a backup still loads, and the next flush restores it.
   const std::string settingsPath = SystemSettingsPath();
-  assert(WriteFileAtomic(settingsPath, "protocol=2\nsys.volume=33\n"));
+  assert(WriteFileAtomic(settingsPath, "protocol=1\nsys.volume=33\n"));
   fs::rename(settingsPath, settingsPath + ".bak");
   ReloadAllSettings();
   Settings& system = SystemSettings();
@@ -211,47 +203,48 @@ void TestAtomicWriteRecovery()
   std::cout << "atomic write and backup recovery passed\n";
 }
 
-void TestMissingCardRamOnly()
+void TestMissingCardFallback()
 {
   ResetCard();
   Settings& system = SystemSettings();
-  assert(system.SetInt("sys.volume", 50) && system.SetString("future.key", "retained") && FlushAllSettings());
+  assert(system.SetInt("sys.volume", 50) && FlushAllSettings());
   const std::string settingsPath = SystemSettingsPath();
   assert(ReadText(settingsPath).find("sys.volume=50\n") != std::string::npos);
 
-  // Card out: changes stay dirty in RAM; there is no internal persistence or successful save.
+  // Card out: changes stay in RAM, then go to internal flash, not to the card.
   CardenzaSim::Input::SetCardInserted(false);
-  assert(!CardPresent() && !CardMounted() && CardFreeBytes() == 0 && !EnsureSystemLayout());
+  assert(!CardPresent() && CardFreeBytes() == 0 && !EnsureSystemLayout());
   assert(system.SetInt("sys.volume", 70) && system.SetString("boot.app", "Cardenza/Synth"));
-  assert(AnySettingsDirty() && !FlushAllSettings() && system.Dirty());
-  assert(!fs::exists(Internal()));
+  assert(AnySettingsDirty() && FlushAllSettings());
+  assert(!AnySettingsDirty() && AnySettingsPendingCardSync() && system.PendingCardSync());
+  assert(fs::is_regular_file(Internal() / "sys.rec"));
   assert(ReadText(settingsPath).find("sys.volume=50\n") != std::string::npos);  // card untouched
-  // A fresh store while the card is absent uses defaults, proving unsaved edits were RAM-only.
-  Settings restarted("system", settingsPath);
-  restarted.Load();
-  assert(restarted.GetInt("sys.volume", 85) == 85 && !restarted.Has("boot.app"));
-  assert(!FlushAllSettings() && AnySettingsDirty());
-  Settings& app = AppSettings("Test/RamOnly");
-  assert(app.SetInt("keys.octave", 2) && !app.Flush() && app.Dirty());
-  const std::string appPath = AppFolder("Test/RamOnly").SettingsPath();
-  // Model existing files on a card inserted later, including keys never loaded into this cache.
-  WriteText(appPath, "keys.octave=0\nkeys.scale=3\nfuture.app=keep\n");
-  WriteText(settingsPath, ReadText(settingsPath) + "future.inserted=keep too\n");
+  // A restart without the card reads the values back from internal flash.
+  ReloadAllSettings();
+  assert(system.GetInt("sys.volume", 0) == 70 && system.GetString("boot.app") == "Cardenza/Synth" && system.PendingCardSync());
+  // Nothing new to write while the card is still missing: the flush succeeds without rewriting.
+  assert(FlushAllSettings() && system.PendingCardSync());
+  // An app's settings fall back the same way, under their own internal key.
+  Settings& app = AppSettings("Test/Fallback");
+  assert(app.SetInt("keys.octave", 2) && app.Flush() && app.PendingCardSync());
 
-  // No ReloadAllSettings: insertion must preserve RAM edits and merge untouched card keys.
+  // Card back: the next flush copies the internal state to the card and drops the internal copy.
   CardenzaSim::Input::SetCardInserted(true);
-  assert(RefreshAllSettingsFromCard() && system.Dirty() && app.Dirty());
-  assert(system.GetInt("sys.volume", 0) == 70 && system.GetString("future.key") == "retained" &&
-         system.GetString("future.inserted") == "keep too");
-  assert(app.GetInt("keys.octave", 0) == 2 && app.GetInt("keys.scale", 0) == 3 && app.GetString("future.app") == "keep");
-  assert(FlushAllSettings() && !AnySettingsDirty());
+  ReloadAllSettings();  // as at boot: card file + newer internal record
+  assert(system.GetInt("sys.volume", 0) == 70 && system.PendingCardSync() && !system.Dirty());
+  assert(FlushAllSettings());
+  assert(!AnySettingsPendingCardSync() && !fs::exists(Internal() / "sys.rec"));
   const std::string synced = ReadText(settingsPath);
-  assert(synced.find("sys.volume=70\n") != std::string::npos && synced.find("boot.app=Cardenza/Synth\n") != std::string::npos &&
-         synced.find("future.inserted=keep too\n") != std::string::npos);
-  assert(ReadText(appPath).find("keys.octave=2\n") != std::string::npos && ReadText(appPath).find("future.app=keep\n") != std::string::npos);
-  assert(!fs::exists(Internal()));
-  ReleaseAppSettings("Test/RamOnly");
-  std::cout << "missing card RAM-only settings and late insertion passed\n";
+  assert(synced.find("sys.volume=70\n") != std::string::npos && synced.find("boot.app=Cardenza/Synth\n") != std::string::npos);
+  assert(ReadText(AppFolder("Test/Fallback").SettingsPath()).find("keys.octave=2\n") != std::string::npos);
+  assert(fs::is_empty(Internal()));
+  // A record for another store (same key, other scope) is ignored.
+  WriteText(Internal() / "sys.rec", "#! someone-else\nsys.volume=1\n");
+  ReloadAllSettings();
+  assert(system.GetInt("sys.volume", 0) == 70 && !system.PendingCardSync());
+  fs::remove(Internal() / "sys.rec");
+  ReleaseAppSettings("Test/Fallback");
+  std::cout << "missing card fallback and sync passed\n";
 }
 
 void TestDeviceSettings()
@@ -283,74 +276,97 @@ void TestDeviceSettings()
   std::cout << "device settings passed\n";
 }
 
-void TestLegacyLayoutsRemainUntouched()
+std::size_t CountFiles(const fs::path& root)
+{
+  std::size_t count = 0;
+  for (const auto& entry : fs::recursive_directory_iterator(root))
+    count += entry.is_regular_file() ? 1 : 0;
+  return count;
+}
+
+void TestMigration()
 {
   ResetCard();
   const AppFolder synth("Cardenza/Synth");
-  const fs::path original = Card() / "CardenzaSynth";
-  const fs::path previous = Card() / "Cardenza";
-  const fs::path oldSynth = previous / "Apps" / "Cardenza" / "Synth";
-  const std::vector<std::pair<fs::path, std::string>> legacyFiles{
-      {original / "Project" / "ORIGINAL.ccproj", "original project bytes"},
-      {original / "Preset" / "DX7" / "original.ccpreset", "original preset bytes"},
-      {original / "Sample" / "original.wav", "original sample bytes"},
-      {original / "notes.txt", "user notes"},
-      {previous / "System" / "settings.cfg", "protocol=1\nsys.volume=61\nfuture.system=untouched\n"},
-      {previous / "System" / "settings.cfg.bak", "protocol=1\nsys.volume=62\n"},
-      {oldSynth / "settings.cfg", "keys.octave=2\nfuture.synth=untouched\n"},
-      {oldSynth / "settings.cfg.tmp", "uncommitted bytes"},
-      {oldSynth / "Projects" / "PREVIOUS.ccproj", "previous project bytes"},
-      {oldSynth / "Projects" / "RECOVERY.ccproj.bak", "previous recovery bytes"},
-      {oldSynth / "Presets" / "Juno" / "previous.ccpreset", "previous preset bytes"},
-      {oldSynth / "Session" / "session.cfg", "pending=1\nname=PREVIOUS\n"},
-      {previous / "Shared" / "Samples" / "previous.wav", "previous sample bytes"},
-      {previous / "Apps" / "Other" / "Tool" / "settings.cfg", "other.option=untouched\n"},
-  };
-  for (const auto& file : legacyFiles) WriteText(file.first, file.second);
-  assert(EnsureAppLayout(synth, {"DX7", "Juno"}));
-  Settings& system = SystemSettings();
-  Settings& app = AppSettings(synth.Id());
-  assert(system.GetInt("sys.volume", 85) == 85 && !system.Has("future.system"));
-  assert(app.GetInt("keys.octave", 0) == 0 && !app.Has("future.synth"));
-  assert(system.SetInt("sys.volume", 42) && app.SetInt("keys.octave", 1) && FlushAllSettings());
-  assert(ReadText(SystemSettingsPath()).find("sys.volume=42\n") != std::string::npos);
-  assert(ReadText(SystemSettingsPath()).find("future.system") == std::string::npos);
-  assert(ReadText(synth.SettingsPath()).find("keys.octave=1\n") != std::string::npos);
-  assert(ReadText(synth.SettingsPath()).find("future.synth") == std::string::npos);
-  // The ordinary new-layout APIs neither discover nor move documents from either older layout.
-  assert(ListDirectory(synth.Projects()).empty() && ListDirectory(SharedSamplesDirectory()).empty());
-  assert(ListDirectory(synth.Presets("DX7")).empty() && ListDirectory(synth.Presets("Juno")).empty());
-  assert(ListDirectory(synth.Session()).empty());
-  for (const auto& file : legacyFiles) assert(ReadText(file.first) == file.second && fs::is_regular_file(file.first));
-  assert(!fs::exists(Internal()));
-  ReleaseAppSettings(synth.Id());
-  std::cout << "legacy layouts and file bytes remain untouched\n";
+  const fs::path legacy = Card() / "CardenzaSynth";
+  assert(LegacyRoot() == legacy.generic_string());
+  // Nothing to do on a card without the old layout.
+  MigrationResult result = MigrateLegacyLayout(synth);
+  assert(!result.found && result.moved == 0);
+
+  WriteText(legacy / "Project" / "SONG 1.ccproj", "project one");
+  WriteText(legacy / "Project" / "SONG 2.ccproj.bak", "recoverable backup");
+  WriteText(legacy / "Preset" / "DX7" / "user.ccpreset", "dx7 bank");
+  WriteText(legacy / "Preset" / "Juno" / "user.ccpreset", "juno bank");
+  WriteText(legacy / "Sample" / "kick.wav", "RIFF kick");
+  WriteText(legacy / "Sample" / "Loops" / "beat.wav", "RIFF beat");
+  WriteText(legacy / "notes.txt", "the user's own file");
+  result = MigrateLegacyLayout(synth);
+  assert(result.found && result.moved == 6 && result.Complete());
+  assert(ReadText(fs::path(synth.Projects()) / "SONG 1.ccproj") == "project one");
+  assert(ReadText(fs::path(synth.Projects()) / "SONG 2.ccproj.bak") == "recoverable backup");
+  assert(ReadText(fs::path(synth.Presets("DX7")) / "user.ccpreset") == "dx7 bank");
+  assert(ReadText(fs::path(synth.Presets("Juno")) / "user.ccpreset") == "juno bank");
+  // Samples keep their names, so projects that name them still find them.
+  assert(ReadText(fs::path(SharedSamplesDirectory()) / "kick.wav") == "RIFF kick");
+  assert(ReadText(fs::path(SharedSamplesDirectory()) / "Loops" / "beat.wav") == "RIFF beat");
+  // Moved folders are gone; the folder itself stays for the user's own file.
+  assert(!fs::exists(legacy / "Project") && !fs::exists(legacy / "Preset") && !fs::exists(legacy / "Sample"));
+  assert(ReadText(legacy / "notes.txt") == "the user's own file");
+  assert(SystemSettings().GetString("migrate.legacy") == "done" && SystemSettings().GetInt("migrate.left", -1) == 0);
+  assert(ReadText(SystemSettingsPath()).find("migrate.legacy=done\n") != std::string::npos);
+
+  // Idempotent: running again changes nothing.
+  const std::size_t files = CountFiles(Card() / "Cardenza");
+  result = MigrateLegacyLayout(synth);
+  assert(result.moved == 0 && result.conflicts == 0 && result.failed == 0 && CountFiles(Card() / "Cardenza") == files);
+
+  // Old files copied back onto a card that already has the new layout: they merge file by file,
+  // an identical copy is dropped and a different file of the same name never overwrites.
+  WriteText(legacy / "Sample" / "kick.wav", "RIFF kick");                // identical
+  WriteText(legacy / "Sample" / "snare.wav", "RIFF snare");              // new
+  WriteText(legacy / "Project" / "SONG 1.ccproj", "a different song");   // conflict
+  result = MigrateLegacyLayout(synth);
+  assert(result.moved == 1 && result.duplicates == 1 && result.conflicts == 1 && !result.Complete());
+  assert(ReadText(fs::path(SharedSamplesDirectory()) / "snare.wav") == "RIFF snare");
+  assert(ReadText(fs::path(synth.Projects()) / "SONG 1.ccproj") == "project one");  // not overwritten
+  assert(ReadText(legacy / "Project" / "SONG 1.ccproj") == "a different song");     // kept for the user
+  assert(!fs::exists(legacy / "Sample"));
+  assert(SystemSettings().GetString("migrate.legacy") == "partial" && SystemSettings().GetInt("migrate.left", -1) == 1);
+  // Once the user resolves it, the next start finishes the job.
+  fs::rename(legacy / "Project" / "SONG 1.ccproj", legacy / "Project" / "SONG 1 OLD.ccproj");
+  result = MigrateLegacyLayout(synth);
+  assert(result.moved == 1 && result.Complete() && SystemSettings().GetString("migrate.legacy") == "done");
+  assert(ReadText(fs::path(synth.Projects()) / "SONG 1 OLD.ccproj") == "a different song");
+
+  // Nothing happens without a card.
+  WriteText(legacy / "Sample" / "late.wav", "late");
+  CardenzaSim::Input::SetCardInserted(false);
+  result = MigrateLegacyLayout(synth);
+  assert(!result.found && fs::exists(legacy / "Sample" / "late.wav"));
+  CardenzaSim::Input::SetCardInserted(true);
+  assert(MigrateLegacyLayout(synth).moved == 1);
+  std::cout << "legacy migration passed\n";
 }
 
 }  // namespace
 
 int main()
 {
-  // The simulator fixes its card folder under the working directory on first use.
+  // The simulator fixes its card and internal folders under the working directory on first use.
   const auto root = fs::temp_directory_path() /
                     ("cardenza-storage-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   fs::create_directories(root);
   fs::current_path(root);
   assert(fs::path(Device::Storage::RootPath()).filename() == "sdcard");
-  if (!fs::equivalent(Card().parent_path(), root))
-  {
-    std::cerr << "Storage tests require an isolated card under their temporary working directory\n";
-    return 1;
-  }
 
   TestAppPaths();
   TestSettingsFormat();
   TestSettingsRoundTrip();
   TestAtomicWriteRecovery();
-  TestMissingCardRamOnly();
+  TestMissingCardFallback();
   TestDeviceSettings();
-  TestLegacyLayoutsRemainUntouched();
-  assert(!fs::exists(Internal()));
+  TestMigration();
 
   fs::current_path(fs::temp_directory_path());
   fs::remove_all(root);

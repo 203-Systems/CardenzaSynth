@@ -69,7 +69,7 @@ mark cells:4,1-4,4 = Echoes at the current tempo, reverb decay
 
 ## Memory and CPU {#fx-cpu}
 
-PSRAM holds the display framebuffer, sample PCM and sequencer project data. The audio working buffers stay in internal RAM; effect buffers are allocated the first time they are used:
+The board has no PSRAM; effect buffers are allocated the first time they are used:
 
 | Part | Memory |
 |---|---|

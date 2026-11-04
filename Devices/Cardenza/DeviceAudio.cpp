@@ -1,8 +1,5 @@
 #include "Devices/Device.h"
 #include "Devices/DeviceAudio.h"
-#include "Devices/AudioOutputTransfer.h"
-#include "Devices/PcmInputRing.h"
-#include "Devices/Cardenza/AudioDiagnostics.h"
 
 #include <algorithm>
 #include <array>
@@ -18,7 +15,6 @@
 #include <esp_attr.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
 #include <freertos/task.h>
 
 namespace {
@@ -27,18 +23,16 @@ device::SynthAudioRenderProvider g_audioProvider{};
 std::atomic<device::SynthAudioRenderCallback> g_audioRenderCallback{nullptr};
 std::mutex g_audioProviderMutex;
 std::mutex g_audioOutputMutex;
-// Only native I2S writes and clock handoff take this lock. Codec I2C must not.
-std::mutex g_audioTransportMutex;
 std::mutex g_audioInputMutex;
 std::mutex g_audioInputDataMutex;
+bool g_audioOutputEnabled = false;
 std::atomic<bool> g_audioInputEnabled{false};
 std::atomic<bool> g_audioInputOverflow{false};
-std::atomic<bool> g_microphoneOwnsClock{false};
 constexpr std::size_t kInputRingFrames = 16384;
-device::audio::PcmInputRing<kInputRingFrames> g_audioInputRing;
+std::array<std::int16_t, kInputRingFrames> g_audioInputRing{};
+std::size_t g_audioInputHead = 0;
+std::size_t g_audioInputCount = 0;
 TaskHandle_t g_audioInputTask = nullptr;
-i2s_chan_handle_t g_nativeInputChannel = nullptr;
-bool g_nativeInputRunning = false; // Protected by g_audioInputMutex.
 
 std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
 {
@@ -53,250 +47,163 @@ std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
 }
 
 constexpr std::size_t kRenderFrameCount = 256;
-constexpr std::size_t kAudioBufferCount = 4;
-constexpr std::size_t kStartupBufferCount = 3;
-constexpr std::size_t kWriteChunkFrames = 128;
-constexpr UBaseType_t kRenderTaskPriority = 10;
-constexpr UBaseType_t kWriterTaskPriority = 12;
-// ESP-IDF stack sizes are bytes. Keep the existing AMY stack allowance.
-constexpr uint32_t kRenderTaskStackBytes = 16 * 1024;
-constexpr uint32_t kWriterTaskStackBytes = 4096;
-constexpr uint32_t kWriteTimeoutMs = 20;
+constexpr BaseType_t kAudioTaskPinnedCore = 1;
+constexpr UBaseType_t kAudioTaskPriority = 6;
+constexpr uint32_t kAudioTaskStackSize = 16 * 1024;
 constexpr int64_t kRenderBudgetUs =
   static_cast<int64_t>((1000000ULL * kRenderFrameCount) / device::kDefaultSynthAudioSampleRate);
+constexpr uint32_t kTimingLogBlockInterval = 1024;
 constexpr char kLogTag[] = "CardenzaAudio";
-static_assert(configTICK_RATE_HZ == 1000, "Audio queue waits require a 1 ms RTOS tick");
-static_assert(std::atomic<uint32_t>::is_always_lock_free, "Audio counters must be lock-free");
-
 std::mutex g_audioPumpMutex;
 TaskHandle_t g_audioPumpTask = nullptr;
-TaskHandle_t g_audioWriterTask = nullptr;
-std::array<std::array<std::int16_t, kRenderFrameCount>, kAudioBufferCount> g_audioBuffers{};
-StaticQueue_t g_freeQueueStorage{};
-StaticQueue_t g_filledQueueStorage{};
-std::array<uint8_t, kAudioBufferCount> g_freeQueueItems{};
-std::array<uint8_t, kAudioBufferCount> g_filledQueueItems{};
-QueueHandle_t g_freeQueue = nullptr;
-QueueHandle_t g_filledQueue = nullptr;
-std::atomic<bool> g_audioPumpStarted{false};
-uint32_t g_dmaBytes = 0;
 
-struct AudioCounters {
-  std::atomic<uint32_t> renderedBlocks{0};
-  std::atomic<uint32_t> maxRenderUs{0};
-  std::atomic<uint32_t> maxWriteUs{0};
-  std::atomic<uint32_t> renderDeadlineMisses{0};
-  std::atomic<uint32_t> producerWaits{0};
-  std::atomic<uint32_t> shortRenders{0};
-  std::atomic<uint32_t> shortWrites{0};
-  std::atomic<uint32_t> writeFailures{0};
-  std::atomic<uint32_t> txQueueOverflows{0};
-  std::atomic<uint32_t> lastI2sError{ESP_OK};
-  std::atomic<uint32_t> running{0};
-} g_audioCounters;
-
-void RecordMaximum(std::atomic<uint32_t>& counter, int64_t elapsedUs)
+bool EnsureOutputChannelEnabled()
 {
-  const auto elapsed = static_cast<uint32_t>((std::min)(elapsedUs, int64_t{UINT32_MAX}));
-  // Each maximum has exactly one writer; diagnostics only loads it.
-  if (elapsed > counter.load(std::memory_order_relaxed))
-    counter.store(elapsed, std::memory_order_relaxed);
-}
-
-bool IRAM_ATTR OutputQueueOverflow(i2s_chan_handle_t, i2s_event_data_t*, void*)
-{
-  // This is a TX service-delay signal, not an exact count of audible underruns.
-  g_audioCounters.txQueueOverflows.fetch_add(1, std::memory_order_relaxed);
-  return false;
-}
-
-bool PrepareOutputChannel(i2s_chan_handle_t channel)
-{
-  std::lock_guard<std::mutex> lock(g_audioOutputMutex);
-  // HAL initialization already prepared the codec. TX stays disabled until
-  // the writer preloads PCM; consumers only connect native transport here.
-  i2s_chan_info_t info{};
-  if (i2s_channel_get_info(channel, &info) != ESP_OK || info.total_dma_buf_size == 0)
+  const i2s_chan_handle_t outputChannel = CardenzaHAL::Audio::GetTxChannel();
+  if (outputChannel == nullptr)
+  {
     return false;
-  g_dmaBytes = info.total_dma_buf_size;
-  i2s_event_callbacks_t callbacks{};
-  callbacks.on_send_q_ovf = OutputQueueOverflow;
-  return i2s_channel_register_event_callback(channel, &callbacks, nullptr) == ESP_OK;
+  }
+
+  std::lock_guard<std::mutex> lock(g_audioOutputMutex);
+  if (g_audioOutputEnabled)
+  {
+    return true;
+  }
+
+  if (i2s_channel_enable(outputChannel) != ESP_OK)
+  {
+    return false;
+  }
+
+  g_audioOutputEnabled = true;
+  (void)CardenzaHAL::Audio::SetVolume(CardenzaHAL::Audio::GetVolume());
+  return true;
+}
+
+bool WriteOutputFrames(i2s_chan_handle_t outputChannel, const std::int16_t* samples, std::size_t sampleCount)
+{
+  if (outputChannel == nullptr || samples == nullptr || sampleCount == 0)
+  {
+    return false;
+  }
+
+  std::size_t bytesWritten = 0;
+  return i2s_channel_write(outputChannel,
+                           samples,
+                           sampleCount * sizeof(std::int16_t),
+                           &bytesWritten,
+                           portMAX_DELAY) == ESP_OK;
+}
+
+void ResetAudioPumpState()
+{
+  std::lock_guard<std::mutex> lock(g_audioPumpMutex);
+  g_audioPumpTask = nullptr;
 }
 
 void AudioRenderTask(void*)
 {
-  // Both task handles and queues must exist before either worker can run.
-  ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-  std::size_t primedBlocks = 0;
+  if (!EnsureOutputChannelEnabled())
+  {
+    ESP_LOGE(kLogTag, "failed to enable I2S output");
+    ResetAudioPumpState();
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  const i2s_chan_handle_t outputChannel = CardenzaHAL::Audio::GetTxChannel();
+  if (outputChannel == nullptr)
+  {
+    ESP_LOGE(kLogTag, "I2S output channel missing");
+    ResetAudioPumpState();
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  std::array<std::int16_t, kRenderFrameCount> buffer{};
+  std::uint32_t renderedBlocks = 0;
+  int64_t maxRenderUs = 0;
+  int64_t maxWriteUs = 0;
+  std::uint32_t overBudgetRenderCount = 0;
   for (;;)
   {
-    uint8_t index = 0;
-    xQueueReceive(g_freeQueue, &index, portMAX_DELAY);
-    auto& buffer = g_audioBuffers[index];
-    const int64_t startUs = esp_timer_get_time();
-    const std::size_t rendered = RenderSynthFrames(buffer.data(), buffer.size());
-    if (rendered < buffer.size())
+    const int64_t renderStartUs = esp_timer_get_time();
+    RenderSynthFrames(buffer.data(), buffer.size());
+    const int64_t renderEndUs = esp_timer_get_time();
+    const int64_t writeStartUs = esp_timer_get_time();
+
+    if (!WriteOutputFrames(outputChannel, buffer.data(), buffer.size()))
     {
-      std::fill(buffer.begin() + rendered, buffer.end(), 0);
-      g_audioCounters.shortRenders.fetch_add(1, std::memory_order_relaxed);
+      ESP_LOGE(kLogTag, "I2S write failed after %" PRIu32 " rendered blocks", renderedBlocks);
+      ResetAudioPumpState();
+      vTaskDelete(nullptr);
+      return;
     }
-    const int64_t renderUs = esp_timer_get_time() - startUs;
-    RecordMaximum(g_audioCounters.maxRenderUs, renderUs);
+
+    const int64_t writeEndUs = esp_timer_get_time();
+    const int64_t renderUs = renderEndUs - renderStartUs;
+    const int64_t writeUs = writeEndUs - writeStartUs;
+    maxRenderUs = (std::max)(maxRenderUs, renderUs);
+    maxWriteUs = (std::max)(maxWriteUs, writeUs);
     if (renderUs > kRenderBudgetUs)
-      g_audioCounters.renderDeadlineMisses.fetch_add(1, std::memory_order_relaxed);
-    g_audioCounters.renderedBlocks.fetch_add(1, std::memory_order_relaxed);
-    xQueueSend(g_filledQueue, &index, portMAX_DELAY);
-    if (primedBlocks < kStartupBufferCount && ++primedBlocks == kStartupBufferCount)
-      xTaskNotifyGive(g_audioWriterTask);
-  }
-}
-
-void WriteOutputFrames(i2s_chan_handle_t channel, const std::int16_t* samples, std::size_t frames)
-{
-  std::size_t offset = 0;
-  while (offset < frames)
-  {
-    const int64_t startUs = esp_timer_get_time();
-    const int64_t deadlineUs = startUs + kWriteTimeoutMs * 1000;
-    // Small chunks limit each native call to at most one DMA segment boundary.
-    // The native timeout is in milliseconds, not FreeRTOS ticks.
-    const std::size_t chunkFrames = (std::min)(frames - offset, kWriteChunkFrames);
-    const auto result = device::audio::WriteAllPcm(samples + offset, chunkFrames,
-      [&](const void* data, std::size_t bytes) -> device::audio::WriteAttempt {
-        std::lock_guard<std::mutex> transport(g_audioTransportMutex);
-        const int64_t remainingUs = deadlineUs - esp_timer_get_time();
-        if (remainingUs <= 0)
-        {
-          g_audioCounters.lastI2sError.store(ESP_ERR_TIMEOUT, std::memory_order_relaxed);
-          return {0, false};
-        }
-        std::size_t written = 0;
-        const esp_err_t status = i2s_channel_write(channel, data, bytes, &written,
-          static_cast<uint32_t>((remainingUs + 999) / 1000));
-        if (status != ESP_OK)
-          g_audioCounters.lastI2sError.store(static_cast<uint32_t>(status), std::memory_order_relaxed);
-        return {written, status == ESP_OK || status == ESP_ERR_TIMEOUT};
-      });
-    RecordMaximum(g_audioCounters.maxWriteUs, esp_timer_get_time() - startUs);
-    g_audioCounters.shortWrites.fetch_add(result.shortWrites, std::memory_order_relaxed);
-    offset += result.bytesWritten / sizeof(std::int16_t);
-    if (!result.complete)
     {
-      g_audioCounters.writeFailures.fetch_add(1, std::memory_order_relaxed);
-      // Keep ownership of the unwritten tail. A transient timeout must not skip
-      // PCM or return a buffer that the producer could overwrite. Yield even on
-      // an immediate driver error, so UI and recovery remain responsive.
-      vTaskDelay(1);
+      ++overBudgetRenderCount;
+      if (overBudgetRenderCount == 1 || (overBudgetRenderCount % 16) == 0)
+      {
+        ESP_LOGW(kLogTag,
+                 "audio render over budget: render=%" PRId64 "us budget=%" PRId64 "us write=%" PRId64 "us block=%" PRIu32 " overruns=%" PRIu32,
+                 renderUs,
+                 kRenderBudgetUs,
+                 writeUs,
+                 renderedBlocks,
+                 overBudgetRenderCount);
+      }
     }
-  }
-}
 
-void AudioWriterTask(void* parameter)
-{
-  const auto channel = static_cast<i2s_chan_handle_t>(parameter);
-  ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
-  uint8_t index = 0;
-  std::size_t consumedFrames = 0;
-  // Fill native DMA before enabling it. A software block can straddle the end
-  // of DMA, so retain its suffix for the first normal write.
-  for (;;)
-  {
-    xQueueReceive(g_filledQueue, &index, portMAX_DELAY);
-    const auto& buffer = g_audioBuffers[index];
-    std::size_t loadedBytes = 0;
-    const esp_err_t status = i2s_channel_preload_data(channel, buffer.data(),
-      buffer.size() * sizeof(std::int16_t), &loadedBytes);
-    if (loadedBytes > buffer.size() * sizeof(std::int16_t) || loadedBytes % sizeof(std::int16_t) != 0)
-      loadedBytes = 0;
-    consumedFrames = loadedBytes / sizeof(std::int16_t);
-    if (status != ESP_OK)
+    ++renderedBlocks;
+    if ((renderedBlocks % kTimingLogBlockInterval) == 0)
     {
-      g_audioCounters.lastI2sError.store(static_cast<uint32_t>(status), std::memory_order_relaxed);
-      g_audioCounters.writeFailures.fetch_add(1, std::memory_order_relaxed);
+      ESP_LOGI(kLogTag,
+               "audio timing: blocks=%" PRIu32 " max_render=%" PRId64 "us max_write=%" PRId64 "us budget=%" PRId64 "us overruns=%" PRIu32,
+               renderedBlocks,
+               maxRenderUs,
+               maxWriteUs,
+               kRenderBudgetUs,
+               overBudgetRenderCount);
     }
-    if (status != ESP_OK || consumedFrames < buffer.size())
-      break;
-    xQueueSend(g_freeQueue, &index, portMAX_DELAY);
-  }
-
-  esp_err_t status;
-  while ((status = i2s_channel_enable(channel)) != ESP_OK)
-  {
-    g_audioCounters.lastI2sError.store(static_cast<uint32_t>(status), std::memory_order_relaxed);
-    g_audioCounters.writeFailures.fetch_add(1, std::memory_order_relaxed);
-    vTaskDelay(pdMS_TO_TICKS(kWriteTimeoutMs));
-  }
-  g_audioCounters.running.store(1, std::memory_order_relaxed);
-  WriteOutputFrames(channel, g_audioBuffers[index].data() + consumedFrames, kRenderFrameCount - consumedFrames);
-  xQueueSend(g_freeQueue, &index, portMAX_DELAY);
-
-  for (;;)
-  {
-    if (xQueueReceive(g_filledQueue, &index, pdMS_TO_TICKS(2)) != pdTRUE)
-    {
-      g_audioCounters.producerWaits.fetch_add(1, std::memory_order_relaxed);
-      // Empty software buffers do not mean native DMA has run dry. Wait for the
-      // next real block instead of inserting silence ahead of arriving PCM.
-      // HAL auto_clear supplies zeroes only if a DMA segment actually drains.
-      xQueueReceive(g_filledQueue, &index, portMAX_DELAY);
-    }
-    WriteOutputFrames(channel, g_audioBuffers[index].data(), kRenderFrameCount);
-    xQueueSend(g_freeQueue, &index, portMAX_DELAY);
   }
 }
 
 bool EnsureAudioPumpStarted()
 {
   std::lock_guard<std::mutex> lock(g_audioPumpMutex);
+
   if (g_audioPumpTask != nullptr)
-    return true;
-  // Mono: one sample per frame, the HAL sends it to both codec slots.
-  if (!CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO))
-    return false;
-  const auto channel = CardenzaHAL::Audio::GetTxChannel();
-  if (channel == nullptr || !PrepareOutputChannel(channel))
   {
-    ESP_LOGE(kLogTag, "audio output preparation failed");
+    return true;
+  }
+  // Mono: one sample per frame, the HAL sends it to both codec slots.
+  if (!CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO) || CardenzaHAL::Audio::GetTxChannel() == nullptr)
+  {
+    ESP_LOGW(kLogTag, "audio output not ready");
     return false;
   }
 
-  g_freeQueue = xQueueCreateStatic(kAudioBufferCount, sizeof(uint8_t), g_freeQueueItems.data(), &g_freeQueueStorage);
-  g_filledQueue = xQueueCreateStatic(kAudioBufferCount, sizeof(uint8_t), g_filledQueueItems.data(), &g_filledQueueStorage);
-  for (uint8_t index = 0; index < kAudioBufferCount; ++index)
-    xQueueSend(g_freeQueue, &index, 0);
-
+  TaskHandle_t taskHandle = nullptr;
   BaseType_t created = pdFAIL;
 #if portNUM_PROCESSORS > 1
-  created = xTaskCreatePinnedToCore(AudioWriterTask, "synth_i2s", kWriterTaskStackBytes, channel,
-    kWriterTaskPriority, &g_audioWriterTask, 0);
+  created = xTaskCreatePinnedToCore(AudioRenderTask, "synth_audio", kAudioTaskStackSize, nullptr, kAudioTaskPriority, &taskHandle, kAudioTaskPinnedCore);
 #else
-  created = xTaskCreate(AudioWriterTask, "synth_i2s", kWriterTaskStackBytes, channel,
-    kWriterTaskPriority, &g_audioWriterTask);
+  created = xTaskCreate(AudioRenderTask, "synth_audio", kAudioTaskStackSize, nullptr, kAudioTaskPriority, &taskHandle);
 #endif
   if (created != pdPASS)
   {
-    ESP_LOGE(kLogTag, "failed to create synth_i2s task");
+    ESP_LOGE(kLogTag, "failed to create synth_audio task");
     return false;
   }
-#if portNUM_PROCESSORS > 1
-  created = xTaskCreatePinnedToCore(AudioRenderTask, "synth_render", kRenderTaskStackBytes, nullptr,
-    kRenderTaskPriority, &g_audioPumpTask, 1);
-#else
-  created = xTaskCreate(AudioRenderTask, "synth_render", kRenderTaskStackBytes, nullptr,
-    kRenderTaskPriority, &g_audioPumpTask);
-#endif
-  if (created != pdPASS)
-  {
-    // The writer is still blocked on its first notification.
-    vTaskDelete(g_audioWriterTask);
-    g_audioWriterTask = nullptr;
-    ESP_LOGE(kLogTag, "failed to create synth_render task");
-    return false;
-  }
-  g_audioPumpStarted.store(true, std::memory_order_release);
-  xTaskNotifyGive(g_audioPumpTask);
+
+  g_audioPumpTask = taskHandle;
   return true;
 }
 
@@ -329,37 +236,18 @@ void AudioInputTask(void*)
       }
       const std::size_t count = bytesRead / sizeof(std::int16_t);
       std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
-      if (!g_audioInputRing.Write(frames.data(), count))
+      if (count > kInputRingFrames - g_audioInputCount)
       {
         g_audioInputOverflow.store(true, std::memory_order_relaxed);
+        continue;
       }
+      for (std::size_t i = 0; i < count; ++i)
+      {
+        g_audioInputRing[(g_audioInputHead + g_audioInputCount + i) % kInputRingFrames] = frames[i];
+      }
+      g_audioInputCount += count;
     }
   }
-}
-
-bool RestoreSpeakerOutput()
-{
-  if (g_nativeInputRunning)
-  {
-    if (i2s_channel_disable(g_nativeInputChannel) != ESP_OK) return false;
-    g_nativeInputRunning = false;
-  }
-  const auto channel = CardenzaHAL::Audio::GetTxChannel();
-  if (channel == nullptr) return false;
-  {
-    std::lock_guard<std::mutex> transport(g_audioTransportMutex);
-    const esp_err_t stopped = i2s_channel_disable(channel);
-    if (stopped != ESP_OK && stopped != ESP_ERR_INVALID_STATE) return false;
-    g_audioCounters.running.store(0, std::memory_order_relaxed);
-    if (!CardenzaHAL::Audio::RestoreOutputPins() || i2s_channel_enable(channel) != ESP_OK) return false;
-    g_audioCounters.running.store(1, std::memory_order_relaxed);
-    g_microphoneOwnsClock.store(false, std::memory_order_release);
-  }
-  // I2S is already running, with a muted codec, while its control sequence runs.
-  // This also lets the writer replace any samples retained by the native DMA.
-  if (!CardenzaHAL::Audio::Init())
-    ESP_LOGW(kLogTag, "speaker clocks restored; codec recovery pending");
-  return true;
 }
 
 }  // namespace
@@ -368,8 +256,7 @@ namespace Device::Audio {
 
 void SetOutputVolume(std::uint8_t percent)
 {
-  // Hardware volume is applied once in the codec; track gain belongs to the DSP.
-  std::lock_guard<std::mutex> lock(g_audioOutputMutex);
+  // Cached by the HAL (codec register) and also applied to every rendered block by AudioRenderTask.
   (void)CardenzaHAL::Audio::SetVolume((std::min)(percent, std::uint8_t{100}));
 }
 
@@ -385,38 +272,17 @@ InputStreamInfo InputInfo()
 
 InputStatus StartInput()
 {
+  const i2s_chan_handle_t inputChannel = CardenzaHAL::Mic::InputChannel();
+  if (inputChannel == nullptr)
+  {
+    return InputStatus::NotReady;
+  }
+
   std::lock_guard<std::mutex> lock(g_audioInputMutex);
   if (g_audioInputEnabled)
   {
     return InputStatus::Ready;
   }
-
-  if (!g_audioCounters.running.load(std::memory_order_relaxed)) return InputStatus::NotReady;
-  g_microphoneOwnsClock.store(true, std::memory_order_release);
-  const auto failed = [] {
-    if (!RestoreSpeakerOutput()) ESP_LOGE(kLogTag, "speaker clock restoration failed");
-    return InputStatus::NotReady;
-  };
-  // GPIO43 is physically shared, as on Cardputer v1.1. Standby the DAC before
-  // switching it to the PDM clock. Keep TX draining at its normal rate while
-  // recording so the synth and sequencer continue to advance without a burst.
-  if (!CardenzaHAL::Audio::StandbyCodec()) return failed();
-  i2s_chan_handle_t inputChannel = nullptr;
-  {
-    std::lock_guard<std::mutex> transport(g_audioTransportMutex);
-    const auto output = CardenzaHAL::Audio::GetTxChannel();
-    if (i2s_channel_disable(output) == ESP_OK)
-    {
-      g_audioCounters.running.store(0, std::memory_order_relaxed);
-      inputChannel = CardenzaHAL::Mic::InputChannel();
-      if (inputChannel != nullptr && !CardenzaHAL::Mic::RestoreInputPins()) inputChannel = nullptr;
-      if (i2s_channel_enable(output) == ESP_OK)
-        g_audioCounters.running.store(1, std::memory_order_relaxed);
-      else inputChannel = nullptr;
-    }
-  }
-  if (inputChannel == nullptr) return failed();
-  g_nativeInputChannel = inputChannel;
 
   if (g_audioInputTask == nullptr)
   {
@@ -425,19 +291,19 @@ InputStatus StartInput()
     if (i2s_channel_register_event_callback(inputChannel, &callbacks, nullptr) != ESP_OK ||
         xTaskCreate(AudioInputTask, "sample_input", 4096, nullptr, 7, &g_audioInputTask) != pdPASS)
     {
-      return failed();
+      return InputStatus::NotReady;
     }
   }
   {
     std::lock_guard<std::mutex> dataLock(g_audioInputDataMutex);
-    g_audioInputRing.Reset();
+    g_audioInputHead = 0;
+    g_audioInputCount = 0;
     g_audioInputOverflow.store(false, std::memory_order_relaxed);
   }
   if (i2s_channel_enable(inputChannel) != ESP_OK)
   {
-    return failed();
+    return InputStatus::NotReady;
   }
-  g_nativeInputRunning = true;
 
   g_audioInputEnabled.store(true, std::memory_order_release);
   xTaskNotifyGive(g_audioInputTask);
@@ -447,10 +313,16 @@ InputStatus StartInput()
 void StopInput()
 {
   // Clear before waiting on the read mutex, so the higher-priority reader exits.
-  g_audioInputEnabled.store(false, std::memory_order_release);
+  if (!g_audioInputEnabled.exchange(false, std::memory_order_acq_rel))
+  {
+    return;
+  }
   std::lock_guard<std::mutex> lock(g_audioInputMutex);
-  if (g_microphoneOwnsClock.load(std::memory_order_acquire) && !RestoreSpeakerOutput())
-    ESP_LOGE(kLogTag, "speaker clock restoration failed");
+
+  if (const i2s_chan_handle_t inputChannel = CardenzaHAL::Mic::InputChannel(); inputChannel != nullptr)
+  {
+    (void)i2s_channel_disable(inputChannel);
+  }
 }
 
 InputStatus ReadInputFrames(std::int16_t* destination,
@@ -479,7 +351,13 @@ InputStatus ReadInputFrames(std::int16_t* destination,
         ESP_LOGW(kLogTag, "microphone input overflow; recording must stop");
         return InputStatus::Overflow;
       }
-      framesRead = g_audioInputRing.Read(destination, frameCount);
+      framesRead = std::min(frameCount, g_audioInputCount);
+      for (std::size_t i = 0; i < framesRead; ++i)
+      {
+        destination[i] = g_audioInputRing[(g_audioInputHead + i) % kInputRingFrames];
+      }
+      g_audioInputHead = (g_audioInputHead + framesRead) % kInputRingFrames;
+      g_audioInputCount -= framesRead;
     }
     if (framesRead != 0 || timeoutMs == 0 || esp_timer_get_time() >= deadline)
     {
@@ -496,54 +374,6 @@ InputStatus ReadInputFrames(std::int16_t* destination,
 }  // namespace Device::Audio
 
 namespace device {
-
-void PollAudioRecovery()
-{
-  if (g_audioInputEnabled.load(std::memory_order_acquire) ||
-      g_audioRenderCallback.load(std::memory_order_acquire) == nullptr) return;
-  if (CardenzaHAL::Audio::IsCodecReady() && !g_microphoneOwnsClock.load(std::memory_order_acquire)) return;
-  static int64_t nextAttemptUs = 0;
-  const int64_t now = esp_timer_get_time();
-  if (now < nextAttemptUs) return;
-  nextAttemptUs = now + 1000000;
-  std::unique_lock<std::mutex> input(g_audioInputMutex, std::try_to_lock);
-  if (!input.owns_lock() || g_audioInputEnabled.load(std::memory_order_acquire)) return;
-  if (g_microphoneOwnsClock.load(std::memory_order_acquire))
-    (void)RestoreSpeakerOutput();
-  else if (!g_audioPumpStarted.load(std::memory_order_acquire))
-    (void)EnsureAudioPumpStarted();
-  else if (g_audioCounters.running.load(std::memory_order_relaxed))
-    (void)CardenzaHAL::Audio::Init();
-}
-
-void PollAudioDiagnostics()
-{
-  static int64_t lastLogUs = 0;
-  const int64_t nowUs = esp_timer_get_time();
-  if (!g_audioPumpStarted.load(std::memory_order_acquire) || nowUs - lastLogUs < 5000000)
-    return;
-  lastLogUs = nowUs;
-  ESP_LOGI(kLogTag,
-    "audio: blocks=%" PRIu32 " render_max=%" PRIu32 "us budget=%" PRId64
-    "us misses=%" PRIu32 " write_max=%" PRIu32 "us producer_waits=%" PRIu32
-    " short_render=%" PRIu32 " short_write=%" PRIu32 " write_fail=%" PRIu32
-    " tx_q_overflow=%" PRIu32 " last_error=0x%" PRIx32 " running=%" PRIu32
-    " ready=%u dma_bytes=%" PRIu32 " codec=%u mic_clock=%u",
-    g_audioCounters.renderedBlocks.load(std::memory_order_relaxed),
-    g_audioCounters.maxRenderUs.load(std::memory_order_relaxed), kRenderBudgetUs,
-    g_audioCounters.renderDeadlineMisses.load(std::memory_order_relaxed),
-    g_audioCounters.maxWriteUs.load(std::memory_order_relaxed),
-    g_audioCounters.producerWaits.load(std::memory_order_relaxed),
-    g_audioCounters.shortRenders.load(std::memory_order_relaxed),
-    g_audioCounters.shortWrites.load(std::memory_order_relaxed),
-    g_audioCounters.writeFailures.load(std::memory_order_relaxed),
-    g_audioCounters.txQueueOverflows.load(std::memory_order_relaxed),
-    g_audioCounters.lastI2sError.load(std::memory_order_relaxed),
-    g_audioCounters.running.load(std::memory_order_relaxed),
-    static_cast<unsigned>(uxQueueMessagesWaiting(g_filledQueue)), g_dmaBytes,
-    static_cast<unsigned>(CardenzaHAL::Audio::IsCodecReady()),
-    static_cast<unsigned>(g_microphoneOwnsClock.load(std::memory_order_relaxed)));
-}
 
 void SetSynthAudioRenderProvider(SynthAudioRenderProvider provider)
 {

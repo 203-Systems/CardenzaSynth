@@ -19,7 +19,7 @@ const cases = [
   ['音阶锁定', 'zh', 'play-lock'], ['scale', 'en', 'play-scale'], ['电脑键盘', 'zh', 'web-keys'], ['fn面板', 'zh', 'fn-panel'],
   ['sd卡', 'zh', 'storage-card'], ['delete pattern', 'en', 'seq-patterns'], ['换音色', 'zh', 'instr-voice'], ['reverb', 'en', 'fx-sends'],
   ['sequencer', 'en', 'seq'], ['灯为什么全亮', 'zh', 'lights-states'], ['led brightness', 'en', 'lights-ramp'],
-  ['屏幕亮度', 'zh', 'fn-pages'], ['跟着操作', 'zh', 'web-live'], ['try it live', 'en', 'web-live'], ['dx7 算法', 'zh', 'engine-dx7'], ['juno filter', 'en', 'engine-juno'], ['采样', 'zh', 'sampler'],
+  ['屏幕亮度', 'zh', 'fn-pages'], ['usb 连接', 'zh', 'web-usb'], ['connect my cardenza', 'en', 'web-usb'], ['跟着操作', 'zh', 'web-live'], ['try it live', 'en', 'web-live'], ['dx7 算法', 'zh', 'engine-dx7'], ['juno filter', 'en', 'engine-juno'], ['采样', 'zh', 'sampler'],
 ];
 
 let failed = 0;

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
-#include "Library/Synth/Core/SynthStorage.h"
 
 #include <algorithm>
 #include <array>
@@ -11,6 +10,10 @@
 #include <new>
 #include <string>
 #include <string_view>
+
+#if defined(ESP_PLATFORM)
+#include <esp_heap_caps.h>
+#endif
 
 namespace synth::sampler {
 
@@ -24,13 +27,22 @@ inline std::shared_ptr<audio::SampleBuffer> AllocateFrames(std::size_t frameCoun
   {
     return {};
   }
-  auto frames = memory::MakeExternalArray<std::int16_t>(frameCount);
+#if defined(ESP_PLATFORM)
+  // Keep room for file IO, event queues and the UI on boards without PSRAM.
+  constexpr std::size_t reserveBytes = 32 * 1024;
+  const std::size_t bytes = frameCount * sizeof(std::int16_t);
+  if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < bytes + reserveBytes ||
+      heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < bytes)
+  {
+    return {};
+  }
+#endif
+  std::unique_ptr<std::int16_t[]> frames(new (std::nothrow) std::int16_t[frameCount]);
   if (!frames)
   {
     return {};
   }
-  std::shared_ptr<audio::SampleBuffer> buffer(new (std::nothrow) audio::SampleBuffer());
-  if (!buffer) return {};
+  auto buffer = std::make_shared<audio::SampleBuffer>();
   buffer->frames = std::move(frames);
   buffer->frameCount = frameCount;
   return buffer;
@@ -194,7 +206,6 @@ inline bool WriteMono16Wav(const std::string& path, const std::int16_t* frames,
   {
     return false;
   }
-  const auto failed = [] { storage::NotifyWriteFailure(); return false; };
   std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
   const auto bytes = static_cast<std::uint32_t>(frameCount * sizeof(std::int16_t));
   file.write("RIFF", 4);
@@ -215,14 +226,14 @@ inline bool WriteMono16Wav(const std::string& path, const std::int16_t* frames,
   if (!file)
   {
     std::remove(temporary.c_str());
-    return failed();
+    return false;
   }
 
   const bool hadOriginal = std::ifstream(path, std::ios::binary).good();
   if (hadOriginal && std::rename(path.c_str(), backup.c_str()) != 0)
   {
     std::remove(temporary.c_str());
-    return failed();
+    return false;
   }
   if (std::rename(temporary.c_str(), path.c_str()) != 0)
   {
@@ -232,7 +243,7 @@ inline bool WriteMono16Wav(const std::string& path, const std::int16_t* frames,
       (void)std::rename(backup.c_str(), path.c_str());
     }
     std::remove(temporary.c_str());
-    return failed();
+    return false;
   }
   if (hadOriginal)
   {

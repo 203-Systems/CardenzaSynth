@@ -501,23 +501,11 @@ SYNTH_FX_HOT std::uint8_t ApplyTrackGainToAmyVoice(std::uint16_t osc, std::int32
 
   if (startQ16 != kTrackGainUnityQ16 || endQ16 != kTrackGainUnityQ16)
   {
-    if (startQ16 == endQ16)
+    const std::int32_t deltaQ16 = endQ16 - startQ16;
+    for (std::uint16_t index = 0; index < length; ++index)
     {
-      // A settled fader needs only the Q16 multiply. Keep the signed multiply/shift identical
-      // to the ramp path, without doing a division by the block length for every sample.
-      for (std::uint16_t index = 0; index < length; ++index)
-      {
-        buffer[index] = static_cast<std::int32_t>((static_cast<std::int64_t>(buffer[index]) * startQ16) >> 16);
-      }
-    }
-    else
-    {
-      const std::int32_t deltaQ16 = endQ16 - startQ16;
-      for (std::uint16_t index = 0; index < length; ++index)
-      {
-        const std::int64_t gainQ16 = startQ16 + (deltaQ16 * static_cast<std::int32_t>(index)) / static_cast<std::int32_t>(length);
-        buffer[index] = static_cast<std::int32_t>((static_cast<std::int64_t>(buffer[index]) * gainQ16) >> 16);
-      }
+      const std::int64_t gainQ16 = startQ16 + (deltaQ16 * static_cast<std::int32_t>(index)) / static_cast<std::int32_t>(length);
+      buffer[index] = static_cast<std::int32_t>((static_cast<std::int64_t>(buffer[index]) * gainQ16) >> 16);
     }
   }
   // Sends only: the (post-fader) voice also feeds the delay and reverb sends.
@@ -577,17 +565,6 @@ void EnsureAmyInitialized()
     config.features.echo = 0;
     config.features.chorus = 0;
   #if defined(ESP_PLATFORM)
-    // heap_caps_malloc(DEFAULT) can use PSRAM even with CAPS_ALLOC mode. Pin
-    // AMY's render state and working blocks explicitly to internal, byte-addressable RAM.
-    constexpr std::uint32_t kAmyRamCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-    config.ram_caps_events = kAmyRamCaps;
-    config.ram_caps_synth = kAmyRamCaps;
-    config.ram_caps_oscs = kAmyRamCaps;
-    config.ram_caps_block = kAmyRamCaps;
-    config.ram_caps_fbl = kAmyRamCaps;
-    config.ram_caps_delay = kAmyRamCaps;
-    config.ram_caps_sample = kAmyRamCaps;
-    config.ram_caps_sysex = kAmyRamCaps;
     config.platform.multicore = kAmyUseExperimentalMulticore ? 1 : 0;
     config.platform.multithread = 0;
   #else
@@ -599,8 +576,6 @@ void EnsureAmyInitialized()
     config.max_synths = kAmyMaxSynths;
     config.max_voices = kAmyMaxVoices;
     config.max_oscs = kAmyMaxOscs;
-    // Cardenza owns its track effects and mixes AMY into one shared stereo bus.
-    config.max_buses = 1;
     config.amy_external_render_hook = ApplyTrackGainToAmyVoice;
     amy_start(config);
     g_amyInitialized = true;
@@ -618,18 +593,6 @@ void SendAmyNoteEventNoLock(const EngineState& engine, std::uint8_t note, float 
   event.synth = static_cast<uint16_t>(engine.synthId);
   event.midi_note = static_cast<uint16_t>(std::clamp(static_cast<int>(note) + engine.noteOffset, 0, 127));
   event.velocity = velocity;
-  if (engine.kind == SynthEngineKind::Drums && note != 0)
-  {
-    const auto pad = std::find(kDrumNotes.begin(), kDrumNotes.end(), note);
-    if (pad == kDrumNotes.end()) return;
-    // AMY no longer has its fixed GM-to-tiny-PCM drum flag. Preserve this
-    // kit's eight sounds explicitly without depending on MIDI-channel mappings.
-    constexpr std::array<std::uint16_t, 8> presets{{1, 2, 6, 7, 9, 8, 10, 0}};
-    event.preset = presets[pad - kDrumNotes.begin()];
-    event.midi_note = amy_embed::pcm_map[event.preset].midinote;
-    event.wave = PCM;
-    event.feedback = 0;
-  }
   amy_add_event(&event);
 }
 
@@ -749,7 +712,7 @@ void ApplyJunoParameterNoLock(EngineState& engine, std::string_view id, int valu
   if (id == "vca.level" || group == "env." || vcaMode)
   {
     auto event = SynthEvent(engine, 0);
-    event.amp_coefs[amy_embed::COEF_CONST] = normalized(10) * factory::kJunoGain[std::clamp(engine.patchNumber, 0, 127)];
+    event.amp_coefs[amy_embed::COEF_CONST] = normalized(10);
     // Gate mode (amy/juno.py update_env): the VCA follows a gate on envelope 0 and the ADSR moves
     // to envelope 1, where only the VCF reads it.
     const bool gate = (p[17] & 4) != 0;
@@ -966,7 +929,7 @@ void ConfigureAmySynthNoLock(EngineState& engine)
     event.oscs_per_voice = 1;
     event.wave = PCM;
     // Do not use AMY's IGNORE_NOTE_OFFS flag: it also suppresses explicit stop.
-    event.synth_flags = 0;
+    event.synth_flags = _SYNTH_FLAGS_MIDI_DRUMS;
     event.amp_coefs[amy_embed::COEF_CONST] = 5.0f * Normalize(engine.drumMaster, 0, 127);
   }
   else
@@ -1673,7 +1636,7 @@ float AmyVoiceToMixScale()
 {
   constexpr float kOne = 8388608.0f;  // 1.0 in S8.23
   const auto toSample = [](float value) { return static_cast<std::int32_t>(value * kOne); };
-  const std::int32_t volume = ((toSample(0.1f) >> 10) * (toSample(amy_embed::amy_global.volume[0]) >> 9)) >> 4;
+  const std::int32_t volume = ((toSample(0.1f) >> 10) * (toSample(amy_embed::amy_global.volume) >> 9)) >> 4;
   const std::int32_t pan = toSample(amy_embed::dsps_sqrtf_f32_ansi(0.5f));
   return static_cast<float>(volume >> 12) / 2048.0f * static_cast<float>(pan >> 12) / 2048.0f / kOne * kAmyOutputShift;
 }
@@ -2286,10 +2249,9 @@ bool FxBusAvailable(std::size_t bus)
 
 void WarmUp()
 {
+  std::array<std::int16_t, kAmyFramesPerBlock> scratch{};
   std::lock_guard<std::mutex> lock(g_renderMutex);
-  // Allocate the backend before the device starts requesting audio. Engine changes remain
-  // queued for the render thread; rendering scratch audio here would skip live voices and tails.
-  EnsureAmyInitialized();
+  (void)RenderFramesNoLock(scratch.data(), scratch.size());
 }
 
 std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)

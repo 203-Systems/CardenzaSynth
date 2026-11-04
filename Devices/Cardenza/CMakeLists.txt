@@ -1,13 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
 get_filename_component(CARDENZA_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
-include(${CARDENZA_ROOT}/cmake/FirmwareVersion.cmake)
-cardenza_read_firmware_version("${CARDENZA_ROOT}" PROJECT_VER)
 set(CARDENZA_FIRMWARE_BUILD_DIR "${CARDENZA_ROOT}/build/Cardenza")
 set(CARDENZA_IDF_PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(CARDENZA_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe")
 option(CARDENZA_AMY_EXPERIMENTAL_MULTICORE "Enable experimental AMY ESP32 multicore rendering" OFF)
-option(CARDENZA_ALLOW_LOCAL_HAL_CHANGES "Build explicitly user-approved local HAL edits" OFF)
 # The effects' per-sample kernels (Library/Synth/Audio/Fx) in IRAM instead of flash: no flash-cache
 # misses while AMY competes for the 16 KB instruction cache, at the cost of internal RAM.
 option(CARDENZA_FX_IRAM "Place the audio effects' per-sample kernels in IRAM" OFF)
@@ -28,7 +25,7 @@ if(DEFINED COMPONENT_DIR)
             ${AMY_C_SOURCES}
         INCLUDE_DIRS
             ${CARDENZA_ROOT}
-            ${CMAKE_CURRENT_LIST_DIR}/CardenzaHAL
+            ${CMAKE_CURRENT_LIST_DIR}/cardenza
             ${AMY_SRC_DIR}
         REQUIRES
             driver
@@ -38,12 +35,11 @@ if(DEFINED COMPONENT_DIR)
             fatfs
             freertos
             log
+            nvs_flash
             pthread
             sdmmc
             vfs
     )
-
-    cardenza_target_build_info(${COMPONENT_LIB} "${CARDENZA_ROOT}")
 
     target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
     set_property(TARGET ${COMPONENT_LIB} PROPERTY C_STANDARD 11)
@@ -81,17 +77,6 @@ if(DEFINED COMPONENT_DIR)
         ${AMY_C_SOURCES}
     )
     set_source_files_properties(${CARDENZA_AUDIO_HOT_SOURCES} PROPERTIES COMPILE_OPTIONS "-O3")
-
-    if(CONFIG_STDATOMIC_S32C1I_SPIRAM_WORKAROUND)
-        # These audio translation units keep their atomics in internal RAM;
-        # normal new/malloc also stay internal (SPIRAM_USE_CAPS_ALLOC). Preserve
-        # inline hardware atomics for the ISR counters and render-thread state.
-        # Leave the SDK's PSRAM-safe atomic implementation enabled elsewhere.
-        set_property(SOURCE
-            ${CARDENZA_ROOT}/Devices/Cardenza/DeviceAudio.cpp
-            ${CARDENZA_ROOT}/Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp
-            APPEND PROPERTY COMPILE_OPTIONS "-mno-disable-hardware-atomics")
-    endif()
 elseif(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}")
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)

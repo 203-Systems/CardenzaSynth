@@ -150,9 +150,8 @@ ProjectResult WriteProject(const std::string& path, const ProjectData& project) 
   const bool existing = Exists(path);
   const std::string temporary = path + ".tmp";
   const std::string backup = path + ".bak";
-  const auto failed = [] { storage::NotifyWriteFailure(); return ProjectResult::StorageError; };
   std::ofstream file(temporary, std::ios::trunc);
-  if (!file) return failed();
+  if (!file) return ProjectResult::StorageError;
   file << "CARDENZA_PROJECT " << kProjectVersion << "\nBUILD CardenzaSynth 1\nUI " << project.activeTrack << ' ' << project.octave << ' '
        << project.root << ' ' << project.scale << ' ' << project.layout << ' ' << project.ledBrightness << '\n';
   file << "MASTER " << static_cast<int>(project.mixer.master) << '\n';
@@ -203,15 +202,15 @@ ProjectResult WriteProject(const std::string& path, const ProjectData& project) 
   file.flush();
   const bool written = file.good();
   file.close();
-  if (!written || file.fail()) { std::remove(temporary.c_str()); return failed(); }
+  if (!written || file.fail()) { std::remove(temporary.c_str()); return ProjectResult::StorageError; }
   // FAT and Windows cannot replace an existing file with rename. Preserve a recoverable backup.
   if (existing) {
-    if (Exists(backup) && std::remove(backup.c_str()) != 0) return failed();
-    if (std::rename(path.c_str(), backup.c_str()) != 0) return failed();
+    if (Exists(backup) && std::remove(backup.c_str()) != 0) return ProjectResult::StorageError;
+    if (std::rename(path.c_str(), backup.c_str()) != 0) return ProjectResult::StorageError;
   }
   if (std::rename(temporary.c_str(), path.c_str()) != 0) {
     if (existing) std::rename(backup.c_str(), path.c_str());
-    return failed();
+    return ProjectResult::StorageError;
   }
   if (existing) std::remove(backup.c_str());
   return ProjectResult::Ok;
@@ -226,7 +225,7 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
   std::ifstream file(source);
   if (!file) return ProjectResult::StorageError;
   ProjectData project;
-  project.sequence = memory::MakeExternal<SynthSequencer::ProjectState>();
+  project.sequence.reset(new (std::nothrow) SynthSequencer::ProjectState);
   if (!project.sequence) return ProjectResult::StorageError;
   int version = 0;
   int build = 0;

@@ -1415,6 +1415,21 @@
       "follow along",
       "hands on",
       "interactive"
+    ],
+    [
+      "usb",
+      "连接设备",
+      "连接真机",
+      "真机",
+      "实体机",
+      "数据线",
+      "串口",
+      "connect device",
+      "real device",
+      "hardware",
+      "cable",
+      "web serial",
+      "serial"
     ]
   ]
 }

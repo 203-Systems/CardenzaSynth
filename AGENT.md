@@ -2,26 +2,15 @@
 
 ## CardenzaHAL is a read-only dependency (hard rule)
 
-`Devices/Cardenza/CardenzaHAL` is the git submodule https://github.com/203-Systems/CardenzaHAL, the shared
+`Devices/Cardenza/cardenza` is the git submodule https://github.com/203-Systems/CardenzaHAL, the shared
 Cardenza hardware layer (also used by Cardenza-MPE). We consume it; we do not maintain it.
 
-**User-approved local HAL work:** 6×256 audio DMA, Launcher LED GPIO handoff, keyboard/LED CPU
-optimizations and nonlinear display backlight compensation may be edited, validated and committed
-locally, with the Synth integration and submodule reference updated here. Use
-`make DEVICE=Cardenza HAL_LOCAL=1 build`. Other HAL edits and upstream pushes still require an
-explicit user request; default builds retain the pristine/upstream checks and no-push setting.
-
-The user also authorized release fixes for half-duplex microphone/speaker clock handoff, codec
-retry/readiness, display and keyboard initialization recovery, SD checks after failed saves and
-native NEC infrared encoding/carrier. Keep these local; no upstream push was authorized.
-The keyboard's excessive-key interference guard was also explicitly authorized.
-
-- **Never change it.** Do not edit, add, delete, format or generate anything under `Devices/Cardenza/CardenzaHAL`, do not commit inside it, and never push to `github.com/203-Systems/CardenzaHAL` (no fixes, branches, tags, force pushes or pull requests), even when the account has the rights. Do not copy HAL code into this repository either.
+- **Never change it.** Do not edit, add, delete, format or generate anything under `Devices/Cardenza/cardenza`, do not commit inside it, and never push to `github.com/203-Systems/CardenzaHAL` (no fixes, branches, tags, force pushes or pull requests), even when the account has the rights. Do not copy HAL code into this repository either.
 - **Pulling is fine.** `make hal-update` moves the submodule to upstream `main`; then commit only the new submodule pointer here. Never pin it to a commit that is not on upstream `main`.
 - **Reuse it.** Use what the HAL provides through its public headers, included from the HAL root (`"cardenzaHAL.h"`, `"keyboard/keyboard.h"`, `"audio/audio.h"`, `"mic/mic.h"`): keyboard scan and key LEDs (`setLED`, `setLEDGlobalBrightness`, `enableLED`), audio TX with mono / stereo `Init` and codec volume, mic RX channel, display panel handles and backlight, SD card mount, Func button, IR. Do not re-implement a driver or a HAL feature in this repository.
 - **Missing or wrong in the HAL?** Work above it in `Devices/Cardenza` (the device layer, ours) or model it in shared code (`Devices/LedLight.h` models the LED scan for the simulators). Tell the user what the HAL would need, so its maintainer can change it upstream. Never patch the submodule to get there.
 - **Enforced.** `make hal-check` runs before every firmware build and the CMake configure checks too: they fail when the HAL has local changes or a commit that is not on upstream, and they set the submodule's push URL to `no-push://…` so a push cannot leave the machine.
-- The HAL keeps its own rules in `Devices/Cardenza/CardenzaHAL/AGENT.md` (ESP-IDF only, native handles, no copyleft code); they matter only for reading it.
+- The HAL keeps its own rules in `Devices/Cardenza/cardenza/AGENT.md` (ESP-IDF only, native handles, no copyleft code); they matter only for reading it.
 
 ## Workflow
 
@@ -32,12 +21,11 @@ The keyboard's excessive-key interference guard was also explicitly authorized.
 
 The spec is `docs/app-storage-protocol.md`; keep it in sync with behaviour changes.
 
-- Apps store data only through the OS storage API (`OS/Storage`: `os::storage::AppFolder`, `AppSettings`, `SharedSamplesDirectory`, `WriteFileAtomic`). All data lives under `/CardenzaSynth` on the SD card: `Settings/{system,synth}.cfg`, `Projects/`, `Presets/<engine>/`, `Samples/` and `Session/`. The built-in `Cardenza/Synth` app maps directly to that root; other app ids have isolated folders under `Apps/<Author>/<Name>/` only when needed. Never hard-code card paths and never call `Device::Storage` from app code (enforced by ValidateArchitecture).
-- `Device::Storage` is the low-level card (root, mount, capacity and free space). Folder knowledge belongs to `OS/Storage`, not to the device layer.
-- Use only the current storage paths. Do not automatically discover, import, move or remove data from older layouts. Leave old folders and their contents untouched. Discuss any required migration with the user before implementing or running it.
-- Settings are `key=value` text read tolerantly (unknown keys kept); change them in RAM and let the system write them (one second after the last change, on suspend). A missing or unwritable card leaves changes dirty in RAM, with retries every five seconds; they do not survive power loss. Never read, write or erase NVS settings or recreate an internal-flash fallback. Volume, key LEDs and screen are device settings (`os::storage::Set…`); projects never carry them. Keyboard, chord and arpeggiator settings belong to the project; only `keys.select` is an app preference.
-- An app attempts to persist its working state in `Suspend()` (its `Session/` folder) and restores a saved session in `Setup()`; the system destroys the app before it creates the next one. A session needs a successful SD write; direct power loss does not invoke this lifecycle.
-- Groovebox project files use format 6 for keyboard and per-track chord/arpeggiator data; version 5 was an unreleased development format with a PLAY line. The next format change takes version 7.
+- Apps store data only through the OS storage API (`OS/Storage`: `os::storage::AppFolder`, `AppSettings`, `SharedSamplesDirectory`, `WriteFileAtomic`), in their own app folder `Cardenza/Apps/<Author>/<Name>/` (plus `Shared/` for samples). Never hard-code card paths and never call `Device::Storage` from app code (enforced by ValidateArchitecture).
+- `Device::Storage` is the low-level card (root, mount, free space, internal-flash records). Folder knowledge belongs to `OS/Storage`, not to the device layer.
+- Settings are `key=value` text read tolerantly (unknown keys kept); change them in RAM and let the system write them (one second after the last change, on suspend). Volume, key LEDs and screen are device settings (`os::storage::Set…`); projects never carry them. The keyboard, chords and arpeggiators are project data, not settings.
+- An app persists its working state in `Suspend()` (its `Session/` folder) and restores it in `Setup()`; the system destroys the app before it creates the next one.
+- Groovebox project files are format 6 (the play settings are project data: keyboard, per-track chord and arpeggiator); version 5 was an unreleased development format with a PLAY line; the next format change takes version 7.
 
 ## Groovebox UI Rules
 

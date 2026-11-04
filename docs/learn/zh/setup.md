@@ -122,7 +122,7 @@ hold CTRL + G5 > setup-arp @cells:1,1-2,1 | **ARP 琶音**：ARP（模式）、R
 mark cell:1,1 = VOLUME 主音量（焦点）
 mark cell:1,2 = KEY LED 按键灯
 mark cell:1,3 = SCREEN 屏幕
-mark 8,47,190,52 = 版本 · SD 卡 · 内存 · 构建 hash 和时间
+mark 8,47,190,52 = 设备 · 音频后端 · SD 卡 · 内存 · 构建日期
 key G1 = 焦点：全亮
 key G2 G3 = 设置：半亮
 }}
@@ -133,7 +133,7 @@ key G2 G3 = 设置：半亮
 | KEY LED | 0–15 | 所有按键灯的总亮度；选中它时演奏区显示亮度梯（[[#lights-ramp]]） |
 | SCREEN | 以 % 显示 | 屏幕亮度 |
 
-下面的状态每次进来逐行打出。顶部是固件版本，之后是 SD 卡（READY 或没有卡，见 [[#storage-card]]）、内部 RAM、最大连续空闲块和 PSRAM。底部两行依次是 Git 构建 hash 和 UTC 构建日期时间；hash 后有 `dirty` 表示构建包含未提交改动，包括子模块内的改动。RAM 显示当前剩余和开机以来的最低剩余（MIN）；PSRAM 单独显示，不会掩盖内部 RAM 不足。
+下面的状态每次进来逐行打出：设备、音频后端、SD 卡（READY 或没有卡，见 [[#storage-card]]）、剩余内存、固件构建日期。
 
 <!-- keywords: 系统, 主音量, 音量, 按键灯亮度, 屏幕亮度, 亮度, sd 卡, 设备信息, 构建, system, volume, key led, screen brightness, brightness -->
 

@@ -131,7 +131,7 @@ EMSCRIPTEN_KEEPALIVE const std::uint8_t* cardenza_web_leds() { return g_ledSnaps
 
 EMSCRIPTEN_KEEPALIVE int cardenza_web_sample_rate() { return static_cast<int>(synth::audio::kSampleRate); }
 
-// CardenzaSynth/Samples of the storage protocol (docs/app-storage-protocol.md): "Load WAV" writes here and
+// Shared/Samples of the storage protocol (docs/app-storage-protocol.md): "Load WAV" writes here and
 // every app's sample browser reads it.
 EMSCRIPTEN_KEEPALIVE const char* cardenza_web_sample_directory()
 {

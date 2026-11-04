@@ -38,7 +38,7 @@ The settings it had are now in the fourth scene, {{scene:SETUP}}: hold {{key:ESC
 
 ## Where is my work kept? How do I not lose it? {#faq-save}
 
-Save projects with {{key:FN+S}}; they go to `CardenzaSynth/Projects` on the SD card. Settings save automatically to `CardenzaSynth/Settings` when the card is writable. Without a card, changed settings stay only in RAM and are lost on power-off. Session recovery also requires a successful SD write (see [[#project-session]]).
+Save projects with {{key:FN+S}} or on {{scene:SETUP}} {{page:PROJECT}} (see [[#project-save]]); they go to `Cardenza/Apps/Cardenza/Synth/Projects` on the SD card. Settings save themselves. The working state before an app switch or power-off is kept automatically (see [[#project-session]]).
 
 <!-- keywords: lost my work, where saved, autosave, 丢失 -->
 
@@ -58,7 +58,7 @@ Not yet: there is no external MIDI / USB sync. Everything is played on the devic
 
 ## How do I switch to another app? {#faq-apps}
 
-The groovebox is one app on the device. Save the project before switching with the device's own launcher. A reboot into the launcher does not guarantee a session save (see [[#project-session]]).
+The groovebox is one app on the device. Switch apps with the device's own launcher; the working state is kept when you leave and restored when you come back.
 
 <!-- keywords: app, launcher, switch app, other firmware, 应用, 启动器 -->
 

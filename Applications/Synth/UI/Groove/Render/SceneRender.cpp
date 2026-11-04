@@ -7,7 +7,6 @@
 #include <string>
 #include <vector>
 
-#include "CardenzaBuildInfo.h"
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Applications/Synth/UI/Groove/Render/Widgets.h"
@@ -958,28 +957,22 @@ void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, co
   const Host& host = controller.HostView();
   const std::uint32_t now = animator.Now();
   const SystemInfo info = host.QuerySystem();
-  int y = panel.y + 2;
-  constexpr int kRows = 7;
-  const int rowHeight = (panel.height - 4) / kRows;
+  int y = panel.y + 4;
   int line = 0;
   const float typed = fx::Clamp01(static_cast<float>(now - animator.CurrentTransition().start) / 600.0f);
   auto row = [&](const char* label, const std::string& value, Color color) {
-    const float reveal = fx::Clamp01(typed * static_cast<float>(kRows) - static_cast<float>(line));
-    g.Text(panel.x, y, label, kDim, Font::Micro);
+    const float reveal = fx::Clamp01(typed * 5.0f - static_cast<float>(line));
+    g.Text(panel.x, y, label, kDim);
     fx::TypeText(g, panel.x + 60, y, value, color, Font::Micro, reveal);
-    y += rowHeight;
+    y += 11;
     ++line;
   };
-  row("VERSION", cardenza::build::kVersion, kInk);
+  row("DEVICE", "CARDENZA GROOVEBOX", kInk);
+  row("BACKEND", info.backend, kInk);
   row("SD CARD", info.storageReady ? "READY" : "NOT FOUND", info.storageReady ? kPlay : kRec);
-  row("RAM", info.totalHeap == 0 ? std::string("N/A") :
+  row("MEMORY", info.freeHeap == 0 ? std::string("N/A") :
       std::to_string(info.freeHeap / 1024) + "K FREE  MIN " + std::to_string(info.minimumFreeHeap / 1024) + "K", kInk);
-  row("BLOCK", info.totalHeap == 0 ? std::string("N/A") :
-      std::to_string(info.largestFreeHeap / 1024) + "K CONTIGUOUS", kInk);
-  row("PSRAM", info.totalPsram == 0 ? std::string("N/A") :
-      std::to_string(info.freePsram / 1024) + "K FREE / " + std::to_string(info.totalPsram / 1024) + "K", kInk);
-  row("HASH", std::string(cardenza::build::kHash) + (cardenza::build::kDirty ? " dirty" : ""), kDim);
-  row("TIME UTC", cardenza::build::kTimeUtc, kDim);
+  row("BUILD", std::string(__DATE__), kDim);
 }
 
 void ProjectScene(Gfx& g, const Controller& controller, Animator& animator, std::uint8_t page)

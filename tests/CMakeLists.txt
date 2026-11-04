@@ -1,21 +1,3 @@
-add_executable(CardenzaAudioOutputTransferTests audio_output_transfer_test.cpp)
-target_include_directories(CardenzaAudioOutputTransferTests PRIVATE ${PROJECT_SOURCE_DIR})
-add_test(NAME CardenzaAudioOutputTransferTests COMMAND CardenzaAudioOutputTransferTests)
-
-add_executable(CardenzaDisplayDamageTests display_damage_test.cpp)
-target_include_directories(CardenzaDisplayDamageTests PRIVATE ${PROJECT_SOURCE_DIR})
-add_test(NAME CardenzaDisplayDamageTests COMMAND CardenzaDisplayDamageTests)
-
-add_executable(CardenzaPcmInputRingTests pcm_input_ring_test.cpp)
-target_include_directories(CardenzaPcmInputRingTests PRIVATE ${PROJECT_SOURCE_DIR})
-add_test(NAME CardenzaPcmInputRingTests COMMAND CardenzaPcmInputRingTests)
-
-add_executable(CardenzaKeyCountGuardTests key_count_guard_test.cpp)
-target_include_directories(CardenzaKeyCountGuardTests PRIVATE ${PROJECT_SOURCE_DIR})
-add_test(NAME CardenzaKeyCountGuardTests COMMAND CardenzaKeyCountGuardTests)
-
-add_subdirectory(hal_faults)
-
 add_executable(CardenzaCoreTests
   core_test.cpp
   ${PROJECT_SOURCE_DIR}/Applications/Synth/Runtime/ProjectStorage.cpp
@@ -40,7 +22,7 @@ else()
 endif()
 add_test(NAME CardenzaArpTests COMMAND CardenzaArpTests)
 
-# SD-only storage protocol on the simulator's card.
+# App storage protocol: OS/Storage on the simulator's card and internal-flash store.
 cardenza_collect_storage_cpp_sources(${PROJECT_SOURCE_DIR} storage_test_sources)
 add_executable(CardenzaStorageTests
   storage_protocol_test.cpp
@@ -50,28 +32,12 @@ add_executable(CardenzaStorageTests
 target_include_directories(CardenzaStorageTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaStorageTests COMMAND CardenzaStorageTests)
 
-# Fault-injected SD settings: no card, insertion/replacement, I/O errors and oversized files.
-# This executable supplies its own Device::Storage implementation.
-add_executable(CardenzaSettingsSdOnlyTests
-  settings_sd_only_test.cpp
-  ${PROJECT_SOURCE_DIR}/OS/Storage/Storage.cpp
-  ${PROJECT_SOURCE_DIR}/OS/Storage/Settings.cpp
-)
-target_include_directories(CardenzaSettingsSdOnlyTests PRIVATE ${PROJECT_SOURCE_DIR})
-add_test(NAME CardenzaSettingsSdOnlyTests COMMAND CardenzaSettingsSdOnlyTests)
-
 add_executable(CardenzaSamplerTests
   sampler_test.cpp
   ${PROJECT_SOURCE_DIR}/Applications/Synth/Runtime/Sampler/SamplerManager.cpp
 )
 target_include_directories(CardenzaSamplerTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaSamplerTests COMMAND CardenzaSamplerTests)
-
-# Exercise the ESP allocation policy, ownership and PSRAM-exhaustion path on a host.
-add_executable(CardenzaPsramAllocationTests psram_allocation_test.cpp)
-target_include_directories(CardenzaPsramAllocationTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/psram_fakes ${PROJECT_SOURCE_DIR})
-target_compile_definitions(CardenzaPsramAllocationTests PRIVATE ESP_PLATFORM=1)
-add_test(NAME CardenzaPsramAllocationTests COMMAND CardenzaPsramAllocationTests)
 
 set(cardenza_ui_tests)
 if(NOT CARDENZA_GROOVE_UI)
@@ -124,20 +90,12 @@ if(CARDENZA_GROOVE_UI)
   add_executable(CardenzaAppLifecycleTests app_lifecycle_test.cpp)
   target_link_libraries(CardenzaAppLifecycleTests PRIVATE CardenzaSystem CardenzaSimDevice)
   add_test(NAME CardenzaAppLifecycleTests COMMAND CardenzaAppLifecycleTests)
-  add_test(NAME CardenzaLateCardLifecycleTests COMMAND CardenzaAppLifecycleTests --late-card)
-  # Old on-card layouts must remain byte-for-byte untouched during normal runtime persistence.
-  add_test(NAME CardenzaLegacyCardLifecycleTests COMMAND CardenzaAppLifecycleTests --legacy-card)
   list(APPEND cardenza_ui_tests CardenzaAppLifecycleTests)
 endif()
 
 add_executable(CardenzaLedTests led_feedback_test.cpp)
 target_include_directories(CardenzaLedTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaLedTests COMMAND CardenzaLedTests)
-
-# Exercise the same pure calculations used by the native HAL; no emulated driver.
-add_executable(CardenzaHalLogicTests cardenza_hal_logic_test.cpp)
-target_include_directories(CardenzaHalLogicTests PRIVATE ${PROJECT_SOURCE_DIR})
-add_test(NAME CardenzaHalLogicTests COMMAND CardenzaHalLogicTests)
 
 # Headless screenshot runner: replay a real script against a scratch sdcard, and reject an
 # unknown key target with its line number.
@@ -154,7 +112,7 @@ set_tests_properties(CardenzaSimShotRejectsUnknownKey PROPERTIES
   PASS_REGULAR_EXPRESSION "shot-unknown-key\\.script:2: unknown key target 'nosuchkey'"
 )
 
-foreach(target CardenzaCoreTests CardenzaStorageTests CardenzaSettingsSdOnlyTests CardenzaSamplerTests ${cardenza_ui_tests} CardenzaLedTests)
+foreach(target CardenzaCoreTests CardenzaStorageTests CardenzaSamplerTests ${cardenza_ui_tests} CardenzaLedTests)
   if(MSVC)
     target_compile_options(${target} PRIVATE /UNDEBUG)
     target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)

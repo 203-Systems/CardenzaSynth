@@ -12,7 +12,7 @@ These are the first breakup candidates, excluding `build/`, `out/`, `.git/`, and
 |---|---:|---|
 | `Library/Synth/SynthUiModel.cpp` | 2000+ | Menu grammar, preset browser, DX7/Juno parameter grouping, modifier state, transitions, snapshots, and input handling live together. |
 | `Library/Synth/SynthUiRenderer.cpp` | 1800+ | Generic screen layout, marquee text, bar rendering, home rendering, context rendering, DX7 algorithm drawing, and Juno panel drawing live together. |
-| `Devices/Cardenza/CardenzaHAL/keyboard/keyboard.cpp` | ~900 | Matrix scan, LED multiplexing, debounce/public state, ISR/timer/task logic, and hardware details are likely mixed. |
+| `Devices/Cardenza/cardenza/keyboard/keyboard.cpp` | ~900 | Matrix scan, LED multiplexing, debounce/public state, ISR/timer/task logic, and hardware details are likely mixed. |
 | `Devices/CardenzaSim/DesktopHost.cpp` | ~750 | Host window, simulator shell, app/system bootstrapping, input mapping, and rendering bridge are likely mixed. |
 | `Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp` | ~650 | AMY platform integration, voice/event translation, and runtime render path should be reviewed before adding more engines. |
 
@@ -137,11 +137,11 @@ Inspect Cardenza HAL, especially keyboard/audio, and decide which parts are real
 
 `Devices/Device.h` is already a useful application-facing facade: display framebuffer, keyboard state, LED state, audio constants, storage placeholder, `Init()`, and `Start()`. This is close to the MatrixOS-style device seam and should be preserved.
 
-The Cardenza-specific HAL under `Devices/Cardenza/CardenzaHAL` is also mostly in the right place, but several modules still mix public contract, hardware implementation, diagnostic tooling, and host compatibility in the same files.
+The Cardenza-specific HAL under `Devices/Cardenza/cardenza` is also mostly in the right place, but several modules still mix public contract, hardware implementation, diagnostic tooling, and host compatibility in the same files.
 
 ### Keyboard HAL findings
 
-`Devices/Cardenza/CardenzaHAL/keyboard/keyboard.cpp` currently combines:
+`Devices/Cardenza/cardenza/keyboard/keyboard.cpp` currently combines:
 
 - physical pin setup and fast GPIO writes,
 - low-level SPI/shift-register LED column output,
@@ -285,7 +285,7 @@ Start with Phase 1 renderer split. It is the biggest readability win with the lo
 
 ## 2026-05-08 Architecture Guardrails Added
 
-The cleanup pass now has a short public architecture note in `docs/AGENT.md`. It records the allowed dependency direction, the ESP-IDF-only status of `Devices/Cardenza/CardenzaHAL`, the simulator input route through the public device facade, and the current module shape after the Synth/HAL/simulator splits.
+The cleanup pass now has a short public architecture note in `docs/AGENT.md`. It records the allowed dependency direction, the ESP-IDF-only status of `Devices/Cardenza/cardenza`, the simulator input route through the public device facade, and the current module shape after the Synth/HAL/simulator splits.
 
 The repository also has a lightweight CMake script-mode guardrail at `cmake/ValidateArchitecture.cmake`, exposed through `make validate-architecture` and the root `ValidateArchitecture` CMake target. It checks the decisions that are easiest to regress accidentally: the browser WebUI must stay deleted, Cardenza HAL files must remain explicitly ESP-IDF-only, the keyboard and desktop simulator split files must exist, and the Cardenza root CMake path must not expose the hardware HAL as a host subdirectory.
 

@@ -115,9 +115,6 @@ Holds, the track hint, maps and blinking always match between screen and keys.
 
 **KEY LED** (0–15) on SETUP's SYSTEM page is the overall brightness of all key lights.
 
-**SCREEN** on the same page adjusts perceived screen brightness. The hardware backlight uses
-a nonlinear curve for more even adjustment at low brightness.
-
 {{shot:setup-keyled|KEY LED focused: from left to right the pads are a brightness ramp, dark to bright.
 mark cell:1,2 = KEY LED brightness
 mark cell:1,1 = Master volume

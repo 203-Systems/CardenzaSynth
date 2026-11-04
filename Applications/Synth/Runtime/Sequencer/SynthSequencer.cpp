@@ -99,7 +99,7 @@ bool SynthSequencer::PatternBank::Allocated(std::size_t index) const
 bool SynthSequencer::PatternBank::Ensure(std::size_t index)
 {
   if (index >= patterns_.size()) return false;
-  if (!patterns_[index]) patterns_[index] = memory::MakeExternal<PatternData>();
+  if (!patterns_[index]) patterns_[index].reset(new (std::nothrow) PatternData);
   return patterns_[index] != nullptr;
 }
 
@@ -339,9 +339,9 @@ void SynthSequencer::Reset()
   ResetPlaybackPositionsLocked();
 }
 
-memory::ExternalPtr<SynthSequencer::ProjectState> SynthSequencer::CaptureState() const
+std::unique_ptr<SynthSequencer::ProjectState> SynthSequencer::CaptureState() const
 {
-  auto state = memory::MakeExternal<ProjectState>();
+  auto state = std::unique_ptr<ProjectState>(new (std::nothrow) ProjectState);
   if (!state) return nullptr;
   std::lock_guard<std::mutex> lock(mutex_);
   // Reserve first so the copy below cannot silently drop patterns when memory runs out.
