@@ -15,7 +15,7 @@ Allowed high-level direction:
 
 Concrete rules:
 
-- `Devices/Cardenza/cardenza` is the read-only CardenzaHAL submodule (see the hard rule at the top of `AGENT.md`): never edit, commit or push it; pull with `make hal-update`.
+- `Devices/Cardenza/CardenzaHAL` is the read-only CardenzaHAL submodule (see the hard rule at the top of `AGENT.md`): never edit, commit or push it; pull with `make hal-update`.
 - Host simulation should go through `Devices/CardenzaSim` and mutate/query the public device facade.
 - Application input should flow through `Device::Keyboard::State()` and `os::system::RunFrame()` dispatch, not through app-specific key-handler calls from simulator code.
 - Synth engines expose synth concepts. Device audio transport is connected by provider/callback registration rather than engine public interfaces.
@@ -41,7 +41,7 @@ The root CMake project is for desktop-style targets such as `CardenzaSim`. The C
 - `Library/Synth/Core`: engine interfaces, engine implementations, and factory.
 - `Library/Synth/Audio`: runtime audio bridge, with AMY-specific code under `Audio/Amy`.
 - `Library/third_party/amy`: vendored AMY sources consumed by the shared synth audio runtime.
-- `Devices/Cardenza/cardenza`: the CardenzaHAL submodule (read-only): ESP-IDF modules for system, display, audio, keyboard, storage, mic and IR.
+- `Devices/Cardenza/CardenzaHAL`: the CardenzaHAL submodule (read-only): ESP-IDF modules for system, display, audio, keyboard, storage, mic and IR.
 - `Devices/CardenzaSim/DesktopHost`: Win32 simulator layout, drawing, window lifecycle, input, and rendering modules.
 
 `cmake/CardenzaSynthSourceLists.cmake` is still the compatibility source registry for ESP-IDF and root CMake collection. Prefer adding owned CMake targets or local source lists as modules mature instead of growing unrelated flat lists.
@@ -50,7 +50,7 @@ The root CMake project is for desktop-style targets such as `CardenzaSim`. The C
 ## Cardenza HAL
 
 - `Devices/Cardenza` sources are ESP-IDF-only. Do not add `ESP_PLATFORM` preprocessor guards or fallback typedefs in that tree.
-- CardenzaHAL (`Devices/Cardenza/cardenza`) is an upstream submodule we only consume: never edit, commit or push it, reuse its API instead of re-implementing drivers, and pull updates with `make hal-update` (hard rule at the top of `AGENT.md`).
+- CardenzaHAL (`Devices/Cardenza/CardenzaHAL`) is an upstream submodule we only consume: never edit, commit or push it, reuse its API instead of re-implementing drivers, and pull updates with `make hal-update` (hard rule at the top of `AGENT.md`).
 
 ## Agent Workflow
 
