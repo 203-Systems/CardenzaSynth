@@ -2768,111 +2768,6 @@ void TestEveryParameter(Harness& h)
   closeModals();
 }
 
-// Standby, the screen saver: after the chosen minutes without a key it starts, any key wakes it and does
-// nothing else, never while playing; SETUP > SYSTEM chooses the wait (NEVER keeps it away) and its key
-// lights, and the SYSTEM menu starts it at once.
-void TestStandby(Harness& h)
-{
-  auto& app = h.App();
-  GoToScene(h, 1);
-  const Scene scene = h.State().scene;
-  const std::size_t track = h.State().track;
-  // The defaults (earlier tests step every setting through its values).
-  app.SetStandbyMinutes(3);
-  app.SetStandbyLights(0);
-  h.Tap(kTab);
-  h.Tap(kTab);
-  h.Tap(kTab);
-  h.Tap(kTab);
-  h.Wait(3 * 60000 - 2000);
-  assert(!app.Ui().Standby());
-  h.Wait(2500);
-  assert(app.Ui().Standby());
-  // The screen draws (logo, corners, effects) and the lights run over the whole keyboard, edge keys too.
-  std::uint8_t edge = 0;
-  std::uint8_t lowestMaster = 15;
-  bool met = false;
-  for (int frame = 0; frame < 7500; ++frame)
-  {
-    h.Frames();
-    if (frame % 25 == 0) h.Render();
-    // CARDENZA and 203 stay on screen, never sink into each other, keep a calm speed, and meet.
-    const auto& scene = app.Motion().Standby();
-    const float bodyHeight = static_cast<float>(groove::StandbyLogoHeight());
-    for (const auto& body : scene.bodies)
-    {
-      assert(body.x >= 0.0f && body.x + static_cast<float>(groove::StandbyLogoWidth(body.alt)) <= 240.0f);
-      assert(body.y >= 0.0f && body.y + bodyHeight <= 135.0f);
-      assert(std::hypot(body.vx, body.vy) < 80.0f);
-    }
-    const auto& one = scene.bodies[0];
-    const auto& two = scene.bodies[1];
-    const float overlapX = std::min(one.x + static_cast<float>(groove::StandbyLogoWidth(one.alt)), two.x + static_cast<float>(groove::StandbyLogoWidth(two.alt))) -
-                           std::max(one.x, two.x);
-    const float overlapY = std::min(one.y, two.y) + bodyHeight - std::max(one.y, two.y);
-    assert(overlapX <= 2.0f || overlapY <= 2.0f);
-    met = met || scene.hitAt != 0;
-    if (frame < 400)
-    {
-      edge = static_cast<std::uint8_t>(std::max({static_cast<int>(edge), Led(h, kEsc), Led(h, kPlay), Led(h, kAdd)}));
-      // The shows dim through the master level, never above the KEY LED setting.
-      lowestMaster = std::min(lowestMaster, Device::LED::GlobalBrightness());
-      assert(Device::LED::GlobalBrightness() <= app.LedBrightness());
-    }
-  }
-  assert(edge > groove::kLedEdgeMax && met && lowestMaster < app.LedBrightness());
-  // A key wakes it and does nothing else: ESC would have gone to the next scene.
-  h.Tap(kEsc);
-  assert(!app.Ui().Standby() && h.State().scene == scene && h.State().track == track);
-  // The key lights are back at the KEY LED setting.
-  Led(h, kEsc);
-  assert(Device::LED::GlobalBrightness() == app.LedBrightness());
-  h.Tap(kEsc);
-  assert(h.State().scene != scene);
-  GoToScene(h, 1);
-
-  // Never while the transport runs.
-  h.Tap(kPlay);
-  assert(app.Sequencer().Playing());
-  h.Wait(4 * 60000);
-  assert(!app.Ui().Standby());
-  h.Tap(kPlay);
-  assert(!app.Sequencer().Playing());
-
-  // SETUP > SYSTEM: STANDBY (1 / 3 / 5 / 10 / 30 MIN, NEVER) and STBY LED.
-  GoToSetupPage(h, groove::kSetupSystem);
-  synth::SynthParameterInfo info;
-  std::string text;
-  assert(app.Ui().SettingValue("sys.standby", info, text) && text == "3 MIN");
-  h.Tap(Grid(4));
-  h.Tap(kSub);
-  assert(app.StandbyMinutes() == 1 && app.Ui().SettingValue("sys.standby", info, text) && text == "1 MIN");
-  h.Wait(61000);
-  assert(app.Ui().Standby());
-  h.Tap(kSub);  // wakes only
-  assert(!app.Ui().Standby() && app.StandbyMinutes() == 1);
-  for (int step = 0; step < 6; ++step) h.Tap(kAdd);
-  assert(app.StandbyMinutes() == 0 && app.Ui().SettingValue("sys.standby", info, text) && text == "NEVER");
-  h.Wait(5 * 60000);
-  assert(!app.Ui().Standby());
-  h.Tap(Grid(5));
-  h.Tap(kAdd);
-  assert(app.StandbyLights() == static_cast<std::uint8_t>(groove::StandbyLightStyle::Ring) && app.Ui().SettingValue("sys.standby.led", info, text) && text == "RING");
-  // The SYSTEM menu: STANDBY NOW, also with the wait on NEVER.
-  const groove::MenuItems menu = app.Ui().Menu();
-  assert(menu[1].action == groove::MenuAction::StandbyNow && menu[1].available);
-  h.Chord(kFn, Grid(1));
-  assert(app.Ui().Standby());
-  h.Wait(3000);
-  const std::uint8_t page = app.Ui().CurrentPage();
-  h.Tap(kCtrl);  // wakes only
-  assert(!app.Ui().Standby() && app.Ui().CurrentPage() == page);
-
-  app.SetStandbyMinutes(3);
-  app.SetStandbyLights(0);
-  GoToScene(h, 1);
-}
-
 int main()
 {
   // Projects and samples go to a scratch card under the test's working directory.
@@ -2921,7 +2816,6 @@ int main()
   TestNoStuckNotes(h);
   TestComputerMidi(h);
   TestGuide(h);
-  TestStandby(h);
   TestEveryParameter(h);
 
   std::filesystem::current_path(std::filesystem::temp_directory_path());

@@ -24,7 +24,7 @@ constexpr std::array<InstrumentPage, kSettingsPageCount> kSettingsPages{{
                    PageGraphic::Keys, {2, 0, 2, 4}, 0},
     InstrumentPage{"DEVICE", "SYSTEM",
                    {{P("sys.volume", "VOLUME"), P("sys.led", "KEY LED"), P("sys.screen", "SCREEN"), P("sys.log", "LOG"),
-                     P("sys.standby", "STANDBY"), P("sys.standby.led", "STBY FX"), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                     E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::System, {2, 0, 2, 4}, 0},
 }};
 

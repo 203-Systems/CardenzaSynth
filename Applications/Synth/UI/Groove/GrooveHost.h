@@ -98,12 +98,6 @@ public:
   // The console log on the card (a device setting, OS/System/Log.h).
   virtual void SetLogging(bool on) = 0;
   virtual bool Logging() const = 0;
-  // Standby, the screen saver (device settings): minutes without a key before it starts (0 = never),
-  // and the style of its key lights (StandbyLights).
-  virtual void SetStandbyMinutes(std::uint8_t minutes) = 0;
-  virtual std::uint8_t StandbyMinutes() const = 0;
-  virtual void SetStandbyLights(std::uint8_t style) = 0;
-  virtual std::uint8_t StandbyLights() const = 0;
   virtual SystemInfo QuerySystem() const = 0;
 };
 

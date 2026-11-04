@@ -87,8 +87,6 @@ card is probed at most every five seconds.
 | `sys.led` | key LED master brightness 0–15, default 15 |
 | `sys.screen` | screen backlight 10–255, default 180 |
 | `sys.log` | `1` writes the console log to `Logs/` (OS/System/Log.h), `0` stops it; default 1 |
-| `sys.standby` | minutes without a key before standby (the screen saver) starts, 0–60, `0` = never; default 3 |
-| `sys.standby.led` | the key-light style of standby, 0–15 (the app names them; the groovebox: 0 ALL, 1 RING, 2 SWEEP, 3 RAIN, 4 AURORA, 5 BREATH, 6 OFF); default 0 |
 | `boot.app` | last non-system app; started at boot when it is still installed |
 | `migrate.legacy` | `done` or `partial`: result of moving the pre-protocol layout (section 6) |
 | `migrate.left` | files left in the old folder (name conflicts, failures) |

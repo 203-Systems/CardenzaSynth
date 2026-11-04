@@ -136,8 +136,6 @@ GrooveApp::GrooveApp() : controller_(*this) {}
 
 GrooveApp::~GrooveApp()
 {
-  os::storage::SetScreenDim(100);  // the next app sees the screen and the key lights as set
-  if (standbyMaster_) Device::LED::SetGlobalBrightness(os::storage::KeyLedBrightness());
   // Silence the engines and hand the sample memory back before the next app starts.
   sampler_.KeepTakesOnCard();
   sequencer_.ArpReleaseAll();
@@ -512,7 +510,6 @@ void GrooveApp::Tick()
   ServiceGuide(now);
   controller_.Tick(now);
   animator_.Update(controller_, now);
-  UpdateScreenDim(now);
   StorePlaySettings();
   CheckCard(now);
   KeepSessionCurrent(now);
@@ -577,80 +574,8 @@ void GrooveApp::SyncSamplerTrim()
   }
 }
 
-// Standby dims the screen to a fifth of its brightness over about two and a half seconds; a key brings it
-// back at once.
-void GrooveApp::UpdateScreenDim(std::uint32_t now)
-{
-  constexpr float kStandbyPercent = 20.0f;
-  constexpr float kDimPerMs = 0.032f;  // 32 points a second
-  const float dt = screenDimAt_ == 0 ? 0.0f : static_cast<float>(std::min<std::uint32_t>(now - screenDimAt_, 200));
-  screenDimAt_ = now == 0 ? 1 : now;
-  const float target = controller_.Standby() ? kStandbyPercent : 100.0f;
-  screenDim_ = target >= screenDim_ ? target : std::max(target, screenDim_ - dt * kDimPerMs);
-  const auto percent = static_cast<std::uint8_t>(std::lround(screenDim_));
-  if (percent == screenDimShown_) return;
-  screenDimShown_ = percent;
-  os::storage::SetScreenDim(percent);
-}
-
-// Standby's light shows dim slowly, and the key levels alone have few steps down there (perceived 1..6
-// are all the HAL's lowest duty). So the light each key should give is reached with the master level
-// and the key level together: the master just above the brightest key, the keys a share of it. The
-// user's KEY LED setting stays the ceiling, and comes back on waking.
-void GrooveApp::UpdateStandbyLeds()
-{
-  std::array<float, groove::kKeyCount> perceived{};
-  animator_.StandbyLight(controller_, perceived);
-  const std::uint32_t since = NowMs() - controller_.StandbyAt();
-  const float out = since >= groove::kStandbyLightsOutMs ? 0.0f : 1.0f - static_cast<float>(since) / static_cast<float>(groove::kStandbyLightsOutMs);
-  const float ceiling = Device::LED::GlobalDuty(os::storage::KeyLedBrightness());
-  std::array<float, groove::kKeyCount> light{};  // fraction of full
-  float brightest = 0.0f;
-  for (std::size_t index = 0; index < groove::kKeyCount; ++index)
-  {
-    const float show = std::pow(perceived[index], Device::LED::kGamma) * ceiling;
-    const float working = Device::LED::KeyDuty(Device::LED::KeyLevel(workingLeds_[index])) * ceiling * out * out;
-    light[index] = std::max(show, working);
-    brightest = std::max(brightest, light[index]);
-  }
-  std::uint8_t master = 0;
-  while (master < Device::LED::kBrightnessMax && Device::LED::GlobalDuty(master) < brightest - 1e-6f) ++master;
-  const float masterDuty = Device::LED::GlobalDuty(master);
-  for (std::size_t row = 0; row < groove::kRows; ++row)
-    for (std::size_t column = 0; column < groove::kColumns; ++column)
-    {
-      // The perceived key level whose duty comes nearest the share of the master this key needs.
-      const float share = masterDuty > 0.0f ? light[groove::KeyIndex(row, column)] / masterDuty : 0.0f;
-      std::uint8_t best = 0;
-      float bestError = share;
-      for (std::uint8_t level = 1; level <= Device::LED::kBrightnessMax; ++level)
-      {
-        const float error = std::fabs(Device::LED::KeyDuty(Device::LED::KeyLevel(level)) - share);
-        if (error < bestError)
-        {
-          best = level;
-          bestError = error;
-        }
-      }
-      Device::LED::SetKey(row, column, best);
-    }
-  Device::LED::SetGlobalBrightness(master);
-  standbyMaster_ = true;
-  Device::LED::SetEnabled(true);
-}
-
 void GrooveApp::UpdateLeds()
 {
-  if (controller_.Standby())
-  {
-    UpdateStandbyLeds();
-    return;
-  }
-  if (standbyMaster_)
-  {
-    Device::LED::SetGlobalBrightness(os::storage::KeyLedBrightness());
-    standbyMaster_ = false;
-  }
   groove::LedFrame frame{};
   controller_.ComputeLeds(frame);
   std::array<std::uint8_t, groove::kKeyCount> levels{};
@@ -671,7 +596,6 @@ void GrooveApp::UpdateLeds()
     for (std::size_t column = 0; column < groove::kColumns; ++column)
       Device::LED::SetKey(row, column, levels[groove::KeyIndex(row, column)]);
   Device::LED::SetEnabled(true);
-  workingLeds_ = levels;
 }
 
 void GrooveApp::RenderFrame()
@@ -721,11 +645,11 @@ void GrooveApp::HandleMatrixKeyEvent(std::size_t row, std::size_t column, bool p
   controller_.KeyEvent(row, column, pressed, now);
   if (!sessionChanged_) sessionChangedAt_ = now;
   sessionChanged_ = true;
+  if (!cardSessionChanged_) cardSessionChangedAt_ = now;
+  cardSessionChanged_ = true;
   lastKeyAt_ = now;
   keysHeld_ = pressed ? keysHeld_ + 1 : std::max(0, keysHeld_ - 1);
   // The lesson page follows every key, but not the ones it pressed itself.
-  if (!cardSessionChanged_) cardSessionChangedAt_ = now;
-  cardSessionChanged_ = true;
   if (guide_ && !guideInjecting_)
   {
     char text[8];
@@ -1211,12 +1135,12 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   // The output holds still while the project is built: building it holds the audio for 20 ms an
   // engine or preset, which ran the output dry (synth::audio::HoldOutput).
   const synth::audio::OutputHold outputHold;
-  struct ResumeEffectsAtEnd {
-    ~ResumeEffectsAtEnd() { synth::audio::ResumeEffects(); }
-  } resumeEffects;
   // The effects give their memory back while the project is checked and built (nothing plays then),
   // and take what the new one asks for at the end, before the next thing is checked.
   synth::audio::SuspendEffects();
+  struct ResumeEffectsAtEnd {
+    ~ResumeEffectsAtEnd() { synth::audio::ResumeEffects(); }
+  } resumeEffects;
 
   // Everything is checked first, while the current session plays on untouched: a sound this firmware
   // does not know, a sample that is not there, or a project that does not fit leaves it as it was.
@@ -1350,11 +1274,11 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
 bool GrooveApp::MakeRoom(std::string& message)
 {
   message = "NO MEMORY";
+  // Silent while the autosave is written (the flash stops both cores for a moment).
+  const synth::audio::OutputHold outputHold;
   // The effects first: the autosave needs room of its own.
   const std::size_t before = Heap().freeBytes;
   synth::audio::SuspendEffects();
-  // Silent while the autosave is written (the flash stops both cores for a moment).
-  const synth::audio::OutputHold outputHold;
   bool saved = true;
 #if defined(ESP_PLATFORM)
   // The autosave is many small plain allocations as well.
@@ -1473,26 +1397,6 @@ bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& mes
 // System
 
 // Device settings: os::storage keeps them in System/settings.cfg for every app.
-void GrooveApp::SetStandbyMinutes(std::uint8_t minutes)
-{
-  os::storage::SetStandbyMinutes(minutes);
-}
-
-std::uint8_t GrooveApp::StandbyMinutes() const
-{
-  return os::storage::StandbyMinutes();
-}
-
-void GrooveApp::SetStandbyLights(std::uint8_t style)
-{
-  os::storage::SetStandbyLights(style);
-}
-
-std::uint8_t GrooveApp::StandbyLights() const
-{
-  return os::storage::StandbyLights();
-}
-
 void GrooveApp::SetLedBrightness(std::uint8_t level)
 {
   os::storage::SetKeyLedBrightness(level);

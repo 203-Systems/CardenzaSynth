@@ -85,25 +85,6 @@ bool IsSetting(const char* id)
   return StartsWith(id, "keys.") || StartsWith(id, "chord.") || StartsWith(id, "arp.") || StartsWith(id, "proj.") || StartsWith(id, "sys.");
 }
 
-// The standby choice shown for the stored minutes: the same, or the nearest wait (0 = never).
-std::size_t StandbyChoiceIndex(std::uint8_t minutes)
-{
-  std::size_t best = 1;
-  int bestDistance = 1000;
-  for (std::size_t index = 0; index < kStandbyMinuteChoices.size(); ++index)
-  {
-    const std::uint8_t choice = kStandbyMinuteChoices[index];
-    if ((choice == 0) != (minutes == 0)) continue;
-    const int distance = std::abs(static_cast<int>(choice) - static_cast<int>(minutes));
-    if (distance < bestDistance)
-    {
-      best = index;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
 bool Is(const char* id, const char* name)
 {
   return std::strcmp(id, name) == 0;
@@ -178,17 +159,6 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
     choice(host_.Logging() ? 1 : 0, 2, os::storage::kDefaultLogEnabled ? 1 : 0, host_.Logging() ? "ON" : "OFF");
     info.kind = synth::SynthParameterKind::Toggle;
   }
-  else if (Is(id, "sys.standby"))
-  {
-    const std::size_t index = StandbyChoiceIndex(host_.StandbyMinutes());
-    choice(static_cast<int>(index), static_cast<int>(kStandbyMinuteChoices.size()), static_cast<int>(StandbyChoiceIndex(os::storage::kDefaultStandbyMinutes)),
-           kStandbyMinuteNames[index]);
-  }
-  else if (Is(id, "sys.standby.led"))
-  {
-    const std::size_t style = std::min<std::size_t>(host_.StandbyLights(), kStandbyLightCount - 1);
-    choice(static_cast<int>(style), static_cast<int>(kStandbyLightCount), os::storage::kDefaultStandbyLights, kStandbyLightNames[style]);
-  }
   else return false;
   return true;
 }
@@ -234,8 +204,6 @@ void Controller::AdjustSetting(const char* id, int delta)
   else if (Is(id, "sys.led")) host_.SetLedBrightness(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.screen")) host_.SetBacklight(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.log")) host_.SetLogging(value != 0);
-  else if (Is(id, "sys.standby")) host_.SetStandbyMinutes(kStandbyMinuteChoices[static_cast<std::size_t>(value)]);
-  else if (Is(id, "sys.standby.led")) host_.SetStandbyLights(static_cast<std::uint8_t>(value));
   // The key range moves under held pads: let them go before they map to other notes.
   if (Is(id, "keys.layout") || Is(id, "keys.octave")) ReleaseAllPads();
   // Only project data makes the project unsaved: the keyboard, the tracks' chords and arpeggiators,
@@ -1762,8 +1730,6 @@ MenuItems Controller::Menu() const
       {
         const Slot& slot = settings->slots[SettingsFocus()];
         put(0, MenuAction::Default, "RESET", slot.IsParameter() ? slot.label : "", "OK", slot.IsParameter());
-        // The screen saver at once, to see it (never while the transport runs).
-        if (std::string_view(settings->tab) == "SYSTEM") put(1, MenuAction::StandbyNow, "STANDBY", "NOW", nullptr, !sequencer.Playing());
       }
       break;
   }
@@ -1843,7 +1809,6 @@ void Controller::RunMenu(std::size_t index)
       SetPage(kSetupFiles);
       break;
     case MenuAction::SaveProjectAs: SaveProject(true); break;
-    case MenuAction::StandbyNow: EnterStandby(state_.now); break;
     case MenuAction::None:
     default: break;
   }

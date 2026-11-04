@@ -37,18 +37,6 @@ inline constexpr Color kTrackColors[4] = {
 };
 inline constexpr Color TrackColor(std::size_t track) { return kTrackColors[track & 3u]; }
 
-// Standby's bouncing word takes the next of these at every wall: bright, so they read on a dimmed screen.
-inline constexpr std::array<Color, 8> kStandbyPalette{{
-    Rgb565(232, 232, 224),  // white
-    Rgb565(54, 214, 230),   // cyan
-    Rgb565(160, 112, 255),  // violet
-    Rgb565(72, 255, 120),   // green
-    Rgb565(255, 208, 48),   // yellow
-    Rgb565(255, 92, 176),   // pink
-    Rgb565(51, 177, 255),   // sky blue
-    Rgb565(255, 140, 60),   // orange
-}};
-
 // Ordered dither densities (0..16 of a 4x4 Bayer cell).
 inline constexpr int kDitherIdle = 3;
 inline constexpr int kDitherLatched = 8;
