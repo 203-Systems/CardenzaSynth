@@ -39,7 +39,7 @@ An engine is hundreds of plain allocations: build one only through `GrooveApp::B
 
 - Everything the firmware prints is the log: the device keeps it in an RTC ring that survives a crash (with the crash's `!!!` lines and backtrace, `Devices/Cardenza/DeviceLog.cpp`), and `OS/System/Log` appends it to `Cardenza/Logs/log.txt` while SETUP > SYSTEM > LOG (`sys.log`, on by default) is on. Users send that file; read it before guessing.
 - Print a line where something happens that would explain a problem (a load, a save, a refusal, a failure: `Groove: …`, `ui: …`), never per audio block or per frame. Keep the writer cheap: no heap buffer, bounded appends, on the device's background task below the UI (`Device::Background`: a card busy streaming a sample took seconds per append, which froze the UI when it wrote from the system loop), and none while a sample plays from the card (`os::storage::SetCardStreaming`). An autosave that may have been heard prints `Groove: autosave ... playing` (internal flash writes stop both cores for about 45 ms).
-- Keep the ELF of every bin given to anyone: the backtrace is decoded with it (`xtensa-esp32s3-elf-addr2line -pfiaC -e CardenzaSynthFirmware.elf <addresses>`); the log's first line of every start names the version and ELF hash.
+- Keep the ELF of every bin given to anyone: the backtrace is decoded with it (`xtensa-esp32s3-elf-addr2line -pfiaC -e CardenzaSynthFirmware.elf <addresses>`); the log's first line of every start names the version (`version.txt`), the Git commit (`+`: built with local changes) and the ELF hash. A release raises `version.txt` (major.minor.patch, read by CMake into the app description and `CardenzaBuildInfo.h`); SETUP > SYSTEM shows the version and the build.
 
 ## Sound Rules
 

@@ -1,4 +1,5 @@
 add_library(CardenzaSynthApp)
+cardenza_target_build_info(CardenzaSynthApp "${PROJECT_SOURCE_DIR}")
 
 cardenza_collect_synth_app_cpp_sources(${PROJECT_SOURCE_DIR} cardenza_synth_app_sources)
 target_sources(CardenzaSynthApp PRIVATE

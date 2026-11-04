@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "CardenzaBuildInfo.h"
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Applications/Synth/UI/Groove/Render/Widgets.h"
@@ -1133,7 +1134,7 @@ void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, co
     y += 11;
     ++line;
   };
-  row("BACKEND", info.backend, kInk);
+  row("VERSION", cardenza::build::kVersion, kInk);
   row("SD CARD", info.storageReady ? "READY" : "NOT FOUND", info.storageReady ? kPlay : kRec);
   // Internal RAM, and PSRAM beside it when there is some (one row: a fifth would run into the tabs).
   std::string memory = "N/A";
@@ -1143,7 +1144,9 @@ void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, co
   else if (info.freeHeap != 0)
     memory = std::to_string(info.freeHeap / 1024) + "K FREE  MIN " + std::to_string(info.minimumFreeHeap / 1024) + "K";
   row("MEMORY", memory, kInk);
-  row("BUILD", std::string(__DATE__), kDim);
+  // The Git hash (+ when built with local changes) and the UTC time of the build, month to minute.
+  const std::string built = cardenza::build::kTimeUtc;
+  row("BUILD", std::string(cardenza::build::kHash) + (cardenza::build::kDirty ? "+ " : " ") + built.substr(5, 11), kDim);
 }
 
 void ProjectScene(Gfx& g, const Controller& controller, Animator& animator, std::uint8_t page)

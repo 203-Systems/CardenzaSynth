@@ -1527,7 +1527,6 @@ bool GrooveApp::Logging() const
 groove::SystemInfo GrooveApp::QuerySystem() const
 {
   groove::SystemInfo info;
-  info.backend = Device::BackendName();
   info.storageReady = storageReady_;
 #if defined(ESP_PLATFORM)
   info.freeHeap = memory::FastFree();

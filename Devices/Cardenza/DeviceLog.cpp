@@ -22,6 +22,7 @@
 #include <freertos/task.h>
 #include <xtensa_context.h>
 
+#include "CardenzaBuildInfo.h"
 #include "Devices/Device.h"
 
 // The console log of the device (Device::Log in Devices/Device.h).
@@ -322,7 +323,9 @@ void Install()
   const esp_app_desc_t* app = esp_app_get_description();
   char elf[17] = {};
   esp_app_get_elf_sha256(elf, sizeof(elf));
-  std::printf("\n==== %s %s (elf %s) started, reset: %s, previous run: %s\n", app->project_name, app->version, elf,
+  // version.txt, the Git commit (+: built with local changes) and the ELF's hash, which decodes a backtrace.
+  std::printf("\n==== %s %s %s%s (elf %s) started, reset: %s, previous run: %s\n", app->project_name, app->version,
+              cardenza::build::kHash, cardenza::build::kDirty ? "+" : "", elf,
               ResetReasonName(esp_reset_reason()),
               g_previousCrashed ? "CRASHED (the !!! lines above)" : (g_previousKept ? "ended" : "unknown (power was off)"));
 }
