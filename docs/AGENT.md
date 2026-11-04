@@ -22,7 +22,7 @@ Concrete rules:
 - App-specific synth UI/model/renderer code lives under `Applications/Synth/UI`, not under `Library/Synth`.
 - Board pins live in the HAL's `board/pins.h` (read-only).
 - Vendored AMY sources live under `Library/third_party/amy`.
-- Files on the card follow the app storage protocol (`docs/app-storage-protocol.md`): apps use `OS/Storage` and their own `Cardenza/Apps/<Author>/<Name>/` folder; `Device::Storage` only provides the card root, mounting and internal-flash records. The synth library reaches its folders through `synth::storage` (`Library/Synth/Core/SynthStorage.h`), which the hosting app defines.
+- Files on the card follow the storage protocol (`docs/app-storage-protocol.md`): everything is on the SD card below `CardenzaSynth/`, nothing in internal flash; apps use `OS/Storage` and their own folder (the groovebox uses the product root, other apps `Apps/<Author>/<Name>/`); `Device::Storage` only provides the card root, mounting and capacity. The synth library reaches its folders through `synth::storage` (`Library/Synth/Core/SynthStorage.h`), which the hosting app defines.
 
 ## Build Entrypoints
 
@@ -37,7 +37,7 @@ The root CMake project is for desktop-style targets such as `CardenzaSim`. The C
 
 - `Applications/Synth/Runtime`: app-owned synth rack and track wiring.
 - `Applications/Synth/UI/Groove`: the groovebox UI. `GrooveController` (input, navigation, scenes, modals, LEDs) talks to the runtime only through `groove::Host`; `Render/` draws straight into the framebuffer. The previous UI (`Applications/Synth/UI/*` outside `Groove`, `SynthApp`) remains buildable with `-DCARDENZA_GROOVE_UI=OFF` until it is removed.
-- `OS/Storage`: the app storage protocol (paths, settings files, device settings, migration of the pre-protocol layout). `OS/System`: app lifecycle and switching. The firmware has no launcher of its own; do not add one (the device has its own Launcher).
+- `OS/Storage`: the storage protocol (paths, settings files, device settings, whether the run has a card). `OS/System`: app lifecycle and switching. The firmware has no launcher of its own; do not add one (the device has its own Launcher).
 - `Library/Synth/Core`: engine interfaces, engine implementations, and factory.
 - `Library/Synth/Audio`: runtime audio bridge, with AMY-specific code under `Audio/Amy`.
 - `Library/third_party/amy`: vendored AMY sources consumed by the shared synth audio runtime.
