@@ -4,7 +4,7 @@
 //
 //   page -> device                          device -> page
 //   G?        protocol and guide state      G!1 g<0|1>
-//   GE        start the guide               GE1, or GE0 <rec|save|mem> (why not)
+//   GE        start the guide               GE1, or GE0 <rec|card|save|mem> (why not)
 //   GX        end it                        GX (also when the device ends it by itself)
 //   GP        still here (any G message is) -
 //   GQ        the state now                 GS<Controller::GuideState()>
@@ -14,10 +14,10 @@
 //   GK<kk><0|1> press / release a key       GK<kk><0|1> for every key the user presses
 //                                           GD<56 hex digits> the key lights as shown (over USB)
 //
-// While the guide runs, the user's working state waits in internal flash (it was saved when the guide
-// started and nothing writes the practice project there); it comes back when the guide ends, when
-// the page goes quiet, the cable is pulled, or the app is suspended. Power loss loses only the
-// practice project.
+// While the guide runs, the user's working state waits in the autosave on the card (it was written when
+// the guide started and nothing writes the practice project there); it comes back when the guide ends,
+// when the page goes quiet, the cable is pulled, or the app is suspended. Power loss loses only the
+// practice project. Without a card there is nowhere to keep it: the guide does not start (GE0 card).
 
 #include "Applications/Synth/GrooveApp.h"
 
@@ -29,6 +29,7 @@
 #include "Library/Memory/Memory.h"
 
 #include "Devices/Device.h"
+#include "OS/Storage/Storage.h"
 
 namespace apps {
 
@@ -191,10 +192,10 @@ bool GrooveApp::EnterGuide(std::string& reason)
     return false;
   }
 #endif
-  // The working state goes to internal flash first: the guide brings it back from there.
-  if (SaveSessionState() != synth::SessionStore::SaveResult::Ok)
+  // The working state goes to the card first: the guide brings it back from there.
+  if (!SaveSessionState())
   {
-    reason = "save";
+    reason = os::storage::CardMounted() ? "save" : "card";
     return false;
   }
   sessionChanged_ = false;

@@ -36,7 +36,6 @@ void NoteOff(std::size_t, std::uint8_t) {}
 }
 namespace synth::storage {
 std::string SampleDirectory() { return testDirectory.string(); }
-std::string ResolveSamplePath(const std::string& fileName) { return (testDirectory / fileName).string(); }
 std::string SessionDirectory() { return testDirectory.string(); }
 bool EnsureLayout() { return true; }
 }

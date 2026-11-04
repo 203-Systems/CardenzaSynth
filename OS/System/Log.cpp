@@ -107,7 +107,7 @@ void WriteInBackground()
 // The system loop: a write the writer could not make has the card looked at (it may have gone).
 void CheckFailedWrite()
 {
-  if (g_ioFailed.exchange(false)) Device::Storage::CheckAfterIoError();
+  if (g_ioFailed.exchange(false)) os::storage::ReportCardIoError();
 }
 
 }  // namespace
@@ -126,7 +126,7 @@ bool Flush()
 {
   CheckFailedWrite();
   // Off, the ring keeps the newest lines; turned on, they are written first.
-  if (!os::storage::LogEnabled() || !Device::Storage::IsMounted()) return false;
+  if (!os::storage::LogEnabled() || !os::storage::CardMounted()) return false;
   if (Device::Log::Pending() == 0) return true;
   bool written = false;
   {
@@ -148,7 +148,7 @@ void Service(std::uint32_t nowMs)
   // the card slow to read from.
   if (os::storage::CardStreaming()) return;
   g_lastWriteAt = nowMs;
-  if (!os::storage::LogEnabled() || !Device::Storage::IsMounted() || Device::Log::Pending() == 0) return;
+  if (!os::storage::LogEnabled() || !os::storage::CardMounted() || Device::Log::Pending() == 0) return;
   if (!g_background)
   {
     (void)Flush();

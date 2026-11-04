@@ -43,8 +43,6 @@ std::uint8_t outputVolume = Device::Audio::kDefaultOutputVolume;
 // state/flow test.
 namespace synth::storage {
 std::string SampleDirectory() { return (storageRoot / "Sample").string(); }
-std::string ResolveSamplePath(const std::string& fileName) { return (storageRoot / "Sample" / fileName).string(); }
-std::string ReleaseProjectDirectory() { return (storageRoot / "ReleaseProjects").string(); }
 std::string ProjectDirectory() { return (storageRoot / "Project").string(); }
 std::string PresetDirectory(std::string_view instrument) { return (storageRoot / "Preset" / std::string(instrument)).string(); }
 std::string SessionDirectory() { return (storageRoot / "Session").string(); }

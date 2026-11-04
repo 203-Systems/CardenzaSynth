@@ -27,21 +27,25 @@ std::vector<SettingsEntry> ParseSettings(std::string_view text, std::size_t* rej
 // `header` is written as comment lines before the entries.
 std::string FormatSettings(const std::vector<SettingsEntry>& entries, std::string_view header);
 
-// One settings store: a RAM cache of a settings file. Values are changed in RAM (Dirty) and written
-// by Flush(): to the card when it is present, otherwise to a record in internal flash ("saved on
-// the device"), which is copied to the card by the first Flush() after the card is back.
+// One settings store: a RAM cache plus explicit edits to a file on the SD card. Flush rebases the
+// edits onto the current card file, preserving untouched keys after the card was out or swapped.
+// Without a writable card, edits stay dirty in RAM and are lost when the device powers off.
 class Settings {
 public:
-  // `scope` is "system" or an app id and names the internal-flash record; `path` is the card file.
+  // `scope` identifies the store in its file header; `path` is the card file.
   Settings(std::string scope, std::string path);
 
   const std::string& Scope() const { return scope_; }
   const std::string& Path() const { return path_; }
 
-  // Reads the card file (or the backup an interrupted write left), then the internal record, which
-  // wins key by key: it only exists while it is newer than the card. Discards unsaved changes.
+  // Reads the card file (or its recovery file). Discards unsaved edits. With no readable card,
+  // starts with an empty cache, so getters return their supplied defaults.
   void Load();
   bool Loaded() const { return loaded_; }
+  // Reads the current card and reapplies pending edits, including removals. Returns false without
+  // changing RAM when the card/file is unreadable, oversized or not a regular file. A genuinely
+  // missing file is an empty store. Use this when the card is back instead of Load to keep unsaved edits.
+  bool RefreshFromCard();
 
   bool Has(std::string_view key) const;
   std::string GetString(std::string_view key, std::string_view fallback = {}) const;
@@ -54,49 +58,60 @@ public:
   bool SetString(std::string_view key, std::string_view value);
   bool SetInt(std::string_view key, int value);
   bool SetBool(std::string_view key, bool value);
+  // Records an explicit removal, even if a key is not cached yet (the card may be absent).
+  // False only for an invalid key.
   bool Remove(std::string_view key);
 
   const std::vector<SettingsEntry>& Entries() const { return entries_; }
   // Changes that are only in RAM.
   bool Dirty() const { return dirty_; }
-  // The newest values are in internal flash and not yet on the card.
-  bool PendingCardSync() const { return internalOnly_; }
   // Increases on every change; lets the system write settings a moment after the last change.
   std::uint32_t Revision() const { return revision_; }
 
-  // Writes RAM changes and copies an internal-only state to the card. True when nothing is left
-  // only in RAM afterwards.
+  // Re-reads the current card, applies only pending edits and writes at most 16 KB. False leaves
+  // all edits dirty; an absent/unwritable card never counts as a successful save. True when no
+  // edits remain to save. Callers serialize refresh/edit/flush operations on the owning task.
   bool Flush();
 
 private:
-  std::string InternalKey() const;
+  struct Edit {
+    std::string key;
+    std::string value;
+    bool removed = false;
+  };
+
   std::string FileHeader() const;
   void Put(std::string_view key, std::string_view value);
+  void RecordEdit(std::string_view key, std::string_view value, bool removed);
+  void ApplyEdits(std::vector<SettingsEntry>& entries) const;
 
   std::string scope_;
   std::string path_;
   std::vector<SettingsEntry> entries_;
+  std::vector<Edit> edits_;
   bool loaded_ = false;
   bool dirty_ = false;
-  bool internalOnly_ = false;
   std::uint32_t revision_ = 0;
 };
 
-// The device settings (System/settings.cfg). Loaded on first use.
+// The device settings, at SystemSettingsPath(). Loaded on first use.
 Settings& SystemSettings();
-// The settings of an app (Apps/<Author>/<Name>/settings.cfg). Loaded on first use; an invalid id
-// gives a store that never writes.
+// The settings of an app, at AppFolder::SettingsPath(). Loaded on first use; an invalid id gives
+// a store that never writes.
 Settings& AppSettings(std::string_view appId);
 // Drops an app's cached settings when nothing of them is left only in RAM (after the app is gone).
 void ReleaseAppSettings(std::string_view appId);
 // Flushes every loaded store. True when nothing is left only in RAM.
 bool FlushAllSettings();
-// For the system's write-behind: the sum of every loaded store's Revision(), whether any store has
-// changes only in RAM, and whether any waits in internal flash for the card.
+// For the system's write-behind: the sum of every loaded store's Revision() and whether any store
+// has unsaved changes in RAM.
 std::uint32_t SettingsRevision();
 bool AnySettingsDirty();
-bool AnySettingsPendingCardSync();
-// Reloads every cached store from the card (tests, card swap).
+// Refreshes every cached store from the current card, preserving all pending edits. False if any
+// store could not be read safely. Does not create stores or write files.
+bool RefreshAllSettingsFromCard();
+// Explicitly discards pending edits and reloads every cached store. For reset/tests; a card
+// coming back uses RefreshAllSettingsFromCard instead.
 void ReloadAllSettings();
 
 }  // namespace os::storage

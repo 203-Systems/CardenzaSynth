@@ -8,7 +8,6 @@
 #include "Applications/BuiltInApplications.h"
 #include "Devices/Device.h"
 #include "OS/Storage/DeviceSettings.h"
-#include "OS/Storage/Migration.h"
 #include "OS/Storage/Settings.h"
 #include "OS/Storage/Storage.h"
 #include "OS/System/Log.h"
@@ -19,8 +18,9 @@ namespace {
 
 constexpr const char* kBootAppKey = "boot.app";
 constexpr const char* kProtocolKey = "protocol";
-// While the newest settings wait in internal flash, the card is tried this often.
-constexpr std::uint32_t kCardSyncRetryMs = 10000;
+// A card that is out or failed writes are tried again this often at most: settings not written stay
+// in RAM meanwhile (nothing is kept in internal flash).
+constexpr std::uint32_t kCardRetryMs = 5000;
 
 struct SystemState {
   std::unique_ptr<app::Application> application;
@@ -37,7 +37,11 @@ struct SystemState {
   std::uint32_t (*clock)() = nullptr;
   std::uint32_t settingsRevision = 0;
   std::uint32_t settingsChangedAt = 0;
-  std::uint32_t cardSyncTriedAt = 0;
+  std::uint32_t settingsTriedAt = 0;
+  bool settingsWriteFailed = false;
+  // The card's settings are in the stores and its folders are there; false while it is out.
+  bool cardReady = false;
+  std::uint32_t cardTriedAt = 0;
 };
 
 SystemState& State() {
@@ -145,14 +149,45 @@ bool StartApplication(const std::string& id, const std::vector<std::string>& arg
   return true;
 }
 
+// The card there again (it was out, or stopped answering and was mounted again): its settings come
+// back with the edits not written yet on top, and the device settings follow it. `force` asks the
+// device to mount it now (it limits how often a missing card is probed); otherwise at most every
+// kCardRetryMs.
+bool PrepareCard(bool force = false) {
+  auto& state = State();
+  if (!os::storage::CardMounted()) state.cardReady = false;
+  if (state.cardReady) return true;
+  const std::uint32_t now = Now();
+  if (!force && now - state.cardTriedAt < kCardRetryMs) return false;
+  state.cardTriedAt = now;
+  if (!os::storage::CardPresent() || !os::storage::EnsureSystemLayout()) return false;
+  // One store that cannot be read keeps what it has and refuses to write (Settings::Flush); the
+  // others go on.
+  (void)os::storage::RefreshAllSettingsFromCard();
+  (void)os::storage::SystemSettings().SetInt(kProtocolKey, os::storage::kProtocolVersion);
+  state.cardReady = true;
+  os::storage::ApplyDeviceSettings();
+  return true;
+}
+
+bool FlushSettings(bool force = false) {
+  auto& state = State();
+  const bool prepared = PrepareCard(force);
+  state.settingsTriedAt = Now();
+  state.settingsWriteFailed = !prepared || !os::storage::FlushAllSettings();
+  if (state.settingsWriteFailed) state.cardReady = false;
+  return !state.settingsWriteFailed;
+}
+
 void PerformSwitch(const std::string& id) {
   auto& state = State();
   if (id == state.activeId && state.application) return;
   const std::string from = state.activeId;
   if (state.application)
   {
+    (void)PrepareCard(true);
     state.application->Suspend();
-    (void)os::storage::FlushAllSettings();
+    (void)FlushSettings();
     (void)os::log::Flush();
     // Destroy before create: the next app gets the whole heap.
     state.application.reset();
@@ -174,30 +209,26 @@ void PerformSwitch(const std::string& id) {
   state.previousKeys = state.ignoredKeys;
   state.ignoreHome = Device::Buttons::HomePressed();
   state.previousHome = state.ignoreHome;
-  (void)os::storage::FlushAllSettings();
+  (void)FlushSettings();
 }
 
 void WriteBehindSettings() {
   auto& state = State();
   const std::uint32_t now = Now();
+  // A card mounted again (by anyone who looked for it) brings its settings back. Nobody probes for a
+  // missing card here unless a setting waits to be written.
+  if (!os::storage::CardMounted()) state.cardReady = false;
+  else if (!state.cardReady) (void)PrepareCard();
   const std::uint32_t revision = os::storage::SettingsRevision();
   if (revision != state.settingsRevision)
   {
     state.settingsRevision = revision;
     state.settingsChangedAt = now;
   }
-  if (os::storage::AnySettingsDirty())
-  {
-    if (now - state.settingsChangedAt < kSettingsWriteDelayMs) return;
-    // On failure try again after another delay instead of every frame.
-    if (!os::storage::FlushAllSettings()) state.settingsChangedAt = now;
-    return;
-  }
-  if (os::storage::AnySettingsPendingCardSync() && now - state.cardSyncTriedAt >= kCardSyncRetryMs)
-  {
-    state.cardSyncTriedAt = now;
-    (void)os::storage::FlushAllSettings();
-  }
+  if (!os::storage::AnySettingsDirty() || now - state.settingsChangedAt < kSettingsWriteDelayMs) return;
+  // On failure try again after a while instead of every frame.
+  if (state.settingsWriteFailed && now - state.settingsTriedAt < kCardRetryMs) return;
+  (void)FlushSettings();
 }
 
 }  // namespace
@@ -216,11 +247,12 @@ bool Begin(const BootOptions& options) {
 
   app::RegisterBuiltInApplications();
 
-  // The card: protocol version, the pre-protocol layout moved into place, the system folders.
-  auto& settings = os::storage::SystemSettings();
-  (void)settings.SetInt(kProtocolKey, os::storage::kProtocolVersion);
-  (void)os::storage::MigrateLegacyLayout(os::storage::AppFolder(app::DefaultApplicationId()));
-  (void)os::storage::EnsureSystemLayout();
+  // The card: the protocol version, the settings it holds, the system folders. Nothing is kept anywhere
+  // else.
+  (void)os::storage::SystemSettings().SetInt(kProtocolKey, os::storage::kProtocolVersion);
+  state.cardReady = os::storage::EnsureSystemLayout();
+  if (state.cardReady) (void)os::storage::RefreshAllSettingsFromCard();
+  state.cardTriedAt = Now();
   os::storage::ApplyDeviceSettings();
   // The end of the previous run (a crash too) goes to the card before anything can go wrong again.
   (void)os::log::Flush();
@@ -236,7 +268,7 @@ bool Begin(const BootOptions& options) {
   state.previousKeys = Device::Keyboard::State();
   state.previousHome = Device::Buttons::HomePressed();
   state.started = true;
-  (void)os::storage::FlushAllSettings();
+  (void)FlushSettings();
   state.settingsRevision = os::storage::SettingsRevision();
 
   UpdateApplicationLeds(*state.application);
@@ -297,15 +329,16 @@ std::string BootApplicationId() {
 
 void Shutdown() {
   auto& state = State();
+  (void)PrepareCard(true);
   if (state.application)
   {
     state.application->Suspend();
-    (void)os::storage::FlushAllSettings();
+    (void)FlushSettings();
     state.application.reset();
     os::storage::ReleaseAppSettings(state.activeId);
     state.activeId.clear();
   }
-  (void)os::storage::FlushAllSettings();
+  (void)FlushSettings();
   (void)os::log::Flush();
 }
 

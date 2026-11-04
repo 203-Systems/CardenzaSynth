@@ -22,7 +22,7 @@ else()
 endif()
 add_test(NAME CardenzaArpTests COMMAND CardenzaArpTests)
 
-# App storage protocol: OS/Storage on the simulator's card and internal-flash store.
+# The SD-only storage protocol (2) on the simulator's card, with the card taken out and put back.
 cardenza_collect_storage_cpp_sources(${PROJECT_SOURCE_DIR} storage_test_sources)
 add_executable(CardenzaStorageTests
   storage_protocol_test.cpp
@@ -31,6 +31,16 @@ add_executable(CardenzaStorageTests
 )
 target_include_directories(CardenzaStorageTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaStorageTests COMMAND CardenzaStorageTests)
+
+# Settings on a card with faults: no card, insertion and replacement, I/O errors and oversized files.
+# The test supplies its own Device::Storage.
+add_executable(CardenzaSettingsSdOnlyTests
+  settings_sd_only_test.cpp
+  ${PROJECT_SOURCE_DIR}/OS/Storage/Storage.cpp
+  ${PROJECT_SOURCE_DIR}/OS/Storage/Settings.cpp
+)
+target_include_directories(CardenzaSettingsSdOnlyTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaSettingsSdOnlyTests COMMAND CardenzaSettingsSdOnlyTests)
 
 add_executable(CardenzaSampleStreamTests
   sample_stream_test.cpp
@@ -131,7 +141,7 @@ set_tests_properties(CardenzaSimShotRejectsUnknownKey PROPERTIES
   PASS_REGULAR_EXPRESSION "shot-unknown-key\\.script:2: unknown key target 'nosuchkey'"
 )
 
-foreach(target CardenzaCoreTests CardenzaStorageTests CardenzaSamplerTests ${cardenza_ui_tests} CardenzaLedTests)
+foreach(target CardenzaCoreTests CardenzaStorageTests CardenzaSettingsSdOnlyTests CardenzaSamplerTests ${cardenza_ui_tests} CardenzaLedTests)
   if(MSVC)
     target_compile_options(${target} PRIVATE /UNDEBUG)
     target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)

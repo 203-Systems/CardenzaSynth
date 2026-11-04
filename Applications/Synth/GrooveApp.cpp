@@ -38,22 +38,25 @@ namespace apps {
 
 namespace {
 
-// Session handover files in Apps/Cardenza/Synth/Session.
-constexpr const char* kSessionProject = "session.ccproj";
-// After a key: this much quiet, or this long at most while something is playing.
+// The autosave (SessionStore): written once the keys have rested this long, none held; while keys keep
+// coming, or a sample plays from the card, this long at most after the first change it does not have.
 constexpr std::uint32_t kSessionQuietMs = 1500;
 constexpr std::uint32_t kSessionLongestWaitMs = 60000;
+// After a failed autosave: tried again this soon, and once it keeps failing (kSessionFailuresBeforeSlow
+// in a row) this seldom.
 constexpr std::uint32_t kSessionRetryMs = 2000;
-constexpr std::uint32_t kSessionSlowSaveMs = 30;
-// While it plays the autosave goes to the card this long after the first change it does not have.
-constexpr std::uint32_t kSessionCardWaitMs = 10000;
 constexpr std::uint32_t kSessionFailedRetryMs = 30000;
+constexpr std::uint32_t kSessionFailuresBeforeSlow = 3;
+// A write that took this long says so in the log (the system loop's, or the background task's).
+constexpr std::uint32_t kSessionSlowSaveMs = 30;
+constexpr std::uint32_t kSessionSlowCardMs = 500;
 constexpr std::uint32_t kCardCheckMs = 2000;
 constexpr std::uint32_t kCardProbeMs = 10000;
 constexpr std::uint32_t kOrphanCheckMs = 200;
 constexpr std::uint32_t kOrphanConfirmMs = 50;
 #if defined(ESP_PLATFORM)
-// What the autosave needs at the same time, with a record as one block.
+// What the autosave's snapshot and its file need at the same time (many small plain allocations, and
+// the file's buffers, which the card's DMA needs in internal RAM).
 constexpr std::size_t kSessionHeapBytes = 12 * 1024;
 constexpr std::size_t kSessionBlockBytes = 5 * 1024;
 constexpr std::size_t kProjectSaveHeapBytes = 8 * 1024;
@@ -124,6 +127,9 @@ bool HasWavExtension(const std::string& name)
   return extension == ".wav";
 }
 
+// The autosave's writer (below, by SaveSessionToCard).
+void ForgetCardSession();
+
 }  // namespace
 
 void RegisterGrooveApplication()
@@ -173,7 +179,7 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
   ApplyMasterFx(synth::ProjectData::DefaultMasterFx());
   // Volume, key LEDs and screen are device settings: the system applied them at boot.
   RestorePlaySettings();
-  // The autosave is in internal flash: it comes back with or without a card.
+  // The autosave is on the card: the working state comes back with it.
   (void)RestoreSessionState();
   cardWasMounted_ = os::storage::CardMounted();
   if (cardWasMounted_)
@@ -243,68 +249,34 @@ void GrooveApp::ApplyPlaySettings(const synth::ProjectData& project, groove::Pro
   }
 }
 
-synth::SessionStore::SaveResult GrooveApp::SaveSessionState()
+synth::SessionInfo GrooveApp::NextSessionInfo()
 {
-  synth::ProjectData project;
-  std::string message;
-  if (!CaptureProject(controller_.Settings(), project, message, true)) return synth::SessionStore::SaveResult::Failed;
   const auto& view = controller_.State();
   synth::SessionInfo info;
   info.name = view.projectName;
   info.dirty = view.dirty;
-  if (cardSessionNewest_) ++sessionGeneration_;
-  info.generation = sessionGeneration_;
-  const std::uint32_t started = NowMs();
-  const auto result = session_.Save(info, project);
-  // Everything is in the flash now: the card's copy (older) is not needed until the next change.
-  if (result == synth::SessionStore::SaveResult::Ok)
-  {
-    cardSessionChanged_ = false;
-    cardSessionNewest_ = false;
-  }
-  // Writing the internal flash stops what runs from it on both cores for as long as a sector takes to
-  // erase: a line when it may have been heard (a late beat, a click).
-  const std::uint32_t took = NowMs() - started;
-  if (sequencer_.Playing() || took >= kSessionSlowSaveMs)
-    std::printf("Groove: autosave %s in %u ms%s\n", result == synth::SessionStore::SaveResult::Failed ? "failed" : "written",
-                static_cast<unsigned>(took), sequencer_.Playing() ? ", playing" : "");
-  return result;
+  info.generation = ++sessionGeneration_;
+  if (info.generation == 0) info.generation = ++sessionGeneration_;  // 0 means none
+  return info;
 }
 
 bool GrooveApp::RestoreSessionState()
 {
-  if (!synth::SessionStore::BeginRestore()) return false;
-  synth::ProjectData project;
+  // No card, no autosave. And none on it: nothing counted.
   synth::SessionInfo info;
+  if (!os::storage::CardMounted() || !synth::SessionStore::ReadInfo(info)) return false;
+  if (!synth::SessionStore::BeginRestore())
+  {
+    std::printf("Groove: autosave skipped: the last starts with it did not finish\n");
+    return false;
+  }
+  synth::ProjectData project;
   std::string message;
-  bool found = session_.Load(info, project);
-  // The card's copy is newer when it was written while playing after the last one in flash. With an
-  // autosave in flash that does not read, nobody knows which is newer: a clean start, as before.
-  bool fromCard = false;
-  synth::SessionInfo card;
-  if (os::storage::CardMounted() && synth::SessionStore::ReadCardInfo(card) &&
-      (found ? card.generation > info.generation : !synth::SessionStore::InFlash()))
-  {
-    synth::ProjectData cardProject;
-    if (synth::SessionStore::LoadCard(card, cardProject))
-    {
-      project = std::move(cardProject);
-      info = card;
-      found = fromCard = true;
-    }
-  }
-  sessionGeneration_ = std::max(info.generation, card.generation);
-  cardSessionNewest_ = card.generation > info.generation || fromCard;
+  const bool found = synth::SessionStore::Load(info, project);
+  sessionGeneration_ = std::max(sessionGeneration_, info.generation);
   const bool restored = found && ReplaceSession(info.name, project, false, message, true);
-  if (found)
-    std::printf("Groove: autosave from %s, generation %u: %s\n", fromCard ? "the card" : "flash", static_cast<unsigned>(info.generation),
-                restored ? "restored" : message.c_str());
-  if (restored && fromCard)
-  {
-    // The flash has the older one: it takes this one at the next quiet moment.
-    sessionChanged_ = true;
-    sessionChangedAt_ = NowMs();
-  }
+  std::printf("Groove: autosave generation %u: %s\n", static_cast<unsigned>(info.generation),
+              restored ? "restored" : found ? message.c_str() : "unreadable");
   if (restored)
   {
     groove::ProjectUiSettings ui = controller_.Settings();
@@ -329,9 +301,10 @@ void GrooveApp::CheckCard(std::uint32_t now)
 {
   if (now - lastCardCheckAt_ < kCardCheckMs) return;
   lastCardCheckAt_ = now;
-  // Looking for a card that is not there takes a moment: only for something that waits for it, and
-  // only when nobody is playing.
-  const bool waiting = std::any_of(pendingSamples_.begin(), pendingSamples_.end(), [](const std::string& name) { return !name.empty(); });
+  // Looking for a card that is not there takes a moment: only for something that waits for it (a
+  // sample, the autosave), and only when nobody is playing.
+  const bool waiting = sessionChanged_ ||
+                       std::any_of(pendingSamples_.begin(), pendingSamples_.end(), [](const std::string& name) { return !name.empty(); });
   if (!cardWasMounted_ && waiting && Quiet(now) && now - lastCardProbeAt_ >= kCardProbeMs)
   {
     lastCardProbeAt_ = now;
@@ -340,8 +313,11 @@ void GrooveApp::CheckCard(std::uint32_t now)
   const bool mounted = os::storage::CardMounted();
   if (mounted == cardWasMounted_) return;
   cardWasMounted_ = mounted;
-  if (!mounted || !synth::storage::EnsureLayout()) return;
-  storageReady_ = true;
+  if (!mounted) return;
+  // It may be another card: the autosave is written whole the next time.
+  ForgetCardSession();
+  storageReady_ = synth::storage::EnsureLayout();
+  if (!storageReady_) return;
   synth::audio::RetrySampleStreams();
   ApplyPendingSamples();
   const int take = sampler_.RestoreTakes();
@@ -368,127 +344,216 @@ void GrooveApp::ApplyPendingSamples()
 namespace {
 
 // The autosave on its way to the card: taken in the system loop, written on the device's background
-// task (a project file takes the card 100 ms to seconds), while the music plays on.
+// task (a project file takes the card 100 ms to seconds), while the music plays on. Its files have one
+// writer at a time: the background task, or the system loop writing it now (SaveSessionState), which
+// first drops a snapshot still waiting so that nothing older lands after it.
 struct CardSessionWrite {
+  std::mutex files;
   std::mutex mutex;
-  std::unique_ptr<synth::ProjectData> project;  // under mutex: what to write, null when nothing
+  std::unique_ptr<synth::ProjectData> project;  // under mutex: waiting to be written, null when none
   synth::SessionInfo info;                       // under mutex
-  std::atomic<bool> busy{false};
-  std::atomic<int> result{0};  // 1 written, -1 failed, 0 nothing new to report
-  std::atomic<std::uint32_t> tookMs{0};
+  bool writing = false;                          // under mutex
+  int result = 0;                                // under mutex: 1 written, 2 unchanged, -1 failed, 0 nothing new
+  std::uint32_t tookMs = 0;                      // under mutex
+  // What the card holds, as ProjectFingerprint with the name and the unsaved mark; 0 = unknown. Only
+  // the background task (under files) and a card coming back (under files) touch it.
+  std::uint32_t written = 0;
 };
 CardSessionWrite g_cardSession;
 
+std::uint32_t SessionFingerprint(const synth::SessionInfo& info, const synth::ProjectData& project)
+{
+  std::uint32_t hash = synth::ProjectFingerprint(project);
+  for (const char c : info.name + (info.dirty ? "\n1" : "\n0")) hash = (hash ^ static_cast<unsigned char>(c)) * 16777619u;
+  return hash | 1u;
+}
+
 void WriteCardSession()
 {
+  std::lock_guard<std::mutex> files(g_cardSession.files);
   std::unique_ptr<synth::ProjectData> project;
   synth::SessionInfo info;
   {
     std::lock_guard<std::mutex> lock(g_cardSession.mutex);
+    if (!g_cardSession.project) return;
     project = std::move(g_cardSession.project);
     info = g_cardSession.info;
+    g_cardSession.writing = true;
   }
-  if (!project) return;
   const auto started = std::chrono::steady_clock::now();
-  const bool written = synth::SessionStore::SaveCard(info, *project);
+  // A key that changed nothing writes nothing.
+  const std::uint32_t fingerprint = SessionFingerprint(info, *project);
+  const bool unchanged = fingerprint == g_cardSession.written;
+  const bool written = unchanged || synth::SessionStore::Save(info, *project);
+  g_cardSession.written = written ? fingerprint : 0;
   project.reset();
-  g_cardSession.tookMs = static_cast<std::uint32_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count());
-  g_cardSession.result = written ? 1 : -1;
-  g_cardSession.busy = false;
+  const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+  std::lock_guard<std::mutex> lock(g_cardSession.mutex);
+  g_cardSession.writing = false;
+  g_cardSession.result = !written ? -1 : unchanged ? 2 : 1;
+  g_cardSession.tookMs = static_cast<std::uint32_t>(took);
+}
+
+bool CardSessionBusy()
+{
+  std::lock_guard<std::mutex> lock(g_cardSession.mutex);
+  return g_cardSession.project != nullptr || g_cardSession.writing;
+}
+
+// The card was out or another one is in: what it holds is not known.
+void ForgetCardSession()
+{
+  std::lock_guard<std::mutex> files(g_cardSession.files);
+  g_cardSession.written = 0;
 }
 
 }  // namespace
 
+bool GrooveApp::SaveSessionState()
+{
+  // The card may have been out: asked for now (the device limits how often it probes).
+  storageReady_ = os::storage::CardPresent() && synth::storage::EnsureLayout();
+  synth::ProjectData project;
+  std::string message;
+  if (!storageReady_ || !CaptureProject(controller_.Settings(), project, message, true)) return false;
+  const synth::SessionInfo info = NextSessionInfo();
+  const std::uint32_t started = NowMs();
+  bool written = false;
+  {
+    // An older snapshot still waiting is not written after this one; one being written finishes first.
+    {
+      std::lock_guard<std::mutex> lock(g_cardSession.mutex);
+      g_cardSession.project.reset();
+    }
+    std::lock_guard<std::mutex> files(g_cardSession.files);
+    written = synth::SessionStore::Save(info, project);
+    g_cardSession.written = 0;
+    std::lock_guard<std::mutex> lock(g_cardSession.mutex);
+    g_cardSession.result = 0;
+  }
+  const std::uint32_t took = NowMs() - started;
+  if (written)
+  {
+    sessionChanged_ = false;
+    sessionFailures_ = 0;
+    autosaveFailureShown_ = false;
+  }
+  else
+  {
+    // Whatever the card had is not known now (a write waiting or failing was dropped above): tried
+    // again once the changes settle.
+    if (!sessionChanged_) sessionChangedAt_ = started;
+    sessionChanged_ = true;
+    storageReady_ = false;
+    os::storage::ReportCardIoError();
+  }
+  if (!written || took >= kSessionSlowSaveMs)
+    std::printf("Groove: autosave %s in %u ms, generation %u\n", written ? "written" : "failed", static_cast<unsigned>(took),
+                static_cast<unsigned>(info.generation));
+  return written;
+}
+
 bool GrooveApp::SaveSessionToCard()
 {
-  if (g_cardSession.busy) return false;
   // A snapshot: the pattern pages are shared until either side changes one (copy on write).
   std::unique_ptr<synth::ProjectData> project(new (std::nothrow) synth::ProjectData);
   std::string message;
   if (!project || !CaptureProject(controller_.Settings(), *project, message, true)) return false;
-  const auto& view = controller_.State();
-  synth::SessionInfo info;
-  info.name = view.projectName;
-  info.dirty = view.dirty;
-  info.generation = ++sessionGeneration_;
-  cardSessionNewest_ = true;
+  const synth::SessionInfo info = NextSessionInfo();
   {
     std::lock_guard<std::mutex> lock(g_cardSession.mutex);
     g_cardSession.project = std::move(project);
     g_cardSession.info = info;
+    g_cardSession.result = 0;
   }
-  g_cardSession.result = 0;
-  g_cardSession.busy = true;
+  // The snapshot has every change so far; the ones after it start a wait of their own.
+  savingSince_ = sessionChangedAt_;
+  sessionChanged_ = false;
   if (!Device::Background::Run(&WriteCardSession)) WriteCardSession();
   return true;
 }
 
+void GrooveApp::SessionWriteFailed(std::uint32_t since, const char* why)
+{
+  // The changes are still not on the card since the first of them: the wait does not start again (a
+  // write failing again and again must not put the next try off for good).
+  const std::uint32_t now = NowMs();
+  if (!sessionChanged_ || now - since > now - sessionChangedAt_) sessionChangedAt_ = since;
+  sessionChanged_ = true;
+  ++sessionFailures_;
+  if (!autosaveFailureShown_) controller_.ReportAutosaveProblem(why);
+  autosaveFailureShown_ = true;
+}
+
 void GrooveApp::CheckCardSession(std::uint32_t now)
 {
-  const int result = g_cardSession.result.exchange(0);
-  if (result == 0) return;
-  std::printf("Groove: autosave to the card %s in %u ms, generation %u\n", result > 0 ? "written" : "failed",
-              static_cast<unsigned>(g_cardSession.tookMs.load()), static_cast<unsigned>(sessionGeneration_));
-  // Failed: the changes are still not on the card; tried again after a while, or the flash takes them.
-  if (result < 0 && !cardSessionChanged_)
+  (void)now;
+  int result = 0;
+  std::uint32_t took = 0;
   {
-    cardSessionChanged_ = true;
-    cardSessionChangedAt_ = now - kSessionCardWaitMs;
+    std::lock_guard<std::mutex> lock(g_cardSession.mutex);
+    result = g_cardSession.result;
+    took = g_cardSession.tookMs;
+    g_cardSession.result = 0;
   }
+  if (result == 0) return;
+  if (result < 0 || took >= kSessionSlowCardMs || sessionFailures_ != 0)
+    std::printf("Groove: autosave %s in %u ms, generation %u%s\n", result < 0 ? "failed" : result == 2 ? "unchanged" : "written",
+                static_cast<unsigned>(took), static_cast<unsigned>(sessionGeneration_), sequencer_.Playing() ? ", playing" : "");
+  if (result > 0)
+  {
+    sessionFailures_ = 0;
+    autosaveFailureShown_ = false;
+    return;
+  }
+  // The card looks at itself from here, the system loop (it may have stopped answering), and the
+  // folders are made again before the next try.
+  os::storage::ReportCardIoError();
+  storageReady_ = false;
+  SessionWriteFailed(savingSince_, "AUTOSAVE FAILED: SD CARD ERROR");
 }
 
 void GrooveApp::FlushSession()
 {
   if (guide_ || !sessionChanged_ || sampler_.RecordingTrack() >= 0) return;
-  if (SaveSessionState() != synth::SessionStore::SaveResult::Failed) sessionChanged_ = false;
+  (void)SaveSessionState();
 }
 
 void GrooveApp::KeepSessionCurrent(std::uint32_t now)
 {
   CheckCardSession(now);
-  // The guide's practice project is not the working state.
-  if (guide_ || sampler_.RecordingTrack() >= 0) return;
-  // Writing to flash stops both cores for some 45 ms, which sound notices (a click, a late beat): while
-  // it plays, the changes go to the card once they have waited a little (the user's choice, 2026-11-04),
-  // and to the flash at the next quiet moment; to the flash while playing only when the card could not
-  // take them for long (no card, a sample streaming from it, writes failing).
-  if (!Quiet(now))
-  {
-    if (!cardSessionChanged_) return;
-    const bool cardFree = os::storage::CardMounted() && !os::storage::CardStreaming();
-    if (cardFree && now - cardSessionChangedAt_ >= kSessionCardWaitMs && now - lastCardSessionTryAt_ >= kSessionRetryMs)
-    {
-      lastCardSessionTryAt_ = now;
-      if (SaveSessionToCard()) cardSessionChanged_ = false;
-      return;
-    }
-    if (now - cardSessionChangedAt_ < kSessionLongestWaitMs) return;
-  }
-  if (!sessionChanged_) return;
-  if (now - lastSessionTryAt_ < (autosaveFailureShown_ ? kSessionFailedRetryMs : kSessionRetryMs)) return;
-  lastSessionTryAt_ = now;
+  // The guide's practice project is not the working state, and a recording keeps its own file.
+  if (guide_ || sampler_.RecordingTrack() >= 0 || !sessionChanged_) return;
+  // Settled: the keys have rested a moment, none held, playing or not (the card is written on the
+  // background task). Keys that keep coming, or a sample played from the card (writing slows its
+  // reading), put it off only so long.
+  const bool overdue = now - sessionChangedAt_ >= kSessionLongestWaitMs;
+  const bool settled = now - lastKeyAt_ >= kSessionQuietMs && keysHeld_ == 0 && !os::storage::CardStreaming();
+  if (!settled && !overdue) return;
+  if (sessionFailures_ != 0 &&
+      now - lastSessionTryAt_ < (sessionFailures_ < kSessionFailuresBeforeSlow ? kSessionRetryMs : kSessionFailedRetryMs))
+    return;
+  if (CardSessionBusy()) return;
 #if defined(ESP_PLATFORM)
   // A plain allocation that fails ends the program. Later is fine.
   if (memory::FastFree() < kSessionHeapBytes || memory::FastLargest() < kSessionBlockBytes) return;
 #endif
-  const auto result = SaveSessionState();
-  if (result == synth::SessionStore::SaveResult::Failed)
+  lastSessionTryAt_ = now;
+  // Out, or it stopped answering: CheckCard looks for it while the changes wait.
+  if (!os::storage::CardMounted())
   {
-    if (!autosaveFailureShown_) controller_.ReportAutosaveProblem("AUTOSAVE FAILED: FN+S TO CARD");
-    autosaveFailureShown_ = true;
+    SessionWriteFailed(sessionChangedAt_, "AUTOSAVE FAILED: NO SD CARD");
     return;
   }
-  autosaveFailureShown_ = false;
-  sessionChanged_ = false;
-  if (result == synth::SessionStore::SaveResult::Partial)
+  if (!storageReady_) storageReady_ = synth::storage::EnsureLayout();
+  if (!storageReady_)
   {
-    if (!autosavePartialShown_) controller_.ReportAutosaveProblem("TOO LONG TO AUTOSAVE: FN+S TO CARD");
-    autosavePartialShown_ = true;
+    os::storage::ReportCardIoError();
+    SessionWriteFailed(sessionChangedAt_, "AUTOSAVE FAILED: SD CARD ERROR");
+    return;
   }
-  else autosavePartialShown_ = false;
+  if (!SaveSessionToCard()) SessionWriteFailed(sessionChangedAt_, "AUTOSAVE FAILED: NO MEMORY");
 }
-
 
 void GrooveApp::Tick()
 {
@@ -724,8 +789,6 @@ void GrooveApp::HandleMatrixKeyEvent(std::size_t row, std::size_t column, bool p
   lastKeyAt_ = now;
   keysHeld_ = pressed ? keysHeld_ + 1 : std::max(0, keysHeld_ - 1);
   // The lesson page follows every key, but not the ones it pressed itself.
-  if (!cardSessionChanged_) cardSessionChangedAt_ = now;
-  cardSessionChanged_ = true;
   if (guide_ && !guideInjecting_)
   {
     char text[8];
@@ -901,27 +964,24 @@ std::vector<std::string> GrooveApp::ListSamples() const
   std::set<std::string> names;
   const std::string directory = synth::storage::SampleDirectory();
   if (!synth::storage::EnsureLayout() || directory.empty()) return {};
-  // Ours, and what the 0.1.0 release left.
-  for (const std::string& folder : {directory, synth::storage::ReleaseSampleDirectory()})
-  {
 #if defined(ESP_PLATFORM)
-    DIR* handle = opendir(folder.c_str());
-    if (handle == nullptr) continue;
+  if (DIR* handle = opendir(directory.c_str()))
+  {
     while (const dirent* entry = readdir(handle))
       if (entry->d_name[0] != '\0' && HasWavExtension(entry->d_name)) names.insert(entry->d_name);
     closedir(handle);
-#else
-    namespace fs = std::filesystem;
-    std::error_code error;
-    for (const fs::directory_entry& entry : fs::directory_iterator(folder, error))
-    {
-      if (error) break;
-      if (!entry.is_regular_file(error)) continue;
-      const std::string name = entry.path().filename().string();
-      if (HasWavExtension(name)) names.insert(name);
-    }
-#endif
   }
+#else
+  namespace fs = std::filesystem;
+  std::error_code error;
+  for (const fs::directory_entry& entry : fs::directory_iterator(directory, error))
+  {
+    if (error) break;
+    if (!entry.is_regular_file(error)) continue;
+    const std::string name = entry.path().filename().string();
+    if (HasWavExtension(name)) names.insert(name);
+  }
+#endif
   return std::vector<std::string>(names.begin(), names.end());
 }
 
@@ -983,7 +1043,7 @@ bool GrooveApp::TrackAudible(std::size_t track) const
 
 void GrooveApp::SetMasterVolume(std::uint8_t percent)
 {
-  // A device setting (System/settings.cfg) on the system's perceptual curve.
+  // A device setting (Settings/system.cfg) on the system's perceptual curve.
   os::storage::SetOutputVolume(percent);
 }
 
@@ -1033,6 +1093,7 @@ void GrooveApp::ApplyMasterFx(const std::array<std::uint8_t, synth::fx::kMasterP
 
 std::vector<std::string> GrooveApp::ListProjects() const
 {
+  if (!os::storage::CardPresent()) return {};
   return synth::ListProjects();
 }
 
@@ -1096,6 +1157,13 @@ groove::SaveResult GrooveApp::SaveProject(const std::string& name, bool overwrit
   if (!synth::IsProjectNameValid(name))
   {
     message = "INVALID NAME";
+    return groove::SaveResult::Failed;
+  }
+  // No card (it is out): nothing to save to.
+  if (!os::storage::CardPresent())
+  {
+    std::printf("Groove: save %s: no card\n", name.c_str());
+    message = "NO SD CARD";
     return groove::SaveResult::Failed;
   }
 #if defined(ESP_PLATFORM)
@@ -1350,17 +1418,24 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
 bool GrooveApp::MakeRoom(std::string& message)
 {
   message = "NO MEMORY";
+  // The patterns can only wait on the card. And not during a lesson: the autosave holds the user's
+  // working state then, which the practice project must not replace.
+  if (!os::storage::CardMounted() || guide_)
+  {
+    std::printf("Groove: no room made: %s\n", guide_ ? "the autosave holds the working state" : "no card for the autosave");
+    return false;
+  }
   // The effects first: the autosave needs room of its own.
   const std::size_t before = Heap().freeBytes;
   synth::audio::SuspendEffects();
-  // Silent while the autosave is written (the flash stops both cores for a moment).
+  // Silent while the autosave is written.
   const synth::audio::OutputHold outputHold;
   bool saved = true;
 #if defined(ESP_PLATFORM)
   // The autosave is many small plain allocations as well.
   saved = memory::FastFree() >= kSessionHeapBytes && memory::FastLargest() >= kSessionBlockBytes;
 #endif
-  saved = saved && SaveSessionState() == synth::SessionStore::SaveResult::Ok;
+  saved = saved && SaveSessionState();
   if (!saved)
   {
     std::printf("Groove: no room made: the autosave could not be written (%u free)\n", static_cast<unsigned>(Heap().freeBytes));
@@ -1378,7 +1453,7 @@ bool GrooveApp::RestoreSessionPatterns()
   if (!synth::SessionStore::BeginRestore()) return false;
   synth::ProjectData project;
   synth::SessionInfo info;
-  const bool restored = session_.Load(info, project) && project.sequence && sequencer_.RestoreState(*project.sequence);
+  const bool restored = synth::SessionStore::Load(info, project) && project.sequence && sequencer_.RestoreState(*project.sequence);
   synth::SessionStore::FinishRestore();
   if (!restored) std::printf("Groove: the patterns did not come back from the autosave\n");
   return restored;
@@ -1386,6 +1461,11 @@ bool GrooveApp::RestoreSessionPatterns()
 
 bool GrooveApp::LoadProject(const std::string& name, groove::ProjectUiSettings& settings, std::string& message)
 {
+  if (!os::storage::CardPresent())
+  {
+    message = "NO SD CARD";
+    return false;
+  }
   const HeapRoom before = Heap();
   std::printf("Groove: loading %s (%u free, largest %u)\n", name.c_str(), static_cast<unsigned>(before.freeBytes), static_cast<unsigned>(before.largestBlock));
   synth::ProjectData project;
@@ -1472,7 +1552,7 @@ bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& mes
 // ---------------------------------------------------------------------------------------------
 // System
 
-// Device settings: os::storage keeps them in System/settings.cfg for every app.
+// Device settings: os::storage keeps them in Settings/system.cfg for every app.
 void GrooveApp::SetStandbyMinutes(std::uint8_t minutes)
 {
   os::storage::SetStandbyMinutes(minutes);
@@ -1527,7 +1607,7 @@ bool GrooveApp::Logging() const
 groove::SystemInfo GrooveApp::QuerySystem() const
 {
   groove::SystemInfo info;
-  info.storageReady = storageReady_;
+  info.storageReady = storageReady_ && os::storage::CardMounted();
 #if defined(ESP_PLATFORM)
   info.freeHeap = memory::FastFree();
   info.minimumFreeHeap = memory::FastMinimum();

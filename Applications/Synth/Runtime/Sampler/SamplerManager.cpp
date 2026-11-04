@@ -600,8 +600,7 @@ std::string SamplerManager::FreeTakeName() const
   for (int number = 1; number < 1000; ++number)
   {
     const std::string name = std::string("TAKE_") + (number < 10 ? "0" : "") + std::to_string(number);
-    // Not a name in use in the 0.1.0 release's folder either: a project there may mean that file.
-    if (!FileExists(storage::ResolveSamplePath(name + ".wav"))) return name;
+    if (!FileExists(JoinPath(storage::SampleDirectory(), name + ".wav"))) return name;
   }
   return "TAKE";
 }
@@ -709,7 +708,7 @@ bool SamplerManager::PrepareSample(std::string_view id, PreparedSample& sample)
   PreparedSample prepared;
   prepared.fileName = SampleFileName(id);
   if (prepared.fileName.empty() || !sampler::ReadMono16Wav(
-          storage::ResolveSamplePath(prepared.fileName), prepared.frames, prepared.sampleRate))
+          JoinPath(storage::SampleDirectory(), prepared.fileName), prepared.frames, prepared.sampleRate))
   {
     return false;
   }
@@ -887,7 +886,7 @@ bool SamplerManager::ValidateSampleReference(std::string_view id)
   {
     return false;
   }
-  std::ifstream file(storage::ResolveSamplePath(name), std::ios::binary);
+  std::ifstream file(JoinPath(storage::SampleDirectory(), name), std::ios::binary);
   sampler::WavInfo info;
   return file && sampler::InspectMono16Wav(file, info);
 }

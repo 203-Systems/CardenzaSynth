@@ -20,12 +20,11 @@ namespace os::storage {
 
 namespace {
 
-constexpr std::string_view kRootFolder = "Cardenza";
-constexpr std::string_view kSystemFolder = "System";
-constexpr std::string_view kSharedFolder = "Shared";
+constexpr std::string_view kRootFolder = "CardenzaSynth";
+constexpr std::string_view kSettingsFolder = "Settings";
 constexpr std::string_view kSamplesFolder = "Samples";
 constexpr std::string_view kAppsFolder = "Apps";
-constexpr std::string_view kSettingsFile = "settings.cfg";
+constexpr std::string_view kLogsFolder = "Logs";
 constexpr std::size_t kMaxIdPart = 24;
 constexpr std::size_t kMaxFolderName = 32;
 
@@ -63,22 +62,22 @@ std::string Root()
 
 std::string SystemDirectory()
 {
-  return JoinPath(Root(), kSystemFolder);
+  return JoinPath(Root(), kSettingsFolder);
 }
 
 std::string LogDirectory()
 {
-  return JoinPath(Root(), "Logs");
+  return JoinPath(Root(), kLogsFolder);
 }
 
 std::string SystemSettingsPath()
 {
-  return JoinPath(SystemDirectory(), kSettingsFile);
+  return JoinPath(SystemDirectory(), "system.cfg");
 }
 
 std::string SharedDirectory()
 {
-  return JoinPath(Root(), kSharedFolder);
+  return Root();
 }
 
 std::string SharedSamplesDirectory()
@@ -110,12 +109,14 @@ AppFolder::AppFolder(std::string_view id)
 
 std::string AppFolder::Root() const
 {
-  return Valid() ? JoinPath(AppsDirectory(), id_) : std::string();
+  if (!Valid()) return {};
+  return id_ == kPrimaryAppId ? os::storage::Root() : JoinPath(AppsDirectory(), id_);
 }
 
 std::string AppFolder::SettingsPath() const
 {
-  return Valid() ? JoinPath(Root(), kSettingsFile) : std::string();
+  if (!Valid()) return {};
+  return JoinPath(JoinPath(Root(), kSettingsFolder), id_ == kPrimaryAppId ? "synth.cfg" : "app.cfg");
 }
 
 std::string AppFolder::Projects() const
@@ -167,26 +168,6 @@ bool CardStreaming()
   return g_cardStreaming.load(std::memory_order_relaxed);
 }
 
-bool ReadInternalRecord(std::string_view key, std::string& value)
-{
-  return Device::Storage::ReadInternal(key, value);
-}
-
-bool WriteInternalRecord(std::string_view key, std::string_view value)
-{
-  return Device::Storage::WriteInternal(key, value);
-}
-
-bool EraseInternalRecord(std::string_view key)
-{
-  return Device::Storage::EraseInternal(key);
-}
-
-std::vector<std::string> ListInternalRecords()
-{
-  return Device::Storage::ListInternal();
-}
-
 void ReportCardIoError()
 {
   Device::Storage::CheckAfterIoError();
@@ -205,7 +186,8 @@ std::uint64_t CardFreeBytes()
 bool EnsureSystemLayout()
 {
   if (!CardPresent()) return false;
-  for (const std::string& path : {Root(), SystemDirectory(), SharedDirectory(), SharedSamplesDirectory(), AppsDirectory()})
+  // Apps/ and Logs/ come when something is put there.
+  for (const std::string& path : {Root(), SystemDirectory(), SharedSamplesDirectory()})
     if (!CreateDirectories(path)) return false;
   return true;
 }
@@ -213,7 +195,7 @@ bool EnsureSystemLayout()
 bool EnsureAppLayout(const AppFolder& app, const std::vector<std::string>& presetGroups)
 {
   if (!app.Valid() || !EnsureSystemLayout()) return false;
-  for (const std::string& path : {app.Root(), app.Projects(), app.Presets(), app.Session()})
+  for (const std::string& path : {app.Root(), JoinPath(app.Root(), kSettingsFolder), app.Projects(), app.Presets(), app.Session()})
     if (!CreateDirectories(path)) return false;
   for (const std::string& group : presetGroups)
   {
@@ -416,6 +398,12 @@ bool ReadFileWithBackup(const std::string& path, std::string& contents, std::siz
   if (read != text.size()) return false;
   contents = std::move(text);
   return true;
+}
+
+bool RemoveFile(const std::string& path)
+{
+  if (path.empty()) return false;
+  return !IsFile(path) || std::remove(path.c_str()) == 0;
 }
 
 }  // namespace os::storage

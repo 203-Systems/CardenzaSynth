@@ -8,7 +8,9 @@
 #include <fstream>
 #include <iomanip>
 #include <new>
+#include <ostream>
 #include <set>
+#include <streambuf>
 #include <sys/stat.h>
 #if defined(ESP_PLATFORM)
 #include <dirent.h>
@@ -134,20 +136,18 @@ std::vector<std::string> ListProjects() {
       if (IsProjectNameValid(name)) result.push_back(name);
     }
   };
-  // Ours, and what the 0.1.0 release saved.
-  for (const std::string& directory : {storage::ProjectDirectory(), storage::ReleaseProjectDirectory()}) {
+  const std::string directory = storage::ProjectDirectory();
 #if defined(ESP_PLATFORM)
-    if (DIR* dir = opendir(directory.c_str())) {
-      while (auto* entry = readdir(dir)) add(entry->d_name);
-      closedir(dir);
-    }
-#else
-    std::error_code error;
-    for (std::filesystem::directory_iterator it(directory, error), end; !error && it != end; it.increment(error)) {
-      if (it->is_regular_file(error)) add(it->path().filename().string());
-    }
-#endif
+  if (DIR* dir = opendir(directory.c_str())) {
+    while (auto* entry = readdir(dir)) add(entry->d_name);
+    closedir(dir);
   }
+#else
+  std::error_code error;
+  for (std::filesystem::directory_iterator it(directory, error), end; !error && it != end; it.increment(error)) {
+    if (it->is_regular_file(error)) add(it->path().filename().string());
+  }
+#endif
   std::sort(result.begin(), result.end());
   result.erase(std::unique(result.begin(), result.end()), result.end());
   return result;
@@ -155,13 +155,7 @@ std::vector<std::string> ListProjects() {
 
 namespace {
 
-ProjectResult WriteProject(const std::string& path, const ProjectData& project) {
-  const bool existing = Exists(path);
-  const std::string temporary = path + ".tmp";
-  const std::string backup = path + ".bak";
-  // Binary: the same bytes on every host (a Windows text stream wrote CRLF).
-  std::ofstream file(temporary, std::ios::trunc | std::ios::binary);
-  if (!file) return ProjectResult::StorageError;
+void WriteProjectText(std::ostream& file, const ProjectData& project) {
   file << "CARDENZA_PROJECT " << kProjectVersion << "\nBUILD CardenzaSynth 1\nUI " << project.activeTrack << ' ' << project.octave << ' '
        << project.root << ' ' << project.scale << ' ' << project.layout << ' ' << project.ledBrightness << '\n';
   file << "MASTER " << static_cast<int>(project.mixer.master) << '\n';
@@ -214,6 +208,45 @@ ProjectResult WriteProject(const std::string& path, const ProjectData& project) 
     file << ' ' << static_cast<int>(songRow.repeats) << '\n';
   }
   file << "END\n";
+}
+
+// Hashes what goes through it (FNV-1a) and keeps none of it.
+class HashBuffer : public std::streambuf {
+public:
+  HashBuffer() { setp(buffer_, buffer_ + sizeof(buffer_)); }
+  std::uint32_t Hash() {
+    Drain();
+    return hash_;
+  }
+
+protected:
+  int_type overflow(int_type c) override {
+    Drain();
+    if (!traits_type::eq_int_type(c, traits_type::eof())) {
+      *pptr() = traits_type::to_char_type(c);
+      pbump(1);
+    }
+    return traits_type::not_eof(c);
+  }
+
+private:
+  void Drain() {
+    for (const char* at = pbase(); at < pptr(); ++at) hash_ = (hash_ ^ static_cast<unsigned char>(*at)) * 16777619u;
+    setp(buffer_, buffer_ + sizeof(buffer_));
+  }
+
+  char buffer_[64];
+  std::uint32_t hash_ = 2166136261u;
+};
+
+ProjectResult WriteProject(const std::string& path, const ProjectData& project) {
+  const bool existing = Exists(path);
+  const std::string temporary = path + ".tmp";
+  const std::string backup = path + ".bak";
+  // Binary: the same bytes on every host (a Windows text stream wrote CRLF).
+  std::ofstream file(temporary, std::ios::trunc | std::ios::binary);
+  if (!file) return ProjectResult::StorageError;
+  WriteProjectText(file, project);
   file.flush();
   const bool written = file.good();
   file.close();
@@ -395,21 +428,22 @@ ProjectResult SaveProjectFile(const std::string& name, const ProjectData& projec
   return WriteProject(path, project);
 }
 
-std::string ResolveProjectPath(const std::string& name) {
-  const std::string current = ProjectPath(name);
-  if (Exists(current) || Exists(current + ".bak")) return current;
-  const std::string release = storage::ReleaseProjectDirectory() + "/" + name + ".ccproj";
-  return Exists(release) || Exists(release + ".bak") ? release : current;
-}
-
 ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination) {
   if (!IsProjectNameValid(name)) return ProjectResult::Invalid;
-  return ReadProject(ResolveProjectPath(name), destination);
+  return ReadProject(ProjectPath(name), destination);
 }
 
 ProjectResult SaveProjectFileAt(const std::string& path, const ProjectData& project) {
   if (path.empty() || !ValidMetadata(project)) return ProjectResult::Invalid;
   return WriteProject(path, project);
+}
+
+std::uint32_t ProjectFingerprint(const ProjectData& project) {
+  if (!project.sequence) return 0;
+  HashBuffer buffer;
+  std::ostream text(&buffer);
+  WriteProjectText(text, project);
+  return buffer.Hash() | 1u;  // never 0, which means none
 }
 
 ProjectResult LoadProjectFileAt(const std::string& path, ProjectData& destination) {

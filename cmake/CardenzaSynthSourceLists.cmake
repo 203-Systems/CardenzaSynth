@@ -122,12 +122,11 @@ function(cardenza_collect_system_cpp_sources root_dir out_var)
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
-# The app storage protocol (docs/app-storage-protocol.md). Portable: it reaches the card only through
+# The storage protocol (docs/app-storage-protocol.md). Portable: it reaches the card only through
 # Device::Storage.
 function(cardenza_collect_storage_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/OS/Storage/DeviceSettings.cpp
-        ${root_dir}/OS/Storage/Migration.cpp
         ${root_dir}/OS/Storage/Settings.cpp
         ${root_dir}/OS/Storage/Storage.cpp
     )

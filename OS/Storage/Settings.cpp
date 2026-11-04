@@ -6,8 +6,8 @@
 #include <cstdlib>
 #include <map>
 #include <memory>
+#include <sys/stat.h>
 
-#include "Devices/Device.h"
 #include "OS/Storage/Storage.h"
 
 namespace os::storage {
@@ -15,8 +15,6 @@ namespace os::storage {
 namespace {
 
 constexpr std::string_view kSystemScope = "system";
-// First line of an internal-flash record: names the store it belongs to.
-constexpr std::string_view kInternalMarker = "#! ";
 
 bool IsKeyCharacter(char c)
 {
@@ -42,16 +40,56 @@ bool EqualsIgnoreCase(std::string_view text, std::string_view lower)
   return true;
 }
 
-// FNV-1a, so an app id maps to a short internal-flash key (NVS keys are at most 15 characters).
-std::uint32_t Hash(std::string_view text)
+enum class FileState { Missing, Regular, Error };
+
+FileState InspectSettingsFile(const std::string& path, std::size_t& size)
 {
-  std::uint32_t hash = 2166136261u;
-  for (const char c : text)
+  struct stat info{};
+  if (stat(path.c_str(), &info) != 0)
   {
-    hash ^= static_cast<std::uint8_t>(c);
-    hash *= 16777619u;
+    // Only ENOENT is a missing file. In particular, EIO/EACCES/ENOTDIR must never turn an
+    // unreadable card or a conflicting path into an apparently empty settings file.
+    return errno == ENOENT ? FileState::Missing : FileState::Error;
   }
-  return hash;
+#if defined(_WIN32)
+  const bool regular = (info.st_mode & _S_IFMT) == _S_IFREG;
+#else
+  const bool regular = S_ISREG(info.st_mode);
+#endif
+  if (!regular || info.st_size < 0 || static_cast<unsigned long long>(info.st_size) > kMaxSettingsFileBytes)
+    return FileState::Error;
+  size = static_cast<std::size_t>(info.st_size);
+  return FileState::Regular;
+}
+
+bool ReadCardSettings(const std::string& path, std::vector<SettingsEntry>& entries)
+{
+  if (path.empty() || !CardPresent()) return false;
+  std::string source = path;
+  std::size_t size = 0;
+  FileState state = InspectSettingsFile(source, size);
+  if (state == FileState::Missing)
+  {
+    source += ".bak";
+    state = InspectSettingsFile(source, size);
+  }
+  if (state == FileState::Error) return false;
+  if (state == FileState::Missing)
+  {
+    entries.clear();
+    return true;
+  }
+  std::FILE* file = std::fopen(source.c_str(), "rb");
+  if (file == nullptr) return false;
+  std::string text(size, '\0');
+  const std::size_t read = size == 0 ? 0 : std::fread(text.data(), 1, size, file);
+  // Reject a short read, an I/O error, or a file that changed size after stat. Do not replace a
+  // file from a partial snapshot. Malformed text lines still use the tolerant settings parser.
+  const bool complete = read == size && std::fgetc(file) == EOF && std::ferror(file) == 0;
+  const bool closed = std::fclose(file) == 0;
+  if (!complete || !closed) return false;
+  entries = ParseSettings(text);
+  return true;
 }
 
 std::string ParentPath(const std::string& path)
@@ -131,14 +169,6 @@ std::string FormatSettings(const std::vector<SettingsEntry>& entries, std::strin
 
 Settings::Settings(std::string scope, std::string path) : scope_(std::move(scope)), path_(std::move(path)) {}
 
-std::string Settings::InternalKey() const
-{
-  if (scope_ == kSystemScope) return "sys";
-  char key[16];
-  std::snprintf(key, sizeof(key), "app%08lx", static_cast<unsigned long>(Hash(scope_)));
-  return key;
-}
-
 std::string Settings::FileHeader() const
 {
   return "Cardenza settings: " + scope_ + " (storage protocol " + std::to_string(kProtocolVersion) +
@@ -148,19 +178,21 @@ std::string Settings::FileHeader() const
 void Settings::Load()
 {
   entries_.clear();
+  edits_.clear();
   dirty_ = false;
-  internalOnly_ = false;
   loaded_ = true;
-  if (path_.empty()) return;
-  std::string text;
-  if (CardPresent() && ReadFileWithBackup(path_, text, kMaxSettingsFileBytes)) entries_ = ParseSettings(text);
-  std::string record;
-  const std::string marker = std::string(kInternalMarker) + scope_ + "\n";
-  if (Device::Storage::ReadInternal(InternalKey(), record) && record.compare(0, marker.size(), marker) == 0)
-  {
-    for (const auto& entry : ParseSettings(std::string_view(record).substr(marker.size()))) Put(entry.first, entry.second);
-    internalOnly_ = true;
-  }
+  (void)ReadCardSettings(path_, entries_);
+}
+
+bool Settings::RefreshFromCard()
+{
+  std::vector<SettingsEntry> refreshed;
+  if (!ReadCardSettings(path_, refreshed)) return false;
+  ApplyEdits(refreshed);
+  if (entries_ != refreshed) ++revision_;
+  entries_ = std::move(refreshed);
+  loaded_ = true;
+  return true;
 }
 
 bool Settings::Has(std::string_view key) const
@@ -202,14 +234,40 @@ void Settings::Put(std::string_view key, std::string_view value)
   else entries_.emplace_back(std::string(key), std::string(value));
 }
 
+void Settings::RecordEdit(std::string_view key, std::string_view value, bool removed)
+{
+  const auto edit = std::find_if(edits_.begin(), edits_.end(), [&](const Edit& item) { return item.key == key; });
+  if (edit != edits_.end())
+  {
+    edit->value = std::string(value);
+    edit->removed = removed;
+  }
+  else edits_.push_back({std::string(key), std::string(value), removed});
+  dirty_ = true;
+}
+
+void Settings::ApplyEdits(std::vector<SettingsEntry>& entries) const
+{
+  for (const Edit& edit : edits_)
+  {
+    const auto entry = std::find_if(entries.begin(), entries.end(), [&](const SettingsEntry& item) { return item.first == edit.key; });
+    if (edit.removed)
+    {
+      if (entry != entries.end()) entries.erase(entry);
+    }
+    else if (entry != entries.end()) entry->second = edit.value;
+    else entries.emplace_back(edit.key, edit.value);
+  }
+}
+
 bool Settings::SetString(std::string_view key, std::string_view value)
 {
   if (!IsValidSettingsKey(key) || !IsValidSettingsValue(value)) return false;
   if (!loaded_) Load();
   const auto entry = std::find_if(entries_.begin(), entries_.end(), [&](const SettingsEntry& item) { return item.first == key; });
   if (entry != entries_.end() && entry->second == value) return true;
+  RecordEdit(key, value, false);
   Put(key, value);
-  dirty_ = true;
   ++revision_;
   return true;
 }
@@ -226,36 +284,34 @@ bool Settings::SetBool(std::string_view key, bool value)
 
 bool Settings::Remove(std::string_view key)
 {
+  if (!IsValidSettingsKey(key)) return false;
   if (!loaded_) Load();
   const auto entry = std::find_if(entries_.begin(), entries_.end(), [&](const SettingsEntry& item) { return item.first == key; });
-  if (entry == entries_.end()) return false;
-  entries_.erase(entry);
-  dirty_ = true;
+  const auto edit = std::find_if(edits_.begin(), edits_.end(), [&](const Edit& item) { return item.key == key; });
+  if (entry == entries_.end() && edit != edits_.end() && edit->removed) return true;
+  RecordEdit(key, {}, true);
+  if (entry != entries_.end()) entries_.erase(entry);
   ++revision_;
   return true;
 }
 
 bool Settings::Flush()
 {
-  if (!loaded_ || path_.empty()) return !dirty_;
-  if (!dirty_ && !internalOnly_) return true;
-  const std::string text = FormatSettings(entries_, FileHeader());
-  if (CardPresent() && CreateDirectories(ParentPath(path_)) && WriteFileAtomic(path_, text))
+  if (!dirty_) return true;
+  std::vector<SettingsEntry> merged;
+  if (!ReadCardSettings(path_, merged))
   {
-    if (internalOnly_) (void)Device::Storage::EraseInternal(InternalKey());
-    dirty_ = false;
-    internalOnly_ = false;
-    return true;
+    ReportCardIoError();  // A failed pre-save read may be the first sign of a card gone.
+    return false;
   }
-  if (!dirty_) return true;  // Still safe in internal flash; the card is not back yet.
-  // No card (or it cannot be written): keep the values on the device until it is back.
-  if (Device::Storage::WriteInternal(InternalKey(), std::string(kInternalMarker) + scope_ + "\n" + text))
-  {
-    dirty_ = false;
-    internalOnly_ = true;
-    return true;
-  }
-  return false;
+  ApplyEdits(merged);
+  const std::string text = FormatSettings(merged, FileHeader());
+  if (text.size() > kMaxSettingsFileBytes || !CreateDirectories(ParentPath(path_)) || !WriteFileAtomic(path_, text)) return false;
+  if (entries_ != merged) ++revision_;
+  entries_ = std::move(merged);
+  edits_.clear();
+  dirty_ = false;
+  return true;
 }
 
 namespace {
@@ -325,11 +381,13 @@ bool AnySettingsDirty()
   return std::any_of(stores.apps.begin(), stores.apps.end(), [](const auto& entry) { return entry.second->Dirty(); });
 }
 
-bool AnySettingsPendingCardSync()
+bool RefreshAllSettingsFromCard()
 {
   auto& stores = Stores();
-  if (stores.system && stores.system->PendingCardSync()) return true;
-  return std::any_of(stores.apps.begin(), stores.apps.end(), [](const auto& entry) { return entry.second->PendingCardSync(); });
+  bool refreshed = true;
+  if (stores.system) refreshed = stores.system->RefreshFromCard() && refreshed;
+  for (auto& entry : stores.apps) refreshed = entry.second->RefreshFromCard() && refreshed;
+  return refreshed;
 }
 
 void ReloadAllSettings()

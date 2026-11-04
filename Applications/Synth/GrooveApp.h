@@ -20,11 +20,11 @@ namespace apps {
 // The Cardenza groovebox: four engine tracks, the step sequencer, sampler, mixer and project
 // storage behind the terminal / dither UI in Applications/Synth/UI/Groove.
 //
-// Storage (docs/app-storage-protocol.md): projects in Apps/Cardenza/Synth/Projects, preset banks in
-// Apps/Cardenza/Synth/Presets/<engine>, samples in Shared/Samples. The FN SETUP play settings
-// (keys.*, arp.*) are app settings in Apps/Cardenza/Synth/settings.cfg; volume, key LEDs and screen
-// are device settings (os::storage). Neither changes when a project is loaded or created. Suspend
-// saves the working project to Apps/Cardenza/Synth/Session and the next Setup restores it.
+// Storage (docs/app-storage-protocol.md), on the SD card only, below CardenzaSynth/: projects in
+// Projects/, preset banks in Presets/<engine>/, samples in Samples/. SELECT is an app setting in
+// Settings/synth.cfg; volume, key LEDs and screen are device settings in Settings/system.cfg
+// (os::storage). Neither changes when a project is loaded or created. The working state is the
+// autosave in Session/ (SessionStore): written once changes settle and on Suspend, restored by Setup.
 class GrooveApp : public app::Application, public groove::Host {
 public:
   GrooveApp();
@@ -49,7 +49,7 @@ public:
   void UseHeapProbe(HeapProbe probe) { heapProbe_ = probe; }
 
   // Writes the autosave now if something changed (not during a sample recording). The web host calls
-  // it when the page is hidden or closed, where waiting for a quiet moment would lose the last edits.
+  // it when the page is hidden or closed, where waiting for the changes to settle would lose them.
   void FlushSession();
 
   groove::Controller& Ui() { return controller_; }
@@ -150,15 +150,17 @@ private:
   // The project's play settings (keyboard, chords, arpeggiators) into `settings` and the sequencer;
   // a project without them (format before 6) keeps the current ones.
   void ApplyPlaySettings(const synth::ProjectData& project, groove::ProjectUiSettings& settings);
-  // The working state stays in internal flash, so the power can go at any moment (SessionStore): every
-  // key may have changed something, so after a key what changed is written once it is quiet.
+  // The working state is kept on the card, so the power can go at any moment (SessionStore): every
+  // key may have changed something, so after a key the autosave is written once the keys rest, playing
+  // or not, on the device's background task. Failures are tried again without starting the wait over.
   void KeepSessionCurrent(std::uint32_t now);
-  synth::SessionStore::SaveResult SaveSessionState();
-  // Two projects do not always fit in RAM side by side. The current patterns go to the autosave
-  // (internal flash) and are given back, and the effects give their memory back until
+  // The autosave written now, in the system loop. False without a card or when it failed.
+  bool SaveSessionState();
+  // Two projects do not always fit in RAM side by side. The current patterns go to the autosave on the
+  // card and are given back, and the effects give their memory back until
   // synth::audio::ResumeEffects; a caller that still fails brings the patterns back with
   // RestoreSessionPatterns (the engines are only changed by a load that works). False (NO MEMORY)
-  // when the autosave cannot be written.
+  // when the autosave cannot be written (no card).
   bool MakeRoom(std::string& message);
   bool RestoreSessionPatterns();
   bool RestoreSessionState();
@@ -180,9 +182,8 @@ private:
   std::array<char, 2 + groove::kKeyCount> guideLeds_{};  // the last GD sent
   groove::Scene guideScene_ = groove::Scene::Instrument;  // where the user was, to go back there
   std::uint8_t guidePage_ = 0;
-  synth::SessionStore session_;
+  // Changes the autosave does not have yet, and when the first of them came.
   bool sessionChanged_ = false;
-  bool autosavePartialShown_ = false;
   bool autosaveFailureShown_ = false;
   bool cardWasMounted_ = false;
   int keysHeld_ = 0;
@@ -208,18 +209,16 @@ private:
   std::uint32_t endedOrphanNotes_ = 0;
   std::uint32_t sessionChangedAt_ = 0;
   std::uint32_t lastSessionTryAt_ = 0;
-  // While it plays the autosave goes to the card (on the device's background task), the flash waits
-  // until nothing is heard (its writes stop both cores for some 45 ms: a click, a late beat). Changes
-  // not on the card yet and since when; the generation of the last autosave anywhere.
-  bool cardSessionChanged_ = false;
-  std::uint32_t cardSessionChangedAt_ = 0;
-  std::uint32_t lastCardSessionTryAt_ = 0;
+  // Autosaves that failed in a row (none: 0), the generation of the last one taken, and when the
+  // first change of the one on its way to the card came (it is still the first if that write fails).
+  std::uint32_t sessionFailures_ = 0;
   std::uint32_t sessionGeneration_ = 0;
-  // The newest autosave is the card's: the flash's next one has to number above it. Otherwise the
-  // flash keeps its number, so an unchanged project writes nothing.
-  bool cardSessionNewest_ = false;
+  std::uint32_t savingSince_ = 0;
+  synth::SessionInfo NextSessionInfo();
+  // Takes a snapshot for the background task to write. False when there was none to take.
   bool SaveSessionToCard();
   void CheckCardSession(std::uint32_t now);
+  void SessionWriteFailed(std::uint32_t since, const char* why);
   std::uint32_t lastCardCheckAt_ = 0;
   std::uint32_t lastCardProbeAt_ = 0;
   std::uint32_t (*clock_)() = nullptr;
@@ -238,7 +237,8 @@ private:
   bool storedMultiSelect_ = false;
   // Tempo last sent to the synced delay.
   std::uint16_t fxTempo_ = 0;
-  // Probed at boot and after saves; the SYSTEM page reads it every frame.
+  // The app's folders are on the card (made at boot, when the card is back and after a failed write);
+  // the SYSTEM page reads it every frame, with whether the card is mounted.
   bool storageReady_ = false;
   std::uint32_t renderFrames_ = 0;
   std::uint64_t renderTotalUs_ = 0;

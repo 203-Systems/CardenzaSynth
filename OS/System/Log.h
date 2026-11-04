@@ -4,7 +4,7 @@
 #include <string>
 
 // The console log on the card while the LOG device setting (sys.log, SETUP > SYSTEM) is on:
-// Cardenza/Logs/log.txt, and the one before it as log.1.txt (docs/app-storage-protocol.md). A user
+// CardenzaSynth/Logs/log.txt, and the one before it as log.1.txt (docs/app-storage-protocol.md). A user
 // sends these files when something went wrong.
 //
 // The device keeps the newest lines in its log ring (Device::Log), with a crash and its backtrace,

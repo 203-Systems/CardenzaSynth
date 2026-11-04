@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// Device-wide settings: kept in System/settings.cfg (sys.volume, sys.led, sys.screen, sys.log,
+// Device-wide settings: kept in Settings/system.cfg (sys.volume, sys.led, sys.screen, sys.log,
 // sys.standby, sys.standby.led), applied
 // to the device at boot and shared by every app. Apps change them only through these functions; projects
 // never carry them.
@@ -36,7 +36,7 @@ std::uint8_t ScreenBacklight();
 // Dims the screen to `percent` of its backlight setting without changing (or saving) the setting:
 // standby. 100 shows it as set again.
 void SetScreenDim(std::uint8_t percent);
-// The console log written to the card (Cardenza/Logs).
+// The console log written to the card (CardenzaSynth/Logs).
 void SetLogEnabled(bool enabled);
 bool LogEnabled();
 // Standby: minutes without a key before it starts (0 = never), and the style of its key lights.

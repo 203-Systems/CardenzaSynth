@@ -1,30 +1,31 @@
 #pragma once
 
-#include "Devices/Device.h"
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
 
-// The Cardenza app storage protocol, version 1 (docs/app-storage-protocol.md). Every app, built in
-// or user-made, keeps its files in its own folder on the SD card and reaches the card only through
+// The storage protocol, version 2 (docs/app-storage-protocol.md): the layout the 0.1.0 release
+// wrote, on the SD card only. Nothing is kept in internal flash. Apps reach the card only through
 // this API:
 //
-//   <card>/Cardenza/
-//     System/settings.cfg      device settings (os::storage::SystemSettings)
-//     Shared/Samples/          audio any app may read and write
-//     Apps/<Author>/<Name>/    one folder per app id "Author/Name"
-//       settings.cfg           the app's settings (os::storage::AppSettings)
-//       Projects/ Presets/<group>/ Session/ and any folder of the app's own
+//   <card>/CardenzaSynth/
+//     Settings/system.cfg     device settings (os::storage::SystemSettings)
+//     Settings/synth.cfg      the groovebox's settings (os::storage::AppSettings("Cardenza/Synth"))
+//     Projects/ Presets/<engine>/ Session/   the groovebox's documents and working state
+//     Samples/                audio any app may read and write
+//     Logs/                   the console log (OS/System/Log.h)
+//     Apps/<Author>/<Name>/   any other app, created when it needs it
 //
-// Folder names are 8.3-safe. The device layer (Device::Storage) only provides the card root, the
-// mount state and a small internal-flash record store used while the card is missing.
+// The primary app (Cardenza/Synth) uses the product root itself. FAT long names are required. The
+// device layer (Device::Storage) only provides the card root, mounting and capacity.
 namespace os::storage {
 
-inline constexpr int kProtocolVersion = 1;
+inline constexpr int kProtocolVersion = 2;
+inline constexpr std::string_view kPrimaryAppId = "Cardenza/Synth";
 
-// <card>/Cardenza and its system folders.
+// <card>/CardenzaSynth and its folders. SystemDirectory is Settings/; SharedDirectory is the root.
 std::string Root();
 std::string SystemDirectory();
 std::string SystemSettingsPath();
@@ -48,12 +49,12 @@ public:
   bool Valid() const { return !id_.empty(); }
   const std::string& Id() const { return id_; }
 
-  std::string Root() const;          // Apps/<Author>/<Name>
-  std::string SettingsPath() const;  // .../settings.cfg
+  std::string Root() const;          // the product root for the primary app; Apps/<Author>/<Name> otherwise
+  std::string SettingsPath() const;  // Settings/synth.cfg for the primary app; .../Settings/app.cfg otherwise
   std::string Projects() const;      // .../Projects
   std::string Presets() const;       // .../Presets
   std::string Presets(std::string_view group) const;  // .../Presets/<group>
-  std::string Session() const;       // .../Session (state handed over across an app switch)
+  std::string Session() const;       // .../Session (the working state, kept across app switches and restarts)
   // An app-specific folder: one path element of [A-Za-z0-9_-.], not "." or "..".
   std::string Folder(std::string_view name) const;
 
@@ -67,26 +68,20 @@ bool CardPresent();
 // The same without asking the device to mount it: cheap enough to call often.
 bool CardMounted();
 // An app reading from the card in real time (a sample played from its file) says so: what writes to
-// the card only to keep a record (the log) waits meanwhile. A card writing is slow to read from, for
-// seconds at a time, and the reader waiting for it starved the UI (the stress test, 2026-11-04).
+// the card only to keep a record (the log, the autosave) waits meanwhile. A card writing is slow to
+// read from, for seconds at a time, and the reader waiting for it starved the UI (the stress test,
+// 2026-11-04).
 void SetCardStreaming(bool streaming);
 bool CardStreaming();
-// Small records in internal flash, there with or without a card. A record is replaced as a whole, so a
-// power cut leaves the old one or the new one. Keys are 1..15 characters of [a-z0-9_]. Writing can stall
-// both cores for a moment now and then: not for use while sound is playing.
-inline constexpr std::size_t kInternalRecordMaxBytes = Device::Storage::kInternalValueMax;
-bool ReadInternalRecord(std::string_view key, std::string& value);
-bool WriteInternalRecord(std::string_view key, std::string_view value);
-bool EraseInternalRecord(std::string_view key);
-std::vector<std::string> ListInternalRecords();
 // After a file operation failed (file closed): lets the device notice a card that stopped responding.
+// A card that still answers (a full card, a bad file) stays mounted.
 void ReportCardIoError();
 std::uint64_t CardCapacityBytes();
 std::uint64_t CardFreeBytes();
 
-// Creates Cardenza/, System/, Shared/, Shared/Samples/ and Apps/. False without a writable card.
+// Creates CardenzaSynth/, Settings/ and Samples/. False without a writable card.
 bool EnsureSystemLayout();
-// The system layout plus the app's settings folder, Projects/, Presets/, Session/ and one
+// The system layout plus the app's root, its Settings/, Projects/, Presets/, Session/ and one
 // Presets/<group>/ per entry of `presetGroups`.
 bool EnsureAppLayout(const AppFolder& app, const std::vector<std::string>& presetGroups = {});
 
@@ -112,10 +107,13 @@ std::vector<DirectoryEntry> ListDirectory(const std::string& path);
 
 // Writes `contents` to `path` without ever leaving it half written: <path>.tmp is written and
 // closed first; an existing file stays as <path>.bak until the new one is in place, because FAT and
-// Windows cannot rename over a file. The parent folder must exist.
+// Windows cannot rename over a file. The parent folder must exist. A failure is reported to the
+// device (ReportCardIoError).
 bool WriteFileAtomic(const std::string& path, std::string_view contents);
 // Reads `path`, or <path>.bak when an interrupted write left only the backup. Fails for files over
 // `maxBytes`.
 bool ReadFileWithBackup(const std::string& path, std::string& contents, std::size_t maxBytes);
+// Removes a file. False when it could not be removed (a missing file is not an error).
+bool RemoveFile(const std::string& path);
 
 }  // namespace os::storage

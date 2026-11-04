@@ -2253,14 +2253,16 @@ R 2 3 0 0 2
 END
 )FIXTURE";
 
-// The 0.1.0 release kept its projects and samples in <card>/CardenzaSynth/{Projects,Samples}. They load
-// from there as they are; nothing there moves or changes, and saving goes to our own folder.
+// The 0.1.0 release kept its projects and samples where they are now, <card>/CardenzaSynth/{Projects,
+// Samples} (storage protocol 2): they are listed and load as they are. Its session handover file is not
+// read or changed.
 void TestReleaseProjects(Harness& h)
 {
   namespace fs = std::filesystem;
   auto& app = h.App();
   const fs::path release = fs::path(Device::Storage::RootPath()) / "CardenzaSynth";
   const fs::path ours = fs::path(synth::storage::ProjectDirectory());
+  assert(fs::equivalent(ours, release / "Projects"));
   const auto write = [](const fs::path& path, const std::string& text) {
     fs::create_directories(path.parent_path());
     std::ofstream(path, std::ios::binary) << text;
@@ -2273,13 +2275,9 @@ void TestReleaseProjects(Harness& h)
     const auto projects = app.ListProjects();
     return std::find(projects.begin(), projects.end(), name) != projects.end();
   };
-  for (const char* name : {"DEMO-1", "DEMO-2", "DRUM SET", "SONG1995"}) write(release / "Projects" / (std::string(name) + ".ccproj"), kReleaseProject);
+  for (const char* name : {"DEMO-1", "DEMO-2", "DRUM SET", "SONG1995"}) write(ours / (std::string(name) + ".ccproj"), kReleaseProject);
   write(release / "Session" / "session.cfg", "pending=1");
-  for (const char* name : {"DEMO-1", "DEMO-2", "DRUM SET", "SONG1995"})
-  {
-    assert(listed(name));
-    assert(!fs::exists(ours / (std::string(name) + ".ccproj")));
-  }
+  for (const char* name : {"DEMO-1", "DEMO-2", "DRUM SET", "SONG1995"}) assert(listed(name));
   // Loading it from FILES: the notes are there, on the track they were on.
   GoToSetupPage(h, groove::kSetupFiles);
   const auto& projects = h.State().projects;
@@ -2306,32 +2304,26 @@ void TestReleaseProjects(Harness& h)
   std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
   assert(app.Sequencer().StepNoteEvents(1, 0, notes) == 1 && notes[0].note == 66 && notes[0].lengthPulses == 72);
   assert(app.Sequencer().StepNoteEvents(0, 4, notes) == 1 && notes[0].note == 39);
-  // Saving it writes to our folder; the original stays as it was. The list shows it once, ours first.
-  const std::string original = read(release / "Projects" / "DEMO-1.ccproj");
+  // Saving it writes it in place, in the current format, and the list shows it once.
   h.Chord(kFn, Key{2, 3});  // S
-  assert(fs::exists(ours / "DEMO-1.ccproj"));
-  assert(read(release / "Projects" / "DEMO-1.ccproj") == original);
+  assert(read(ours / "DEMO-1.ccproj").rfind("CARDENZA_PROJECT 7\n", 0) == 0);
   { const auto all = app.ListProjects(); assert(std::count(all.begin(), all.end(), std::string("DEMO-1")) == 1); }
-  assert(synth::ResolveProjectPath("DEMO-1") == (ours / "DEMO-1.ccproj").generic_string());
-  assert(synth::ResolveProjectPath("DEMO-2") == (release / "Projects" / "DEMO-2.ccproj").generic_string());
-  // A new project has nowhere else to go.
+  assert(read(ours / "DEMO-2.ccproj") == kReleaseProject);
+  // A new project goes there too.
   GoToSetupPage(h, groove::kSetupProject);
   h.Tap(Grid(2));  // NEW
   if (h.Modal() != nullptr) h.Tap(kEnter);
   h.Chord(kFn, Key{2, 3});  // S
   assert(fs::exists(ours / (h.State().projectName + ".ccproj")));
-  assert(!fs::exists(release / "Projects" / (h.State().projectName + ".ccproj")));
-  // Samples: found in either folder, ours first, and listed once.
+  // The release's samples are the samples.
+  assert(fs::equivalent(fs::path(synth::storage::SampleDirectory()), release / "Samples"));
   write(release / "Samples" / "OLD-KICK.wav", "riff");
-  assert(synth::storage::ResolveSamplePath("OLD-KICK.wav") == (release / "Samples" / "OLD-KICK.wav").generic_string());
   { const auto all = app.ListSamples(); assert(std::count(all.begin(), all.end(), std::string("OLD-KICK.wav")) == 1); }
-  write(fs::path(synth::storage::SampleDirectory()) / "OLD-KICK.wav", "riff 2");
-  assert(synth::storage::ResolveSamplePath("OLD-KICK.wav") == (fs::path(synth::storage::SampleDirectory()) / "OLD-KICK.wav").generic_string());
-  { const auto all = app.ListSamples(); assert(std::count(all.begin(), all.end(), std::string("OLD-KICK.wav")) == 1); }
-  // Nothing of the release went anywhere.
-  assert(read(release / "Session" / "session.cfg") == "pending=1" && fs::exists(release / "Samples" / "OLD-KICK.wav"));
-  fs::remove_all(release);
-  fs::remove(fs::path(synth::storage::SampleDirectory()) / "OLD-KICK.wav");
+  // The release's session file is left alone.
+  assert(read(release / "Session" / "session.cfg") == "pending=1");
+  for (const char* name : {"DEMO-2", "DRUM SET", "SONG1995"}) fs::remove(ours / (std::string(name) + ".ccproj"));
+  fs::remove(release / "Samples" / "OLD-KICK.wav");
+  fs::remove(release / "Session" / "session.cfg");
   GoToScene(h, 1);
 }
 
@@ -2349,7 +2341,7 @@ void TestLoadWithoutMemory(Harness& h)
 {
   namespace fs = std::filesystem;
   auto& app = h.App();
-  const fs::path release = fs::path(Device::Storage::RootPath()) / "CardenzaSynth" / "Projects";
+  const fs::path release = fs::path(synth::storage::ProjectDirectory());
   fs::create_directories(release);
   std::ofstream(release / "DEMO-2.ccproj", std::ios::binary) << kReleaseProject;
   GoToSetupPage(h, groove::kSetupProject);
@@ -2406,7 +2398,7 @@ void TestLoadWithoutMemory(Harness& h)
   assert(app.EngineKind(2) == synth::SynthEngineKind::Juno && app.EngineKind(3) == synth::SynthEngineKind::Sampler);
   assert(ParameterValue(app, 1, "env.sustain") == 22 && ParameterValue(app, 2, "vcf.cutoff") == 8);
   app.UseHeapProbe(nullptr);
-  fs::remove_all(fs::path(Device::Storage::RootPath()) / "CardenzaSynth");
+  fs::remove(release / "DEMO-2.ccproj");
   GoToScene(h, 1);
 }
 
