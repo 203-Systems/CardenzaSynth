@@ -3,6 +3,9 @@
   "framework": null,
   "buildCommand": null,
   "outputDirectory": ".",
+  "redirects": [
+    { "source": "/learn", "destination": "/learn/", "permanent": false }
+  ],
   "headers": [
     {
       "source": "/(.*)",
