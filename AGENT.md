@@ -81,4 +81,4 @@ The spec is `docs/groovebox-design.md`; keep it in sync with behaviour changes.
 - Danger (overwrite, delete, discard) always confirms with ENTER = yes, ESC = no.
 - The UI must not include ESP-IDF headers or device HAL code (enforced by ValidateArchitecture); use `groove::Host`.
 - Check visual changes with `CardenzaSimShot` screenshots before flashing.
-- The device sends only what changed on screen (`Device::Display::Present` hashes each row in 30-pixel segments): a whole frame is 17 ms of SPI, more than a frame at 60 fps. Screens that redraw everything each frame cost that again.
+- The device sends only what changed on screen (`Device::Display::Present` hashes each row in 30-pixel segments): a whole frame is 17 ms of SPI, most of a 20 ms frame (the screen runs at 50 fps; keys, LEDs and the app's tick every 10 ms, `os::system::RunFrame(draw)`). One band of eight rows is sent whole every frame, a different one each time, so the screen is refreshed completely about every 0.34 s. Screens that redraw everything each frame cost the full 17 ms again.

@@ -17,7 +17,10 @@
 namespace {
 
 constexpr char kLogTag[] = "Cardenza";
-constexpr TickType_t kFrameTick = pdMS_TO_TICKS(16);
+// A frame every 10 ms (keys, LEDs, the app's tick); the screen is drawn every other one, 50 fps.
+// pdMS_TO_TICKS rounds down: 16 ms was one 10 ms tick at 100 Hz.
+constexpr TickType_t kFrameTick = pdMS_TO_TICKS(10);
+static_assert(kFrameTick >= 1, "the frame tick needs a tick rate of 100 Hz or more");
 // ESP-IDF's task creation APIs take bytes, unlike upstream FreeRTOS.
 constexpr uint32_t kRuntimeTaskStackBytes = 16384;
 constexpr UBaseType_t kRuntimeTaskPriority = 5;
@@ -110,9 +113,9 @@ void CardenzaRuntimeTask(void*)
     LogFlashRecords();
 
     TickType_t lastWakeTime = xTaskGetTickCount();
-    for (;;)
+    for (std::uint32_t frame = 0;; ++frame)
     {
-        os::system::RunFrame();
+        os::system::RunFrame(frame % 2 == 0);
         vTaskDelayUntil(&lastWakeTime, kFrameTick);
     }
 }

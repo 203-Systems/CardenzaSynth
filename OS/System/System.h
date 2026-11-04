@@ -18,7 +18,9 @@ inline constexpr std::uint32_t kSettingsWriteDelayMs = 1000;
 // Boots the device, applies the device settings, moves a pre-protocol card layout into place and
 // starts the boot app (BootApplicationId).
 bool Begin(const BootOptions& options = {});
-void RunFrame();
+// One frame: input, the app's tick and its LEDs, then, when `draw`, its picture on the screen. The
+// device runs a frame every 10 ms and draws every other one (50 fps): keys keep their 10 ms latency.
+void RunFrame(bool draw = true);
 app::Application* ActiveApplication();
 const std::string& ActiveApplicationId();
 

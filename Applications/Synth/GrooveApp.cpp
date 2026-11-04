@@ -680,7 +680,7 @@ void GrooveApp::RenderFrame()
   groove::Gfx gfx(Device::Display::MutableFrameBuffer());
   groove::RenderFrame(gfx, controller_, animator_);
 #if defined(ESP_PLATFORM)
-  // Frame budget report on the serial console every ~10 s (600 frames at 60 fps).
+  // Frame budget report on the serial console every ~12 s (600 frames at 50 fps).
   const auto elapsed = static_cast<std::uint32_t>(
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
   renderTotalUs_ += elapsed;

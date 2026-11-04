@@ -104,7 +104,7 @@ void Clear(Pixel color) {
 namespace {
 
 // A whole frame takes the panel 17 ms (SPI at 40 MHz, the HAL sending eight rows at a time and waiting
-// for each), longer than a frame at 60 fps, and with the audio busy the UI task waited behind the
+// for each), most of a frame at 50 fps, and with the audio busy the UI task waited behind the
 // render for every band: 25-30 ms (the stress test, 2026-11-04). So only what changed is sent. Every
 // row is hashed in segments of 30 pixels and compared with the last frame's; each band of eight rows
 // sends its changed rows across the span of its changed segments.
@@ -116,6 +116,10 @@ static_assert(kSegments * kSegmentPixels == kWidth && kSegments <= 32 && kSegmen
 // kHeight * kSegments hashes, read once a frame: PSRAM. Null: whole frames.
 std::uint32_t* segmentHashes = nullptr;
 bool segmentHashesTried = false;
+// One band is sent whole every frame, whether it changed or not, a different one each time: the whole
+// screen comes again every kBands frames (about 0.34 s at 50 fps) for about 1 ms of SPI a frame, so
+// nothing the panel lost or a hash missed stays on screen. A whole frame at once would take 17 ms.
+int refreshBand = 0;
 
 std::uint32_t HashSegment(const Pixel* pixels)
 {
@@ -166,6 +170,12 @@ void Present() {
       last = y;
       changed |= row;
     }
+    if (band / kBandRows == refreshBand)
+    {
+      changed = (1u << kSegments) - 1;
+      first = band;
+      last = std::min(band + kBandRows, kHeight) - 1;
+    }
     if (changed == 0) continue;
     const int left = __builtin_ctz(changed);
     const int right = 31 - __builtin_clz(changed);
@@ -176,6 +186,7 @@ void Present() {
     else
       regions[count++] = region;
   }
+  refreshBand = (refreshBand + 1) % kBands;
   (void)CardenzaHAL::Display::Present(frameBuffer.data(), regions.data(), count);
 }
 

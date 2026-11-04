@@ -246,7 +246,7 @@ bool Begin(const BootOptions& options) {
   return true;
 }
 
-void RunFrame() {
+void RunFrame(bool draw) {
   auto& state = State();
   if (!state.pendingId.empty())
   {
@@ -265,8 +265,11 @@ void RunFrame() {
   DispatchHomeButtonEvents(*application);
   application->Tick();
   UpdateApplicationLeds(*application);
-  application->RenderFrame();
-  Device::Display::Present();
+  if (draw)
+  {
+    application->RenderFrame();
+    Device::Display::Present();
+  }
   WriteBehindSettings();
   os::log::Service(Now());
 }
