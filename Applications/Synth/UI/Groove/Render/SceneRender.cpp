@@ -1617,7 +1617,25 @@ void MenuContent(Gfx& g, const Controller& controller, Animator& animator, float
       continue;
     }
     const bool usable = item.available;
+    // The item just run: solid FN yellow while its key is held and a moment after, so the press is
+    // seen on the tile it belongs to (the result is in the footer).
+    const auto& press = controller.State().menuPress;
+    const bool lit = usable && press.index == index && (press.down || (press.releasedAt != 0 && now - press.releasedAt < kMenuPressMs));
     g.Fill(tile, kBlack);
+    if (lit)
+    {
+      g.Fill(tile, kFn);
+      const Color ink = kBlack;
+      int keyWidth = 0;
+      if (item.key != nullptr)
+      {
+        keyWidth = Gfx::Measure(item.key) + 3;
+        g.Text(tile.x + tile.width - keyWidth, tile.y + 2, item.key, ink);
+      }
+      g.TextFit(tile.x + 3, tile.y + 2, tile.width - 5 - keyWidth, item.label, ink);
+      g.TextFit(tile.x + 3, tile.y + 13, tile.width - 5, item.detail, ink);
+      continue;
+    }
     if (item.on) g.Fill(tile, kInk);
     else if (usable)
     {
@@ -1638,8 +1656,6 @@ void MenuContent(Gfx& g, const Controller& controller, Animator& animator, float
     }
     g.TextFit(tile.x + 3, tile.y + 2, tile.width - 5 - keyWidth, item.label, ink);
     g.TextFit(tile.x + 3, tile.y + 13, tile.width - 5, item.detail, item.on ? kBlack : usable ? kDim : kShade);
-    const std::uint32_t pressed = animator.GridPressedAt(index);
-    if (pressed != 0 && now - pressed < 300) fx::Ripple(g, tile, fx::Progress(now, pressed, 300), kFn);
   }
 }
 

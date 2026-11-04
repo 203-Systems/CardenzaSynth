@@ -1752,9 +1752,30 @@ void Controller::RunMenu(std::size_t index)
 {
   if (index >= kGridCount) return;
   const MenuItem item = Menu()[index];
-  if (item.action == MenuAction::None || !item.available) return;
+  if (item.action == MenuAction::None) return;
+  if (!item.available)
+  {
+    ShowToast(item.label + std::string(" NOT HERE"));
+    return;
+  }
   // The open menu closes first, so an item that opens a pop-up opens it over the screen.
   if (MenuOpen()) CloseModal();
+  const std::uint32_t toastBefore = state_.toast.until;
+  const std::uint32_t hudBefore = state_.hud.at;
+  const Modal* modalBefore = TopModal();
+  RunMenuAction(item);
+  // Every item says what it did: one that showed nothing (and opened no pop-up) gets its own name and
+  // new state in the footer, e.g. VIEW STEP.
+  if (state_.toast.until == toastBefore && state_.hud.at == hudBefore && TopModal() == modalBefore)
+  {
+    const MenuItem now = Menu()[index];
+    const MenuItem& shown = now.action == item.action ? now : item;
+    ShowToast(shown.detail.empty() ? shown.label : shown.label + std::string(" ") + shown.detail);
+  }
+}
+
+void Controller::RunMenuAction(const MenuItem& item)
+{
   switch (item.action)
   {
     case MenuAction::Save: QuickSave(); break;

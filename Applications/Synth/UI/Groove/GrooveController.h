@@ -32,6 +32,8 @@ inline constexpr std::uint32_t kRepeatAccelerateAfter = 12;
 inline constexpr std::uint32_t kToastMs = 2000;
 inline constexpr std::uint32_t kTransitionMs = 110;
 inline constexpr std::uint32_t kHudMs = 1100;
+// How long an FN menu tile stays lit after its key lets go.
+inline constexpr std::uint32_t kMenuPressMs = 350;
 
 enum class ToastKind : std::uint8_t { Info, Ok, Error };
 
@@ -439,6 +441,13 @@ struct UiState {
   std::size_t sessionPattern = 0;
   std::size_t sessionTrack = 0;
   std::array<bool, kGridCount> gridDown{};
+  // The FN menu tile under a GRID key pressed with FN (not a plain GRID press: its release must not
+  // run the page's own release action). Lit while down and kMenuPressMs after.
+  struct MenuPress {
+    std::uint8_t index = 0xFF;
+    bool down = false;
+    std::uint32_t releasedAt = 0;
+  } menuPress;
   std::array<std::uint32_t, kTrackCount> lastTrackNoteAt{};
 
   // Tap tempo
@@ -655,6 +664,7 @@ private:
   void SettingsArrow(int step);
   void OpenMenu();
   void RunMenu(std::size_t index);
+  void RunMenuAction(const MenuItem& item);
   void SoundPad(std::size_t index, bool on);
   void StepPreset(int delta);
   bool PadForSequence(int note, bool pressed);
