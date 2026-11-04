@@ -343,6 +343,12 @@ struct RecordState {
   std::uint8_t stepLength = 1;    // STEP view: steps the cursor moves after a write (1, 2, 4)
   bool stepWritten = false;       // pads wrote since they were last all released
   bool snap = true;               // placing a take snaps its notes to whole steps
+  // STEP view: the notes step stepBeforeAt had before the pads now down wrote there (sorted). The
+  // same notes pressed again erase the step.
+  std::array<std::uint8_t, 8> stepBefore{};
+  std::uint8_t stepBeforeCount = 0;
+  std::uint8_t stepBeforeAt = 0;
+  bool stepBeforeKnown = false;
   std::uint8_t focus = kRecordFirstTake;  // RECORD panel GRID focus
   std::uint8_t takeBar = 0;       // which bar of the focused take goes into a pattern
   // OK held in SEQ: a tap switches the view, a hold opens the RECORD panel.
@@ -693,6 +699,9 @@ private:
   void Copy();
   void Paste();
   void Clear();
+  bool StepRecordRepeats() const;
+  void EraseCursorStep();
+  void StepRecordGrid(std::size_t step, std::size_t heldNotes);
   void Quantize();
   void Duplicate();
   void TapTempo();
