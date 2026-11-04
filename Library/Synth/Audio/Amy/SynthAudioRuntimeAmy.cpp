@@ -1792,7 +1792,6 @@ bool HeavyEventFitsNoLock()
 // each, heavy) at once and nothing runs dry; the first block after fades in.
 std::atomic<int> g_holdRequests{0};
 std::atomic<bool> g_outputHeld{false};
-bool g_fadeInNext = false;
 
 // An engine set up or a preset loaded: AMY builds every voice of it again, 18-22 ms on the board (the
 // stress test, 2026-11-04), more than three blocks.

@@ -417,6 +417,42 @@ function(cardenza_amy_filters_source root_dir amy_src_dir out_var)
     set(${out_var} ${output_dir}/filters.c PARENT_SCOPE)
 endfunction()
 
+# The oscillators' table loops without shifts by a variable amount (Library/Synth/Audio/Amy/AmyFastOsc.inc):
+# the Juno's pulse, saw and sub (cubic) and the DX7's operators (linear) to the bit, and a pulse at
+# half duty, the Juno's sub, in one pass instead of two. The copy keeps the object name, so the IRAM
+# placement (audio_hot.lf) still applies.
+function(cardenza_amy_oscillators_source root_dir amy_src_dir out_var)
+    set(source ${amy_src_dir}/oscillators.c)
+    if(CMAKE_SCRIPT_MODE_FILE)
+        set(${out_var} ${source} PARENT_SCOPE)
+        return()
+    endif()
+    file(READ ${source} content)
+    set(define_original "SAMPLE render_lpf_lut(SAMPLE* buf, uint16_t osc, int8_t is_square, int8_t direction, SAMPLE dc_offset) {")
+    set(define_patched "#include \"${root_dir}/Library/Synth/Audio/Amy/AmyFastOsc.inc\"  // Cardenza\n\n${define_original}")
+    set(first_original "    synth[osc]->phase = render_lut_cub(buf, synth[osc]->phase, step, last_amp, amp, synth[osc]->lut, &max_value);\n    if (is_square) {")
+    set(first_patched "    // Cardenza: a pulse that stays at half duty in one pass.\n    const int cardenza_square = is_square && msynth[osc]->duty == 0.5f && msynth[osc]->last_duty == 0.5f;\n    synth[osc]->phase = cardenza_render_lut_cub(buf, synth[osc]->phase, step, last_amp, amp, synth[osc]->lut, cardenza_square, &max_value);\n    if (is_square && !cardenza_square) {")
+    set(second_original "        render_lut_cub(buf, pwm_phase, step + delta_phase_per_sample, -last_amp, -amp, synth[osc]->lut, &max_value);")
+    set(second_patched "        cardenza_render_lut_cub(buf, pwm_phase, step + delta_phase_per_sample, -last_amp, -amp, synth[osc]->lut, 0, &max_value);  // Cardenza")
+    set(fm_original "    if (feedback_level > 0 && mod)\n        synth[osc]->phase = render_lut_fm_fb(buf, synth[osc]->phase, step,")
+    set(fm_patched "    if (1)  // Cardenza: the same choice of loop\n        synth[osc]->phase = cardenza_render_lut_lin(buf, synth[osc]->phase, step, last_amp, amp, synth[osc]->lut, mod, feedback_level, synth[osc]->last_two, &max_value);\n    else if (feedback_level > 0 && mod)\n        synth[osc]->phase = render_lut_fm_fb(buf, synth[osc]->phase, step,")
+    # render_sine's and render_triangle's call (the same line).
+    set(lin_original "    synth[osc]->phase = render_lut(buf, synth[osc]->phase, step, last_amp, amp, synth[osc]->lut, &max_value);")
+    set(lin_patched "    synth[osc]->phase = cardenza_render_lut_lin(buf, synth[osc]->phase, step, last_amp, amp, synth[osc]->lut, NULL, 0, NULL, &max_value);  // Cardenza")
+    foreach(pair "define" "first" "second" "fm" "lin")
+        string(FIND "${content}" "${${pair}_original}" match_index)
+        if(match_index EQUAL -1)
+            message(FATAL_ERROR "AMY oscillators.c patch (${pair}) no longer applies in ${source}")
+        endif()
+        string(REPLACE "${${pair}_original}" "${${pair}_patched}" content "${content}")
+    endforeach()
+    set(output_dir ${CMAKE_BINARY_DIR}/cardenza_generated/amy)
+    file(WRITE ${output_dir}/oscillators.c.in "${content}")
+    configure_file(${output_dir}/oscillators.c.in ${output_dir}/oscillators.c COPYONLY)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${source} ${root_dir}/Library/Synth/Audio/Amy/AmyFastOsc.inc)
+    set(${out_var} ${output_dir}/oscillators.c PARENT_SCOPE)
+endfunction()
+
 # A modulation source's control step once a block, not once for every oscillator it modulates:
 # compute_mod_scale ran hold_and_modify on the source each time it was asked (8 us on the board), and
 # a Juno voice asks five times a block for its LFO, whose value compute_mod_value keeps for the block
@@ -448,6 +484,7 @@ function(cardenza_collect_amy_c_sources root_dir out_var)
     cardenza_amy_patches_source(${amy_src_dir} amy_patches_source)
     cardenza_amy_filters_source(${root_dir} ${amy_src_dir} amy_filters_source)
     cardenza_amy_envelope_source(${amy_src_dir} amy_envelope_source)
+    cardenza_amy_oscillators_source(${root_dir} ${amy_src_dir} amy_oscillators_source)
     set(sources
         ${amy_src_dir}/algorithms.c
         ${amy_core_source}
@@ -461,7 +498,7 @@ function(cardenza_collect_amy_c_sources root_dir out_var)
         ${amy_src_dir}/interp_partials.c
         ${amy_src_dir}/log2_exp2.c
         ${amy_src_dir}/midi_mappings.c
-        ${amy_src_dir}/oscillators.c
+        ${amy_oscillators_source}
         ${amy_src_dir}/parse.c
         ${amy_patches_source}
         ${amy_src_dir}/pcm.c

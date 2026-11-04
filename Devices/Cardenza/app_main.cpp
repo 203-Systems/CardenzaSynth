@@ -109,11 +109,26 @@ void CardenzaRuntimeTask(void*)
     LogInternalHeap("after boot");
     LogFlashRecords();
 
+    // A frame per tick (10 ms at 100 Hz). xTaskDelayUntil does not block after a frame longer than that,
+    // and the tasks below this one on core 0 (the card's log and autosave writer, the idle task) then
+    // never ran while the frames stayed long: a restored project with 10 ms frames kept core 0 at 93%
+    // with nothing left to them, and the stress build's watchdog restarted the board every 10 s
+    // (2026-11-04). After three late frames in a row they get one tick.
     TickType_t lastWakeTime = xTaskGetTickCount();
+    int lateFrames = 0;
     for (;;)
     {
         os::system::RunFrame();
-        vTaskDelayUntil(&lastWakeTime, kFrameTick);
+        if (xTaskDelayUntil(&lastWakeTime, kFrameTick) == pdTRUE)
+        {
+            lateFrames = 0;
+        }
+        else if (++lateFrames >= 3)
+        {
+            lateFrames = 0;
+            vTaskDelay(1);
+            lastWakeTime = xTaskGetTickCount();
+        }
     }
 }
 
