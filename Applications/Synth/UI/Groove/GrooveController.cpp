@@ -366,6 +366,11 @@ void Controller::KeyEvent(std::size_t row, std::size_t column, bool pressed, std
       pressed ? PressPad(row, column) : ReleasePad(row, column);
       return;
     case KeyRole::Grid:
+      if (!pressed && state_.menuPress.down && state_.menuPress.index == GridIndex(row, column))
+      {
+        state_.menuPress.down = false;
+        state_.menuPress.releasedAt = nowMs;
+      }
       pressed ? PressGrid(GridIndex(row, column)) : ReleaseGrid(GridIndex(row, column));
       return;
     case KeyRole::None:
@@ -630,6 +635,7 @@ void Controller::PressGrid(std::size_t index)
   if (state_.left[LeftIndex(KeyRole::Fn)].down)
   {
     state_.left[LeftIndex(KeyRole::Fn)].used = true;
+    if (FnOverlay()) state_.menuPress = UiState::MenuPress{static_cast<std::uint8_t>(index), true, 0};
     HandleFnKey(row, column);
     return;
   }

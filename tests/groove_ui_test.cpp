@@ -1298,6 +1298,50 @@ void TestSession(Harness& h)
   h.Render();
 }
 
+// Every FN menu item says what it did (toast, HUD or a pop-up), and the tile under the key lights.
+void TestMenuFeedback(Harness& h)
+{
+  auto& app = h.App();
+  GoToScene(h, 2);
+  h.Chord(kTab, Grid(1));
+  while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  if (app.Sequencer().Playing()) h.Tap(kPlay);
+  const auto feedback = [&](std::size_t index) {
+    const std::uint32_t toast = h.State().toast.until, hud = h.State().hud.at;
+    h.Down(kFn);
+    h.Wait(400);  // the menu shows once FN has been held a moment
+    assert(app.Ui().FnOverlay());
+    h.Down(Grid(index));
+    assert(h.State().menuPress.down && h.State().menuPress.index == index);
+    h.Up(Grid(index));
+    const bool popup = h.Modal() != nullptr;
+    h.Up(kFn);
+    assert(!h.State().menuPress.down);
+    assert(popup || h.State().toast.until != toast || h.State().hud.at != hud);
+    while (h.Modal() != nullptr) h.Tap(kEsc);
+    h.Wait(1200);
+  };
+  const groove::MenuItems menu = app.Ui().Menu();
+  for (std::size_t index = 0; index < groove::kGridCount; ++index)
+  {
+    const groove::MenuAction action = menu[index].action;
+    // SETUP leaves the scene; REC arms recording; the rest stays on the page.
+    if (action == groove::MenuAction::None || action == groove::MenuAction::Setup || action == groove::MenuAction::Record ||
+        action == groove::MenuAction::Save)
+      continue;
+    feedback(index);
+  }
+  // An item that does not apply here says so.
+  for (std::size_t index = 0; index < groove::kGridCount; ++index)
+    if (menu[index].action != groove::MenuAction::None && !app.Ui().Menu()[index].available)
+    {
+      h.Chord(kFn, Grid(index));
+      assert(h.State().toast.text.find("NOT HERE") != std::string::npos);
+      break;
+    }
+  h.Render();
+}
+
 void TestSelectMode(Harness& h)
 {
   // ROLL with SELECT ONE (the default): a GRID tap walks to that one step, its notes are full on the
@@ -2836,6 +2880,8 @@ int main()
   TestComputerMidi(h);
   TestGuide(h);
   TestEveryParameter(h);
+  // Last: it runs every item of the SEQ menu, which changes the pattern.
+  TestMenuFeedback(h);
 
   std::filesystem::current_path(std::filesystem::temp_directory_path());
   std::filesystem::remove_all(root);

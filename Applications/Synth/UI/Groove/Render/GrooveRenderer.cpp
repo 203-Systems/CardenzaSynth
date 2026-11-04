@@ -642,8 +642,16 @@ void DrawFnOverlay(Gfx& g, const Controller& controller, Animator& animator, flo
                            controller.PageTab(state.scene, controller.CurrentPage());
   DrawMapTitle(g, "FN  MENU", page, kFn, t, now);
 
-  // Footer: the FN combinations besides the menu, key in yellow, what it does in white.
+  // Footer: what the last item or shortcut did while it is fresh, else the FN combinations besides
+  // the menu, key in yellow, what it does in white.
   g.Fill(Rect{kContentX - 1, kFooterY - 2, kContentWidth + 2, 11}, kBlack);
+  if (!state.toast.text.empty())
+  {
+    const Color color = state.toast.kind == ToastKind::Error ? kRec : state.toast.kind == ToastKind::Ok ? kPlay : kInk;
+    g.Dither(Rect{kFooterX, kFooterY - 1, 4, 9}, color, 12);
+    fx::TypeText(g, kFooterX + 8, kFooterY, state.toast.text.substr(0, static_cast<std::size_t>(kFooterWidth / 6 - 2)), color, Font::Micro,
+                 fx::Progress(now, animator.ToastAt(), 260));
+  }
   const auto entries = controller.FnEntries();
   const std::size_t shown = static_cast<std::size_t>(fx::Clamp01(t * 1.3f) * static_cast<float>(entries.size()) + 0.5f);
   int footerX = kFooterX;
@@ -653,7 +661,7 @@ void DrawFnOverlay(Gfx& g, const Controller& controller, Animator& animator, flo
     if (!entry.available || std::string_view(entry.key) == "GRID") continue;
     const int width = Gfx::Measure(entry.key) + 4 + Gfx::Measure(entry.label);
     if (footerX + width > kFooterRight) continue;
-    if (drawn++ < shown)
+    if (drawn++ < shown && state.toast.text.empty())
     {
       const int labelX = g.Text(footerX, kFooterY, entry.key, kFn) + 4;
       g.Text(labelX, kFooterY, entry.label, kInk);

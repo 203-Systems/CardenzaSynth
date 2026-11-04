@@ -26,6 +26,7 @@ key PLAY = REC
 | {{key:ADD}} {{key:SUB}} {{key:OK}} | big steps (SEQ note page: the GRID's page) and the second OK (see [[#fn-shortcuts]]) | ADD / SUB do nothing; {{key:FN+OK}} still runs the second OK |
 
 - A hold is 250 ms; release sooner and FN counts as a tap.
+- **Every item answers**: with FN held, the tile you press turns yellow until a moment after you let go, and the bottom line of the screen says what happened (for example COPIED P01, VIEW STEP). A grey item does not apply on this screen; pressing it says "… NOT HERE".
 - Rows 1–3 belong to the page you are on; row 4 is the same on every screen: **SAVE** the project, **TAP** tempo, **REC** arm, **SETUP** (in SETUP: **BACK**).
 - The FN panel and its pages are gone: settings live in [[#setup]], and {{key:FN}} + {{key:1}}…{{key:5}} do nothing.
 
