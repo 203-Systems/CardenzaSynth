@@ -64,7 +64,7 @@ body.guide { --rail: 236px; }
 /* The steps' words and checks: the page shows one at a time under the stage. */
 .l-steps { display: none; }
 /* The demo on the key picture: a key pressed goes down and lights, as on the device. The keys to press
-   are framed (no blinking on the page: the frame says it, and the device blinks them itself). */
+   are framed (nothing blinks, here or on the device: the device lights them). */
 .st-keys .k .cap { transition: transform .08s; transform-box: fill-box; }
 .st-keys .k.press { --b: 1 !important; opacity: 1 !important; }
 .st-keys .k.press .cap { transform: translateY(1.5px); }

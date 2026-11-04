@@ -321,14 +321,12 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
     return;
   }
 
-  // Blink = waiting: on and off. The guide's hints the same at half the speed. Steady keys keep their level.
+  // Blink = waiting: on and off. Steady keys keep their level.
   const bool blinkOn = (now / 250) % 2 == 0;
-  const bool hintOn = (now / 500) % 2 == 0;
   for (std::size_t index = 0; index < kKeyCount; ++index)
   {
     const LedCell& cell = frame[index];
-    const bool off = (cell.effect == LedEffect::Blink && !blinkOn) || (cell.effect == LedEffect::Hint && !hintOn);
-    levels[index] = off ? 0 : cell.level;
+    levels[index] = cell.effect == LedEffect::Blink && !blinkOn ? 0 : cell.level;
   }
 
   // Boot: two light waves sweep the keyboard, then the working lights fade in.

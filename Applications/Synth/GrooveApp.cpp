@@ -657,12 +657,15 @@ void GrooveApp::UpdateLeds()
   animator_.DecorateLeds(controller_, frame, levels);
   animator_.SmoothLeds(levels);
   // The eight edge keys (ESC TAB FN CTRL, ADD SUB OK PLAY) never go above the dimmest glow: their
-  // state shows on the screen's edge strips, the keys only say they are there.
+  // state shows on the screen's edge strips, the keys only say they are there. Except one the guide
+  // asks for: it is full like the other keys of its hint, or it would not stand out.
+  const std::uint64_t hint = controller_.GuideHint();
   for (std::size_t row = 0; row < groove::kRows; ++row)
     for (const std::size_t column : {std::size_t{0}, groove::kColumns - 1})
     {
-      std::uint8_t& level = levels[groove::KeyIndex(row, column)];
-      level = std::min(level, groove::kLedEdgeMax);
+      const std::size_t index = groove::KeyIndex(row, column);
+      if ((hint >> index) & 1u) continue;
+      levels[index] = std::min(levels[index], groove::kLedEdgeMax);
     }
   for (std::size_t row = 0; row < groove::kRows; ++row)
     for (std::size_t column = 0; column < groove::kColumns; ++column)

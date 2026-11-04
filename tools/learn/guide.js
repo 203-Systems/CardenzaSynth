@@ -155,7 +155,7 @@
   // A Cardenza on USB, through Web MIDI. The page asks for MIDI (SysEx) as it opens: the browser asks
   // the user once, and from then on a Cardenza plugged in, now or later, is found by itself. A device
   // lesson starts the guide on it (GE): the device sets the user's work aside in a practice project,
-  // goes where the lesson starts (GL), blinks the keys of the step (GH) and reports its state (GS) and
+  // goes where the lesson starts (GL), lights the keys of the step (GH) and reports its state (GS) and
   // every key pressed (GK). Its key lights (GD) are on the device itself; the page does not show them.
   //   status: nomidi (no Web MIDI here) | denied | waiting (allowed, no Cardenza) | hello (asking it) |
   //           old (its firmware has no guide) | on
@@ -288,7 +288,7 @@
     waiting: ['用 USB 线接上 Cardenza，它会跟着这一课走；没有机器也可以看图跟着学。', 'Plug in your Cardenza with a USB cable and it follows this lesson; no device, follow the pictures.'],
     hello: ['正在连接 Cardenza…', 'Connecting to your Cardenza…'],
     old: ['这台 Cardenza 的固件还不支持教程：更新到最新固件，再接上。', 'This Cardenza\'s firmware has no guide yet: update it, then plug it in again.'],
-    on: ['Cardenza 已连接：照着机器上闪的键按，做对了自动打勾。', 'Your Cardenza is connected: press the keys that blink on it; the steps tick themselves off.'],
+    on: ['Cardenza 已连接：照着机器上亮着的键按，做对了自动打勾。', 'Your Cardenza is connected: press the keys lit on it; the steps tick themselves off.'],
   };
   $$('.l-device').forEach((line) => line.addEventListener('click', () => {
     if (!device.reason) return;

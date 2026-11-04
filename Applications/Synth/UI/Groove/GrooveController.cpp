@@ -1218,9 +1218,15 @@ void Controller::ComputeLeds(std::array<std::uint8_t, kKeyCount>& levels) const
 void Controller::ComputeLeds(LedFrame& frame) const
 {
   ComputeSceneLeds(frame);
-  // The guide's hint: the keys a lesson waits for blink (the only effect: waiting).
+  // The guide's hint, as the lesson page shows it (the keys to press framed, the rest dimmed): those
+  // keys full and steady, every other key no brighter than half. Nothing blinks for it: the page says
+  // what to press.
+  if (guideHint_ == 0) return;
   for (std::size_t index = 0; index < kKeyCount; ++index)
-    if ((guideHint_ >> index) & 1u) frame[index] = LedCell{kLedFull, LedEffect::Hint};
+  {
+    if ((guideHint_ >> index) & 1u) frame[index] = LedCell{kLedFull, LedEffect::Steady};
+    else frame[index].level = std::min(frame[index].level, kLedHalf);
+  }
 }
 
 void Controller::ComputeSceneLeds(LedFrame& frame) const

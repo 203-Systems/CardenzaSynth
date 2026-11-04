@@ -6,7 +6,7 @@ run on the live device of the page (the web simulator, or a Cardenza on USB) thr
 (Applications/Synth/GrooveAppGuide.cpp): "start" puts the device where the lesson begins (GL fields:
 s scene, p page, t track 1-4, r1 a fresh project, d1 the song demo), and per step
 
-  keys   the keys that blink on the device and stand out on the picture (figures.keys_for tokens)
+  keys   the keys lit on the device (the others dimmed) and framed on the picture (figures.keys_for tokens)
   done   what completes it, all of: ["press", KEYS] a key pressed (["press", KEYS, n]: n different
          ones of them), ["state", f, n] / ["seen", f, n]
          field f of the device state is n, ["change", f] it changed since the step began,
