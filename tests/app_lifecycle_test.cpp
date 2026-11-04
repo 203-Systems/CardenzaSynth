@@ -374,16 +374,46 @@ int main()
     // Soon after it stops the changes are in.
     Frames(140);
     assert(ReadText(internal / "as_g.rec") != before);
-    // Played on and on, changes do not wait forever.
+    // Played on and on, the changes go to the card once they have waited a little (a flash write stops
+    // both cores: a click and a late beat), and to the flash when it stops. The newer one comes back.
     const std::string longPlay = ReadText(internal / "as_g.rec");
+    const fs::path cardSession = cardenza / "Apps" / "Cardenza" / "Synth" / "Session";
     groove->Sequencer().Play();
     keepWorking(151);
     Frames(20);
     assert(ReadText(internal / "as_g.rec") == longPlay);
+    gNow += 11000;
+    Frames(2);
+    assert(ReadText(internal / "as_g.rec") == longPlay);
+    assert(fs::exists(cardSession / "autosave.ccproj") && fs::exists(cardSession / "autosave.txt"));
     gNow += 61000;
     Frames(2);
+    assert(ReadText(internal / "as_g.rec") == longPlay);  // the card has it: the flash waits
+    powerCut();
+    restart();
+    assert(groove->Sequencer().Tempo() == 151);
+    // Stopped, the flash takes it, and numbers it above the card's, which a later start then skips.
+    Frames(140);
     assert(ReadText(internal / "as_g.rec") != longPlay);
+    keepWorking(152);
+    Frames(140);
+    powerCut();
+    restart();
+    assert(groove->Sequencer().Tempo() == 152);
+    // Without the card, playing on: the flash after a minute, as before.
+    CardenzaSim::Input::SetCardInserted(false);
+    Frames(2);
+    const std::string noCard = ReadText(internal / "as_g.rec");
+    groove->Sequencer().Play();
+    keepWorking(153);
+    Frames(20);
+    assert(ReadText(internal / "as_g.rec") == noCard);
+    gNow += 61000;
+    Frames(2);
+    assert(ReadText(internal / "as_g.rec") != noCard);
     groove->Sequencer().Stop();
+    CardenzaSim::Input::SetCardInserted(true);
+    Frames(650);  // the system retries the card every ten seconds
   }
 
   // No card, no difference: the work stays, also over a restart. The sample it names waits for the card

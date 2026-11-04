@@ -1,6 +1,8 @@
 #include "Devices/Cardenza/DeviceLog.h"
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <string_view>
@@ -395,38 +397,61 @@ void Write(std::string_view line)
   if (line.empty() || line.back() != '\n') std::fputc('\n', stdout);
 }
 
+}  // namespace Device::Log
+
+namespace Device::Background {
+
 namespace {
 // Below the UI (5) on its core: it takes whatever time is left, and a card busy for seconds (one was,
-// streaming a sample, 2026-11-04) keeps only this task waiting.
-constexpr UBaseType_t kWriterPriority = 2;
-constexpr std::uint32_t kWriterStackBytes = 4096;
-TaskHandle_t g_writer = nullptr;
-void (*g_writerJob)() = nullptr;
+// streaming a sample, 2026-11-04) keeps only this task waiting. The stack holds a project file being
+// written (the log used under 2.5 KB).
+constexpr UBaseType_t kPriority = 2;
+constexpr std::uint32_t kStackBytes = 6144;
+constexpr std::size_t kMaxJobs = 4;
+std::array<std::atomic<void (*)()>, kMaxJobs> g_jobs{};
+TaskHandle_t g_task = nullptr;
 
-void WriterTask(void*)
+void Task(void*)
 {
   for (;;)
   {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    g_writerJob();
+    for (auto& job : g_jobs)
+      if (void (*run)() = job.load(std::memory_order_acquire)) run();
   }
 }
 }  // namespace
 
-bool StartWriter(void (*write)())
+bool Run(void (*job)())
 {
-  if (g_writer != nullptr) return true;
-  if (write == nullptr) return false;
-  g_writerJob = write;
-  return xTaskCreatePinnedToCore(WriterTask, "log_writer", kWriterStackBytes, nullptr, kWriterPriority, &g_writer, 0) == pdPASS;
+  if (job == nullptr) return false;
+  if (g_task == nullptr && xTaskCreatePinnedToCore(Task, "background", kStackBytes, nullptr, kPriority, &g_task, 0) != pdPASS)
+  {
+    g_task = nullptr;
+    return false;
+  }
+  bool registered = false;
+  for (auto& slot : g_jobs)
+  {
+    void (*current)() = slot.load(std::memory_order_relaxed);
+    if (current == job)
+    {
+      registered = true;
+      break;
+    }
+    if (current == nullptr)
+    {
+      slot.store(job, std::memory_order_release);
+      registered = true;
+      break;
+    }
+  }
+  if (!registered) return false;
+  xTaskNotifyGive(g_task);
+  return true;
 }
 
-void WakeWriter()
-{
-  if (g_writer != nullptr) xTaskNotifyGive(g_writer);
-}
-
-}  // namespace Device::Log
+}  // namespace Device::Background
 
 extern "C" void __wrap_esp_panic_handler(panic_info_t* info)
 {

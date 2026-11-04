@@ -7,6 +7,7 @@
 #include <new>
 #include <utility>
 
+#include "Applications/Synth/Runtime/SynthStorage.h"
 #include "OS/Storage/Storage.h"
 
 namespace synth {
@@ -78,6 +79,7 @@ class Reader {
 public:
   explicit Reader(const std::string& bytes) : bytes_(bytes) {}
   bool Good() const { return good_; }
+  bool AtEnd() const { return position_ >= bytes_.size(); }
   int Byte()
   {
     if (position_ >= bytes_.size())
@@ -161,6 +163,8 @@ std::string EncodeGeneral(const SessionInfo& info, const ProjectData& project)
     out.Byte(play.arp.gate);
     out.Byte(play.arp.latch ? 1 : 0);
   }
+  // Last, so a record from before it reads as generation 0.
+  out.Number(info.generation);
   return out.Take();
 }
 
@@ -204,6 +208,7 @@ bool DecodeGeneral(const std::string& bytes, SessionInfo& info, ProjectData& pro
     play.arp.gate = static_cast<std::uint8_t>(in.Byte());
     play.arp.latch = in.Byte() != 0;
   }
+  info.generation = in.AtEnd() ? 0 : in.Number();
   project.hasPlay = true;
   return in.Good();
 }
@@ -487,6 +492,61 @@ bool SessionStore::BeginRestore()
 void SessionStore::FinishRestore()
 {
   (void)os::storage::EraseInternalRecord(kBootKey);
+}
+
+namespace {
+std::string CardProjectPath() { return os::storage::JoinPath(storage::SessionDirectory(), "autosave.ccproj"); }
+std::string CardInfoPath() { return os::storage::JoinPath(storage::SessionDirectory(), "autosave.txt"); }
+}  // namespace
+
+bool SessionStore::SaveCard(const SessionInfo& info, const ProjectData& project)
+{
+  // The project first, then the text that names its generation: cut in between, the start takes the
+  // flash copy, which is older but whole.
+  if (SaveProjectFileAt(CardProjectPath(), project) != ProjectResult::Ok) return false;
+  const std::string text = "generation=" + std::to_string(info.generation) + "\nname=" + info.name + "\ndirty=" + (info.dirty ? "1" : "0") + "\n";
+  return os::storage::WriteFileAtomic(CardInfoPath(), text);
+}
+
+bool SessionStore::ReadCardInfo(SessionInfo& info)
+{
+  std::string text;
+  if (!os::storage::ReadFileWithBackup(CardInfoPath(), text, 512)) return false;
+  SessionInfo read;
+  bool generation = false;
+  std::size_t start = 0;
+  while (start < text.size())
+  {
+    std::size_t end = text.find('\n', start);
+    if (end == std::string::npos) end = text.size();
+    const std::string line = text.substr(start, end - start);
+    start = end + 1;
+    const std::size_t equals = line.find('=');
+    if (equals == std::string::npos) continue;
+    const std::string key = line.substr(0, equals);
+    const std::string value = line.substr(equals + 1);
+    if (key == "generation")
+    {
+      read.generation = static_cast<std::uint32_t>(std::strtoul(value.c_str(), nullptr, 10));
+      generation = read.generation != 0;
+    }
+    else if (key == "name") read.name = value;
+    else if (key == "dirty") read.dirty = value == "1";
+  }
+  if (!generation) return false;
+  info = read;
+  return true;
+}
+
+bool SessionStore::InFlash()
+{
+  std::string bytes;
+  return os::storage::ReadInternalRecord(SectionKey(kGeneral), bytes);
+}
+
+bool SessionStore::LoadCard(SessionInfo& info, ProjectData& project)
+{
+  return ReadCardInfo(info) && LoadProjectFileAt(CardProjectPath(), project) == ProjectResult::Ok;
 }
 
 }  // namespace synth

@@ -36,7 +36,11 @@ namespace {
 using synth::SynthEngineKind;
 using synth::SynthSequencer;
 
-constexpr std::int64_t kStartAfterUs = 20 * 1000000;  // the USB console is there by then
+#if defined(CARDENZA_STRESS_START)
+constexpr std::int64_t kStartAfterUs = static_cast<std::int64_t>(CARDENZA_STRESS_START) * 1000000;
+#else
+constexpr std::int64_t kStartAfterUs = 20 * 1000000;
+#endif  // the USB console is there by then
 constexpr std::size_t kMaxScenarios = 24;
 constexpr const char* kPrefix = "ZZ-ST-";
 constexpr std::array<std::uint8_t, 8> kKitNotes{{36, 38, 42, 46, 39, 43, 56, 70}};  // the drum machine's lanes
@@ -55,6 +59,8 @@ struct Result {
   std::uint16_t lostHeld = 0;     // held notes faded: a note missing
   std::uint16_t lostUnheard = 0;  // notes left out before they sounded: a note missing
   std::uint16_t lostStolen = 0;   // held notes whose voice a newer one took (the track's voices all held)
+  std::uint16_t dx7Us = 0, junoUs = 0, drumsUs = 0, overheadUs = 0;  // the budget's model at the end
+  std::uint16_t scalePercent = 0;
   std::uint16_t uiMaxMs = 0;
   std::uint16_t uiDrops = 0;
   std::uint16_t seqLatestUs = 0;
@@ -470,10 +476,11 @@ void PrintResult(std::size_t index)
   const Result& r = g_persist.results[index];
   static const char* const kStates[] = {"not run", "running", "done", "RESTARTED"};
   std::printf("stress: %2u %-18s %-9s %s render %u/%u us under %u | notes lost: held %u unheard %u stolen %u (tails %u) | ui max %u ms drops %u | "
-              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | %s\n",
+              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | voice us dx7 %u juno %u drums %u, other %u, scale %u%% | %s\n",
               static_cast<unsigned>(index), index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?", kStates[r.state & 3],
               r.state == 2 ? (r.ok ? "ok  " : "FAIL") : "    ", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
-              r.lostTails, r.uiMaxMs, r.uiDrops, r.seqLatestUs, r.seqLate, r.ramMinKb, r.psramMinKb, r.opMaxMs, r.opUnderruns, r.note);
+              r.lostTails, r.uiMaxMs, r.uiDrops, r.seqLatestUs, r.seqLate, r.ramMinKb, r.psramMinKb, r.opMaxMs, r.opUnderruns, r.dx7Us, r.junoUs,
+              r.drumsUs, r.overheadUs, r.scalePercent, r.note);
 }
 
 void FinishWindow(GrooveApp& app, std::size_t index)
@@ -493,6 +500,12 @@ void FinishWindow(GrooveApp& app, std::size_t index)
   result.lostHeld = Cap16(lost.held - window.lost.held);
   result.lostUnheard = Cap16(lost.unheard - window.lost.unheard);
   result.lostStolen = Cap16(lost.stolen - window.lost.stolen);
+  const synth::audio::RenderModel model = synth::audio::CurrentRenderModel();
+  result.dx7Us = Cap16(static_cast<std::uint32_t>(model.dx7Micros));
+  result.junoUs = Cap16(static_cast<std::uint32_t>(model.junoMicros));
+  result.drumsUs = Cap16(static_cast<std::uint32_t>(model.drumsMicros));
+  result.overheadUs = Cap16(static_cast<std::uint32_t>(model.overheadMicros));
+  result.scalePercent = Cap16(static_cast<std::uint32_t>(model.budgetScale * 100.0f));
   result.uiMaxMs = Cap16(window.uiMaxMs);
   result.uiDrops = Cap16(window.uiDrops);
   result.seqLatestUs = Cap16(window.seqLatest);
@@ -723,7 +736,9 @@ void StressTestTick(GrooveApp& app)
       ++g_persist.reboots;
       const char* crash = cardenza_previous_crash();
       std::printf("stress: restarted during %u; the crash: %s\n", static_cast<unsigned>(g_persist.next), crash != nullptr && crash[0] != 0 ? crash : "(none recorded)\n");
+#if !defined(CARDENZA_STRESS_REPEAT)
       ++g_persist.next;
+#endif
     }
     xTaskCreatePinnedToCore(WatchTask, "stress_watch", 4096, nullptr, 22, &runner.watcher, 1);
     std::printf("stress: begin, build %08x, %u scenarios, at %u\n", static_cast<unsigned>(build), static_cast<unsigned>(runner.scenarios.size()),

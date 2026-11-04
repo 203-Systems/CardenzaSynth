@@ -146,7 +146,9 @@ endif
 # release configuration plus the task watchdog (a hang becomes a crash report with its backtrace) and
 # the task list for the test's stall watcher. Flash it with BUILD=build/Cardenza-stress
 # tools/remote-flash/push.sh and read the `stress:` lines of the log. Never ship this build.
-# STRESS_ONLY=card:DEMO-2,sampler (scenario names, comma separated) and STRESS_SECONDS=60 run those alone.
+# STRESS_ONLY=card:DEMO-2,sampler (scenario names, comma separated) and STRESS_SECONDS=60 run those alone;
+# STRESS_START=3 begins 3 s after boot, STRESS_REPEAT=1 runs a scenario again after a restart (reading the
+# log restarts the board) instead of going on to the next.
 STRESS_BUILD := build/Cardenza-stress
 stress:
 ifeq ($(DEVICE),Cardenza)
@@ -158,7 +160,7 @@ ifeq ($(DEVICE),Cardenza)
 	     -e 's/^# CONFIG_FREERTOS_USE_TRACE_FACILITY is not set$$/CONFIG_FREERTOS_USE_TRACE_FACILITY=y/' \
 	     $(DEVICE_PROJECT_DIR)/sdkconfig > $(STRESS_BUILD)/sdkconfig.next
 	@cmp -s $(STRESS_BUILD)/sdkconfig.next $(STRESS_BUILD)/sdkconfig.stress || cp $(STRESS_BUILD)/sdkconfig.next $(STRESS_BUILD)/sdkconfig.stress
-	$(call RUN_IDF,-B '$(abspath $(STRESS_BUILD))' -DSDKCONFIG='$(abspath $(STRESS_BUILD))/sdkconfig.stress' -DCARDENZA_STRESS_TEST=ON -DCARDENZA_STRESS_ONLY='$(STRESS_ONLY)' -DCARDENZA_STRESS_SECONDS='$(STRESS_SECONDS)' build)
+	$(call RUN_IDF,-B '$(abspath $(STRESS_BUILD))' -DSDKCONFIG='$(abspath $(STRESS_BUILD))/sdkconfig.stress' -DCARDENZA_STRESS_TEST=ON -DCARDENZA_STRESS_ONLY='$(STRESS_ONLY)' -DCARDENZA_STRESS_SECONDS='$(STRESS_SECONDS)' -DCARDENZA_STRESS_START='$(STRESS_START)' -DCARDENZA_STRESS_REPEAT='$(STRESS_REPEAT)' build)
 	@echo "stress firmware in $(STRESS_BUILD): BUILD=$(STRESS_BUILD) tools/remote-flash/push.sh, then read the stress: lines"
 else
 	@echo stress is only supported for DEVICE=Cardenza

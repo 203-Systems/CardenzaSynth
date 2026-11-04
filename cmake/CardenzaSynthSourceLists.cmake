@@ -300,12 +300,29 @@ function(cardenza_amy_core_source amy_src_dir out_var)
     # its coefficients through log2f, most of them zero, and in double precision ("- 1.0"). A zero
     # coefficient adds nothing (the constant term is swapped to 1 first), so skip it; same result.
     set(amp_original "        if (i != COEF_MOD) {\n            val = map_60dB_to_01f(MAX(0, val)) - 1.0;")
-    set(amp_patched "        if (coef == 0.0f) continue;  // Cardenza: adds nothing; saves a log2f\n        if (i != COEF_MOD) {\n            val = map_60dB_to_01f(MAX(0, val)) - 1.0f;")
+    set(amp_patched "        if (coef == 0.0f) continue;  // Cardenza: adds nothing; saves a log2f\n        if (i != COEF_MOD) {\n            val = cardenza_map_60dB_to_01f(MAX(0, val)) - 1.0f;  // Cardenza: AmyFastMath.inc")
     string(FIND "${content}" "${amp_original}" match_index)
     if(match_index EQUAL -1)
         message(FATAL_ERROR "AMY amp_combine_controls patch no longer applies in ${source}")
     endif()
     string(REPLACE "${amp_original}" "${amp_patched}" content "${content}")
+
+    # The amplitudes' log2f and powf(10, x) as polynomials (Library/Synth/Audio/Amy/AmyFastMath.inc):
+    # twice an oscillator and block, they were library calls of hundreds of cycles each.
+    get_filename_component(cardenza_root "${amy_src_dir}/../../../.." ABSOLUTE)
+    set(note_original "    return (midi_note - ZERO_MIDI_NOTE) / 12.0f;")
+    set(note_patched "    return (midi_note - ZERO_MIDI_NOTE) * (1.0f / 12.0f);  // Cardenza: no divide (a ROM call here), every control step")
+    set(pow_original "    result = powf(10.0f, result);\n    if (result <= AMP_THRESH_PLUS)  result = 0; ")
+    set(pow_patched "    result = cardenza_exp2f(3.321928095f * result);  // Cardenza: 10^x\n    if (result <= AMP_THRESH_PLUS)  result = 0; ")
+    set(math_original "float combine_controls(float *controls, float *coefs) {")
+    set(math_patched "#include \"${cardenza_root}/Library/Synth/Audio/Amy/AmyFastMath.inc\"  // Cardenza\n\nfloat combine_controls(float *controls, float *coefs) {")
+    foreach(pair "pow" "math" "note")
+        string(FIND "${content}" "${${pair}_original}" match_index)
+        if(match_index EQUAL -1)
+            message(FATAL_ERROR "AMY amy.c patch (${pair}) no longer applies in ${source}")
+        endif()
+        string(REPLACE "${${pair}_original}" "${${pair}_patched}" content "${content}")
+    endforeach()
 
     # Oscillator state through our allocator (AmyEmbeddedStubs.c): internal RAM while there is room,
     # PSRAM after; patches.c gives it back when the voice is released (cardenza_amy_patches_source).
@@ -372,19 +389,74 @@ function(cardenza_amy_patches_source amy_src_dir out_var)
     set(${out_var} ${output_dir}/patches.c PARENT_SCOPE)
 endfunction()
 
+# The Juno's 24 dB lowpass with exact 64-bit products (Library/Synth/Audio/Amy/AmyFastFilter.inc):
+# AMY's form took 167 instructions a sample, a quarter of a Juno voice. filter_process calls ours;
+# the copy keeps the object name, so the IRAM placement (audio_hot.lf) still applies.
+function(cardenza_amy_filters_source root_dir amy_src_dir out_var)
+    set(source ${amy_src_dir}/filters.c)
+    if(CMAKE_SCRIPT_MODE_FILE)
+        set(${out_var} ${source} PARENT_SCOPE)
+        return()
+    endif()
+    file(READ ${source} content)
+    set(call_original "max_val = dsps_biquad_f32_ansi_split_fb_twice(block, block, AMY_BLOCK_SIZE, coeffs, synth[osc]->filter_delay, max_val);")
+    set(call_patched "max_val = cardenza_biquad_lpf24(block, block, AMY_BLOCK_SIZE, coeffs, synth[osc]->filter_delay);  // Cardenza")
+    set(define_original "SAMPLE dsps_biquad_f32_ansi_split_fb_once(const SAMPLE *input")
+    set(define_patched "#include \"${root_dir}/Library/Synth/Audio/Amy/AmyFastFilter.inc\"  // Cardenza\n\nSAMPLE dsps_biquad_f32_ansi_split_fb_once(const SAMPLE *input")
+    foreach(pair "call" "define")
+        string(FIND "${content}" "${${pair}_original}" match_index)
+        if(match_index EQUAL -1)
+            message(FATAL_ERROR "AMY filters.c patch (${pair}) no longer applies in ${source}")
+        endif()
+        string(REPLACE "${${pair}_original}" "${${pair}_patched}" content "${content}")
+    endforeach()
+    set(output_dir ${CMAKE_BINARY_DIR}/cardenza_generated/amy)
+    file(WRITE ${output_dir}/filters.c.in "${content}")
+    configure_file(${output_dir}/filters.c.in ${output_dir}/filters.c COPYONLY)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${source})
+    set(${out_var} ${output_dir}/filters.c PARENT_SCOPE)
+endfunction()
+
+# A modulation source's control step once a block, not once for every oscillator it modulates:
+# compute_mod_scale ran hold_and_modify on the source each time it was asked (8 us on the board), and
+# a Juno voice asks five times a block for its LFO, whose value compute_mod_value keeps for the block
+# anyway; repeated, it also moved the source's portamento on several steps a block.
+function(cardenza_amy_envelope_source amy_src_dir out_var)
+    set(source ${amy_src_dir}/envelope.c)
+    if(CMAKE_SCRIPT_MODE_FILE)
+        set(${out_var} ${source} PARENT_SCOPE)
+        return()
+    endif()
+    file(READ ${source} content)
+    set(mod_original "        if(source != osc) {  // that would be weird\n            hold_and_modify(source);")
+    set(mod_patched "        if(source != osc) {  // that would be weird\n            // Cardenza: its value is the block's already (compute_mod_value), which is all this step feeds.\n            if (synth[source]->mod_value_clock != amy_global.total_blocks*AMY_BLOCK_SIZE) hold_and_modify(source);")
+    string(FIND "${content}" "${mod_original}" match_index)
+    if(match_index EQUAL -1)
+        message(FATAL_ERROR "AMY envelope.c patch no longer applies in ${source}")
+    endif()
+    string(REPLACE "${mod_original}" "${mod_patched}" content "${content}")
+    set(output_dir ${CMAKE_BINARY_DIR}/cardenza_generated/amy)
+    file(WRITE ${output_dir}/envelope.c.in "${content}")
+    configure_file(${output_dir}/envelope.c.in ${output_dir}/envelope.c COPYONLY)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${source})
+    set(${out_var} ${output_dir}/envelope.c PARENT_SCOPE)
+endfunction()
+
 function(cardenza_collect_amy_c_sources root_dir out_var)
     set(amy_src_dir ${root_dir}/Library/third_party/amy/src)
     cardenza_amy_core_source(${amy_src_dir} amy_core_source)
     cardenza_amy_patches_source(${amy_src_dir} amy_patches_source)
+    cardenza_amy_filters_source(${root_dir} ${amy_src_dir} amy_filters_source)
+    cardenza_amy_envelope_source(${amy_src_dir} amy_envelope_source)
     set(sources
         ${amy_src_dir}/algorithms.c
         ${amy_core_source}
         ${amy_src_dir}/api.c
         ${amy_src_dir}/custom.c
         ${amy_src_dir}/delay.c
-        ${amy_src_dir}/envelope.c
+        ${amy_envelope_source}
         ${amy_src_dir}/examples.c
-        ${amy_src_dir}/filters.c
+        ${amy_filters_source}
         ${amy_src_dir}/instrument.c
         ${amy_src_dir}/interp_partials.c
         ${amy_src_dir}/log2_exp2.c

@@ -227,7 +227,7 @@ moves, so the card keeps working with 0.1.0. The groovebox reads two of those fo
 | user preset banks `user.ccpreset` | `Apps/Cardenza/Synth/Presets/{DX7,Juno,Sampler,Drums}/` |
 | samples (WAV) | `Shared/Samples/` |
 | app preferences (SELECT) | `Apps/Cardenza/Synth/settings.cfg` |
-| working state (autosave) | internal flash (NVS records `as_*`), with or without a card |
+| working state (autosave) | internal flash (NVS records `as_*`), with or without a card; while it plays, `Apps/Cardenza/Synth/Session/autosave.ccproj` and `autosave.txt` (generation, name, unsaved) instead, the newer one coming back at the start (internal flash writes stop both cores) |
 | sample take | `Apps/Cardenza/Synth/Session/take-<track>.wav`: a sample recording in progress or not saved yet; removed when it is saved or discarded |
 | volume, key LEDs, screen | `System/settings.cfg` (device settings) |
 

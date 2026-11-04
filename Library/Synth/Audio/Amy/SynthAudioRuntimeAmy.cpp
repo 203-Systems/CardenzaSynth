@@ -70,6 +70,7 @@ extern "C" {
 extern uint16_t* voice_to_base_osc;
 // A ROM patch's text (patches.c, a build-time addition: cmake/CardenzaSynthSourceLists.cmake).
 const char* cardenza_patch_command(uint16_t patch_number);
+
 // What AMY does to an oscillator that has gone silent (amy.c).
 void reset_modosc(struct mod_synthinfo* pmsynth);
 void reset_osc_state(struct synthinfo* psynth);
@@ -101,13 +102,13 @@ namespace {
 
 constexpr std::size_t kAmyFramesPerBlock = AMY_BLOCK_SIZE;
 constexpr std::size_t kAmyChannelCount = AMY_NCHANS;
-constexpr std::size_t kSamplerVoiceCount = 6;  // a held note each, as for AMY's engines (VoiceCountFor)
+constexpr std::size_t kSamplerVoiceCount = 4;  // then a new note takes a voice, a let-go one first
 constexpr int kAmyMaxSynths = 8;
-// Four tracks of the most voices (VoiceCountFor), and oscillators for four DX7 tracks of them (8 a
-// voice, 192) with room to spare: AMY gives each voice a contiguous run, and engines switched back and
+// Four tracks of the most voices (VoiceCountFor), and oscillators for four Juno tracks of them (6 a
+// voice, 144) with room to spare: AMY gives each voice a contiguous run, and engines switched back and
 // forth leave gaps. Oscillator state is allocated on first use (internal RAM, then PSRAM).
-constexpr int kAmyMaxVoices = 32;
-constexpr int kAmyMaxOscs = 256;
+constexpr int kAmyMaxVoices = 24;
+constexpr int kAmyMaxOscs = 192;
 // The output stage, the same on every path: the mix times kOutputGain, held under the ceiling by a
 // limiter that sees each block before it plays. Mix 1.0 is where AMY's own soft clip sits, so the
 // tracks have about 9 dB above the ceiling before that clip could colour them.
@@ -434,14 +435,14 @@ int VoiceCountFor(SynthEngineKind kind)
 {
   switch (kind)
   {
-    // A held note needs a voice of its own, or AMY gives it the voice of an older held one (a note
-    // missing): enough for the six-note chords and the drum machine's eight lanes. Let-go tails take
-    // what is left and are the first to give way when there is not enough time.
+    // When every voice of a track is busy a new note takes one, a let-go one first (AMY): fine by the
+    // user (2026-11-04), and fewer voices are less to render. Raised to 6 / 8 / 8 for a day, which only
+    // gave the budget more to fade.
     case SynthEngineKind::Dx7:
-      return 6;
+      return 4;
     case SynthEngineKind::Juno:
     case SynthEngineKind::Drums:
-      return 8;
+      return 6;
     default:
       return 0;
   }
@@ -507,6 +508,7 @@ SYNTH_FX_HOT std::uint8_t ApplyTrackGainToAmyVoice(std::uint16_t osc, std::int32
 
   const std::size_t track = g_amyOscTrack[osc] - 1u;
   const TrackMixState& mix = g_trackMix[track];
+
 
   const std::int32_t startQ16 = mix.amyBlockStartQ16;
   const std::int32_t endQ16 = mix.amyBlockEndQ16;
@@ -2121,7 +2123,7 @@ std::atomic<std::size_t> g_nextVoiceRun{0};
 // least needed voices fade out over this one (VoiceFadeVictim), a let-go tail before a held note.
 // The board only: hosts render at whatever speed the machine running the tests has.
 constexpr float kBlockMicros = 1000000.0f * static_cast<float>(kAmyFramesPerBlock) / static_cast<float>(kSampleRate);
-constexpr float kVoiceBudgetShare = 0.85f;
+constexpr float kVoiceBudgetShare = 0.92f;
 // The helper shares core 0 with the UI: it renders voices for at most this long a block and leaves the
 // rest to the audio core, so the UI keeps more than half of its core however much plays (with no cap,
 // four DX7 tracks took 80% of it and the UI dropped a frame in four, the stress test, 2026-11-04).
@@ -2258,23 +2260,28 @@ SAMPLE RenderVoiceRunNoLock(const VoiceRun& run, std::uint8_t core)
   return highest;
 }
 
-// The voice to fade when there is not enough time. Fair to the tracks: never the last voice a track has
-// while another track has more (oldest first by itself emptied one track at a time, and that track
-// simply went silent under the others), then a let-go voice before a held one, drums last, then from
-// the track with the most voices, the quietest (last block's peak at the track's level), the oldest.
-// -1 when nothing sounds.
+// The voice to fade when there is not enough time. A track gives way only to itself: the one with the
+// most voices sounding (then a melodic one before drums, then the dearer one) loses one of its own,
+// a let-go tail first (the longest let go), then the quietest held note (last block's peak at the
+// track's level), the oldest. A track playing fewer keeps all of its voices: one track's notes never
+// push out another's (the user, 2026-11-04; oldest first across the tracks once emptied one track
+// while the others played on). -1 when nothing sounds.
 int VoiceFadeVictimNoLock()
 {
   // The candidates are this block's runs (every sounding voice starts one, PlanVoiceRunsNoLock): at
   // most a voice each, not every oscillator. Ranked in single precision and integers: the chip has no
   // double-precision hardware, and this runs once for every voice faded in a block already too heavy.
   std::array<int, kSynthTrackCount> sounding{};
+  std::array<float, kSynthTrackCount> cost{};
   for (std::size_t index = 0; index < g_voiceRunCount; ++index)
   {
-    const std::uint16_t osc = g_voiceRuns[index].from;
-    if (osc < g_amyOscTrack.size() && VoiceSounding(osc)) ++sounding[(g_amyOscTrack[osc] - 1u) % kSynthTrackCount];
+    const VoiceRun& run = g_voiceRuns[index];
+    if (run.from >= g_amyOscTrack.size() || !VoiceSounding(run.from)) continue;
+    const std::size_t track = (g_amyOscTrack[run.from] - 1u) % kSynthTrackCount;
+    ++sounding[track];
+    cost[track] += g_runCostMicros[run.kind];
   }
-  using Rank = std::tuple<int, int, int, int, float, std::int64_t>;
+  using Rank = std::tuple<int, int, float, int, float, std::int64_t>;
   int victim = -1;
   Rank victimRank{};
   for (std::size_t index = 0; index < g_voiceRunCount; ++index)
@@ -2286,9 +2293,7 @@ int VoiceFadeVictimNoLock()
     const bool drums = g_engines[track].kind == SynthEngineKind::Drums;
     const bool released = VoiceReleased(voice);
     const float level = static_cast<float>(g_voicePeak[osc]) * EffectiveTrackGain(g_trackMix[track]);
-    // Let-go tails first, the longest let go; then held notes, fairly: never a track's last while
-    // another has more, drums last, the quietest, the oldest.
-    const Rank rank{released ? 1 : 0, sounding[track] > 1 ? 1 : 0, drums ? 0 : 1, sounding[track], -level,
+    const Rank rank{sounding[track], drums ? 0 : 1, cost[track], released ? 1 : 0, -level,
                     -static_cast<std::int64_t>(released ? voice->note_off_clock : voice->note_on_clock)};
     if (victim >= 0 && rank <= victimRank) continue;
     victim = static_cast<int>(osc);
@@ -2305,7 +2310,7 @@ void CountGivenUpNoLock(std::uint16_t osc)
 
 // Before rendering: if the voices that will still sound next block would not fit in the budget (the
 // helper takes up to its share, the audio core the rest before its effects), fade the least needed
-// ones out over this block: let-go tails first, a track's last voice and the newest notes last.
+// ones out over this block, from the track with the most voices (VoiceFadeVictimNoLock).
 void KeepVoicesWithinBudgetNoLock()
 {
 #if defined(ESP_PLATFORM)
@@ -2329,7 +2334,7 @@ void KeepVoicesWithinBudgetNoLock()
   // As many as it takes: four tracks of eight-note pads change chords in one block, and the new
   // notes alone took 16 ms with at most eight fades a block (the stress test, 2026-11-04). The last
   // voice stays: when even that does not fit, the effects take the block, and RenderLoad is the net.
-  // Let-go tails first (VoiceFadeVictimNoLock): a held note gives way only when no tail is left.
+  // From the track with the most voices, its let-go tails first (VoiceFadeVictimNoLock).
   // (Holding the held notes back until the output was about to run dry ran it dry: 2026-11-04.)
   for (int faded = 0; faded < kAmyMaxVoices && total > allowed && remaining > 1; ++faded)
   {
@@ -2345,8 +2350,8 @@ void KeepVoicesWithinBudgetNoLock()
 
   // This block: the voices fading still render it. When it would not fit either (a chord change on
   // four tracks of pads started twenty voices in one block, which took 17 ms, the stress test
-  // 2026-11-04), new voices not heard yet are left out, from the track with the most voices: never
-  // having sounded, they stop without a click, as a voice taken by a newer note would.
+  // 2026-11-04), new voices not heard yet are left out, the busiest track's: never having sounded,
+  // they stop without a click, as a voice taken by a newer note of the same track would.
   const float mainModel = kVoiceBudgetShare * kBlockMicros - g_overheadMicros;
   const float blockAllowed = mainModel + (AMY_CORES > 1 ? (std::min)(kHelperShareMicros, (std::max)(0.0f, mainModel - kHelperStartMicros)) : 0.0f);
   float thisBlock = 0.0f;
@@ -2361,18 +2366,17 @@ void KeepVoicesWithinBudgetNoLock()
   // (less a block's margin) would run it dry.
   while (thisBlock - blockAllowed > g_outputAheadMicros - kBlockMicros)
   {
-    int chosen = -1;
-    std::tuple<int, int, int> chosenRank{};
-    for (std::size_t index = 0; index < g_voiceRunCount; ++index)
+    // Only the track with the most voices gives up a note of its own (as VoiceFadeVictimNoLock): with
+    // none new there, the block runs long and RenderLoad fades one of that track's next.
+    std::size_t busiest = kSynthTrackCount;
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track)
     {
-      const VoiceRun& run = g_voiceRuns[index];
-      if (run.track >= kSynthTrackCount || !VoiceUnheardNoLock(run.from)) continue;
-      const std::tuple<int, int, int> rank{sounding[run.track] > 1 ? 1 : 0, g_engines[run.track].kind == SynthEngineKind::Drums ? 0 : 1,
-                                           sounding[run.track]};
-      if (chosen >= 0 && rank <= chosenRank) continue;
-      chosen = static_cast<int>(index);
-      chosenRank = rank;
+      const auto rank = [&](std::size_t of) { return std::make_tuple(sounding[of], g_engines[of].kind == SynthEngineKind::Drums ? 0 : 1); };
+      if (sounding[track] > 0 && (busiest == kSynthTrackCount || rank(track) > rank(busiest))) busiest = track;
     }
+    int chosen = -1;
+    for (std::size_t index = 0; index < g_voiceRunCount && chosen < 0; ++index)
+      if (g_voiceRuns[index].track == busiest && VoiceUnheardNoLock(g_voiceRuns[index].from)) chosen = static_cast<int>(index);
     if (chosen < 0) break;
     const VoiceRun& run = g_voiceRuns[static_cast<std::size_t>(chosen)];
     StopVoiceRunNoLock(run);
@@ -2507,6 +2511,7 @@ void RenderAmyVoicesNoLock()
   KeepVoicesWithinBudgetNoLock();
   const bool shared = total >= kNoSplitBelowWeight && g_voiceRunCount > 1 && StartHelper();
   RenderClaimedRunsNoLock(0);
+
 
   if (shared) WaitForHelper();
   // Whatever the second core left in its buffer last time must not sound again.
@@ -2742,6 +2747,7 @@ void RenderFxFramesNoLock(std::int16_t* destination, std::size_t frameCount, boo
                         value(fx::MasterParam::Tape));
     WriteOutputNoLock(mix, destination + frameIndex, frames);
 
+
     UpdateFxMetersNoLock(frames, core.buses.DelayPeak(), core.buses.ReverbPeak());
 
     if (hasAmyEngines)
@@ -2786,6 +2792,7 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
 
   (void)DrainPendingEvents(kEventBlockMicros, HeavyEventFitsNoLock());
   UpdateFxNoLock();
+
   SettleIdleSamplerGainsNoLock();
 
   const bool hasAmyEngines = HasAmyEnginesNoLock();
@@ -3251,6 +3258,7 @@ std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
   const std::int64_t start = RenderClockMicros();
   const std::size_t rendered = RenderFramesNoLock(destination, frameCount);
 
+
   const std::int64_t elapsed = RenderClockMicros() - start;
   const std::int64_t budget = static_cast<std::int64_t>(frameCount) * 1000000 / kSampleRate;
   // Everything but the voices, for the voice budget: one block per call is the case that tells.
@@ -3266,6 +3274,7 @@ std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
   if (g_renderLoad.Add(elapsed, budget)) (void)ShedVoiceNoLock();
   PublishHeldNotesNoLock();
   ReleaseOrphanVoicesNoLock();
+
 #if defined(ESP_PLATFORM)
   // What the output gained or lost on the speaker with this block, waiting for the lock included.
   g_outputAheadMicros = (std::clamp)(g_outputAheadMicros + static_cast<float>(budget - (RenderClockMicros() - asked)), 0.0f, kOutputQueueMicros);
@@ -3322,6 +3331,17 @@ std::uint32_t ShedVoiceCount()
 std::uint32_t FadedVoiceCount()
 {
   return g_fadedVoices.load(std::memory_order_relaxed);
+}
+
+RenderModel CurrentRenderModel()
+{
+  RenderModel model;
+  model.dx7Micros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Dx7)];
+  model.junoMicros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Juno)];
+  model.drumsMicros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Drums)];
+  model.overheadMicros = g_overheadMicros;
+  model.budgetScale = g_budgetScale;
+  return model;
 }
 
 GivenUpVoices GivenUpVoiceCounts()

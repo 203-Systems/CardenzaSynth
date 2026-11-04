@@ -208,6 +208,18 @@ private:
   std::uint32_t endedOrphanNotes_ = 0;
   std::uint32_t sessionChangedAt_ = 0;
   std::uint32_t lastSessionTryAt_ = 0;
+  // While it plays the autosave goes to the card (on the device's background task), the flash waits
+  // until nothing is heard (its writes stop both cores for some 45 ms: a click, a late beat). Changes
+  // not on the card yet and since when; the generation of the last autosave anywhere.
+  bool cardSessionChanged_ = false;
+  std::uint32_t cardSessionChangedAt_ = 0;
+  std::uint32_t lastCardSessionTryAt_ = 0;
+  std::uint32_t sessionGeneration_ = 0;
+  // The newest autosave is the card's: the flash's next one has to number above it. Otherwise the
+  // flash keeps its number, so an unchanged project writes nothing.
+  bool cardSessionNewest_ = false;
+  bool SaveSessionToCard();
+  void CheckCardSession(std::uint32_t now);
   std::uint32_t lastCardCheckAt_ = 0;
   std::uint32_t lastCardProbeAt_ = 0;
   std::uint32_t (*clock_)() = nullptr;

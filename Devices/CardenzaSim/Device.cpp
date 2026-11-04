@@ -212,8 +212,13 @@ std::size_t Pending()
   return g_log.size();
 }
 
-bool StartWriter(void (*)()) { return false; }
-void WakeWriter() {}
+}  // namespace Log
+
+namespace Background {
+bool Run(void (*)()) { return false; }
+}  // namespace Background
+
+namespace Log {
 
 void Write(std::string_view line)
 {

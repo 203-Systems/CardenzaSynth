@@ -47,13 +47,16 @@ void midi_local(uint8_t *bytes, uint16_t len) { (void)bytes; (void)len; }
 void delay_ms(uint32_t ms) { (void)ms; }
 // AMY's event pool: every note, preset and parameter goes to the oscillators as deltas, drawn from
 // blocks of 256 (4 KB) that are never given back, and a preset's load queues a few hundred for every
-// voice. Touched per event and per block, never per sample: PSRAM when there is some, so the pool does
-// not take the internal RAM the card's buffers and the effects need (it grew to over 20 KB with eight
-// voices a track, the stress test 2026-11-04).
+// voice. Each note inserts its deltas into a time-sorted list, walked node by node: in PSRAM a note-on
+// cost some 180 us (the stress test's profile, 2026-11-04). So internal RAM while that leaves the same
+// floor as the oscillators' state, PSRAM after (the pool grows with every voice loaded).
 void *cardenza_amy_pool_malloc(uint32_t size) {
 #if defined(ESP_PLATFORM)
-    void *block = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (block == NULL) block = heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const uint32_t fast = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    void *block = NULL;
+    if (heap_caps_get_free_size(fast) >= size + CARDENZA_AMY_OSC_FAST_FLOOR_BYTES) block = heap_caps_malloc(size, fast);
+    if (block == NULL) block = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (block == NULL) block = heap_caps_malloc(size, fast);
     return block;
 #else
     return malloc(size);

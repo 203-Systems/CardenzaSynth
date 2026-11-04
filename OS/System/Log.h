@@ -11,7 +11,7 @@
 // through a crash reset; this appends what is new to the file, so a crash is on the card after the next
 // start. Made to cost nothing that shows: no heap buffer of its own, at most every few seconds, in one
 // short append, only while the card is mounted; a failed write loses only that text. On the device the
-// append runs on a task of its own below the UI (Device::Log::StartWriter): a card busy streaming a
+// append runs on the device's background task below the UI (Device::Background): a card busy streaming a
 // sample took 2-4 s per append, and in the system loop that froze the screen and the keys
 // (2026-11-04).
 namespace os::log {

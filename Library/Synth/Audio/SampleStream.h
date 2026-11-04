@@ -13,7 +13,7 @@ namespace synth::audio {
 // such a sample is loaded (16 KB for one, 32 KB at most) and the render thread never blocks on it:
 // a block that is late plays as the last frame held, a short gap and nothing worse.
 inline constexpr std::size_t kStreamBlockFrames = 1024;  // 2 KB, 23 ms at 44.1 kHz
-inline constexpr std::size_t kMaxStreamReaders = 24;     // every sampler voice of every track
+inline constexpr std::size_t kMaxStreamReaders = 16;     // every sampler voice of every track
 
 // What a voice remembers between frames.
 struct StreamCursor {
