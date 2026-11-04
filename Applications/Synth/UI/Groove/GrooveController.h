@@ -175,9 +175,8 @@ enum class Arrow : std::uint8_t { Up, Down, Left, Right };
 // it is: steady = holds a value, breathe = runs an action when pressed, shimmer = focus / selection,
 // blink = waiting (queued / cued). The Animator turns effects into motion.
 // Steady holds the level; Blink alternates it with off (something waiting).
-// Blink: waiting (4 changes a second). Hint: the keys the Learn guide asks for, often a whole block, blink
-// at half that speed, which is easier on the eye.
-enum class LedEffect : std::uint8_t { Steady, Blink, Hint };
+// Blink: waiting (4 changes a second).
+enum class LedEffect : std::uint8_t { Steady, Blink };
 
 struct LedCell {
   std::uint8_t level = 0;

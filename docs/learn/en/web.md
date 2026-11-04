@@ -23,7 +23,7 @@ Every screenshot in this manual has **▶ Try it live here** under it:
 
 {{icon:usb}} Plug the Cardenza into the computer with a USB cable (Chrome or Edge). There is no button to press: when the [guide](./) opens, the browser asks whether the page may use MIDI devices; allow it, and from then on the device connects as soon as it is plugged in.
 
-- In the guide the device follows the lessons: it goes to the lesson's screen, the keys to press blink, and steps tick themselves off.
+- In the guide the device follows the lessons: it goes to the lesson's screen, the keys to press light up (the others dim), and steps tick themselves off.
 - In this manual every key you press on the real device is pressed on the device running in the manual too: keys go to the device of the section you opened last; if none is open, the section at your reading position opens. The Cardenza itself keeps running as usual.
 - Unplug the cable to disconnect; plug it back in and it reconnects.
 - It talks to the Cardenza over USB MIDI (Web MIDI, SysEx included): no driver is needed, and USB MIDI and USB audio keep working. If you blocked it before, allow MIDI devices in the site settings (left of the address bar) and reload.

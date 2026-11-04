@@ -2534,15 +2534,36 @@ void TestGuide(Harness& h)
   assert(state().find("nVOICE") != std::string::npos);
   h.Render();
 
-  // The hint: ESC and ADD blink, and only while the guide runs.
+  // The hint, as the lesson page shows it: ESC and ADD full and steady, every other key no brighter than
+  // half. On the device the two edge keys go full too (otherwise held to the dimmest glow), and nothing
+  // blinks. Only while the guide runs.
+  const auto settle = [&]() {
+    for (int frame = 0; frame < 20; ++frame)
+    {
+      h.Frames(1);
+      app.UpdateLeds();
+    }
+  };
   send("GH000d");
   groove::LedFrame frame{};
   ui.ComputeLeds(frame);
-  assert(frame[0].effect == groove::LedEffect::Hint && frame[13].effect == groove::LedEffect::Hint);
-  assert(frame[groove::KeyIndex(1, 0)].effect != groove::LedEffect::Hint);
+  for (std::size_t index = 0; index < groove::kKeyCount; ++index)
+  {
+    const bool hinted = index == 0 || index == 13;
+    assert(frame[index].effect == groove::LedEffect::Steady || !hinted);
+    assert(hinted ? frame[index].level == groove::kLedFull : frame[index].level <= groove::kLedHalf);
+  }
+  settle();
+  for (int look = 0; look < 6; ++look)
+  {
+    h.Wait(130);
+    app.UpdateLeds();
+    assert(Device::LED::Brightness(0, 0) == groove::kLedFull && Device::LED::Brightness(0, 13) == groove::kLedFull);
+    assert(Device::LED::Brightness(1, 0) <= groove::kLedEdgeMax);
+  }
   send("GH");
-  ui.ComputeLeds(frame);
-  assert(frame[0].effect != groove::LedEffect::Hint);
+  settle();
+  assert(ui.GuideHint() == 0 && Device::LED::Brightness(0, 0) <= groove::kLedEdgeMax);
 
   // Keys the user presses go to the page; keys the page presses do not come back.
   heard.clear();
@@ -2580,8 +2601,7 @@ void TestGuide(Harness& h)
   assert(h.State().scene == Scene::Sequence && h.State().track == 0 && hits(0) == 1);
   std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
   assert(app.Sequencer().StepNoteEvents(0, 2, notes) == 1 && app.Sequencer().PatternCount(0) == 1);
-  ui.ComputeLeds(frame);
-  assert(frame[0].effect != groove::LedEffect::Hint);
+  assert(ui.GuideHint() == 0);
 
   // A page that goes quiet ends the guide by itself.
   send("GE");
@@ -2592,8 +2612,7 @@ void TestGuide(Harness& h)
   assert(!ui.Guide() && sent("GX") && hits(0) == 1);
   // While nothing runs, messages without G are ignored, and a guide message after the end is too.
   send("GH000d");
-  ui.ComputeLeds(frame);
-  assert(frame[0].effect != groove::LedEffect::Hint);
+  assert(ui.GuideHint() == 0);
 }
 
 // Every cell of every page of every scene, on every engine, stopped and playing: moved both ways, in
