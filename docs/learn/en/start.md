@@ -34,8 +34,8 @@ Follow these steps once and you know most of it:
 ESC > seq-empty @scene | Tap {{key:ESC}}: {{scene:SEQ}}, where the track's notes are written. Still {{track:1}}: on a drum track this is the drum page, the drums on the left, the steps of the chosen drum on the GRID.
 hold r3c1~Kick + G1, G5, G9, G13 > seq-drums @9,17,92,10 | Hold the kick key and tap GRID 1, 5, 9 and 13: a kick on all four beats is written. Snare and hats go in the same way.
 PLAY > seq-drums-playing | Play! Each step sounds when the green line reaches it. Press again to stop.
-TAB > seq-keyboard @track | Tap {{key:TAB}}: {{track:2}}, the Juno. Now the pads are a piano: rows 1 and 3 white keys, rows 2 and 4 black keys, the gaps dark; C3 is the shift key.
-hold r2c1~C3 + G1 > seq-hold-tap @28,57,15,10 | Hold a note and tap a step: the note is written. The held key is fully lit.
+TAB > seq-keyboard @track | Tap {{key:TAB}}: {{track:2}}, the Juno. Now the pads are a piano: two whole octaves, rows 2 and 4 white keys, rows 1 and 3 black keys, the gaps dark; C3 at the bottom left.
+hold r3c1~C3 + G1 > seq-hold-tap @28,57,15,10 | Hold a note and tap a step: the note is written. The held key is fully lit.
 hold OK > record | Whatever you just played is not lost: hold {{key:OK}} to put it into a pattern.
 }}
 

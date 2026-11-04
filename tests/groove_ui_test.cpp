@@ -140,9 +140,9 @@ void TestBoot(Harness& h)
   assert(h.App().Ui().CurrentPage() == 0 && h.App().Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::Voice);
   // It starts on T1, the drum machine.
   assert(h.State().track == synth::kDefaultActiveTrack && h.State().track == 0 && h.App().EngineKind(0) == synth::SynthEngineKind::Drums);
-  // A melodic track: the pads show the piano layout with C on the second row from the bottom: white
-  // keys there and on the top row, black keys between and below, with the gaps (columns 1, 4, 8)
-  // dark; unpressed keys are half lit.
+  // A melodic track: the pads show the piano layout, two whole octaves of a pair of rows each: white
+  // keys on the second and the bottom row (C at the left), black keys above each, with the gaps
+  // (columns 1, 4, 8) dark; unpressed keys are half lit.
   h.Chord(kTab, Grid(1));
   assert(h.State().track == 1);
   std::array<std::uint8_t, groove::kKeyCount> leds{};
@@ -151,22 +151,23 @@ void TestBoot(Harness& h)
   {
     const bool gap = column == 1 || column == 4 || column == 8;
     const std::uint8_t blackRow = gap ? groove::kLedOff : groove::kLedHalf;
-    assert(leds[groove::KeyIndex(0, column)] == groove::kLedHalf && leds[groove::KeyIndex(2, column)] == groove::kLedHalf);
-    assert(leds[groove::KeyIndex(1, column)] == blackRow && leds[groove::KeyIndex(3, column)] == blackRow);
+    assert(leds[groove::KeyIndex(1, column)] == groove::kLedHalf && leds[groove::KeyIndex(3, column)] == groove::kLedHalf);
+    assert(leds[groove::KeyIndex(0, column)] == blackRow && leds[groove::KeyIndex(2, column)] == blackRow);
   }
-  // Every pad plays where it should: C under the second row's first key, an octave below it at the
-  // bottom, an octave up on the top row.
+  // Every pad plays where it should: C3 at the bottom left, its black keys on the row above, the next
+  // octave on the upper pair of rows, C4 at the second row's left (and at the bottom row's right).
   groove::KeyboardSettings keyboard;
   int note = 0;
   const auto kind = synth::SynthEngineKind::Juno;
-  assert(groove::PadNote(keyboard, kind, 2, 1, note) && note == 48);
-  assert(groove::PadNote(keyboard, kind, 2, 8, note) && note == 60);
-  assert(groove::PadNote(keyboard, kind, 1, 2, note) && note == 49);
-  assert(groove::PadNote(keyboard, kind, 0, 1, note) && note == 60);
-  assert(groove::PadNote(keyboard, kind, 0, 8, note) && note == 72);
-  assert(groove::PadNote(keyboard, kind, 3, 2, note) && note == 37);
-  assert(groove::PadNote(keyboard, kind, 3, 7, note) && note == 46);
-  assert(!groove::PadNote(keyboard, kind, 3, 1, note) && !groove::PadNote(keyboard, kind, 1, 4, note));
+  assert(groove::PadNote(keyboard, kind, 3, 1, note) && note == 48);
+  assert(groove::PadNote(keyboard, kind, 3, 8, note) && note == 60);
+  assert(groove::PadNote(keyboard, kind, 2, 2, note) && note == 49);
+  assert(groove::PadNote(keyboard, kind, 2, 7, note) && note == 58);
+  assert(groove::PadNote(keyboard, kind, 1, 1, note) && note == 60);
+  assert(groove::PadNote(keyboard, kind, 1, 8, note) && note == 72);
+  assert(groove::PadNote(keyboard, kind, 0, 2, note) && note == 61);
+  assert(groove::PadNote(keyboard, kind, 0, 7, note) && note == 70);
+  assert(!groove::PadNote(keyboard, kind, 2, 1, note) && !groove::PadNote(keyboard, kind, 0, 4, note));
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
     assert(h.App().EngineKind(track) == apps::GrooveApp::kDefaultKinds[track]);
   assert(h.App().EngineKind(0) == synth::SynthEngineKind::Drums);
@@ -820,24 +821,24 @@ void TestLeds(Harness& h)
   assert(level(Grid(5)) == kHalf && level(Grid(4)) == kOff);
   h.Tap(Grid(5));
   assert(h.Seq().steps[5].held && level(Grid(5)) == kFull);
-  // The selected step's note is full on the pads (E3 on the white row), the other keys half.
-  assert(level(Key{2, 3}) == kFull && level(Key{2, 1}) == kHalf);
+  // The selected step's note is full on the pads (E3 on the bottom white row), the other keys half.
+  assert(level(Key{3, 3}) == kFull && level(Key{3, 1}) == kHalf);
   h.Tap(Grid(5));
   assert(level(Grid(5)) == kHalf);
 
-  // PIANO keyboard: the second row from the bottom is white keys, all half; the row above is the
-  // black keys, half where there is one and off in the gaps (before C#, between E and F, after A#).
-  for (std::size_t column = 1; column <= 8; ++column) assert(level(Key{2, column}) == kHalf);
+  // PIANO keyboard: the bottom row is white keys, all half; the row above is the black keys, half
+  // where there is one and off in the gaps (before C#, between E and F, after A#).
+  for (std::size_t column = 1; column <= 8; ++column) assert(level(Key{3, column}) == kHalf);
   for (std::size_t column = 1; column <= 8; ++column)
   {
     const bool gap = column == 1 || column == 4 || column == 8;
-    assert(level(Key{1, column}) == (gap ? kOff : kHalf));
+    assert(level(Key{2, column}) == (gap ? kOff : kHalf));
   }
   // A held key is full; letting go brings it back to half.
-  h.Down(Key{2, 1});
-  assert(level(Key{2, 1}) == kFull && level(Key{2, 2}) == kHalf);
-  h.Up(Key{2, 1});
-  assert(level(Key{2, 1}) == kHalf);
+  h.Down(Key{3, 1});
+  assert(level(Key{3, 1}) == kFull && level(Key{3, 2}) == kHalf);
+  h.Up(Key{3, 1});
+  assert(level(Key{3, 1}) == kHalf);
 
   // Edge keys: navigation half (CTRL too, SEQ has pages), ADD / SUB half, OK half (the record key:
   // full in STEP REC), PLAY half when stopped and full while playing.
@@ -935,7 +936,7 @@ void TestPlayFeatures(Harness& h)
   h.Wait(900);
   // The default keyboard is the piano with C on the second row from the bottom, C major.
   assert(keys.layout == groove::KeyboardLayout::Piano && keys.scale == 0 && keys.root == 0);
-  const Key c3{2, 1}, e3{2, 3}, g3{2, 5}, cSharp{1, 2};
+  const Key c3{3, 1}, e3{3, 3}, g3{3, 5}, cSharp{2, 2};
   int note = 0;
   assert(app.Ui().PadNoteFor(c3.row, c3.column, note) && note == 48);
   assert(app.Ui().PadNoteFor(cSharp.row, cSharp.column, note) && note == 49);
@@ -1130,7 +1131,7 @@ void TestRecording(Harness& h)
   assert(frame[groove::KeyIndex(Grid(0).row, Grid(0).column)].effect == groove::LedEffect::Blink);  // the cursor
 
   // STEP REC: held pads become the cursor step's notes; letting go moves the cursor on.
-  const Key c3{2, 1}, e3{2, 3}, g3{2, 5};
+  const Key c3{3, 1}, e3{3, 3}, g3{3, 5};
   h.Tap(c3);
   std::array<std::uint8_t, 8> notes{};
   assert(sequencer.StepNotes(0, notes) == 1 && notes[0] == 48 && h.State().record.cursor == 1);
@@ -1305,8 +1306,8 @@ void TestSelectMode(Harness& h)
   while (h.App().Ui().CurrentPage() != 0) h.Tap(kCtrl);
   h.Chord(kTab, Grid(1));
   assert(!h.State().keyboard.multiSelect);
-  // Steps 1 and 5 hold just the C under the second row's first pad.
-  const Key c{2, 1};
+  // Steps 1 and 5 hold just the C at the bottom left.
+  const Key c{3, 1};
   int noteC = 0;
   assert(groove::PadNote(h.State().keyboard, h.App().EngineKind(h.State().track), c.row, c.column, noteC));
   const std::uint8_t cNote = static_cast<std::uint8_t>(noteC);
@@ -2032,7 +2033,7 @@ void TestHeldNotesEnd(Harness& h)
     }
     return true;
   };
-  const Key pad{2, 1};
+  const Key pad{3, 1};
   const auto holdThrough = [&](const char* what, const auto& action) {
     GoToScene(h, 1);
     h.Chord(kTab, Grid(1));
@@ -2492,8 +2493,8 @@ void TestComputerMidi(Harness& h)
   CardenzaSim::Input::SetComputerConnected(true);
   GoToScene(h, 1);
   h.Chord(kTab, Key{0, 10});  // track 2
-  h.Down(Key{2, 1});
-  h.Up(Key{2, 1});
+  h.Down(Key{3, 1});  // C3
+  h.Up(Key{3, 1});
   bool noteOn = false, noteOff = false;
   while (CardenzaSim::Input::TakeDeviceMidi(packet))
   {

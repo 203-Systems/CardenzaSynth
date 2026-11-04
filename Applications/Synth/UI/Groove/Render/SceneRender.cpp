@@ -112,18 +112,15 @@ void DrawPads(Gfx& g, const Controller& controller, Animator& animator, const Re
 void DrawMiniPiano(Gfx& g, const Rect& rect, const Controller& controller, Animator& animator, int baseNote, bool showScale = false,
                    const std::array<bool, 128>* marked = nullptr)
 {
-  // baseNote's octave in the middle, half an octave either side, dimmer: F to F. Outlined white keys,
-  // dithered black keys; held notes (whole chords) light up in the track color and fade after release.
-  // With showScale, scale tones carry a dot and the root a bar.
+  // The pads' two octaves: from baseNote (a C) to the C two octaves up. Outlined white keys, dithered
+  // black keys; held notes (whole chords) light up in the track color and fade after release. With
+  // showScale, scale tones carry a dot and the root a bar.
   static constexpr std::array<int, 7> kWhite{{0, 2, 4, 5, 7, 9, 11}};
   static constexpr std::array<int, 7> kBlackAfter{{1, 3, -1, 6, 8, 10, -1}};
   const std::uint32_t now = animator.Now();
   const KeyboardSettings& keys = controller.State().keyboard;
   const Color held = TrackColor(controller.State().track);
-  const int whiteCount = 15;
-  constexpr int kFirstWhite = 3;  // F, in the octave below.
-  const int octaveBelow = baseNote - 12;
-  const auto inMiddle = [&](int note) { return note >= baseNote && note < baseNote + 12; };
+  const int whiteCount = 15;  // C to C, two octaves
   const int keyWidth = rect.width / whiteCount;
   const int left = rect.x + (rect.width - keyWidth * whiteCount) / 2;
   auto mark = [&](const Rect& key, int note, Color color) {
@@ -134,8 +131,7 @@ void DrawMiniPiano(Gfx& g, const Rect& rect, const Controller& controller, Anima
   };
   for (int index = 0; index < whiteCount; ++index)
   {
-    const int white = index + kFirstWhite;
-    const int note = octaveBelow + (white / 7) * 12 + kWhite[static_cast<std::size_t>(white % 7)];
+    const int note = baseNote + (index / 7) * 12 + kWhite[static_cast<std::size_t>(index % 7)];
     const Rect key{left + index * keyWidth, rect.y, keyWidth - 1, rect.height};
     const float glow = fx::Decay(now, animator.NoteHitAt(note), kAfterglowMs);
     const bool down = controller.IsChordNoteHeld(note);
@@ -144,16 +140,15 @@ void DrawMiniPiano(Gfx& g, const Rect& rect, const Controller& controller, Anima
     {
       if (marked != nullptr && note >= 0 && note < 128 && (*marked)[static_cast<std::size_t>(note)]) g.Dither(key, held, 8);
       if (glow > 0.0f) g.Dither(key, kInk, static_cast<int>(glow * 11.0f));
-      g.Stroke(key, inMiddle(note) ? kDim : kShade);
+      g.Stroke(key, kDim);
     }
     mark(key, note, down ? kBlack : kInk);
   }
   for (int index = 0; index < whiteCount; ++index)
   {
-    const int white = index + kFirstWhite;
-    const int black = kBlackAfter[static_cast<std::size_t>(white % 7)];
+    const int black = kBlackAfter[static_cast<std::size_t>(index % 7)];
     if (black < 0 || index + 1 == whiteCount) continue;
-    const int note = octaveBelow + (white / 7) * 12 + black;
+    const int note = baseNote + (index / 7) * 12 + black;
     const Rect key{left + index * keyWidth + keyWidth * 2 / 3, rect.y, keyWidth * 2 / 3, rect.height * 3 / 5};
     const bool down = controller.IsChordNoteHeld(note);
     const float glow = fx::Decay(now, animator.NoteHitAt(note), kAfterglowMs);
@@ -161,12 +156,17 @@ void DrawMiniPiano(Gfx& g, const Rect& rect, const Controller& controller, Anima
     g.Fill(key, down || chordTone ? held : kBlack);
     if (!down && !chordTone)
     {
-      g.Dither(Rect{key.x + 1, key.y, key.width - 2, key.height - 1}, glow > 0.0f ? held : (inMiddle(note) ? kDim : kFaint), glow > 0.0f ? 4 + static_cast<int>(glow * 10.0f) : 8);
+      g.Dither(Rect{key.x + 1, key.y, key.width - 2, key.height - 1}, glow > 0.0f ? held : kDim, glow > 0.0f ? 4 + static_cast<int>(glow * 10.0f) : 8);
       g.Stroke(key, kFaint);
     }
     mark(key, note, kInk);
   }
-  g.Text(left + (7 - kFirstWhite) * keyWidth + 2, rect.y + rect.height - 9, NoteName(baseNote), controller.IsChordNoteHeld(baseNote) ? kBlack : kDim);
+  // Each octave's C named, as on the pads' bottom left of each pair of rows.
+  for (const int octave : {0, 1})
+  {
+    const int c = baseNote + octave * 12;
+    g.Text(left + octave * 7 * keyWidth + 2, rect.y + rect.height - 9, NoteName(c), controller.IsChordNoteHeld(c) ? kBlack : kDim);
+  }
 }
 
 void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const Rect& area)
@@ -443,7 +443,7 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
       break;
     case PageGraphic::Keys:
     {
-      // The keyboard around the pads' C: scale tones dotted, the root barred, held chords lit.
+      // The pads' two octaves: scale tones dotted, the root barred, held chords lit.
       const int base = static_cast<int>(synth::kHomePerformanceBaseMidiNote) + std::clamp(state.keyboard.octave, -3, 3) * 12;
       DrawMiniPiano(g, area, controller, animator, base - ((base % 12) + 12) % 12, true);
       break;
@@ -483,8 +483,8 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
         degrees += std::string(degrees.empty() ? "" : " ") + kNoteNames[static_cast<std::size_t>((root + semitone) % 12)] + quality;
       }
       g.TextFit(area.x + 2, area.y + 12, area.width - 4, "IN KEY  " + degrees, kDim);
-      // A chord on a high root runs past the upper half octave: then the keyboard shows the next octave.
-      DrawMiniPiano(g, Rect{area.x, area.y + 24, area.width, area.height - 24}, controller, animator, root - keys.root + (keys.root >= 8 ? 12 : 0), true, &marked);
+      // The pads' two octaves from the root's C: every chord of the octave fits on them.
+      DrawMiniPiano(g, Rect{area.x, area.y + 24, area.width, area.height - 24}, controller, animator, root - keys.root, true, &marked);
       break;
     }
     case PageGraphic::Arp:

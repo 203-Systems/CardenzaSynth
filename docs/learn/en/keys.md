@@ -85,7 +85,7 @@ The 4×8 keys in the middle always play the **current track**, whatever scene or
 
 {{strip
 hold r3c1~Kick > seq-drum-held | Drum track {{track:1}}: each **column** is one drum: kick, snare, closed hat, open hat, clap, tom, cowbell, maracas. The row says how hard: the top row hardest, the bottom row softest.
-hold r2c1~C3 > seq-hold-pad | Melodic tracks (PIANO layout): rows 1 and 3 are white keys, rows 2 and 4 black keys; C3 is the shift key, the top row an octave up. See [[#play-keyboard]].
+hold r3c1~C3 > seq-hold-pad | Melodic tracks (PIANO layout): two whole octaves, rows 2 and 4 white keys, rows 1 and 3 black keys; C3 at the bottom left, the upper two rows an octave up. See [[#play-keyboard]].
 - > text-entry | In text entry the whole keyboard types the characters on its caps.
 }}
 

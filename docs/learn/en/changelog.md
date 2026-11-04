@@ -4,10 +4,15 @@ The manual's version is at the top right (for example v1.2.0), followed by the f
 
 <!-- keywords: version, changelog, release notes, what's new, update, 版本 -->
 
+## 1.5.0 · 2026-11-04 {#version-1-5-0}
+
+- **The PIANO layout is two whole octaves**: a pair of rows each, white keys below and black keys above; the lower two rows start on C3 at the bottom left, the upper two are an octave up. The keyboard on the screen shows the same two octaves (C3 to C5). See [[#play-keyboard]].
+- Standby (the screen saver) is gone: the device always shows the screen and key lights of what you are doing.
+
 ## 1.4.0 · 2026-11-03 {#version-1-4-0}
 
-- **The guide**: the Learn site now opens on lessons: three picture lessons on how music is built (a music box, four music boxes, a row of parts), eight on the device (the key areas, making a sound, screens, tracks, a first pattern, scales, chords and arpeggios, a first song). A few steps each, with pictures; with a Cardenza plugged in they tick themselves off.
-- Plug a Cardenza in over USB and allow MIDI when the browser asks: it enters the guide, goes to each lesson's screen and lights the keys to press. Your own project is set aside and comes back when the guide ends. Needs the new firmware.
+- **The guide**: the Learn site now opens on lessons: three picture lessons on how music is built (a music box, four music boxes, a row of parts), eight on the device (the key areas, making a sound, screens, tracks, a first pattern, scales, chords and arpeggios, a first song). A few steps each, with pictures; with a Cardenza plugged in, the page tells you when you have got a step.
+- Plug a Cardenza in over USB and allow MIDI when the browser asks: it enters the guide, goes to each lesson's screen and blinks the keys to press. Your own project is set aside and comes back when the guide ends. Needs the new firmware.
 - This manual is now the reference: look up a key, a page or a setting. Switch between guide and reference at the top; the guide's search looks things up here.
 
 ## 1.3.0 · 2026-11-03 {#version-1-3-0}

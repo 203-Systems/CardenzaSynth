@@ -34,8 +34,8 @@ RIGHT = 右侧四键：调值 · 播放
 ESC > seq-empty @scene | 单击 {{key:ESC}}：到 {{scene:SEQ}}，在这里写这一轨的音符。还是 {{track:1}}：鼓轨这一页是鼓机，左边是各个鼓，GRID 上是选中那个鼓的各步。
 hold r3c1~底鼓 + G1, G5, G9, G13 > seq-drums @9,17,92,10 | 按住底鼓键，点 GRID 1、5、9、13：四拍底鼓写好了。军鼓、踩镲也这样写。
 PLAY > seq-drums-playing | 播放！绿线走到哪一步，哪一步就响。再按一次停止。
-TAB > seq-keyboard @track | 单击 {{key:TAB}}：换到 {{track:2}} Juno。现在演奏区是钢琴：第 1、3 行白键，第 2、4 行黑键，缺口不亮；C3 在 shift 键上。
-hold r2c1~C3 + G1 > seq-hold-tap @28,57,15,10 | 按住一个音，点一步：音符写进去了。按住的键全亮。
+TAB > seq-keyboard @track | 单击 {{key:TAB}}：换到 {{track:2}} Juno。现在演奏区是钢琴：两个完整的八度，第 2、4 行白键，第 1、3 行黑键，缺口不亮；C3 在左下角。
+hold r3c1~C3 + G1 > seq-hold-tap @28,57,15,10 | 按住一个音，点一步：音符写进去了。按住的键全亮。
 hold OK > record | 刚才随便弹过的不会丢：按住 {{key:OK}}，把它放进 Pattern。
 }}
 

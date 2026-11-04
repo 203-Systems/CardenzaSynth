@@ -85,7 +85,7 @@ PLAY = 播放 / 停止
 
 {{strip
 hold r3c1~底鼓 > seq-drum-held | 鼓轨 {{track:1}}：每一**列**是一个鼓：底鼓、军鼓、闭镲、开镲、拍手、通鼓、牛铃、沙锤。行表示力度：最上面一行最重，最下面一行最轻。
-hold r2c1~C3 > seq-hold-pad | 旋律轨（PIANO 排列）：第 1、3 行白键，第 2、4 行黑键；C3 在 shift 键上，最上面一行高一个八度。详见 [[#play-keyboard]]。
+hold r3c1~C3 > seq-hold-pad | 旋律轨（PIANO 排列）：两个完整的八度，第 2、4 行白键，第 1、3 行黑键；C3 在左下角，上面两行高一个八度。详见 [[#play-keyboard]]。
 - > text-entry | 输入文字时，整个键盘按键帽上的字符打字。
 }}
 
