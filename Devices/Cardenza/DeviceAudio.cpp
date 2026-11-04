@@ -145,15 +145,39 @@ void PauseOutputForInput()
   (void)CardenzaHAL::Audio::StandbyCodec();
 }
 
+// The speaker's pins were not given back after the microphone: RecoverOutput tries that first.
+std::atomic<bool> g_outputPinsPending{false};
+
 // Gives GPIO43 back to the speaker and wakes the codec; the render task enables TX again.
 void ResumeOutputAfterInput()
 {
   std::lock_guard<std::mutex> lock(g_audioOutputMutex);
-  if (!CardenzaHAL::Audio::RestoreOutputPins() || !CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO))
+  const bool pins = CardenzaHAL::Audio::RestoreOutputPins();
+  if (!pins || !CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO))
   {
-    ESP_LOGW(kLogTag, "audio output not restored after input");
+    // Silent until the render task gets it back (RecoverOutput, once a second).
+    ESP_LOGW(kLogTag, "audio output not restored after input: trying again");
+    g_outputPinsPending.store(!pins, std::memory_order_relaxed);
   }
   g_audioOutputPaused = false;
+}
+
+// The speaker cannot play (its codec did not start, or did not wake after the microphone): tried again
+// once a second from the render task, which keeps everything else in time meanwhile.
+void RecoverOutput(int64_t nowUs, int64_t& nextTryUs)
+{
+  constexpr int64_t kRecoverIntervalUs = 1000000;
+  if (nowUs < nextTryUs) return;
+  nextTryUs = nowUs + kRecoverIntervalUs;
+  std::lock_guard<std::mutex> lock(g_audioOutputMutex);
+  if (g_audioOutputPaused) return;
+  if (g_outputPinsPending.load(std::memory_order_relaxed))
+  {
+    if (!CardenzaHAL::Audio::RestoreOutputPins()) return;
+    g_outputPinsPending.store(false, std::memory_order_relaxed);
+  }
+  if (CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO) && CardenzaHAL::Audio::GetTxChannel() != nullptr)
+    ESP_LOGI(kLogTag, "audio output restored");
 }
 
 bool WriteOutputFrames(i2s_chan_handle_t outputChannel, const std::int16_t* samples, std::size_t sampleCount)
@@ -171,23 +195,8 @@ bool WriteOutputFrames(i2s_chan_handle_t outputChannel, const std::int16_t* samp
                            portMAX_DELAY) == ESP_OK;
 }
 
-void ResetAudioPumpState()
-{
-  std::lock_guard<std::mutex> lock(g_audioPumpMutex);
-  g_audioPumpTask = nullptr;
-}
-
 void AudioRenderTask(void*)
 {
-  const i2s_chan_handle_t outputChannel = CardenzaHAL::Audio::GetTxChannel();
-  if (outputChannel == nullptr)
-  {
-    ESP_LOGE(kLogTag, "I2S output channel missing");
-    ResetAudioPumpState();
-    vTaskDelete(nullptr);
-    return;
-  }
-
   std::array<std::int16_t, kRenderFrameCount> buffer{};
   std::uint32_t renderedBlocks = 0;
   int64_t maxRenderUs = 0;
@@ -201,29 +210,62 @@ void AudioRenderTask(void*)
   std::uint32_t underruns = 0;
   int64_t queuedUs = 0;
   int64_t lastWriteEndUs = 0;
+  // Without a speaker to write to (the microphone has GPIO43, the codec is down, a write failed),
+  // nothing paces the render: blocks are rendered at the rate they would be heard, at most two in a
+  // row before a tick's sleep, so the engines, streamed samples and the audio to the computer keep real
+  // time (they ran at about half speed while recording) and the core's lower tasks still run.
+  int64_t heldSinceUs = 0;
+  int64_t heldBlocks = 0;
+  int heldInARow = 0;
+  int64_t nextRecoverUs = 0;
+  int64_t writeRetryAtUs = 0;
   for (;;)
   {
+    const bool paused = OutputPaused();
+    const i2s_chan_handle_t outputChannel = CardenzaHAL::Audio::GetTxChannel();
+    const int64_t nowUs = esp_timer_get_time();
+    const bool codecDown = outputChannel == nullptr || !CardenzaHAL::Audio::IsCodecReady();
+    if (!paused && codecDown) RecoverOutput(nowUs, nextRecoverUs);
+    const bool held = paused || codecDown || nowUs < writeRetryAtUs;
+    if (held)
+    {
+      lastWriteEndUs = 0;  // no queue to run dry
+      // Starting, or too far behind to catch up: count from now.
+      if (heldSinceUs == 0 || (nowUs - heldSinceUs) - heldBlocks * kRenderBudgetUs > kOutputQueueUs)
+      {
+        heldSinceUs = nowUs;
+        heldBlocks = 0;
+      }
+      if (heldBlocks * kRenderBudgetUs > nowUs - heldSinceUs || heldInARow >= 2)
+      {
+        heldInARow = 0;
+        vTaskDelay(1);
+        continue;
+      }
+      ++heldBlocks;
+      ++heldInARow;
+    }
+    else
+    {
+      heldSinceUs = 0;
+      heldInARow = 0;
+    }
+
     const int64_t renderStartUs = esp_timer_get_time();
     RenderSynthFrames(buffer.data(), buffer.size());
     const int64_t renderEndUs = esp_timer_get_time();
     SendToComputer(buffer.data(), buffer.size());
     const int64_t writeStartUs = esp_timer_get_time();
+    if (held || OutputPaused()) continue;
 
-    // The input has GPIO43: keep the engines running, slower, with nowhere to send the sound.
-    if (OutputPaused())
-    {
-      lastWriteEndUs = 0;  // no queue to run dry while paused
-      vTaskDelay(1);
-      continue;
-    }
     // This task also drains the engine events, so it never ends: an output that fails stays silent
-    // and is tried again.
+    // and is tried again a second later.
     if (!EnsureOutputChannelEnabled() || !WriteOutputFrames(outputChannel, buffer.data(), buffer.size()))
     {
       lastWriteEndUs = 0;
       if (OutputPaused()) continue;
       if ((++outputFailures % 64) == 1) ESP_LOGE(kLogTag, "I2S output failed after %" PRIu32 " rendered blocks", renderedBlocks);
-      vTaskDelay(1);
+      writeRetryAtUs = esp_timer_get_time() + 1000000;
       continue;
     }
 
@@ -291,11 +333,12 @@ bool EnsureAudioPumpStarted()
   {
     return true;
   }
-  // Mono: one sample per frame, the HAL sends it to both codec slots.
+  // Mono: one sample per frame, the HAL sends it to both codec slots. The task starts even when the
+  // codec does not: it drains the engines' events (they pile up in memory otherwise) and tries the
+  // codec again once a second.
   if (!CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO) || CardenzaHAL::Audio::GetTxChannel() == nullptr)
   {
-    ESP_LOGW(kLogTag, "audio output not ready");
-    return false;
+    ESP_LOGW(kLogTag, "audio output not ready: trying again");
   }
 
   TaskHandle_t taskHandle = nullptr;
@@ -560,9 +603,11 @@ SynthAudioPipelineBinding ConnectSynthAudioPipeline(std::size_t engineIndex) {
   binding.engineIndex = engineIndex;
   binding.backendName = "cardenza-i2s";
 
-  const bool status = CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO);
-  binding.hasNativeOutput = status && EnsureAudioPumpStarted();
-  binding.connected = binding.hasNativeOutput;
+  const bool codec = CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO);
+  // The render task runs whether or not the codec started (it tries again), so the engines always
+  // have their output.
+  binding.hasNativeOutput = EnsureAudioPumpStarted();
+  binding.connected = binding.hasNativeOutput && codec;
   return binding;
 }
 
