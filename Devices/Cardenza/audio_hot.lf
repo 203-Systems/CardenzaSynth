@@ -1,0 +1,47 @@
+# The audio path's hottest code in IRAM. AMY runs from flash through the 32 KB instruction cache, which
+# both cores share with the UI drawing on core 0: every miss stalls a voice. Profiled on the board
+# (DEMO-2, 2026-11-04): per oscillator and block, hold_and_modify with its envelopes and log/pow took a
+# third of all audio time, the oscillators' and the filter's per-sample loops most of the rest. IRAM
+# costs internal RAM byte for byte (about 24 KB here). Code only (noflash_text): the lookup tables stay
+# in flash, read through the data cache; with them (noflash) another 23 KB of internal RAM went and a
+# project the size of DEMO-2 no longer loaded.
+[mapping:cardenza_audio_hot]
+archive: libCardenza.a
+entries:
+    amy:hold_and_modify (noflash_text)
+    amy:render_osc_wave (noflash_text)
+    amy:mix_with_pan (noflash_text)
+    amy:map_60dB_to_01f (noflash_text)
+    amy:combine_controls (noflash_text)
+    amy:amp_combine_controls (noflash_text)
+    amy:logfreq_for_midi_note (noflash_text)
+    amy:freq_of_logfreq (noflash_text)
+    envelope (noflash_text)
+    oscillators (noflash_text)
+    algorithms:render_algo (noflash_text)
+    filters:filter_process (noflash_text)
+    filters:dsps_biquad_gen_lpf_f32 (noflash_text)
+    filters:dsps_biquad_gen_hpf_f32 (noflash_text)
+    filters:dsps_biquad_gen_bpf_f32 (noflash_text)
+    filters:scan_max (noflash_text)
+    filters:reset_filter (noflash_text)
+    pcm:render_pcm (noflash_text)
+    log2_exp2 (noflash_text)
+
+# The single-precision math those call every block.
+[mapping:cardenza_audio_hot_libm]
+archive: libm.a
+entries:
+    libm_a-wf_pow (noflash_text)
+    libm_a-ef_pow (noflash_text)
+    libm_a-wf_log2 (noflash_text)
+    libm_a-ef_log (noflash_text)
+    libm_a-wf_exp2 (noflash_text)
+    libm_a-sf_scalbn (noflash_text)
+    libm_a-sf_finite (noflash_text)
+    libm_a-sf_sin (noflash_text)
+    libm_a-sf_cos (noflash_text)
+    libm_a-kf_sin (noflash_text)
+    libm_a-kf_cos (noflash_text)
+    libm_a-ef_rem_pio2 (noflash_text)
+    libm_a-kf_rem_pio2 (noflash_text)

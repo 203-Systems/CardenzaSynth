@@ -73,6 +73,10 @@ void reset_osc_state(struct synthinfo* psynth);
 // The block being rendered, per core (amy.c).
 extern SAMPLE* fbl[AMY_MAX_CORES];
 extern SAMPLE core_max[AMY_MAX_CORES];
+// One oscillator's block, as amy_render does it for each (amy.c).
+extern SAMPLE* per_osc_fb[AMY_MAX_CORES];
+SAMPLE render_osc_wave(uint16_t osc, uint8_t core, SAMPLE* buf);
+void mix_with_pan(SAMPLE* stereo_dest, SAMPLE* mono_src, float pan_start, float pan_end);
 }
 }  // namespace amy_embed
 
@@ -86,6 +90,7 @@ using amy_embed::amy_start;
 using amy_embed::amy_stop;
 using amy_embed::amy_update;
 using amy_embed::output_sample_type;
+using amy_embed::s8_23;  // what AMY's SAMPLE stands for
 
 namespace synth::audio {
 
@@ -1892,10 +1897,13 @@ std::array<FxHookTrack, kSynthTrackCount> PlanFxAmyBlockNoLock()
   return plan;
 }
 
-// The voices share two cores: this thread renders the first part and a helper on the other core the
-// rest, so one core is never asked to carry everything that sounds. Which part goes where is decided per
-// block by what is sounding. AMY renders any range of oscillators on either core, each with its own
-// buffers, as long as a voice stays whole in one part.
+// The voices share two cores: this thread and a helper on the other one. Each sounding voice is a run of
+// oscillators that one core renders whole: its first oscillator holds the filter and the envelope and
+// renders the others, which would sound raw on their own. Both cores take runs from the front of the
+// list until none is left, heaviest first, so whichever core is free renders the next voice and they
+// finish close together. Fixed halves by estimated weight left one core idle for most of a block while
+// the other, which also runs the effects afterwards, went over the budget (DEMO-2 on the board: 4.3 ms
+// against 1.6 ms, 2026-11-04). Below this much weight the helper is not woken.
 constexpr std::uint32_t kNoSplitBelowWeight = 4;
 
 int VoiceWeight(std::size_t track)
@@ -1909,35 +1917,241 @@ int VoiceWeight(std::size_t track)
   }
 }
 
+bool VoiceFading(std::uint16_t osc);
+
+// A voice's first oscillator, sounding and not on its way out.
 bool VoiceSounding(std::uint16_t osc)
 {
-  return g_amyVoiceStart[osc] && amy_embed::synth[osc] != nullptr && amy_embed::synth[osc]->status == SYNTH_AUDIBLE;
+  return g_amyVoiceStart[osc] && amy_embed::synth[osc] != nullptr && amy_embed::synth[osc]->status == SYNTH_AUDIBLE && !VoiceFading(osc);
 }
 
-// Where the second part starts: always on a sounding voice's first oscillator (g_amyVoiceStart). The
-// other core gets to it first, so a split inside a voice would play the rest of that voice raw, every
-// block. No second part: max_oscs.
-std::uint16_t VoiceSplitNoLock()
+struct VoiceRun {
+  std::uint16_t from = 0;
+  std::uint16_t to = 0;
+  int weight = 0;
+  std::uint8_t kind = 0;   // SynthEngineKind of its track, None for oscillators of no track
+  std::uint8_t track = 0;  // kSynthTrackCount for none
+};
+std::array<VoiceRun, kAmyMaxOscs> g_voiceRuns{};
+std::size_t g_voiceRunCount = 0;
+std::atomic<std::size_t> g_nextVoiceRun{0};
+
+// The voices' share of the block. The voices that sound are as many as the tracks' voice counts allow
+// (AMY steals the oldest let-go voice of a track that wants another), which is more than both cores
+// can render in a block once release tails pile up (DEMO-2: 12 to 16 voices; a voice costs about 0.65 ms
+// on the board, 2026-11-04). Rendering longer than a block runs the DMA queue dry: clicks, and the
+// sequencer's notes late. So the voices are kept within the budget before that happens: what a voice of
+// each engine costs is learnt from the renders themselves, and when the next block would not fit, the
+// least needed voices fade out over this one (VoiceFadeVictim), a let-go tail before a held note.
+// The board only: hosts render at whatever speed the machine running the tests has.
+constexpr float kBlockMicros = 1000000.0f * static_cast<float>(kAmyFramesPerBlock) / static_cast<float>(kSampleRate);
+constexpr float kVoiceBudgetShare = 0.85f;
+constexpr std::size_t kKindCount = 5;  // SynthEngineKind None..Drums
+std::array<float, kKindCount> g_runCostMicros{50.0f, 700.0f, 650.0f, 200.0f, 150.0f};
+std::array<std::array<float, kKindCount>, AMY_MAX_CORES> g_runCostSum{};
+std::array<std::array<std::uint16_t, kKindCount>, AMY_MAX_CORES> g_runCostCount{};
+float g_overheadMicros = 1500.0f;  // the rest of a block: deltas, effects, output
+std::int64_t g_voicePhaseMicros = 0;
+// A voice marked here fades out over its next block and then stops (whole: every oscillator of it),
+// unless the oscillator has started another note since.
+std::array<bool, kAmyMaxOscs> g_voiceFading{};
+std::array<std::uint32_t, kAmyMaxOscs> g_voiceFadingClock{};
+std::array<float, kAmyMaxOscs> g_voicePeak{};  // the last block's peak of each voice, by its first oscillator
+std::atomic<std::uint32_t> g_fadedVoices{0};
+
+std::int64_t VoiceClockMicros()
+{
+#if defined(ESP_PLATFORM)
+  return esp_timer_get_time();
+#else
+  return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+#endif
+}
+
+bool VoiceFading(std::uint16_t osc)
+{
+  return g_voiceFading[osc] && amy_embed::synth[osc] != nullptr && amy_embed::synth[osc]->note_on_clock == g_voiceFadingClock[osc];
+}
+
+void MarkVoiceFading(std::uint16_t osc)
+{
+  g_voiceFading[osc] = true;
+  g_voiceFadingClock[osc] = amy_embed::synth[osc]->note_on_clock;
+}
+
+// The runs of the next block, heaviest first; their total weight.
+std::uint32_t PlanVoiceRunsNoLock()
 {
   const auto oscs = static_cast<std::uint16_t>(amy_embed::amy_global.config.max_oscs);
   const std::uint16_t known = (std::min)(oscs, static_cast<std::uint16_t>(g_amyOscTrack.size()));
   std::uint32_t total = 0;
-  for (std::uint16_t osc = 0; osc < known; ++osc)
-    if (VoiceSounding(osc)) total += static_cast<std::uint32_t>(VoiceWeight(g_amyOscTrack[osc] - 1u));
-  if (total < kNoSplitBelowWeight) return oscs;
-  std::uint32_t weight = 0;
-  for (std::uint16_t osc = 0; osc < known; ++osc)
+  g_voiceRunCount = 0;
+  for (std::uint16_t from = 0; from < oscs;)
+  {
+    // To the next voice's first oscillator (whatever precedes the first voice is a run of its own).
+    std::uint16_t to = from + 1;
+    while (to < known && !g_amyVoiceStart[to]) ++to;
+    if (to >= known) to = oscs;
+    bool audible = false;
+    for (std::uint16_t osc = from; osc < to && !audible; ++osc)
+      audible = amy_embed::synth[osc] != nullptr && amy_embed::synth[osc]->status == SYNTH_AUDIBLE;
+    if (audible)
+    {
+      const bool tracked = from < known && g_amyOscTrack[from] != 0;
+      const std::size_t track = tracked ? g_amyOscTrack[from] - 1u : kSynthTrackCount;
+      const int weight = tracked ? VoiceWeight(track) : 1;
+      const auto kind = tracked ? static_cast<std::uint8_t>(g_engines[track].kind) : std::uint8_t{0};
+      g_voiceRuns[g_voiceRunCount++] = VoiceRun{from, to, weight, static_cast<std::uint8_t>(kind < kKindCount ? kind : 0),
+                                                static_cast<std::uint8_t>(track)};
+      total += static_cast<std::uint32_t>(weight);
+    }
+    from = to;
+  }
+  std::stable_sort(g_voiceRuns.begin(), g_voiceRuns.begin() + static_cast<std::ptrdiff_t>(g_voiceRunCount),
+                   [](const VoiceRun& left, const VoiceRun& right) { return left.weight > right.weight; });
+  g_nextVoiceRun.store(0, std::memory_order_relaxed);
+  return total;
+}
+
+// What amy_render does for each oscillator, for one run; a fading run goes to silence over the block and
+// stops.
+SAMPLE RenderVoiceRunNoLock(const VoiceRun& run, std::uint8_t core)
+{
+  const bool fading = VoiceFading(run.from);
+  g_voiceFading[run.from] = false;
+  SAMPLE highest = 0;
+  for (std::uint16_t osc = run.from; osc < run.to; ++osc)
+  {
+    auto* voice = amy_embed::synth[osc];
+    if (voice == nullptr || voice->status != SYNTH_AUDIBLE) continue;
+    SAMPLE* buffer = amy_embed::per_osc_fb[core];
+    std::memset(buffer, 0, AMY_BLOCK_SIZE * sizeof(SAMPLE));
+    const SAMPLE peak = amy_embed::render_osc_wave(osc, core, buffer);
+    if (fading)
+      for (std::size_t frame = 0; frame < AMY_BLOCK_SIZE; ++frame)
+        buffer[frame] = static_cast<SAMPLE>(static_cast<std::int64_t>(buffer[frame]) * static_cast<std::int64_t>(AMY_BLOCK_SIZE - frame) /
+                                            static_cast<std::int64_t>(AMY_BLOCK_SIZE));
+    if (voice->status != SYNTH_AUDIBLE)
+    {
+      amy_embed::reset_modosc(amy_embed::msynth[osc]);
+      amy_embed::reset_osc_state(voice);
+    }
+    const auto hook = amy_embed::amy_global.config.amy_external_render_hook;
+    const std::uint8_t handled = hook != nullptr ? hook(osc, buffer, AMY_BLOCK_SIZE) : 0;
+    if (handled == 0) amy_embed::mix_with_pan(amy_embed::fbl[core], buffer, amy_embed::msynth[osc]->last_pan, amy_embed::msynth[osc]->pan);
+    highest = (std::max)(highest, peak);
+  }
+  g_voicePeak[run.from] = static_cast<float>(highest < 0 ? -highest : highest);
+  if (fading)
+  {
+    // All of the voice: what its first oscillator leaves behind would sound raw and never end.
+    for (std::uint16_t osc = run.from; osc < run.to; ++osc)
+    {
+      if (amy_embed::synth[osc] == nullptr) continue;
+      amy_embed::synth[osc]->status = SYNTH_OFF;
+      amy_embed::reset_modosc(amy_embed::msynth[osc]);
+      amy_embed::reset_osc_state(amy_embed::synth[osc]);
+    }
+  }
+  return highest;
+}
+
+// The voice to fade when there is not enough time. Fair to the tracks: never the last voice a track has
+// while another track has more (oldest first by itself emptied one track at a time, and that track
+// simply went silent under the others), then a let-go voice before a held one, drums last, then from
+// the track with the most voices, the quietest (last block's peak at the track's level), the oldest.
+// -1 when nothing sounds.
+int VoiceFadeVictimNoLock()
+{
+  const auto oscs = static_cast<std::uint16_t>((std::min)(static_cast<std::size_t>(amy_embed::amy_global.config.max_oscs), g_amyOscTrack.size()));
+  std::array<int, kSynthTrackCount> sounding{};
+  for (std::uint16_t osc = 0; osc < oscs; ++osc)
+    if (VoiceSounding(osc)) ++sounding[(g_amyOscTrack[osc] - 1u) % kSynthTrackCount];
+  int victim = -1;
+  std::array<double, 6> victimRank{};
+  for (std::uint16_t osc = 0; osc < oscs; ++osc)
   {
     if (!VoiceSounding(osc)) continue;
-    if (weight * 2 >= total) return osc;
-    weight += static_cast<std::uint32_t>(VoiceWeight(g_amyOscTrack[osc] - 1u));
+    const auto* voice = amy_embed::synth[osc];
+    const std::size_t track = (g_amyOscTrack[osc] - 1u) % kSynthTrackCount;
+    const bool drums = g_engines[track].kind == SynthEngineKind::Drums;
+    const bool released = voice->note_off_clock != std::numeric_limits<std::uint32_t>::max() && voice->note_off_clock > voice->note_on_clock;
+    const double level = static_cast<double>(g_voicePeak[osc]) * static_cast<double>(EffectiveTrackGain(g_trackMix[track]));
+    const std::array<double, 6> rank{sounding[track] > 1 ? 1.0 : 0.0, released ? 1.0 : 0.0, drums ? 0.0 : 1.0,
+                                     static_cast<double>(sounding[track]), -level, -static_cast<double>(voice->note_on_clock)};
+    if (victim >= 0 && rank <= victimRank) continue;
+    victim = static_cast<int>(osc);
+    victimRank = rank;
   }
-  return oscs;
+  return victim;
+}
+
+// Before rendering: if the voices that will still sound next block would not fit in the budget (the two
+// cores share them, so half of what they cost, but no less than the dearest one), fade the least needed
+// ones out over this block. New notes always start: they are held, and the newest.
+void KeepVoicesWithinBudgetNoLock()
+{
+#if defined(ESP_PLATFORM)
+  float total = 0.0f;
+  float largest = 0.0f;
+  for (std::size_t index = 0; index < g_voiceRunCount; ++index)
+  {
+    const VoiceRun& run = g_voiceRuns[index];
+    if (VoiceFading(run.from)) continue;
+    total += g_runCostMicros[run.kind];
+    largest = (std::max)(largest, g_runCostMicros[run.kind]);
+  }
+  const float allowed = kVoiceBudgetShare * kBlockMicros - g_overheadMicros;
+  for (int faded = 0; faded < 8 && (std::max)(total / static_cast<float>(AMY_CORES), largest) > allowed; ++faded)
+  {
+    const int victim = VoiceFadeVictimNoLock();
+    if (victim < 0) break;
+    MarkVoiceFading(static_cast<std::uint16_t>(victim));
+    g_fadedVoices.fetch_add(1, std::memory_order_relaxed);
+    for (std::size_t index = 0; index < g_voiceRunCount; ++index)
+      if (g_voiceRuns[index].from == victim) total -= g_runCostMicros[g_voiceRuns[index].kind];
+  }
+#endif
+}
+
+// What a voice of each engine cost this block, into the running estimate (about a tenth of a second).
+void LearnVoiceCostsNoLock()
+{
+  for (std::size_t core = 0; core < AMY_MAX_CORES; ++core)
+  {
+    for (std::size_t kind = 0; kind < kKindCount; ++kind)
+    {
+      if (g_runCostCount[core][kind] != 0)
+      {
+        const float average = g_runCostSum[core][kind] / static_cast<float>(g_runCostCount[core][kind]);
+        g_runCostMicros[kind] += 0.05f * (average - g_runCostMicros[kind]);
+      }
+      g_runCostSum[core][kind] = 0.0f;
+      g_runCostCount[core][kind] = 0;
+    }
+  }
+}
+
+// One core's share: runs from the front until none is left. AMY's chorus (rendered by amy_render on
+// core 0) is off here (EnsureAmyInitialized).
+void RenderClaimedRunsNoLock(std::uint8_t core)
+{
+  std::fill_n(amy_embed::fbl[core], AMY_BLOCK_SIZE * AMY_NCHANS, 0);
+  SAMPLE highest = 0;
+  for (;;)
+  {
+    const std::size_t index = g_nextVoiceRun.fetch_add(1, std::memory_order_relaxed);
+    if (index >= g_voiceRunCount) break;
+    const VoiceRun& run = g_voiceRuns[index];
+    const std::int64_t begin = VoiceClockMicros();
+    highest = (std::max)(highest, RenderVoiceRunNoLock(run, core));
+    g_runCostSum[core][run.kind] += static_cast<float>(VoiceClockMicros() - begin);
+    ++g_runCostCount[core][run.kind];
+  }
+  amy_embed::core_max[core] = highest;
 }
 
 #if defined(AMY_DUALCORE) && !defined(__EMSCRIPTEN__)
-std::uint16_t g_helperFrom = 0;
-std::uint16_t g_helperTo = 0;
 #if defined(ESP_PLATFORM)
 constexpr std::uint32_t kHelperStackBytes = 5120;  // Measured: under 2 KB.
 constexpr UBaseType_t kHelperPriority = 6;  // above the UI on that core: sound first
@@ -1950,20 +2164,18 @@ void AmyHelperTask(void*)
   for (;;)
   {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    amy_embed::amy_render(g_helperFrom, g_helperTo, 1);
+    RenderClaimedRunsNoLock(1);
     xTaskNotifyGive(g_helperCaller);
   }
 }
 
-bool StartHelper(std::uint16_t from, std::uint16_t to)
+bool StartHelper()
 {
   if (g_helperTask == nullptr && xTaskCreatePinnedToCore(AmyHelperTask, "synth_audio2", kHelperStackBytes, nullptr, kHelperPriority, &g_helperTask, kHelperCore) != pdPASS)
   {
     g_helperTask = nullptr;
     return false;
   }
-  g_helperFrom = from;
-  g_helperTo = to;
   g_helperCaller = xTaskGetCurrentTaskHandle();
   xTaskNotifyGive(g_helperTask);
   return true;
@@ -1979,12 +2191,10 @@ std::condition_variable g_helperWake;
 bool g_helperStarted = false;
 bool g_helperWork = false;
 
-bool StartHelper(std::uint16_t from, std::uint16_t to)
+bool StartHelper()
 {
   {
     std::lock_guard<std::mutex> lock(g_helperMutex);
-    g_helperFrom = from;
-    g_helperTo = to;
     g_helperWork = true;
   }
   if (!g_helperStarted)
@@ -1996,7 +2206,7 @@ bool StartHelper(std::uint16_t from, std::uint16_t to)
         std::unique_lock<std::mutex> lock(g_helperMutex);
         g_helperWake.wait(lock, [] { return g_helperWork; });
         lock.unlock();
-        amy_embed::amy_render(g_helperFrom, g_helperTo, 1);
+        RenderClaimedRunsNoLock(1);
         lock.lock();
         g_helperWork = false;
         g_helperWake.notify_all();
@@ -2016,34 +2226,24 @@ void WaitForHelper()
 
 void RenderAmyVoicesNoLock()
 {
-  const auto oscs = static_cast<std::uint16_t>(amy_embed::amy_global.config.max_oscs);
-  const std::uint16_t split = VoiceSplitNoLock();
-  const bool shared = split < oscs && StartHelper(split, oscs);
-  amy_embed::amy_render(0, shared ? split : oscs, 0);
+  const std::int64_t start = VoiceClockMicros();
+  const std::uint32_t total = PlanVoiceRunsNoLock();
+  KeepVoicesWithinBudgetNoLock();
+  const bool shared = total >= kNoSplitBelowWeight && g_voiceRunCount > 1 && StartHelper();
+  RenderClaimedRunsNoLock(0);
   if (shared) WaitForHelper();
   // Whatever the second core left in its buffer last time must not sound again.
   else amy_embed::amy_render(0, 0, 1);
+  LearnVoiceCostsNoLock();
+  g_voicePhaseMicros = VoiceClockMicros() - start;
 }
 #else
-// One core here, and the same two parts, the second one first: that is the order on the board, where
-// the other core gets to its first oscillator long before this one has rendered the voices ahead of it.
+// One core here: the same runs, every one on it.
 void RenderAmyVoicesNoLock()
 {
-  const auto oscs = static_cast<std::uint16_t>(amy_embed::amy_global.config.max_oscs);
-  const std::uint16_t split = VoiceSplitNoLock();
-  if (split >= oscs)
-  {
-    amy_embed::amy_render(0, oscs, 0);
-    return;
-  }
-  using amy_embed::s8_23;  // What AMY's SAMPLE stands for.
-  amy_embed::amy_render(split, oscs, 0);
-  std::array<SAMPLE, AMY_BLOCK_SIZE * AMY_NCHANS> second;
-  std::copy_n(amy_embed::fbl[0], second.size(), second.begin());
-  const SAMPLE secondMax = amy_embed::core_max[0];
-  amy_embed::amy_render(0, split, 0);
-  for (std::size_t sample = 0; sample < second.size(); ++sample) amy_embed::fbl[0][sample] += second[sample];
-  amy_embed::core_max[0] = (std::max)(amy_embed::core_max[0], secondMax);
+  (void)PlanVoiceRunsNoLock();
+  RenderClaimedRunsNoLock(0);
+  LearnVoiceCostsNoLock();
 }
 #endif
 
@@ -2139,6 +2339,19 @@ void RenderFxSamplerTracksNoLock(float* mix, float* delaySend, float* reverbSend
 // pass over the block.
 std::atomic<LineInput> g_lineInput{nullptr};
 
+// The level rider in front of the limiter. When the limiter has to hold a dense mix well below the
+// output gain block after block, every drum hit pumps everything else down and the sustained tracks
+// disappear under the loud one (DEMO-2 on the board: 2 dB on average, dips of 6 dB, 2026-11-04). Then the
+// whole mix comes down slowly instead (2 dB a second while the limiter takes more than 1.5 dB), and goes
+// back up slowly (0.5 dB a second) once the limiter is nearly idle again, never below -6 dB, at once in
+// silence. The limiter is left with the peaks;
+// the balance between the tracks does not change, and a sparse mix never moves it.
+float g_levelRider = 1.0f;
+constexpr float kRiderFloor = 0.5f;
+constexpr float kRiderDownPerFrame = 5.2e-6f;  // -2 dB a second
+constexpr float kRiderUpPerFrame = 1.3e-6f;    // +0.5 dB a second
+constexpr float kRiderSilence = 0.001f;        // the block's loudest output below -60 dB
+
 SYNTH_FX_HOT void LimitOutputNoLock(const float* mix, std::int16_t* out, std::size_t frames)
 {
   float gain = g_outputGain;
@@ -2154,11 +2367,19 @@ SYNTH_FX_HOT void LimitOutputNoLock(const float* mix, std::int16_t* out, std::si
       if (level > wouldClip && firstOver == frames) firstOver = offset;
     }
   }
-  float next = (std::min)(kOutputGain, gain + gain * kLimiterReleasePerFrame * static_cast<float>(frames));
+  // Silent even at full gain: the rider and the limiter are back where they rest, which nobody hears.
+  const bool silent = peak * kOutputGain < kRiderSilence;
+  if (silent) g_levelRider = 1.0f;
+  const float target = kOutputGain * g_levelRider;
+  float next = silent ? kOutputGain : (std::min)(target, gain + gain * kLimiterReleasePerFrame * static_cast<float>(frames));
   if (peak * next > kOutputCeiling)
   {
     next = kOutputCeiling / peak;
   }
+  if (!silent && next < target * 0.84f)  // the limiter holds it more than 1.5 dB down
+    g_levelRider = (std::max)(kRiderFloor, g_levelRider * (1.0f - kRiderDownPerFrame * static_cast<float>(frames)));
+  else if (!silent && next > target * 0.97f)  // a quarter of a decibel
+    g_levelRider = (std::min)(1.0f, g_levelRider * (1.0f + kRiderUpPerFrame * static_cast<float>(frames)));
   const std::size_t ramp = next < gain ? (std::min)(frames, (std::max)(firstOver, kLimiterShortestAttackFrames)) : frames;
   const float step = ramp > 0 ? (next - gain) / static_cast<float>(ramp) : 0.0f;
   for (std::size_t offset = 0; offset < ramp; ++offset)
@@ -2641,9 +2862,9 @@ void WarmUp()
 
 namespace {
 
-// If it still does not fit: the sound must never fall behind time, because that is what makes everything
-// slow down and break up. Rendering that keeps taking longer than it lasts sheds a voice (RenderLoad):
-// what has been let go first, then the oldest, and the drums last.
+// If it still does not fit (the budget, KeepVoicesWithinBudgetNoLock, guessed wrong): the sound must
+// never fall behind time, because that is what makes everything slow down and break up. Rendering that
+// keeps taking longer than it lasts sheds a voice (RenderLoad): the one the budget would choose, faded.
 RenderLoad g_renderLoad;
 std::atomic<std::uint32_t> g_shedVoices{0};
 
@@ -2656,33 +2877,13 @@ std::int64_t RenderClockMicros()
 #endif
 }
 
+// When rendering still cannot keep up (RenderLoad, a safety net behind the budget): the same voice the
+// budget would choose, faded out over the next block.
 bool ShedVoiceNoLock()
 {
-  const auto oscs = static_cast<std::uint16_t>((std::min)(static_cast<std::size_t>(amy_embed::amy_global.config.max_oscs), g_amyOscTrack.size()));
-  int victim = -1;
-  int victimRank = -1;
-  std::uint32_t victimClock = 0;
-  for (std::uint16_t osc = 0; osc < oscs; ++osc)
-  {
-    if (!VoiceSounding(osc)) continue;
-    const auto* voice = amy_embed::synth[osc];
-    const bool drums = g_engines[g_amyOscTrack[osc] - 1u].kind == SynthEngineKind::Drums;
-    const bool released = voice->note_off_clock != std::numeric_limits<std::uint32_t>::max() && voice->note_off_clock > voice->note_on_clock;
-    const int rank = drums ? 0 : (released ? 2 : 1);
-    if (rank < victimRank || (rank == victimRank && voice->note_on_clock >= victimClock)) continue;
-    victim = static_cast<int>(osc);
-    victimRank = rank;
-    victimClock = voice->note_on_clock;
-  }
+  const int victim = VoiceFadeVictimNoLock();
   if (victim < 0) return false;
-  // All of the voice: what its first oscillator leaves behind would sound raw and never end.
-  for (int osc = victim; osc < oscs && g_amyOscTrack[osc] == g_amyOscTrack[victim] && (osc == victim || !g_amyVoiceStart[osc]); ++osc)
-  {
-    if (amy_embed::synth[osc] == nullptr) continue;
-    amy_embed::synth[osc]->status = SYNTH_OFF;
-    amy_embed::reset_modosc(amy_embed::msynth[osc]);
-    amy_embed::reset_osc_state(amy_embed::synth[osc]);
-  }
+  MarkVoiceFading(static_cast<std::uint16_t>(victim));
   g_shedVoices.fetch_add(1, std::memory_order_relaxed);
   return true;
 }
@@ -2764,8 +2965,13 @@ std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
   std::lock_guard<std::mutex> lock(g_renderMutex);
   const std::int64_t start = RenderClockMicros();
   const std::size_t rendered = RenderFramesNoLock(destination, frameCount);
+  const std::int64_t elapsed = RenderClockMicros() - start;
   const std::int64_t budget = static_cast<std::int64_t>(frameCount) * 1000000 / kSampleRate;
-  if (g_renderLoad.Add(RenderClockMicros() - start, budget)) (void)ShedVoiceNoLock();
+  // Everything but the voices, for the voice budget: one block per call is the case that tells.
+  if (g_voicePhaseMicros > 0 && frameCount == kAmyFramesPerBlock)
+    g_overheadMicros += 0.05f * (static_cast<float>(elapsed - g_voicePhaseMicros) - g_overheadMicros);
+  g_voicePhaseMicros = 0;
+  if (g_renderLoad.Add(elapsed, budget)) (void)ShedVoiceNoLock();
   PublishHeldNotesNoLock();
   ReleaseOrphanVoicesNoLock();
   return rendered;
@@ -2785,6 +2991,11 @@ bool ShedVoice()
 std::uint32_t ShedVoiceCount()
 {
   return g_shedVoices.load(std::memory_order_relaxed);
+}
+
+std::uint32_t FadedVoiceCount()
+{
+  return g_fadedVoices.load(std::memory_order_relaxed);
 }
 
 NoteSet HeldNotes(std::size_t engineIndex)

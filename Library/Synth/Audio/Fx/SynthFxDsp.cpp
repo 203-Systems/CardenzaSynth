@@ -1,5 +1,7 @@
 #include "Library/Synth/Audio/Fx/SynthFxDsp.h"
 
+#include "Library/Memory/Memory.h"
+
 #include <algorithm>
 #include <cmath>
 #include <new>
@@ -729,7 +731,8 @@ bool SendBuses::AllocateDelay(bool longLine)
   std::size_t got = chunks;
   for (; got < wanted; ++got)
   {
-    delayChunks_[got].reset(new (std::nothrow) std::int16_t[kDelayChunkFrames]());
+    // PSRAM: written and read in order, a sample at a time (Library/Memory/Memory.h).
+    delayChunks_[got].reset(new (memory::slow) std::int16_t[kDelayChunkFrames]());
     if (!delayChunks_[got]) break;
   }
   if (got == wanted)
@@ -751,7 +754,8 @@ bool SendBuses::AllocateReverb()
 {
   if (!reverbMemory_)
   {
-    reverbMemory_.reset(new (std::nothrow) std::int16_t[kReverbMemoryFrames]());
+    // PSRAM, like the delay: seven rings, each read and written in order.
+    reverbMemory_.reset(new (memory::slow) std::int16_t[kReverbMemoryFrames]());
   }
   return reverbMemory_ != nullptr;
 }

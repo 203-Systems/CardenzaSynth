@@ -294,6 +294,18 @@ function(cardenza_amy_core_source amy_src_dir out_var)
         string(REPLACE "${original}" "${patched}" content "${content}")
     endforeach()
 
+    # hold_and_modify, AMY's per-oscillator control step, ran once per oscillator and block and took a
+    # third of all audio time on the board (DEMO-2, 2026-11-04): amp_combine_controls put every one of
+    # its coefficients through log2f, most of them zero, and in double precision ("- 1.0"). A zero
+    # coefficient adds nothing (the constant term is swapped to 1 first), so skip it; same result.
+    set(amp_original "        if (i != COEF_MOD) {\n            val = map_60dB_to_01f(MAX(0, val)) - 1.0;")
+    set(amp_patched "        if (coef == 0.0f) continue;  // Cardenza: adds nothing; saves a log2f\n        if (i != COEF_MOD) {\n            val = map_60dB_to_01f(MAX(0, val)) - 1.0f;")
+    string(FIND "${content}" "${amp_original}" match_index)
+    if(match_index EQUAL -1)
+        message(FATAL_ERROR "AMY amp_combine_controls patch no longer applies in ${source}")
+    endif()
+    string(REPLACE "${amp_original}" "${amp_patched}" content "${content}")
+
     set(output_dir ${CMAKE_BINARY_DIR}/cardenza_generated/amy)
     file(WRITE ${output_dir}/amy.c.in "${content}")
     # configure_file only touches amy.c when the content changes, so rebuilds stay incremental.
@@ -326,5 +338,13 @@ function(cardenza_collect_amy_c_sources root_dir out_var)
         ${amy_src_dir}/transfer.c
         ${root_dir}/Library/Synth/Audio/Amy/AmyEmbeddedStubs.c
     )
+    # AMY's floating-point literals as single precision: written 1.0 or 0.5 they turned every block's
+    # control math (hold_and_modify, the envelopes, note-on) into software double precision on the
+    # ESP32-S3, whose FPU has single precision only. Host GCC builds here, so the tests hear the same;
+    # the firmware component sets it on its C sources itself (Devices/Cardenza/CMakeLists.txt). Clang
+    # has no such option. Source properties belong to the directory that builds the target.
+    if(NOT CMAKE_SCRIPT_MODE_FILE AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        set_source_files_properties(${sources} PROPERTIES COMPILE_OPTIONS "-fsingle-precision-constant")
+    endif()
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()

@@ -33,6 +33,8 @@ if(DEFINED COMPONENT_DIR)
         INCLUDE_DIRS
             ${CARDENZA_ROOT}
             ${AMY_SRC_DIR}
+        LDFRAGMENTS
+            audio_hot.lf
         REQUIRES
             ${CARDENZA_HAL_COMPONENT}
             driver
@@ -70,6 +72,8 @@ if(DEFINED COMPONENT_DIR)
     endif()
 
     target_compile_options(${COMPONENT_LIB} PRIVATE
+        # AMY's literals as single precision (see cardenza_collect_amy_c_sources): the only C here is AMY.
+        $<$<COMPILE_LANGUAGE:C>:-fsingle-precision-constant>
         $<$<COMPILE_LANGUAGE:C>:-Wno-unused-parameter>
         $<$<COMPILE_LANGUAGE:C>:-Wno-sign-compare>
         $<$<COMPILE_LANGUAGE:C>:-Wno-missing-field-initializers>
