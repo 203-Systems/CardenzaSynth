@@ -17,11 +17,13 @@
 #include <cstring>
 #include <fstream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include <esp_app_desc.h>
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -46,30 +48,33 @@ constexpr const char* kPrefix = "ZZ-ST-";
 constexpr std::array<std::uint8_t, 8> kKitNotes{{36, 38, 42, 46, 39, 43, 56, 70}};  // the drum machine's lanes
 
 // What survives a reset (RTC slow memory, beside the log ring): where the run is and what it found.
+// Plain members without initialisers: with them Persist had a constructor, which ran at every start
+// and cleared the results in RTC memory (RTC_NOINIT_ATTR only skips the loader), keeping only the
+// header: a run read after a restart showed every scenario "not run". Result{} still zeroes one.
 struct Result {
-  std::uint8_t state = 0;  // 0 not run, 1 running, 2 done, 3 the device restarted during it
-  std::uint8_t ok = 0;
-  std::uint16_t avgRenderUs = 0;
-  std::uint16_t maxRenderUs = 0;
-  std::uint16_t overruns = 0;
-  std::uint16_t underruns = 0;
-  std::uint16_t faded = 0;
-  std::uint16_t shed = 0;
-  std::uint16_t lostTails = 0;    // let-go tails faded early
-  std::uint16_t lostHeld = 0;     // held notes faded: a note missing
-  std::uint16_t lostUnheard = 0;  // notes left out before they sounded: a note missing
-  std::uint16_t lostStolen = 0;   // held notes whose voice a newer one took (the track's voices all held)
-  std::uint16_t dx7Us = 0, junoUs = 0, drumsUs = 0, overheadUs = 0;  // the budget's model at the end
-  std::uint16_t scalePercent = 0;
-  std::uint16_t uiMaxMs = 0;
-  std::uint16_t uiDrops = 0;
-  std::uint16_t seqLatestUs = 0;
-  std::uint16_t seqLate = 0;
-  std::uint16_t ramMinKb = 0;
-  std::uint16_t psramMinKb = 0;
-  std::uint16_t opMaxMs = 0;
-  std::uint16_t opUnderruns = 0;
-  char note[24] = {};
+  std::uint8_t state;  // 0 not run, 1 running, 2 done, 3 the device restarted during it
+  std::uint8_t ok;
+  std::uint16_t avgRenderUs;
+  std::uint16_t maxRenderUs;
+  std::uint16_t overruns;
+  std::uint16_t underruns;
+  std::uint16_t faded;
+  std::uint16_t shed;
+  std::uint16_t lostTails;    // let-go tails faded early
+  std::uint16_t lostHeld;     // held notes faded: a note missing
+  std::uint16_t lostUnheard;  // notes left out before they sounded: a note missing
+  std::uint16_t lostStolen;   // held notes whose voice a newer one took (the track's voices all held)
+  std::uint16_t dx7Us, junoUs, drumsUs, overheadUs;  // the budget's model at the end
+  std::uint16_t scalePercent;
+  std::uint16_t uiMaxMs;
+  std::uint16_t uiDrops;
+  std::uint16_t seqLatestUs;
+  std::uint16_t seqLate;
+  std::uint16_t ramMinKb;
+  std::uint16_t psramMinKb;
+  std::uint16_t opMaxMs;
+  std::uint16_t opUnderruns;
+  char note[24];
 };
 struct Persist {
   std::uint32_t magic;
@@ -78,6 +83,7 @@ struct Persist {
   std::uint32_t reboots;
   Result results[kMaxScenarios];
 };
+static_assert(std::is_trivially_default_constructible_v<Persist>, "a constructor would clear it at every start");
 constexpr std::uint32_t kMagic = 0x53545231u;  // "STR1"
 RTC_NOINIT_ATTR Persist g_persist;
 
@@ -438,6 +444,43 @@ void WatchTask(void*)
   }
 }
 
+// Each task's share of the time since the last call (FreeRTOS run-time stats, on in stress builds):
+// which task keeps a core busy, and whether its idle task ever runs (the task watchdog checks both).
+void PrintTaskLoad(const char* label)
+{
+#if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+  static TaskStatus_t tasks[32];
+  static TaskHandle_t lastHandles[32];
+  static configRUN_TIME_COUNTER_TYPE lastCounters[32];
+  static UBaseType_t lastCount = 0;
+  static configRUN_TIME_COUNTER_TYPE lastTotal = 0;
+  configRUN_TIME_COUNTER_TYPE total = 0;
+  const UBaseType_t count = uxTaskGetSystemState(tasks, 32, &total);
+  const configRUN_TIME_COUNTER_TYPE elapsed = total - lastTotal;
+  char line[320];
+  int length = std::snprintf(line, sizeof(line), "stress: load %s:", label);
+  for (UBaseType_t index = 0; index < count && elapsed != 0; ++index)
+  {
+    configRUN_TIME_COUNTER_TYPE before = 0;
+    for (UBaseType_t old = 0; old < lastCount; ++old)
+      if (lastHandles[old] == tasks[index].xHandle) before = lastCounters[old];
+    const unsigned percent = static_cast<unsigned>((tasks[index].ulRunTimeCounter - before) * 100u / elapsed);
+    if (percent > 0 && length < static_cast<int>(sizeof(line)) - 24)
+      length += std::snprintf(line + length, sizeof(line) - static_cast<std::size_t>(length), " %s %u%%", tasks[index].pcTaskName, percent);
+  }
+  std::printf("%s\n", line);
+  for (UBaseType_t index = 0; index < count; ++index)
+  {
+    lastHandles[index] = tasks[index].xHandle;
+    lastCounters[index] = tasks[index].ulRunTimeCounter;
+  }
+  lastCount = count;
+  lastTotal = total;
+#else
+  (void)label;
+#endif
+}
+
 bool Load(GrooveApp& app, const std::string& name, std::string& message)
 {
   groove::ProjectUiSettings settings;
@@ -461,6 +504,7 @@ void Operation(Work&& work)
 
 void StartWindow()
 {
+  PrintTaskLoad("before");  // and the start of this window's
   Window& window = g_runner.window;
   window = Window{};
   window.audio = Device::Audio::Timing();
@@ -481,6 +525,17 @@ void PrintResult(std::size_t index)
               r.state == 2 ? (r.ok ? "ok  " : "FAIL") : "    ", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
               r.lostTails, r.uiMaxMs, r.uiDrops, r.seqLatestUs, r.seqLate, r.ramMinKb, r.psramMinKb, r.opMaxMs, r.opUnderruns, r.dx7Us, r.junoUs,
               r.drumsUs, r.overheadUs, r.scalePercent, r.note);
+}
+
+// One short line a scenario for the summary repeated at the end: the USB console drops long bursts.
+void PrintShortResult(std::size_t index)
+{
+  const Result& r = g_persist.results[index];
+  static const char* const kStates[] = {"-", "running", "done", "RESTARTED"};
+  std::printf("stress: S %2u %-14s %s %s avg %u max %u under %u held %u unheard %u stolen %u ui %u late %u ram %u dx7 %u juno %u\n",
+              static_cast<unsigned>(index), index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?", kStates[r.state & 3],
+              r.state == 2 ? (r.ok ? "ok" : "FAIL") : "-", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
+              r.uiMaxMs, r.seqLatestUs, r.ramMinKb, r.dx7Us, r.junoUs);
 }
 
 void FinishWindow(GrooveApp& app, std::size_t index)
@@ -524,6 +579,7 @@ void FinishWindow(GrooveApp& app, std::size_t index)
                   : 0;
   result.state = 2;
   PrintResult(index);
+  PrintTaskLoad(g_runner.scenarios[index].name.c_str());
 }
 
 void ReleaseKeys(GrooveApp& app)
@@ -702,7 +758,7 @@ void Summary(std::uint32_t now)
   if (g_runner.summaryLine == 0) std::printf("stress: ===== summary (build %08x, %u restarts) =====\n", static_cast<unsigned>(g_persist.build), static_cast<unsigned>(g_persist.reboots));
   if (g_runner.summaryLine < g_runner.scenarios.size())
   {
-    PrintResult(g_runner.summaryLine++);
+    PrintShortResult(g_runner.summaryLine++);
     g_runner.summaryMs = now + 40;
     return;
   }
@@ -716,6 +772,24 @@ void StressTestTick(GrooveApp& app)
 {
   Runner& runner = g_runner;
   ++runner.frames;
+  // The USB console starts after the boot banner: how this start came about, where it can be read.
+  static bool bootReported = false;
+  if (!bootReported && esp_timer_get_time() > 3000000)
+  {
+    bootReported = true;
+    const char* crash = cardenza_previous_crash();
+    std::printf("stress: this start: reset reason %d, %u restarts in this run; the previous crash: %s\n", static_cast<int>(esp_reset_reason()),
+                static_cast<unsigned>(g_persist.magic == kMagic ? g_persist.reboots : 0u), crash != nullptr && crash[0] != 0 ? crash : "(none recorded)\n");
+  }
+  // The cores' load while the device starts (where the task watchdog has struck), then per scenario.
+  static std::int64_t nextLoadUs = 2000000;
+  if (!runner.started && esp_timer_get_time() > nextLoadUs && nextLoadUs <= 16000000)
+  {
+    char label[16];
+    std::snprintf(label, sizeof(label), "at %u s", static_cast<unsigned>(nextLoadUs / 1000000));
+    PrintTaskLoad(label);
+    nextLoadUs += 2000000;
+  }
   if (esp_timer_get_time() < kStartAfterUs) return;
   const std::uint32_t now = NowMs();
   if (!runner.started)
