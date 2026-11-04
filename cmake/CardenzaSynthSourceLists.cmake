@@ -342,6 +342,16 @@ function(cardenza_amy_core_source amy_src_dir out_var)
     endif()
     string(REPLACE "${pool_original}" "${pool_patched}" content "${content}")
 
+    # AMY uses what malloc_caps gives without checking (instrument_init writes through it at once):
+    # with internal RAM gone an engine switch restarted the board. PSRAM rather than NULL.
+    set(caps_original "    result = heap_caps_malloc(size, flags);\n  #else")
+    set(caps_patched "    result = heap_caps_malloc(size, flags);\n    if (result == NULL && size != 0) result = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);  // Cardenza: never NULL while PSRAM has room\n  #else")
+    string(FIND "${content}" "${caps_original}" match_index)
+    if(match_index EQUAL -1)
+        message(FATAL_ERROR "AMY malloc_caps patch no longer applies in ${source}")
+    endif()
+    string(REPLACE "${caps_original}" "${caps_patched}" content "${content}")
+
     set(output_dir ${CMAKE_BINARY_DIR}/cardenza_generated/amy)
     file(WRITE ${output_dir}/amy.c.in "${content}")
     # configure_file only touches amy.c when the content changes, so rebuilds stay incremental.

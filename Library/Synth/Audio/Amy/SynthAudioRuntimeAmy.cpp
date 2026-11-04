@@ -251,7 +251,10 @@ bool g_amyInitialized = false;
 std::array<EngineState, kSynthTrackCount> g_engines{};
 std::array<std::int16_t, kAmyFramesPerBlock * kAmyChannelCount> g_amyBlock{};
 std::size_t g_amyBlockCursor = kAmyFramesPerBlock;
-std::deque<PendingEvent> g_pendingEvents;
+// In PSRAM: when the render thread falls behind the queue grows, and from internal RAM it took the
+// last of it (some 30 KB of waiting notes in the stress test's "worst", 2026-11-04), after which AMY
+// could not set up an engine and the board restarted.
+std::deque<PendingEvent, memory::SlowAllocator<PendingEvent>> g_pendingEvents;
 std::mutex g_pendingEventMutex;
 std::mutex g_renderMutex;
 std::array<TrackMixState, kSynthTrackCount> g_trackMix{};
@@ -1516,9 +1519,19 @@ SYNTH_FX_HOT void MixRoutedTrackNoLock(std::size_t track, float* samples, float*
   }
 }
 
+// The queue's bound: a note that would wait behind this many events is too late to play (counted as
+// a note not heard). Everything else is kept, note-offs too, so nothing that sounds is left on.
+constexpr std::size_t kMaxPendingEvents = 384;
+std::atomic<std::uint32_t> g_droppedNoteOns{0};
+
 void QueuePendingEvent(PendingEvent event)
 {
   std::lock_guard<std::mutex> lock(g_pendingEventMutex);
+  if (event.type == PendingEventType::NoteOn && g_pendingEvents.size() >= kMaxPendingEvents)
+  {
+    g_droppedNoteOns.fetch_add(1, std::memory_order_relaxed);
+    return;
+  }
   g_pendingEvents.push_back(std::move(event));
 }
 
@@ -1777,11 +1790,19 @@ constexpr std::int64_t kEventBlockMicros = std::numeric_limits<std::int64_t>::ma
 constexpr float kOutputQueueMicros = 6.0f * 1000000.0f * static_cast<float>(kAmyFramesPerBlock) / static_cast<float>(kSampleRate);
 constexpr float kHeavyEventMicros = 25000.0f;
 float g_outputAheadMicros = 0.0f;
+// Since when a heavy event has waited for the output to get ahead (render clock, 0 for none). While
+// it waits the voice budget is smaller (kHeavyWaitBudgetShare), so the blocks render faster and the
+// output gains the lead: an overloaded device never got it, the engine switch waited for good and
+// every later note of its track queued behind it (the stress test's "worst", 2026-11-04). After
+// kHeavyEventMaxWaitMicros it goes anyway: one late block rather than a track that never changes.
+std::int64_t g_heavyWaitingSince = 0;
+constexpr std::int64_t kHeavyEventMaxWaitMicros = 300000;
 
 bool HeavyEventFitsNoLock()
 {
 #if defined(ESP_PLATFORM)
-  return g_outputAheadMicros >= kHeavyEventMicros;
+  return g_outputAheadMicros >= kHeavyEventMicros ||
+         (g_heavyWaitingSince != 0 && EventClockMicros() - g_heavyWaitingSince >= kHeavyEventMaxWaitMicros);
 #else
   return true;
 #endif
@@ -1814,6 +1835,7 @@ bool DrainPendingEvents(std::int64_t budgetMicros = std::numeric_limits<std::int
   const std::int64_t start = EventClockMicros();
   std::uint32_t waiting = 0;  // engines whose events wait behind a heavy one
   std::size_t index = 0;      // in the queue: those before it wait
+  bool heavyWaits = false;    // a heavy event was left waiting in this pass
   for (; count > 0; --count)
   {
     PendingEvent event;
@@ -1824,6 +1846,11 @@ bool DrainPendingEvents(std::int64_t budgetMicros = std::numeric_limits<std::int
       const std::uint32_t engine = 1u << (next.engineIndex & 31u);
       if ((waiting & engine) != 0 || (!heavyAllowed && HeavyEvent(next)))
       {
+        if (HeavyEvent(next))
+        {
+          heavyWaits = true;
+          if (g_heavyWaitingSince == 0) g_heavyWaitingSince = (std::max<std::int64_t>)(1, EventClockMicros());
+        }
         waiting |= engine;
         ++index;
         continue;
@@ -1831,6 +1858,7 @@ bool DrainPendingEvents(std::int64_t budgetMicros = std::numeric_limits<std::int
       event = std::move(g_pendingEvents[index]);
       g_pendingEvents.erase(g_pendingEvents.begin() + static_cast<std::ptrdiff_t>(index));
     }
+    if (HeavyEvent(event)) g_heavyWaitingSince = 0;
     ApplyPendingEvent(event);
 #if defined(ESP_PLATFORM)
     // One heavy event a call: the output has to win its time back before the next. (Hosts have no
@@ -1839,6 +1867,9 @@ bool DrainPendingEvents(std::int64_t budgetMicros = std::numeric_limits<std::int
 #endif
     if (count > 1 && EventClockMicros() - start >= budgetMicros) return true;
   }
+  // The whole queue seen: no heavy event waits any more (gone with its engine, say), so the budget is
+  // whole again.
+  if (!heavyWaits) g_heavyWaitingSince = 0;
   return waiting != 0;
 }
 
@@ -2123,6 +2154,7 @@ std::atomic<std::size_t> g_nextVoiceRun{0};
 // The board only: hosts render at whatever speed the machine running the tests has.
 constexpr float kBlockMicros = 1000000.0f * static_cast<float>(kAmyFramesPerBlock) / static_cast<float>(kSampleRate);
 constexpr float kVoiceBudgetShare = 0.92f;
+constexpr float kHeavyWaitBudgetShare = 0.6f;  // while a heavy event waits for the lead (g_heavyWaitingSince)
 // The helper shares core 0 with the UI: it renders voices for at most this long a block and leaves the
 // rest to the audio core, so the UI keeps more than half of its core however much plays (with no cap,
 // four DX7 tracks took 80% of it and the UI dropped a frame in four, the stress test, 2026-11-04).
@@ -2334,7 +2366,8 @@ void KeepVoicesWithinBudgetNoLock()
   // the audio core less its late start, never more than its share. (Counting the helper's whole share
   // on top of the audio core's let four DX7 tracks with effects run 6.4 ms a block, the stress test
   // 2026-11-04.)
-  const float mainAllowed = (kVoiceBudgetShare * kBlockMicros - g_overheadMicros) * g_budgetScale;
+  const float share = g_heavyWaitingSince != 0 ? kHeavyWaitBudgetShare : kVoiceBudgetShare;
+  const float mainAllowed = (share * kBlockMicros - g_overheadMicros) * g_budgetScale;
   const float helperAllowed = (std::min)(kHelperShareMicros, (std::max)(0.0f, mainAllowed - kHelperStartMicros));
   const float allowed = AMY_CORES > 1 ? mainAllowed + helperAllowed : mainAllowed;
   // As many as it takes: four tracks of eight-note pads change chords in one block, and the new
@@ -3352,8 +3385,8 @@ RenderModel CurrentRenderModel()
 
 GivenUpVoices GivenUpVoiceCounts()
 {
-  return {g_lostTails.load(std::memory_order_relaxed), g_lostHeld.load(std::memory_order_relaxed), g_lostUnheard.load(std::memory_order_relaxed),
-          g_lostStolen.load(std::memory_order_relaxed)};
+  return {g_lostTails.load(std::memory_order_relaxed), g_lostHeld.load(std::memory_order_relaxed),
+          g_lostUnheard.load(std::memory_order_relaxed) + g_droppedNoteOns.load(std::memory_order_relaxed), g_lostStolen.load(std::memory_order_relaxed)};
 }
 
 NoteSet HeldNotes(std::size_t engineIndex)

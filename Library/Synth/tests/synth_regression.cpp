@@ -1233,5 +1233,22 @@ int main()
     assert(std::fabs(longEcho - 1.2f) < 0.004f);
   }
 
+  // The event queue is bounded: notes queued faster than anything renders, past the bound, count as
+  // not heard (they would play far too late), their note-offs still go and nothing is left on. On the
+  // board an engine switch waiting for the output once queued 500 notes and took the last internal
+  // RAM (the stress test's "worst", 2026-11-04).
+  {
+    EnsureEngine(1, SynthEngineKind::Juno);
+    RenderFrames(pcm.data(), pcm.size());
+    const auto before = GivenUpVoiceCounts().unheard;
+    for (int index = 0; index < 500; ++index) NoteOn(1, static_cast<std::uint8_t>(36 + index % 48), 100);
+    const auto dropped = GivenUpVoiceCounts().unheard - before;
+    assert(dropped >= 500 - 384 && dropped < 500);
+    for (int note = 36; note < 84; ++note) NoteOff(1, static_cast<std::uint8_t>(note));
+    for (int block = 0; block < 8; ++block) RenderFrames(pcm.data(), pcm.size());
+    const NoteSet held = HeldNotes(1);
+    assert(std::all_of(held.begin(), held.end(), [](std::uint32_t word) { return word == 0; }));
+  }
+
   std::cout << "Synth regression passed: sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters.\n";
 }
