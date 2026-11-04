@@ -18,6 +18,12 @@
 #include <thread>
 #endif
 
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace synth::audio {
 
 namespace {
@@ -140,8 +146,37 @@ bool EnsureOpen(Pool& pool, StreamState& stream)
     stream.failed = true;
     return false;
   }
-  // Blocks are already read whole: a stdio buffer would only cost memory.
+  // Read through its descriptor (ReadBytes): a stdio buffer would only cost memory, and none may hold
+  // data the descriptor's position has moved past.
   std::setvbuf(stream.file, nullptr, _IONBF, 0);
+  return true;
+}
+
+// Through the file's descriptor: newlib reads an unbuffered FILE a byte at a time, every byte a VFS and
+// FATFS call. A 2 KB block took 33 ms on the board and the stream worker, above the UI on its core,
+// kept 76% of it while a sample played from the card (the stress test, 2026-11-04); read() takes the
+// block in one FATFS call, its whole sectors in one card command: 1.8 ms.
+bool ReadBytes(std::FILE* file, long offset, void* destination, std::size_t bytes)
+{
+#if defined(_WIN32)
+  const int descriptor = _fileno(file);
+  if (_lseek(descriptor, offset, SEEK_SET) != offset) return false;
+#else
+  const int descriptor = fileno(file);
+  if (::lseek(descriptor, offset, SEEK_SET) != offset) return false;
+#endif
+  auto* cursor = static_cast<char*>(destination);
+  while (bytes > 0)
+  {
+#if defined(_WIN32)
+    const int got = _read(descriptor, cursor, static_cast<unsigned>(bytes));
+#else
+    const ssize_t got = ::read(descriptor, cursor, bytes);
+#endif
+    if (got <= 0) return false;
+    cursor += got;
+    bytes -= static_cast<std::size_t>(got);
+  }
   return true;
 }
 
@@ -150,7 +185,7 @@ bool ReadFromFile(Pool& pool, StreamState& stream, std::size_t frame, std::int16
   if (!EnsureOpen(pool, stream)) return false;
   stream.lastUse = ++pool.clock;
   const auto offset = static_cast<long>(stream.dataOffset + frame * sizeof(std::int16_t));
-  if (std::fseek(stream.file, offset, SEEK_SET) != 0 || std::fread(destination, sizeof(std::int16_t), count, stream.file) != count)
+  if (!ReadBytes(stream.file, offset, destination, count * sizeof(std::int16_t)))
   {
     // Card out or read error: this stream stays silent, no retries that would hold up the others.
     CloseFile(stream);
