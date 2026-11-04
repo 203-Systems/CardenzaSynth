@@ -935,7 +935,16 @@ bool SynthSequencer::SetStepNotes(std::size_t trackIndex, std::size_t stepIndex,
 {
   if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerMaxSteps || (count > 0 && notes == nullptr)) return false;
   std::lock_guard<std::mutex> lock(mutex_);
-  StepData& step = ActivePatternLocked(tracks_[trackIndex]).steps.Edit(stepIndex);
+  auto& steps = ActivePatternLocked(tracks_[trackIndex]).steps;
+  if (count == 0)
+  {
+    // No notes: the step is erased, and a page left without notes is given back.
+    if (ActiveNoteCount(steps[stepIndex]) != 0) ClearStepLocked(steps.Edit(stepIndex));
+    steps.ReleaseEmptyPages();
+    if (trackIndex == activeTrack_) NormalizeScopeLocked();
+    return true;
+  }
+  StepData& step = steps.Edit(stepIndex);
   ClearStepLocked(step);
   std::size_t slot = 0;
   for (std::size_t index = 0; index < count && slot < step.notes.size(); ++index)

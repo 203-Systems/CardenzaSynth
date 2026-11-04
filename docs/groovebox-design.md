@@ -50,7 +50,7 @@ FN 是**当前画面的菜单**。按住 FN 时内容区换成菜单：4×4 的�
 | 画面 | 行 0–2 |
 |---|---|
 | INSTR（所有页） | PRESETS 浏览、SAVE 存音色、SAVE AS、ENGINE；RESET（OK，焦点参数恢复默认，只在参数页，CHORD / ARP 页也是）；Sampler 另有 SAMPLES、RECORD、PREVIEW |
-| SEQ（所有页） | COPY（C）、PASTE（V）、CLEAR（X）、QUANT（Q）：对选中的 step，没有选中时对整个 Pattern；DUP（D）复制到下一个空位；VIEW（ROLL / STEP）；RECORD（RECORD 面板）；SCOPE（OK，和弦里编辑的音，有选中时）；PAGE − / PAGE +（长 Pattern 翻页，音符页）；LEN − / LEN +（当前 Pattern 的长度） |
+| SEQ（所有页） | COPY（C）、PASTE（V）、CLEAR（X）、QUANT（Q）：对选中的 step，没有选中时对整个 Pattern（STEP 视图里 CLEAR 清的是光标那一步）；DUP（D）复制到下一个空位；VIEW（ROLL / STEP）；RECORD（RECORD 面板）；SCOPE（OK，和弦里编辑的音，有选中时）；PAGE − / PAGE +（长 Pattern 翻页，音符页）；LEN − / LEN +（当前 Pattern 的长度） |
 | TAPE SESSION | LAUNCH（发射光标所在行）、ADD（OK，正在播的 Pattern 记成 SONG 新一行） |
 | TAPE SONG | COPY / PASTE（插在光标行后）/ DELETE / DUP 一行（C / V / X / D）；PLAY（OK，SONG / LOOP） |
 | TAPE MIX | UNMUTE ALL、UNSOLO ALL |
@@ -166,7 +166,7 @@ Sampler 文件与录音流程沿用原规则：录音前确认、未保存草稿
 | 子页面 | 内容 |
 |---|---|
 | DRUMS（鼓引擎轨道的音符页，自动） | 轨道引擎是鼓机时，音符页就是鼓机界面（`Controller::DrumLayout()`），标签 DRUMS，没有 ROLL / STEP 切换。左边 8 条鼓 × 当前页 16 步的矩阵（一击越重 dither 越密），右边 4×4 是当前这条鼓在 GRID 上的 16 步。PADS 选鼓和力度（列是鼓，行是力度，同时发声）；GRID 点一下立刻加一击（停着时听得到），点已有的一击，松手时去掉；按住一击时屏幕显示它当前的值，ADD / SUB 改力度，按 ENTER 切换成改微步（每步 6 格，只在这一步内移动，FN 大步），再按 ENTER 切回，这个选择一直保持（改过或按得久就不去掉）。偏离正拍的一击：矩阵里画成细条，位置就是它在这一步里的位置；右边 GRID 格底部有一个小刻度 |
-| ROLL / STEP（音符页，两种视图） | **ROLL 钢琴卷帘（默认）**：横向是当前页的 16 步（GRID 的 16 键按行排列；长 Pattern 见下面「长 Pattern」），纵向是音高，每个音符画成和它时值一样长的条，力度越大越实；底部一条小格对应 GRID：有音符的步亮，选中的步白色。GRID 单击 = 走到这一步（只选这一步，再点放开；SETUP KEYS 页 SELECT = MULTI 时可多选），走到的步的音在演奏区全亮，播放时播放头那一步的音也亮；有选中时 PADS 在选中 step 上加 / 删音符，OK 循环编辑项 NOTE → LEN → VEL → TIME，ADD / SUB 调整，ESC 取消选择；无选中时按住 PADS 再点 step 写入音符。REC 打开并播放时，弹 PADS 实时录进 Pattern。**STEP 步进录制**：4×4 步格，红色蚂蚁线框是写入光标（键灯闪烁），角上的「+N」是每次写完前进的步数。按下 PADS（可同时按几个成和弦）就把这些音写进光标所在的步（替换原来的音），全部松开后光标前进；GRID 单击把光标移到那一步（同时按着 PADS 则直接写到那一步）；ADD / SUB 前后移动光标（空着走过 = 休止）。 |
+| ROLL / STEP（音符页，两种视图） | **ROLL 钢琴卷帘（默认）**：横向是当前页的 16 步（GRID 的 16 键按行排列；长 Pattern 见下面「长 Pattern」），纵向是音高，每个音符画成和它时值一样长的条，力度越大越实；底部一条小格对应 GRID：有音符的步亮，选中的步白色。GRID 单击 = 走到这一步（只选这一步，再点放开；SETUP KEYS 页 SELECT = MULTI 时可多选），走到的步的音在演奏区全亮，播放时播放头那一步的音也亮；有选中时 PADS 在选中 step 上加 / 删音符，OK 循环编辑项 NOTE → LEN → VEL → TIME，ADD / SUB 调整，ESC 取消选择；无选中时按住 PADS 再点 step 写入音符。REC 打开并播放时，弹 PADS 实时录进 Pattern。**STEP 步进录制**：4×4 步格，红色蚂蚁线框是写入光标（键灯闪烁），角上的「+N」是每次写完前进的步数。按下 PADS（可同时按几个成和弦）就把这些音写进光标所在的步（替换原来的音），全部松开后光标前进；松开时这一步的音和按之前完全一样（再按一次原来的音）就擦掉这一步，提示 STEP n CLEARED，和 ROLL 里在选中的步上再按那个音就删掉一样；GRID 单击把光标移到那一步（同时按着 PADS 则直接写到那一步，那一步正好就是这些音时擦掉，再点一次又写回）；Fn+X（菜单 CLEAR，写着 STEP n）擦掉光标那一步，光标前进；ADD / SUB 前后移动光标（空着走过 = 休止，不擦已有的音）。 |
 | PATTERN | 当前轨 16 个 Pattern 槽 + 四轨正在播放的 Pattern。GRID 单击选择；播放中会排队到当前循环结束再切换；空槽单击即新建 |
 | TRACK | 行 0：SEQ 开关、STEPS（当前 Pattern 的长度，1–256；ADD / SUB 一步，FN + ADD / SUB 一页）、SWING、BPM；下方是四轨总览：引擎、Pattern、步数标尺与播放位置（长 Pattern 压缩成 16 格） |
 

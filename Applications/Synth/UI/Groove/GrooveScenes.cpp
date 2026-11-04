@@ -943,14 +943,9 @@ void Controller::SequenceGrid(std::size_t index)
       const std::size_t step = ui.firstViewStep + index;
       if (state_.record.view == SeqView::Step)
       {
-        // STEP REC: a step key moves the write cursor; with pads held it writes them there.
-        if (step >= sequencer.TrackStepCount(state_.track)) return;
-        state_.record.cursor = static_cast<std::uint8_t>(step);
-        if (count > 0)
-        {
-          (void)StepRecordPress();
-          StepRecordRelease();
-        }
+        // STEP REC: a step key moves the write cursor; with pads held it writes them there (or
+        // erases a step that holds just those notes).
+        StepRecordGrid(step, count);
         return;
       }
       if (!ui.hasHeldSteps && count > 0)
@@ -1541,6 +1536,16 @@ void Controller::Clear()
   if (state_.scene != Scene::Sequence) return;
   auto& sequencer = host_.Sequencer();
   const auto ui = sequencer.BuildUiState(state_.track);
+  // STEP REC: the cursor is the selection. Its step is erased and the cursor moves on, as after a
+  // write.
+  if (CurrentPage() == 0 && !DrumLayout() && state_.record.view == SeqView::Step && !ui.hasHeldSteps)
+  {
+    StepCursorMove(0);
+    EraseCursorStep();
+    state_.record.stepBeforeKnown = false;
+    StepCursorMove(state_.record.stepLength);
+    return;
+  }
   if (CurrentPage() == 0 && ui.hasHeldSteps)
   {
     sequencer.ClearHeldStepEvents();
@@ -1695,7 +1700,9 @@ MenuItems Controller::Menu() const
       const bool pasteable = state_.clipboardValid && (state_.clipboardIsPattern || steps);
       put(0, MenuAction::Copy, "COPY", target, "C");
       put(1, MenuAction::Paste, "PASTE", target, "V", pasteable);
-      put(2, MenuAction::Clear, "CLEAR", target, "X");
+      // STEP REC: CLEAR erases the cursor step.
+      const bool cursorStep = page == 0 && !steps && !DrumLayout() && state_.record.view == SeqView::Step;
+      put(2, MenuAction::Clear, "CLEAR", cursorStep ? "STEP " + std::to_string(state_.record.cursor + 1) : target, "X");
       put(3, MenuAction::Quantize, "QUANT", target, "Q");
       put(4, MenuAction::Duplicate, "DUP", "PATTERN", "D", ui.tracks[state_.track].patternCount < synth::kSequencerMaxPatternCount);
       if (DrumLayout()) put(5, MenuAction::View, "VIEW", "DRUMS", nullptr, false);

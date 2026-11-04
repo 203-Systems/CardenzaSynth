@@ -1147,6 +1147,42 @@ void TestRecording(Harness& h)
   assert(h.State().record.cursor == 8);
   h.Tap(g3);
   assert(sequencer.StepNotes(8, notes) == 1 && notes[0] == 55 && h.State().record.cursor == 9);
+  // The notes a step holds, pressed again, erase it (a rest); other notes replace them.
+  h.Tap(Grid(8));
+  h.Tap(g3);
+  assert(sequencer.StepNotes(8, notes) == 0 && h.State().record.cursor == 9 && h.State().toast.text == "STEP 9 CLEARED");
+  h.Tap(Grid(1));  // C + E there: the chord again, one pad after the other
+  h.Down(c3);
+  assert(sequencer.StepNotes(1, notes) == 1);  // written as it is played
+  h.Down(e3);
+  h.Up(e3);
+  h.Up(c3);
+  assert(sequencer.StepNotes(1, notes) == 0 && h.State().record.cursor == 2);
+  h.Tap(Grid(0));  // C there: E replaces it
+  h.Tap(e3);
+  assert(sequencer.StepNotes(0, notes) == 1 && notes[0] == 52 && h.State().record.cursor == 1);
+  // Held pads + GRID: a step with just their notes is erased, the next tap writes them again.
+  h.Tap(Grid(4));
+  h.Down(e3);
+  h.Tap(Grid(0));
+  assert(sequencer.StepNotes(0, notes) == 0);
+  h.Tap(Grid(0));
+  assert(sequencer.StepNotes(0, notes) == 1 && notes[0] == 52);
+  h.Up(e3);
+  assert(sequencer.StepNotes(0, notes) == 1 && h.State().record.cursor == 1);
+  // FN + X: the cursor step is erased, not the pattern, and the cursor moves on.
+  h.Tap(Grid(4));  // E there, written when the pad went down above
+  assert(sequencer.StepNotes(4, notes) == 1);
+  h.Down(kFn);
+  assert(h.App().Ui().Menu()[2].detail == "STEP 5");
+  h.Tap(Key{3, 4});  // X
+  h.Up(kFn);
+  assert(!h.App().Ui().MenuOpen() && h.Modal() == nullptr);
+  assert(sequencer.StepNotes(4, notes) == 0 && h.State().record.cursor == 5 && h.State().toast.text == "STEP 5 CLEARED");
+  h.Tap(Grid(0));
+  h.Chord(kFn, Key{3, 4});
+  assert(sequencer.StepNotes(0, notes) == 0 && h.State().record.cursor == 1 && h.State().toast.text == "STEP 1 CLEARED");
+  assert(h.Seq().populatedStepCount == 0);  // nothing left in the pattern
   h.Render();
   h.Tap(kEnter);
   assert(app.Ui().View() == groove::SeqView::Roll);

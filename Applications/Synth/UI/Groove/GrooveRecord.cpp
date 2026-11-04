@@ -23,6 +23,16 @@ const char* ViewName(SeqView view)
   return view == SeqView::Roll ? "PIANO ROLL" : "STEP REC";
 }
 
+// The notes on a step, in order: what STEP REC compares with the pads.
+std::size_t SortedStepNotes(const synth::SynthSequencer& sequencer, std::size_t track, std::size_t step, std::array<std::uint8_t, 8>& notes)
+{
+  std::array<synth::SynthSequencer::StepNoteView, 8> views{};
+  const std::size_t count = sequencer.StepNoteEvents(track, step, views);
+  for (std::size_t index = 0; index < count; ++index) notes[index] = views[index].note;
+  std::sort(notes.begin(), notes.begin() + static_cast<std::ptrdiff_t>(count));
+  return count;
+}
+
 struct TimedNote {
   std::uint32_t start = 0;  // pulses from the take's origin
   std::uint32_t length = 0;
@@ -302,6 +312,7 @@ void Controller::ToggleSeqView()
   RecordState& rec = state_.record;
   rec.view = rec.view == SeqView::Roll ? SeqView::Step : SeqView::Roll;
   rec.stepWritten = false;
+  rec.stepBeforeKnown = false;
   host_.Sequencer().ClearSelectedSteps();
   const std::size_t steps = host_.Sequencer().TrackStepCount(state_.track);
   if (rec.cursor >= steps) rec.cursor = 0;
@@ -328,7 +339,15 @@ bool Controller::StepRecordPress()
   if (count == 0) return false;
   RecordState& rec = state_.record;
   StepCursorMove(0);
-  if (!host_.Sequencer().SetStepNotes(state_.track, rec.cursor, notes.data(), count, state_.keyboard.velocity)) return false;
+  auto& sequencer = host_.Sequencer();
+  // The first write of a press to a step remembers what was there: the same notes again erase it.
+  if (!rec.stepWritten || !rec.stepBeforeKnown || rec.stepBeforeAt != rec.cursor)
+  {
+    rec.stepBeforeCount = static_cast<std::uint8_t>(SortedStepNotes(sequencer, state_.track, rec.cursor, rec.stepBefore));
+    rec.stepBeforeAt = rec.cursor;
+    rec.stepBeforeKnown = true;
+  }
+  if (!sequencer.SetStepNotes(state_.track, rec.cursor, notes.data(), count, state_.keyboard.velocity)) return false;
   rec.stepWritten = true;
   MarkDirty();
   return true;
@@ -341,7 +360,46 @@ void Controller::StepRecordRelease()
   for (std::size_t index = 0; index < state_.padNote.size(); ++index)
     if (state_.padNote[index] != kNoNote && state_.padTrack[index] == state_.track) return;
   rec.stepWritten = false;
+  // The notes that were there, pressed again: the step is erased (a rest), as a pad on a selected
+  // step takes its note out in the piano roll.
+  if (StepRecordRepeats()) EraseCursorStep();
+  rec.stepBeforeKnown = false;
   StepCursorMove(rec.stepLength);
+}
+
+// The cursor step holds just the notes it had before the pads now down wrote there.
+bool Controller::StepRecordRepeats() const
+{
+  const RecordState& rec = state_.record;
+  if (!rec.stepBeforeKnown || rec.stepBeforeAt != rec.cursor || rec.stepBeforeCount == 0) return false;
+  std::array<std::uint8_t, 8> now{};
+  const std::size_t count = SortedStepNotes(host_.Sequencer(), state_.track, rec.cursor, now);
+  return count == rec.stepBeforeCount && std::equal(now.begin(), now.begin() + static_cast<std::ptrdiff_t>(count), rec.stepBefore.begin());
+}
+
+// STEP REC: the cursor step loses its notes (FN + X, or its notes pressed again).
+void Controller::EraseCursorStep()
+{
+  const std::uint8_t cursor = state_.record.cursor;
+  std::array<std::uint8_t, 8> notes{};
+  const bool hadNotes = SortedStepNotes(host_.Sequencer(), state_.track, cursor, notes) != 0;
+  if (hadNotes && host_.Sequencer().SetStepNotes(state_.track, cursor, nullptr, 0, 0)) MarkDirty();
+  ShowToast("STEP " + std::to_string(cursor + 1) + (hadNotes ? " CLEARED" : " EMPTY"));
+}
+
+// STEP REC, GRID tapped: the cursor goes there, and held pads write to that step at once, or erase
+// it when it holds just their notes.
+void Controller::StepRecordGrid(std::size_t step, std::size_t heldNotes)
+{
+  RecordState& rec = state_.record;
+  if (step >= host_.Sequencer().TrackStepCount(state_.track)) return;
+  rec.cursor = static_cast<std::uint8_t>(step);
+  if (heldNotes == 0) return;
+  rec.stepBeforeKnown = false;  // this tap decides for this step on its own
+  if (!StepRecordPress()) return;
+  if (StepRecordRepeats()) EraseCursorStep();
+  rec.stepBeforeKnown = false;  // decided: letting go of the pads only moves the cursor on
+  StepRecordRelease();
 }
 
 // ---------------------------------------------------------------------------------------------
