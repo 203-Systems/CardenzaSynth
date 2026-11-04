@@ -1,7 +1,8 @@
 // App lifecycle on the real system, storage on the SD card only (protocol 2, docs/app-storage-protocol.md):
 // boot on a card the 0.1.0 release wrote, change device settings, play settings and the session in the
 // groovebox, keep the working state on the card through power cuts, card trouble and app switches, and
-// check where everything was stored.
+// check where everything was stored. `--no-card`: a start without a card, which touches no card for the
+// whole run and says so.
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -18,6 +19,7 @@
 #include "Applications/Application.h"
 #include "Applications/Synth/GrooveApp.h"
 #include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
+#include "Applications/Synth/UI/Groove/Render/Animator.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
 #include "Devices/Device.h"
 #include "OS/Storage/DeviceSettings.h"
@@ -139,6 +141,92 @@ void QuickSave()
   Key(2, 0, false);
 }
 
+// No card at the start: the whole run makes no card operation, even after a card goes in, and the
+// screen says that nothing will be saved.
+void TestNoCardBoot(const fs::path& root)
+{
+  const fs::path card = root / "sdcard";
+  const fs::path product = card / "CardenzaSynth";
+  // A card with settings, a project and an autosave: none of it may be read or changed.
+  WriteText(product / "Settings" / "system.cfg", "protocol=2\nsys.volume=47\nsys.volume.rev=2\nsys.led=5\nboot.app=Cardenza/Synth\n");
+  WriteText(product / "Settings" / "synth.cfg", "keys.select=1\n");
+  WriteText(product / "Projects" / "ON CARD.ccproj", "CARDENZA_PROJECT 4\n");
+  WriteText(product / "Session" / "autosave.txt", "generation=3\nname=ON CARD\ndirty=0\n");
+  WriteText(product / "Session" / "autosave.ccproj", "CARDENZA_PROJECT 7\n");
+  const auto before = Snapshot(card);
+
+  CardenzaSim::Input::SetCardInserted(false);
+  RegisterBlankApp();
+  os::system::UseClock(&FakeClock);
+  assert(os::system::Begin());
+  assert(os::storage::CardMissingThisRun() && !os::storage::CardPresent() && !os::storage::CardMounted());
+  auto* groove = &Groove();
+  // The defaults, not the card's.
+  assert(groove->MasterVolume() == os::storage::kDefaultOutputVolume && groove->LedBrightness() == os::storage::kDefaultKeyLedBrightness);
+  assert(!groove->Ui().Settings().keyboard.multiSelect && groove->Ui().State().projectName.empty());
+  assert(!groove->QuerySystem().storageReady);
+
+  // The notice is there at the start and still there after the boot animation, until ENTER.
+  const auto notice = [&]() {
+    const groove::Modal* modal = groove->Ui().TopModal();
+    return modal != nullptr && modal->kind == groove::ModalKind::Confirm && modal->confirmPurpose == groove::ConfirmPurpose::Notice &&
+           modal->title == "NO SD CARD" && Contains(modal->detail, "NOTHING WILL BE SAVED");
+  };
+  assert(notice());
+  Frames(static_cast<int>(groove::kBootMs / 16) + 120);
+  assert(notice());
+
+  // A card put in now changes nothing until the next start.
+  CardenzaSim::Input::SetCardInserted(true);
+  Frames(700);
+  assert(!os::storage::CardPresent() && !os::storage::CardMounted() && !groove->QuerySystem().storageReady);
+  assert(notice());
+  Tap(2, 13);  // ENTER: read
+  assert(groove->Ui().TopModal() == nullptr);
+
+  // Nothing on the card is listed or loaded, and saving says why it cannot.
+  assert(groove->ListProjects().empty() && groove->ListSamples().empty());
+  std::string message;
+  groove::ProjectUiSettings ui;
+  assert(!groove->LoadProject("ON CARD", ui, message) && message == "NO SD CARD");
+  QuickSave();
+  assert(groove->Ui().State().toast.text == "NO SD CARD" && groove->Ui().State().projectName.empty());
+  // The guide has nowhere to keep the working state.
+  CardenzaSim::Input::SendComputerApp("GE");
+  Frames(2);
+  std::string reply, said;
+  while (CardenzaSim::Input::TakeDeviceApp(said)) reply += said + "|";
+  assert(Contains(reply, "GE0 card"));
+
+  // Work as usual: settings and the session stay in RAM, nothing is written, no log either.
+  groove->SetStandbyMinutes(0);
+  groove->SetMasterVolume(70);
+  groove->SetLedBrightness(4);
+  groove->Sequencer().SetTempo(133);
+  for (int beat = 0; beat < 10; ++beat)
+  {
+    Tap(1, 1);
+    Frames(20);
+  }
+  Device::Log::Write("test: no card");
+  gNow += 70000;
+  Frames(400);
+  groove->FlushSession();
+  assert(os::storage::AnySettingsDirty() && !os::log::Flush());
+  assert(groove->MasterVolume() == 70 && groove->LedBrightness() == 4 && groove->Sequencer().Tempo() == 133);
+  // An app switch and back keeps the settings in RAM; the working state has nowhere to wait.
+  SwitchTo(kBlankId);
+  SwitchTo("Cardenza/Synth");
+  groove = &Groove();
+  assert(groove->MasterVolume() == 70 && os::storage::AnySettingsDirty());
+  assert(notice());
+  os::system::Shutdown();
+  assert(os::system::ActiveApplication() == nullptr);
+
+  assert(Snapshot(card) == before && !fs::exists(root / "internal"));
+  std::cout << "No-card lifecycle passed\n";
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -151,6 +239,13 @@ int main(int argc, char** argv)
   {
     std::cerr << "Lifecycle tests require an isolated card under their temporary working directory\n";
     return 1;
+  }
+  if (argc == 2 && std::string(argv[1]) == "--no-card")
+  {
+    TestNoCardBoot(root);
+    fs::current_path(fs::temp_directory_path());
+    fs::remove_all(root);
+    return 0;
   }
   assert(argc == 1);
   const fs::path card = root / "sdcard";
@@ -174,10 +269,10 @@ int main(int argc, char** argv)
   RegisterBlankApp();
   os::system::UseClock(&FakeClock);
   assert(os::system::Begin());
-  assert(os::storage::CardMounted());
+  assert(!os::storage::CardMissingThisRun() && os::storage::CardMounted());
   assert(os::system::ActiveApplicationId() == "Cardenza/Synth");
   auto* groove = &Groove();
-  assert(groove->Ui().TopModal() == nullptr);
+  assert(groove->Ui().TopModal() == nullptr);  // no notice with a card
   assert(groove->MasterVolume() == 50 && os::storage::kDefaultOutputVolume == 50);
   assert(groove->LedBrightness() == 9 && groove->Ui().Settings().keyboard.multiSelect);
   // The clock jumps minutes at a time here: standby would take the next key for waking up.

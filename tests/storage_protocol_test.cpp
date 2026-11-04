@@ -1,5 +1,6 @@
 // Protocol 2: the 0.1.0 release's CardenzaSynth layout and SD-only settings; earlier layouts remain
-// untouched. The simulator card is taken out and put back without resetting the settings cache.
+// untouched. The simulator card is taken out and put back without resetting the settings cache, and
+// last a run starts without one.
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -328,6 +329,39 @@ void TestLegacyLayoutsRemainUntouched()
   std::cout << "legacy layouts and file bytes remain untouched\n";
 }
 
+// A run that starts without a card makes no card operation until the next start, a card put in
+// meanwhile included: the system decides it once (os::system::Begin calls DecideCardAtStart).
+void TestRunWithoutCard()
+{
+  ResetCard();
+  assert(EnsureSystemLayout());
+  const std::string settingsPath = SystemSettingsPath();
+  WriteText(settingsPath, "protocol=2\nsys.volume=47\n");
+  CardenzaSim::Input::SetCardInserted(false);
+  assert(!DecideCardAtStart() && CardMissingThisRun());
+  CardenzaSim::Input::SetCardInserted(true);
+  assert(!CardPresent() && !CardMounted() && CardCapacityBytes() == 0 && !EnsureSystemLayout());
+  assert(!Exists(settingsPath) && !IsDirectory(Root()) && ListDirectory(SystemDirectory()).empty());
+  std::string text;
+  assert(!ReadFileWithBackup(settingsPath, text, 1024) && !WriteFileAtomic(settingsPath, "x=1\n"));
+  assert(!CreateDirectories(JoinPath(Root(), "New")) && !RemoveFile(settingsPath));
+  const AppFolder synth("Cardenza/Synth");
+  assert(!EnsureAppLayout(synth, {"DX7"}));
+  // The settings start from their defaults and stay in RAM.
+  ReloadAllSettings();
+  Settings& system = SystemSettings();
+  assert(system.GetInt("sys.volume", 85) == 85 && system.SetInt("sys.volume", 30));
+  assert(!RefreshAllSettingsFromCard() && !FlushAllSettings() && AnySettingsDirty() && system.GetInt("sys.volume", 0) == 30);
+  ReportCardIoError();
+  assert(ReadText(settingsPath) == "protocol=2\nsys.volume=47\n");
+  assert(!fs::exists(fs::path(Root()) / "New") && !fs::exists(settingsPath + ".tmp") && !fs::exists(synth.Presets("DX7")));
+  // The next start with the card reads it again.
+  assert(DecideCardAtStart() && !CardMissingThisRun());
+  ReloadAllSettings();
+  assert(SystemSettings().GetInt("sys.volume", 0) == 47);
+  std::cout << "run without a card passed\n";
+}
+
 }  // namespace
 
 int main()
@@ -351,6 +385,7 @@ int main()
   TestMissingCardRamOnly();
   TestDeviceSettings();
   TestLegacyLayoutsRemainUntouched();
+  TestRunWithoutCard();
   assert(!fs::exists(Internal()));
 
   fs::current_path(fs::temp_directory_path());

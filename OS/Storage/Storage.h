@@ -62,6 +62,16 @@ private:
   std::string id_;
 };
 
+// Whether this run of the device has a card. The system decides it once, as it starts
+// (os::system::Begin, before any app is set up), from whether the card is mounted then. A run that
+// starts without one makes no card operation at all until the device restarts: nothing probes for a
+// card, CardPresent() and CardMounted() stay false, the file helpers below refuse every path on the
+// card, and nothing is saved (a card put in meanwhile changes nothing). A card that was there at the
+// start may still fail and come back (Device::Storage mounts it again). Until the system decides
+// (host tests that run without it), the card is used as found.
+bool DecideCardAtStart();
+bool CardMissingThisRun();
+
 // Card state. CardPresent() asks the device to mount the card when it is not mounted yet (the
 // device decides how often a missing card is probed).
 bool CardPresent();
@@ -86,7 +96,7 @@ bool EnsureSystemLayout();
 bool EnsureAppLayout(const AppFolder& app, const std::vector<std::string>& presetGroups = {});
 
 // Portable file helpers: FAT through the ESP-IDF VFS on the device, the host file system in the
-// simulator.
+// simulator. In a run without a card (CardMissingThisRun) they refuse every path on the card.
 std::string JoinPath(std::string_view directory, std::string_view name);
 bool Exists(const std::string& path);
 bool IsDirectory(const std::string& path);

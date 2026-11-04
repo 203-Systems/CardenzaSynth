@@ -45,6 +45,23 @@ std::string ParentPath(const std::string& path)
   return slash == std::string::npos ? std::string() : path.substr(0, slash);
 }
 
+// What the system found at the start (DecideCardAtStart). Read by the background task too.
+enum : int { kCardUndecided = 0, kCardThere = 1, kCardMissing = 2 };
+std::atomic<int> g_cardRun{kCardUndecided};
+
+// The card root or a path below it.
+bool OnCard(const std::string& path)
+{
+  const std::string root = Device::Storage::RootPath();
+  return !root.empty() && path.compare(0, root.size(), root) == 0 && (path.size() == root.size() || path[root.size()] == '/');
+}
+
+// A run without a card touches nothing on it.
+bool Refused(const std::string& path)
+{
+  return path.empty() || (CardMissingThisRun() && OnCard(path));
+}
+
 }  // namespace
 
 std::string JoinPath(std::string_view directory, std::string_view name)
@@ -144,14 +161,28 @@ std::string AppFolder::Folder(std::string_view name) const
   return Valid() && IsValidFolderName(name) ? JoinPath(Root(), name) : std::string();
 }
 
+bool DecideCardAtStart()
+{
+  // The device tried to mount the card as it started; this asks once more at most (the device limits
+  // how often a missing card is probed).
+  const bool present = Device::Storage::Mount();
+  g_cardRun.store(present ? kCardThere : kCardMissing, std::memory_order_relaxed);
+  return present;
+}
+
+bool CardMissingThisRun()
+{
+  return g_cardRun.load(std::memory_order_relaxed) == kCardMissing;
+}
+
 bool CardPresent()
 {
-  return Device::Storage::Mount();
+  return !CardMissingThisRun() && Device::Storage::Mount();
 }
 
 bool CardMounted()
 {
-  return Device::Storage::IsMounted();
+  return !CardMissingThisRun() && Device::Storage::IsMounted();
 }
 
 namespace {
@@ -170,7 +201,7 @@ bool CardStreaming()
 
 void ReportCardIoError()
 {
-  Device::Storage::CheckAfterIoError();
+  if (!CardMissingThisRun()) Device::Storage::CheckAfterIoError();
 }
 
 std::uint64_t CardCapacityBytes()
@@ -210,31 +241,31 @@ bool EnsureAppLayout(const AppFolder& app, const std::vector<std::string>& prese
 bool Exists(const std::string& path)
 {
   struct stat info{};
-  return !path.empty() && stat(path.c_str(), &info) == 0;
+  return !Refused(path) && stat(path.c_str(), &info) == 0;
 }
 
 bool IsDirectory(const std::string& path)
 {
   struct stat info{};
-  return !path.empty() && stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+  return !Refused(path) && stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
 }
 
 bool IsFile(const std::string& path)
 {
   struct stat info{};
-  return !path.empty() && stat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode);
+  return !Refused(path) && stat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode);
 }
 
 long long FileSize(const std::string& path)
 {
   struct stat info{};
-  if (path.empty() || stat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode)) return -1;
+  if (Refused(path) || stat(path.c_str(), &info) != 0 || !S_ISREG(info.st_mode)) return -1;
   return static_cast<long long>(info.st_size);
 }
 
 bool CreateDirectories(const std::string& path)
 {
-  if (path.empty()) return false;
+  if (Refused(path)) return false;
   if (IsDirectory(path)) return true;
   // The card root is a VFS mount point that FAT cannot stat or create: start below it.
   const std::string root = Device::Storage::RootPath();
@@ -253,13 +284,13 @@ bool CreateDirectories(const std::string& path)
 
 bool RemoveEmptyDirectory(const std::string& path)
 {
-  return IsDirectory(path) && rmdir(path.c_str()) == 0;
+  return !Refused(path) && IsDirectory(path) && rmdir(path.c_str()) == 0;
 }
 
 std::vector<DirectoryEntry> ListDirectory(const std::string& path)
 {
   std::vector<DirectoryEntry> entries;
-  DIR* directory = path.empty() ? nullptr : opendir(path.c_str());
+  DIR* directory = Refused(path) ? nullptr : opendir(path.c_str());
   if (directory == nullptr) return entries;
   while (const dirent* entry = readdir(directory))
   {
@@ -279,19 +310,19 @@ namespace fs = std::filesystem;
 bool Exists(const std::string& path)
 {
   std::error_code error;
-  return !path.empty() && fs::exists(fs::u8path(path), error);
+  return !Refused(path) && fs::exists(fs::u8path(path), error);
 }
 
 bool IsDirectory(const std::string& path)
 {
   std::error_code error;
-  return !path.empty() && fs::is_directory(fs::u8path(path), error);
+  return !Refused(path) && fs::is_directory(fs::u8path(path), error);
 }
 
 bool IsFile(const std::string& path)
 {
   std::error_code error;
-  return !path.empty() && fs::is_regular_file(fs::u8path(path), error);
+  return !Refused(path) && fs::is_regular_file(fs::u8path(path), error);
 }
 
 long long FileSize(const std::string& path)
@@ -304,7 +335,7 @@ long long FileSize(const std::string& path)
 
 bool CreateDirectories(const std::string& path)
 {
-  if (path.empty()) return false;
+  if (Refused(path)) return false;
   std::error_code error;
   fs::create_directories(fs::u8path(path), error);
   return IsDirectory(path);
@@ -314,13 +345,13 @@ bool RemoveEmptyDirectory(const std::string& path)
 {
   std::error_code error;
   // fs::remove refuses a non-empty directory.
-  return IsDirectory(path) && fs::remove(fs::u8path(path), error) && !error;
+  return !Refused(path) && IsDirectory(path) && fs::remove(fs::u8path(path), error) && !error;
 }
 
 std::vector<DirectoryEntry> ListDirectory(const std::string& path)
 {
   std::vector<DirectoryEntry> entries;
-  if (path.empty()) return entries;
+  if (Refused(path)) return entries;
   std::error_code error;
   for (fs::directory_iterator it(fs::u8path(path), error), end; !error && it != end; it.increment(error))
   {
@@ -380,6 +411,7 @@ static bool WriteFileAtomicOnce(const std::string& path, std::string_view conten
 
 bool WriteFileAtomic(const std::string& path, std::string_view contents)
 {
+  if (Refused(path)) return false;
   const bool written = WriteFileAtomicOnce(path, contents);
   if (!written) ReportCardIoError();
   return written;
@@ -387,6 +419,7 @@ bool WriteFileAtomic(const std::string& path, std::string_view contents)
 
 bool ReadFileWithBackup(const std::string& path, std::string& contents, std::size_t maxBytes)
 {
+  if (Refused(path)) return false;
   const std::string source = IsFile(path) ? path : path + ".bak";
   const long long size = FileSize(source);
   if (size < 0 || static_cast<unsigned long long>(size) > maxBytes) return false;
@@ -402,7 +435,7 @@ bool ReadFileWithBackup(const std::string& path, std::string& contents, std::siz
 
 bool RemoveFile(const std::string& path)
 {
-  if (path.empty()) return false;
+  if (Refused(path)) return false;
   return !IsFile(path) || std::remove(path.c_str()) == 0;
 }
 

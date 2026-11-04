@@ -22,7 +22,8 @@ else()
 endif()
 add_test(NAME CardenzaArpTests COMMAND CardenzaArpTests)
 
-# The SD-only storage protocol (2) on the simulator's card, with the card taken out and put back.
+# The SD-only storage protocol (2) on the simulator's card, with the card taken out and put back, and a
+# run that starts without one.
 cardenza_collect_storage_cpp_sources(${PROJECT_SOURCE_DIR} storage_test_sources)
 add_executable(CardenzaStorageTests
   storage_protocol_test.cpp
@@ -105,10 +106,12 @@ if(CARDENZA_GROOVE_UI)
   add_executable(CardenzaLearnDump ${PROJECT_SOURCE_DIR}/tools/learn/learn_dump.cpp)
   target_link_libraries(CardenzaLearnDump PRIVATE CardenzaSystem CardenzaSimDevice)
 
-  # App switching and the groovebox's settings and session on the real system.
+  # App switching and the groovebox's settings and session on the real system; and a start without a
+  # card, which touches no card for the whole run.
   add_executable(CardenzaAppLifecycleTests app_lifecycle_test.cpp)
   target_link_libraries(CardenzaAppLifecycleTests PRIVATE CardenzaSystem CardenzaSimDevice)
   add_test(NAME CardenzaAppLifecycleTests COMMAND CardenzaAppLifecycleTests)
+  add_test(NAME CardenzaNoCardLifecycleTests COMMAND CardenzaAppLifecycleTests --no-card)
   list(APPEND cardenza_ui_tests CardenzaAppLifecycleTests)
 endif()
 

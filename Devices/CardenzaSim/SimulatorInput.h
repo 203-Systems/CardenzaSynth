@@ -9,7 +9,8 @@ namespace CardenzaSim::Input {
 void SetMatrixKey(std::size_t row, std::size_t column, bool pressed);
 void SetHomeButton(bool pressed);
 void ClearMatrixKeys();
-// Simulates taking the SD card out (false) and putting it back (true, the default).
+// Simulates taking the SD card out (false) and putting it back (true, the default). Out when the system
+// starts (os::system::Begin), the whole run is one without a card, as on the device.
 void SetCardInserted(bool inserted);
 // A microphone for hosts without capture hardware: StartInput succeeds and frames of a test tone
 // become readable as they are fed. False: no microphone at all, not even the host's own (a Windows

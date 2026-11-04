@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 
 namespace groove {
 
@@ -70,6 +71,12 @@ void Controller::OpenConfirm(ConfirmPurpose purpose, const std::string& title, c
   modal.danger = danger;
   modal.payload = payload;
   OpenModal(std::move(modal));
+}
+
+void Controller::ShowNoCardNotice()
+{
+  OpenConfirm(ConfirmPurpose::Notice, "NO SD CARD", "NOTHING WILL BE SAVED\nINSERT A CARD AND RESTART TO SAVE", false);
+  std::printf("ui: no SD card: nothing will be saved\n");
 }
 
 void Controller::OpenPresetBrowser()
@@ -487,6 +494,8 @@ void Controller::Confirmed()
       OpenSampleRecord();
       if (!sampler.BeginRecord(state_.track, true)) ShowToast(sampler.BuildUiState(state_.track).statusText, ToastKind::Error);
       break;
+    case ConfirmPurpose::Notice:
+      break;  // read: closed
   }
 }
 

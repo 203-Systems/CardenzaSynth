@@ -109,6 +109,7 @@ enum class ConfirmPurpose : std::uint8_t {
   DeleteSample,
   DiscardTake,
   ReplaceTake,
+  Notice,  // only says something (title, and the detail's lines): ENTER or ESC closes it
 };
 
 struct ListItem {
@@ -494,8 +495,11 @@ public:
   std::size_t DrumLane() const { return state_.drumLane[state_.track]; }
   // A take came back from the card: its screen opens, as it was left.
   void ResumeTake(std::size_t track);
-  // The autosave could not take it all.
+  // The autosave could not be written.
   void ReportAutosaveProblem(const std::string& text);
+  // The device started without a card: nothing will be saved. A notice until ENTER or ESC closes it,
+  // so it is still there to read after the boot animation.
+  void ShowNoCardNotice();
   void ComputeLeds(LedFrame& frame) const;
   // Levels only (no effects), for callers that do not animate.
   void ComputeLeds(std::array<std::uint8_t, kKeyCount>& levels) const;

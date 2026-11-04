@@ -152,9 +152,10 @@ bool StartApplication(const std::string& id, const std::vector<std::string>& arg
 // The card there again (it was out, or stopped answering and was mounted again): its settings come
 // back with the edits not written yet on top, and the device settings follow it. `force` asks the
 // device to mount it now (it limits how often a missing card is probed); otherwise at most every
-// kCardRetryMs.
+// kCardRetryMs. Never in a run that started without a card.
 bool PrepareCard(bool force = false) {
   auto& state = State();
+  if (os::storage::CardMissingThisRun()) return false;
   if (!os::storage::CardMounted()) state.cardReady = false;
   if (state.cardReady) return true;
   const std::uint32_t now = Now();
@@ -172,6 +173,7 @@ bool PrepareCard(bool force = false) {
 
 bool FlushSettings(bool force = false) {
   auto& state = State();
+  if (os::storage::CardMissingThisRun()) return false;
   const bool prepared = PrepareCard(force);
   state.settingsTriedAt = Now();
   state.settingsWriteFailed = !prepared || !os::storage::FlushAllSettings();
@@ -214,6 +216,8 @@ void PerformSwitch(const std::string& id) {
 
 void WriteBehindSettings() {
   auto& state = State();
+  // A run that started without a card keeps its settings in RAM: nothing to do.
+  if (os::storage::CardMissingThisRun()) return;
   const std::uint32_t now = Now();
   // A card mounted again (by anyone who looked for it) brings its settings back. Nobody probes for a
   // missing card here unless a setting waits to be written.
@@ -247,11 +251,15 @@ bool Begin(const BootOptions& options) {
 
   app::RegisterBuiltInApplications();
 
-  // The card: the protocol version, the settings it holds, the system folders. Nothing is kept anywhere
-  // else.
-  (void)os::storage::SystemSettings().SetInt(kProtocolKey, os::storage::kProtocolVersion);
-  state.cardReady = os::storage::EnsureSystemLayout();
-  if (state.cardReady) (void)os::storage::RefreshAllSettingsFromCard();
+  // The card is looked for once, before any app is set up: a run that starts without one makes no
+  // card operation at all, and saves nothing, until the device restarts (os::storage::CardMissingThisRun).
+  if (os::storage::DecideCardAtStart())
+  {
+    (void)os::storage::SystemSettings().SetInt(kProtocolKey, os::storage::kProtocolVersion);
+    state.cardReady = os::storage::EnsureSystemLayout();
+    if (state.cardReady) (void)os::storage::RefreshAllSettingsFromCard();
+  }
+  else std::printf("system: no SD card at the start: nothing is read from or saved to a card until a restart\n");
   state.cardTriedAt = Now();
   os::storage::ApplyDeviceSettings();
   // The end of the previous run (a crash too) goes to the card before anything can go wrong again.

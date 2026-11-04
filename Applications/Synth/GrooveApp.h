@@ -25,6 +25,7 @@ namespace apps {
 // Settings/synth.cfg; volume, key LEDs and screen are device settings in Settings/system.cfg
 // (os::storage). Neither changes when a project is loaded or created. The working state is the
 // autosave in Session/ (SessionStore): written once changes settle and on Suspend, restored by Setup.
+// A run that starts without a card says so and saves nothing (os::storage::CardMissingThisRun).
 class GrooveApp : public app::Application, public groove::Host {
 public:
   GrooveApp();

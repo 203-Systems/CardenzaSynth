@@ -1,5 +1,6 @@
 // SD-only settings persistence. Uses an isolated scratch card and device stubs, so the failure
-// cases do not touch the simulator's normal card or depend on hardware/flash.
+// cases do not touch the simulator's normal card or depend on hardware/flash. Last, a run that starts
+// without a card: it asks the device for nothing and touches no file on the card.
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -212,6 +213,41 @@ void FailedSaveNotifications()
   Require(settings.Flush() && !settings.Dirty(), "save did not recover after an I/O failure");
 }
 
+// The system decides at its start whether the run has a card. Without one nothing asks the device for
+// the card, every file on it is refused, and a card put in later changes nothing.
+void RunWithoutCard()
+{
+  const std::string path = Path("nocard.cfg");
+  Write(path, "sys.volume=80\n");
+  cardInserted = false;
+  Require(!os::storage::DecideCardAtStart() && os::storage::CardMissingThisRun(), "a start without a card was not noticed");
+  cardInserted = true;  // put in after the start
+  const unsigned mounts = mountCalls;
+  const unsigned checks = writeFailureChecks;
+  Require(!os::storage::CardPresent() && !os::storage::CardMounted() && os::storage::CardFreeBytes() == 0 &&
+              !os::storage::EnsureSystemLayout(),
+          "a run without a card used the card put in later");
+  Require(!os::storage::Exists(path) && !os::storage::IsFile(path) && os::storage::FileSize(path) < 0 &&
+              !os::storage::IsDirectory(os::storage::Root()) && os::storage::ListDirectory(os::storage::SystemDirectory()).empty(),
+          "a run without a card read the card");
+  std::string text;
+  Require(!os::storage::ReadFileWithBackup(path, text, 1024) && !os::storage::WriteFileAtomic(path, "x=1\n") &&
+              !os::storage::CreateDirectories(os::storage::JoinPath(os::storage::Root(), "New")) && !os::storage::RemoveFile(path),
+          "a run without a card wrote to the card");
+  os::storage::Settings settings("test", path);
+  settings.Load();
+  Require(settings.GetInt("sys.volume", 17) == 17 && settings.SetInt("sys.volume", 25) && !settings.RefreshFromCard() &&
+              !settings.Flush() && settings.Dirty() && settings.GetInt("sys.volume", 0) == 25,
+          "settings without a card are not kept in RAM");
+  os::storage::ReportCardIoError();
+  Require(mountCalls == mounts && writeFailureChecks == checks, "a run without a card asked the device about the card");
+  Require(Read(path) == "sys.volume=80\n" && !fs::exists(cardRoot / "CardenzaSynth" / "New") && !fs::exists(path + ".tmp"),
+          "the card changed in a run without one");
+  // The next start finds it.
+  Require(os::storage::DecideCardAtStart() && !os::storage::CardMissingThisRun() && os::storage::Exists(path),
+          "a start with the card did not find it");
+}
+
 }  // namespace
 
 namespace Device::Storage {
@@ -241,6 +277,7 @@ int main()
     SizeLimitAndRecovery();
     TolerantFormatAndRegistryRefresh();
     FailedSaveNotifications();
+    RunWithoutCard();
     std::cout << "SD-only settings tests passed\n";
     return 0;
   }

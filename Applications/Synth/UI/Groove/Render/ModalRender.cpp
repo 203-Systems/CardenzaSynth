@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <string_view>
 
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
@@ -98,8 +99,30 @@ void DrawTextEntry(Gfx& g, const Controller& controller, Animator& animator, con
   g.Text(kContentX, kContentY + 80, "FN + , / MOVE   FN + ; . START / END   FN + DEL DELETE", kFaint);
 }
 
+// A notice: the title, the first line of the detail as the warning it is, the rest dim, and one way out.
+void DrawNotice(Gfx& g, const Modal& modal)
+{
+  g.TextFit(kContentX, kContentY + 14, kContentWidth, modal.title, kInk, Font::Small);
+  std::string_view detail = modal.detail;
+  for (int line = 0; !detail.empty() && line < 2; ++line)
+  {
+    const std::size_t end = detail.find('\n');
+    g.TextFit(kContentX, kContentY + 30 + line * 10, kContentWidth, detail.substr(0, end), line == 0 ? kRec : kDim);
+    detail = end == std::string_view::npos ? std::string_view() : detail.substr(end + 1);
+  }
+  const Rect ok{kContentX, kContentY + 56, 104, 26};
+  g.Fill(ok, kInk);
+  g.DrawGlyph(ok.x + 8, ok.y + 10, Glyph::Enter, kBlack);
+  g.Text(ok.x + 20, ok.y + 9, "ENTER  OK", kBlack, Font::Micro);
+}
+
 void DrawConfirm(Gfx& g, Animator& animator, const Modal& modal)
 {
+  if (modal.confirmPurpose == ConfirmPurpose::Notice)
+  {
+    DrawNotice(g, modal);
+    return;
+  }
   const Color accent = modal.danger ? kRec : kInk;
   g.TextFit(kContentX, kContentY + 14, kContentWidth, modal.title, kInk, Font::Small);
   g.TextFit(kContentX, kContentY + 30, kContentWidth, modal.detail, modal.danger ? kRec : kDim);
@@ -333,7 +356,9 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
   switch (modal.kind)
   {
     case ModalKind::TextEntry: return "ENTER OK   DEL ERASE   ESC CANCEL";
-    case ModalKind::Confirm: return modal.danger ? "ENTER CONFIRM   ESC KEEP" : "ENTER YES   ESC NO";
+    case ModalKind::Confirm:
+      if (modal.confirmPurpose == ConfirmPurpose::Notice) return "ENTER OR ESC CLOSES";
+      return modal.danger ? "ENTER CONFIRM   ESC KEEP" : "ENTER YES   ESC NO";
     case ModalKind::PresetBrowser: return "ENTER LOAD   FN+F SEARCH   ESC BACK";
     case ModalKind::SampleBrowser: return "ENTER LOAD  FN+F SEARCH  FN+ENTER EDIT";
     case ModalKind::SampleOptions: return "ENTER CHOOSE   ESC BACK";

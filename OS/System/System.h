@@ -15,8 +15,9 @@ struct BootOptions {
 // Settings are written this long after the last change (and whenever an app is suspended).
 inline constexpr std::uint32_t kSettingsWriteDelayMs = 1000;
 
-// Boots the device, reads the settings on the card, applies the device settings and starts the boot
-// app (BootApplicationId).
+// Boots the device, decides once whether this run has a card (os::storage::DecideCardAtStart: a run
+// without one never touches a card), applies the device settings and starts the boot app
+// (BootApplicationId).
 bool Begin(const BootOptions& options = {});
 // One frame: input, the app's tick and its LEDs, then, when `draw`, its picture on the screen. The
 // device runs a frame every 10 ms and draws every other one (50 fps): keys keep their 10 ms latency.

@@ -187,6 +187,9 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
     const int take = sampler_.RestoreTakes();
     if (take >= 0) controller_.ResumeTake(static_cast<std::size_t>(take));
   }
+  // Without a card nothing is kept: said in a notice that waits for ENTER or ESC, so it is still there
+  // when the boot animation ends.
+  if (os::storage::CardMissingThisRun()) controller_.ShowNoCardNotice();
   initialized_ = true;
 }
 
@@ -296,10 +299,11 @@ bool GrooveApp::Quiet(std::uint32_t now) const
   return now - lastKeyAt_ >= kSessionQuietMs && keysHeld_ == 0 && !sequencer_.Playing() && sampler_.RecordingTrack() < 0;
 }
 
-// The card comes and goes on its own: what waits for it gets it.
+// The card comes and goes on its own: what waits for it gets it. A run that started without one has
+// nothing to look for.
 void GrooveApp::CheckCard(std::uint32_t now)
 {
-  if (now - lastCardCheckAt_ < kCardCheckMs) return;
+  if (os::storage::CardMissingThisRun() || now - lastCardCheckAt_ < kCardCheckMs) return;
   lastCardCheckAt_ = now;
   // Looking for a card that is not there takes a moment: only for something that waits for it (a
   // sample, the autosave), and only when nobody is playing.
@@ -522,8 +526,9 @@ void GrooveApp::FlushSession()
 void GrooveApp::KeepSessionCurrent(std::uint32_t now)
 {
   CheckCardSession(now);
-  // The guide's practice project is not the working state, and a recording keeps its own file.
-  if (guide_ || sampler_.RecordingTrack() >= 0 || !sessionChanged_) return;
+  // The guide's practice project is not the working state, and a recording keeps its own file. A run
+  // without a card keeps nothing.
+  if (guide_ || sampler_.RecordingTrack() >= 0 || !sessionChanged_ || os::storage::CardMissingThisRun()) return;
   // Settled: the keys have rested a moment, none held, playing or not (the card is written on the
   // background task). Keys that keep coming, or a sample played from the card (writing slows its
   // reading), put it off only so long.
@@ -1159,7 +1164,7 @@ groove::SaveResult GrooveApp::SaveProject(const std::string& name, bool overwrit
     message = "INVALID NAME";
     return groove::SaveResult::Failed;
   }
-  // No card (it is out): nothing to save to.
+  // No card (the run started without one, or it is out): nothing to save to.
   if (!os::storage::CardPresent())
   {
     std::printf("Groove: save %s: no card\n", name.c_str());

@@ -38,18 +38,20 @@ constexpr std::size_t kRows = static_cast<std::size_t>(Device::Keyboard::kRows);
 constexpr std::size_t kColumns = static_cast<std::size_t>(Device::Keyboard::kColumns);
 
 constexpr const char* kUsage =
-    "usage: CardenzaSimShot --script <file> --out <dir> [--scale N] [--root <dir>]\n"
+    "usage: CardenzaSimShot --script <file> --out <dir> [--scale N] [--root <dir>] [--no-card]\n"
     "  --script <file>  key script (.script/.simdebug format: wait/tap/down/up/screenshot/quit)\n"
     "  --out <dir>      directory for <name>.png and <name>.leds.txt (created if missing)\n"
     "  --scale N        nearest-neighbour upscale factor 1..4 (default 1)\n"
     "  --root <dir>     chdir here before boot; the card is <dir>/sdcard (docs/app-storage-protocol.md)\n"
-    "                   (default: the caller's working directory)\n";
+    "                   (default: the caller's working directory)\n"
+    "  --no-card        start without the card: the run touches no card, as on the device\n";
 
 struct Options {
   fs::path scriptPath;
   fs::path outputDirectory;
   fs::path rootDirectory;
   int scale = 1;
+  bool noCard = false;
 };
 
 bool ParseArguments(int argc, char** argv, Options& options, std::string& errorMessage)
@@ -70,6 +72,11 @@ bool ParseArguments(int argc, char** argv, Options& options, std::string& errorM
     {
       errorMessage.clear();
       return false;
+    }
+    if (argument == "--no-card" && !hasValue)
+    {
+      options.noCard = true;
+      continue;
     }
     if (argument != "--script" && argument != "--out" && argument != "--scale" && argument != "--root")
     {
@@ -436,7 +443,9 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  // The device's storage root is fixed on first use, so it follows the directory chosen above.
+  // The device's storage root is fixed on first use, so it follows the directory chosen above. The
+  // system looks for the card once, as it starts.
+  if (options.noCard) CardenzaSim::Input::SetCardInserted(false);
   if (!os::system::Begin())
   {
     std::cerr << "CardenzaSimShot: failed to boot Cardenza runtime\n";
