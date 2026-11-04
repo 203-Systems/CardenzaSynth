@@ -26,27 +26,6 @@ inline constexpr std::uint32_t kRewindMs = 320;
 inline constexpr std::uint32_t kPanicMs = 650;
 inline constexpr std::uint32_t kSessionSweepMs = 420;
 
-// Standby, the screen saver: CARDENZA and 203 drift around the screen like the old DVD logo, each
-// gliding into its next color at every wall. They are solid to each other: when they meet they bounce
-// apart (an elastic hit, the bigger word heavier), then ease back to their calm speed. Landing exactly
-// in a corner sends rings out of it. Now and then an effect runs over them. Everything moves slowly and
-// every change is a fade (the user asked for calm, natural transitions).
-inline constexpr std::uint32_t kStandbyStyleMs = 60000;    // ALL: each key-light style this long,
-inline constexpr std::uint32_t kStandbyBlendMs = 5000;     // the last part of it fading into the next
-inline constexpr std::uint32_t kStandbyLightsInMs = 3000;  // the key lights fade in
-inline constexpr float kStandbyLedScale = 0.5f;            // the shows stay at half of full (perceived)
-inline constexpr std::uint32_t kStandbyLightsOutMs = 1500; // the working lights fade out as standby starts
-inline constexpr std::uint32_t kStandbyEffectMs = 5500;    // an occasional effect
-inline constexpr std::uint32_t kStandbyHitMs = 1400;      // the two words meeting: a flash, a ring and sparks
-inline constexpr float kStandbyCruise = 18.0f;              // px/s each word eases back to after a hit
-inline constexpr std::uint32_t kStandbyCornerMs = 2600;    // the rings out of that corner
-inline constexpr std::uint32_t kStandbyColorMs = 1800;     // the color gliding to the next at a wall
-inline constexpr std::uint32_t kStandbyFadeInMs = 1500;
-enum class StandbyEffect : std::uint8_t { None, Shine, Sparkle, Rainbow };
-inline constexpr std::size_t kStandbyEffectCount = 3;
-const char* StandbyWord(bool alt);
-int StandbyLogoWidth(bool alt);
-int StandbyLogoHeight();
 
 // Render-side motion state. It diffs the controller once per frame and keeps the timestamps of
 // everything worth animating; the renderer turns those into motion. Keeping this out of the
@@ -66,37 +45,6 @@ public:
 
   void Update(const Controller& controller, std::uint32_t now);
 
-  // One of standby's two words: where it is, how it moves, its color step.
-  struct StandbyBody {
-    bool alt = false;  // 203 (else CARDENZA)
-    float x = 0.0f;
-    float y = 0.0f;
-    float vx = 0.0f;
-    float vy = 0.0f;
-    std::uint8_t color = 0;          // step in the standby palette, one per wall,
-    std::uint8_t previousColor = 0;  // gliding from this one since colorAt
-    std::uint32_t colorAt = 0;
-  };
-  // Standby's screen: the two words and what they last hit.
-  struct StandbyScene {
-    std::array<StandbyBody, 2> bodies{};
-    std::uint32_t corneredAt = 0;  // a word landed exactly in a corner
-    bool cornerRight = false;
-    bool cornerBottom = false;
-    std::uint8_t cornerColor = 0;
-    std::uint32_t hitAt = 0;       // the words met, here
-    float hitX = 0.0f;
-    float hitY = 0.0f;
-    StandbyEffect effect = StandbyEffect::None;
-    std::uint32_t effectAt = 0;
-    std::uint32_t nextEffectAt = 0;
-    std::uint32_t seed = 0;
-    std::uint32_t startedAt = 0;  // the standby it belongs to (Controller::StandbyAt)
-  };
-  const StandbyScene& Standby() const { return standby_; }
-  // Standby's key lights as perceived brightness 0..1 per key (dimmed, faded in). GrooveApp drives them
-  // through the key level and the master level together: the key levels alone have few steps that dim.
-  void StandbyLight(const Controller& controller, std::array<float, kKeyCount>& perceived) const;
   // Turns the controller's LED cells (level + effect) into motion and adds the event layer
   // (ripples, sweeps, trails, playback notes).
   void DecorateLeds(const Controller& controller, const LedFrame& frame, std::array<std::uint8_t, kKeyCount>& levels) const;
@@ -159,7 +107,6 @@ public:
   static std::uint32_t Key(const char* text, std::uint32_t salt = 0);
 
 private:
-  void UpdateStandby(const Controller& controller, float dt);
 
 
   struct SmoothEntry {
@@ -171,7 +118,6 @@ private:
 
   std::uint32_t now_ = 0;
   std::uint32_t lastFrame_ = 0;
-  StandbyScene standby_{};
   std::uint32_t bootAt_ = 0;
   bool primed_ = false;
 

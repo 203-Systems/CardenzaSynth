@@ -185,15 +185,6 @@ struct LedCell {
 };
 using LedFrame = std::array<LedCell, kKeyCount>;
 
-// Standby, the screen saver (docs/groovebox-design.md): after a while without a key the screen dims
-// and the logo bounces around it; the key lights play one of these styles (sys.standby.led, ALL = each
-// in turn). The one place besides boot where the key lights run free: asked for by the user.
-enum class StandbyLightStyle : std::uint8_t { All, Ring, Sweep, Rain, Aurora, Breathe, Off };
-inline constexpr std::size_t kStandbyLightCount = 7;
-inline constexpr std::array<const char*, kStandbyLightCount> kStandbyLightNames{{"ALL", "RING", "SWEEP", "RAIN", "AURORA", "BREATH", "OFF"}};
-// The waits to choose from (sys.standby), in minutes; 0 = never.
-inline constexpr std::array<std::uint8_t, 6> kStandbyMinuteChoices{{1, 3, 5, 10, 30, 0}};
-inline constexpr std::array<const char*, 6> kStandbyMinuteNames{{"1 MIN", "3 MIN", "5 MIN", "10 MIN", "30 MIN", "NEVER"}};
 
 // A parameter on the pads (a held GRID cell): one pad per value, or an even spread over all of them,
 // in reading order. An odd spread when the range has a middle, so a bipolar value can land on it.
@@ -311,7 +302,6 @@ enum class MenuAction : std::uint8_t {
   NewProject,
   LoadProject,
   SaveProjectAs,
-  StandbyNow,  // SYSTEM: the screen saver at once, to see it
 };
 
 struct MenuItem {
@@ -343,13 +333,13 @@ struct RecordState {
   std::uint8_t cursor = 0;        // STEP view: the step the pads write into
   std::uint8_t stepLength = 1;    // STEP view: steps the cursor moves after a write (1, 2, 4)
   bool stepWritten = false;       // pads wrote since they were last all released
-  bool snap = true;               // placing a take snaps its notes to whole steps
   // STEP view: the notes step stepBeforeAt had before the pads now down wrote there (sorted). The
   // same notes pressed again erase the step.
   std::array<std::uint8_t, 8> stepBefore{};
   std::uint8_t stepBeforeCount = 0;
   std::uint8_t stepBeforeAt = 0;
   bool stepBeforeKnown = false;
+  bool snap = true;               // placing a take snaps its notes to whole steps
   std::uint8_t focus = kRecordFirstTake;  // RECORD panel GRID focus
   std::uint8_t takeBar = 0;       // which bar of the focused take goes into a pattern
   // OK held in SEQ: a tap switches the view, a hold opens the RECORD panel.
@@ -461,12 +451,6 @@ struct UiState {
   std::uint32_t panicAt = 0;
   std::uint32_t sessionAt = 0;
 
-  // Standby (the screen saver): on since standbyAt; the last key; the keys whose press woke it (their
-  // release is not passed on either), bit KeyIndex.
-  bool standby = false;
-  std::uint32_t standbyAt = 0;
-  std::uint32_t lastActivityAt = 0;
-  std::uint64_t wakeKeys = 0;
 };
 
 class Controller {
@@ -517,13 +501,6 @@ public:
   // "s1p0t0e0y0m0o0h0q1w0k0z0c0a0g0l0x0v123nVOICE" (GrooveGuide.cpp says what each one is).
   std::string GuideState() const;
 
-  // Standby, the screen saver: it starts after Host::StandbyMinutes() without a key, never while the
-  // transport runs, a recording goes or a lesson page follows along. Any key wakes it and does nothing
-  // else. Wake() also starts the wait again.
-  bool Standby() const { return state_.standby; }
-  std::uint32_t StandbyAt() const { return state_.standbyAt; }
-  void EnterStandby(std::uint32_t nowMs);
-  void Wake(std::uint32_t nowMs);
 
   const UiState& State() const { return state_; }
   const Host& HostView() const { return host_; }
@@ -586,7 +563,7 @@ public:
   // Presentation helpers shared by renderer and LEDs. Slots are engine parameters or settings:
   // "keys.*" (layout, scale, root, octave, lock, velocity, select) for every track, "chord.*" (type,
   // voicing) and "arp.*" (mode, rate, octaves, gate, latch) of the current track, "proj.*" (bpm,
-  // swing, mode, steps, rec) and "sys.*" (volume, led, screen, log, standby, standby.led).
+  // swing, mode, steps, rec) and "sys.*" (volume, led, screen, log).
   bool SlotHasValue(const Slot& slot) const;
   bool SlotValue(const Slot& slot, synth::SynthParameterInfo& info, std::string& text) const;
   bool SettingValue(const char* id, synth::SynthParameterInfo& info, std::string& text) const;
@@ -597,7 +574,6 @@ public:
   bool IsChordNoteHeld(int note) const;
 
 private:
-  void StandbyTick(std::uint32_t nowMs);
   // Input routing
   void PressLeft(std::size_t row);
   void ReleaseLeft(std::size_t row);
@@ -697,15 +673,15 @@ private:
   bool StepRecordPress();
   void StepRecordRelease();
   void StepCursorMove(int delta);
+  bool StepRecordRepeats() const;
+  void EraseCursorStep();
+  void StepRecordGrid(std::size_t step, std::size_t heldNotes);
 
   // Fn functions
   void AllStop();
   void Copy();
   void Paste();
   void Clear();
-  bool StepRecordRepeats() const;
-  void EraseCursorStep();
-  void StepRecordGrid(std::size_t step, std::size_t heldNotes);
   void Quantize();
   void Duplicate();
   void TapTempo();

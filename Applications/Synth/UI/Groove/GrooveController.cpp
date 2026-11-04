@@ -308,20 +308,6 @@ void Controller::KeyEvent(std::size_t row, std::size_t column, bool pressed, std
   state_.now = nowMs;
   const KeyRole role = RoleFor(row, column);
   if (role == KeyRole::None) return;
-  // Standby: any key wakes the device and does nothing else, nor does its release.
-  const std::uint64_t keyBit = std::uint64_t{1} << KeyIndex(row, column);
-  if (!pressed && (state_.wakeKeys & keyBit) != 0)
-  {
-    state_.wakeKeys &= ~keyBit;
-    return;
-  }
-  state_.lastActivityAt = nowMs == 0 ? 1 : nowMs;
-  if (pressed && state_.standby)
-  {
-    state_.wakeKeys |= keyBit;
-    Wake(nowMs);
-    return;
-  }
   if (pressed) state_.keyPressedAt[KeyIndex(row, column)] = nowMs == 0 ? 1 : nowMs;
 
   // Text entry owns the whole keyboard except the left modifiers. Releases still settle key state
@@ -815,41 +801,9 @@ void Controller::ReportAutosaveProblem(const std::string& text)
   ShowToast(text, ToastKind::Error);
 }
 
-// Standby starts after the chosen minutes without a key. Never while something goes on: the transport
-// running, a recording, a lesson page following along; when that ends, the wait starts again.
-void Controller::StandbyTick(std::uint32_t nowMs)
-{
-  if (state_.lastActivityAt == 0) state_.lastActivityAt = nowMs == 0 ? 1 : nowMs;
-  const bool busy = host_.Sequencer().Playing() || host_.Sampler().RecordingTrack() >= 0 || guide_;
-  if (busy)
-  {
-    Wake(nowMs);
-    return;
-  }
-  const std::uint32_t minutes = host_.StandbyMinutes();
-  if (!state_.standby && minutes != 0 && nowMs - state_.lastActivityAt >= minutes * 60000u) EnterStandby(nowMs);
-}
-
-void Controller::EnterStandby(std::uint32_t nowMs)
-{
-  if (state_.standby) return;
-  state_.standby = true;
-  state_.standbyAt = nowMs == 0 ? 1 : nowMs;
-  std::printf("ui: standby\n");
-}
-
-void Controller::Wake(std::uint32_t nowMs)
-{
-  state_.lastActivityAt = nowMs == 0 ? 1 : nowMs;
-  if (!state_.standby) return;
-  state_.standby = false;
-  std::printf("ui: awake after %lu s of standby\n", static_cast<unsigned long>((nowMs - state_.standbyAt) / 1000));
-}
-
 void Controller::Tick(std::uint32_t nowMs)
 {
   state_.now = nowMs;
-  StandbyTick(nowMs);
   OkTick();
   if (CellPickerActive()) ShowCellHud();
   // Held long enough to be an edit, not a tap: say what ADD / SUB change.

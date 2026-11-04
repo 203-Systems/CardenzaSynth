@@ -199,7 +199,6 @@ void TestNoCardBoot(const fs::path& root)
   assert(Contains(reply, "GE0 card"));
 
   // Work as usual: settings and the session stay in RAM, nothing is written, no log either.
-  groove->SetStandbyMinutes(0);
   groove->SetMasterVolume(70);
   groove->SetLedBrightness(4);
   groove->Sequencer().SetTempo(133);
@@ -275,9 +274,6 @@ int main(int argc, char** argv)
   assert(groove->Ui().TopModal() == nullptr);  // no notice with a card
   assert(groove->MasterVolume() == 50 && os::storage::kDefaultOutputVolume == 50);
   assert(groove->LedBrightness() == 9 && groove->Ui().Settings().keyboard.multiSelect);
-  // The clock jumps minutes at a time here: standby would take the next key for waking up.
-  assert(groove->StandbyMinutes() == os::storage::kDefaultStandbyMinutes);
-  groove->SetStandbyMinutes(0);
 
   // The release's project and sample are there; the folders in between are not read.
   const auto projects = groove->ListProjects();
