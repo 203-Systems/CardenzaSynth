@@ -106,6 +106,16 @@ add_executable(CardenzaLedTests led_feedback_test.cpp)
 target_include_directories(CardenzaLedTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaLedTests COMMAND CardenzaLedTests)
 
+# The pure calculations the HAL runs on the device (key debounce and the key-count guard, LED frames,
+# backlight curve), and the HAL's own sources against fake ESP-IDF drivers (hal_faults).
+add_executable(CardenzaHalLogicTests cardenza_hal_logic_test.cpp)
+target_include_directories(CardenzaHalLogicTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaHalLogicTests COMMAND CardenzaHalLogicTests)
+add_executable(CardenzaKeyCountGuardTests key_count_guard_test.cpp)
+target_include_directories(CardenzaKeyCountGuardTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaKeyCountGuardTests COMMAND CardenzaKeyCountGuardTests)
+add_subdirectory(hal_faults)
+
 # Headless screenshot runner: replay a real script against a scratch sdcard, and reject an
 # unknown key target with its line number.
 add_test(NAME CardenzaSimShotSmoke
