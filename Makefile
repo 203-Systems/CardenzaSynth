@@ -44,12 +44,12 @@ CARDENZA_IDF_ARGS := -B '$(abspath $(BUILD))'
 
 all: build
 
-# CardenzaHAL (Devices/Cardenza/cardenza) is the upstream submodule
+# CardenzaHAL (Devices/Cardenza/CardenzaHAL) is the upstream submodule
 # https://github.com/203-Systems/CardenzaHAL (AGENT.md). It changes in its own clone and upstream main; here it
 # is a clean consumer copy. hal-check enforces that before every firmware build; hal-update pulls.
 # HAL_DEV=<HAL clone> builds against that clone instead (CARDENZA_HAL_DEV), to test a HAL change before it
 # is pushed; the submodule is not touched.
-HAL_DIR := Devices/Cardenza/cardenza
+HAL_DIR := Devices/Cardenza/CardenzaHAL
 ifneq ($(HAL_DEV),)
 export CARDENZA_HAL_DEV := $(abspath $(HAL_DEV))
 endif

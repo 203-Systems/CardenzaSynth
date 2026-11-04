@@ -143,12 +143,12 @@ function(cardenza_collect_ui_cpp_sources root_dir out_var)
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
-# CardenzaHAL (Devices/Cardenza/cardenza) is the upstream submodule, a clean consumer copy (AGENT.md):
+# CardenzaHAL (Devices/Cardenza/CardenzaHAL) is the upstream submodule, a clean consumer copy (AGENT.md):
 # the build refuses one with local changes, whatever started it (make, idf.py, an IDE).
 function(cardenza_check_hal_pristine root_dir)
-    set(hal_dir ${root_dir}/Devices/Cardenza/cardenza)
+    set(hal_dir ${root_dir}/Devices/Cardenza/CardenzaHAL)
     if(NOT EXISTS ${hal_dir}/cardenzaHAL.h)
-        message(FATAL_ERROR "CardenzaHAL submodule missing: git submodule update --init Devices/Cardenza/cardenza")
+        message(FATAL_ERROR "CardenzaHAL submodule missing: git submodule update --init Devices/Cardenza/CardenzaHAL")
     endif()
     find_package(Git QUIET)
     if(GIT_FOUND AND EXISTS ${hal_dir}/.git)
@@ -157,9 +157,9 @@ function(cardenza_check_hal_pristine root_dir)
         execute_process(COMMAND ${GIT_EXECUTABLE} -C ${hal_dir} status --porcelain
                         OUTPUT_VARIABLE hal_changes OUTPUT_STRIP_TRAILING_WHITESPACE)
         if(NOT hal_changes STREQUAL "")
-            message(FATAL_ERROR "CardenzaHAL (Devices/Cardenza/cardenza) has local changes, but it is a clean consumer "
+            message(FATAL_ERROR "CardenzaHAL (Devices/Cardenza/CardenzaHAL) has local changes, but it is a clean consumer "
                                 "copy (AGENT.md). Change the HAL in its clone ~/projects/CardenzaHAL and restore this one:\n"
-                                "  git -C Devices/Cardenza/cardenza checkout -- . && git -C Devices/Cardenza/cardenza clean -fd\n"
+                                "  git -C Devices/Cardenza/CardenzaHAL checkout -- . && git -C Devices/Cardenza/CardenzaHAL clean -fd\n"
                                 "${hal_changes}")
         endif()
     endif()

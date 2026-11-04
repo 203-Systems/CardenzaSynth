@@ -55,15 +55,15 @@ cardenza_forbid_path("Library/Synth/UI")
 cardenza_forbid_path("third_party/amy")
 
 set(cardenza_firmware_only_sources
-    "Devices/Cardenza/cardenza/cardenzaHAL.cpp"
-    "Devices/Cardenza/cardenza/audio/audio.cpp"
-    "Devices/Cardenza/cardenza/audio/codec/es8156.cpp"
-    "Devices/Cardenza/cardenza/display/display.cpp"
-    "Devices/Cardenza/cardenza/ir/ir.cpp"
-    "Devices/Cardenza/cardenza/keyboard/internal/keyboard_hardware.h"
-    "Devices/Cardenza/cardenza/mic/mic.cpp"
-    "Devices/Cardenza/cardenza/storage/storage.cpp"
-    "Devices/Cardenza/cardenza/system/system.cpp"
+    "Devices/Cardenza/CardenzaHAL/cardenzaHAL.cpp"
+    "Devices/Cardenza/CardenzaHAL/audio/audio.cpp"
+    "Devices/Cardenza/CardenzaHAL/audio/codec/es8156.cpp"
+    "Devices/Cardenza/CardenzaHAL/display/display.cpp"
+    "Devices/Cardenza/CardenzaHAL/ir/ir.cpp"
+    "Devices/Cardenza/CardenzaHAL/keyboard/internal/keyboard_hardware.h"
+    "Devices/Cardenza/CardenzaHAL/mic/mic.cpp"
+    "Devices/Cardenza/CardenzaHAL/storage/storage.cpp"
+    "Devices/Cardenza/CardenzaHAL/system/system.cpp"
 )
 
 foreach(relative_path IN LISTS cardenza_firmware_only_sources)
@@ -74,10 +74,10 @@ foreach(relative_path IN LISTS cardenza_firmware_only_sources)
     endif()
 endforeach()
 
-cardenza_require_file("Devices/Cardenza/cardenza/keyboard/types.h")
-cardenza_require_file("Devices/Cardenza/cardenza/keyboard/layout.h")
-cardenza_require_file("Devices/Cardenza/cardenza/keyboard/internal/keyboard_key_scan.cpp")
-cardenza_require_file("Devices/Cardenza/cardenza/keyboard/internal/keyboard_led_scan.cpp")
+cardenza_require_file("Devices/Cardenza/CardenzaHAL/keyboard/types.h")
+cardenza_require_file("Devices/Cardenza/CardenzaHAL/keyboard/layout.h")
+cardenza_require_file("Devices/Cardenza/CardenzaHAL/keyboard/internal/keyboard_key_scan.cpp")
+cardenza_require_file("Devices/Cardenza/CardenzaHAL/keyboard/internal/keyboard_led_scan.cpp")
 cardenza_require_file("Devices/CardenzaSim/DesktopHost/DesktopSimulatorInput.cpp")
 cardenza_require_file("Devices/CardenzaSim/DesktopHost/DesktopSimulatorRender.cpp")
 cardenza_require_file("Applications/Synth/Runtime/SynthRack.cpp")
@@ -115,7 +115,7 @@ foreach(relative_path
 endforeach()
 
 file(READ "${CARDENZA_ROOT}/Devices/Cardenza/CMakeLists.txt" cardenza_cmake)
-if(cardenza_cmake MATCHES "add_subdirectory\\(cardenza\\)")
+if(cardenza_cmake MATCHES "add_subdirectory\\(CardenzaHAL\\)")
     message(FATAL_ERROR "Cardenza root CMake path must not expose the ESP-IDF HAL as a host subdirectory")
 endif()
 

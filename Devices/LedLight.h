@@ -7,7 +7,7 @@
 #include "Devices/Device.h"
 
 // Key LED light. Device::LED levels 0-15 are perceived brightness. CardenzaHAL (Devices/Cardenza/
-// cardenza, keyboard/internal/led_brightness.h; a read-only dependency) drives each key at one of 16
+// CardenzaHAL, keyboard/internal/led_brightness.h; a read-only dependency) drives each key at one of 16
 // linear duties (level / 15 of the time) and corrects only its global level (a separate hardware PWM
 // on the LED enable pin, (global / 15)^2). The eye is far from linear, so the device layer maps the
 // perceived level to the HAL's per-key duty with gamma 2.6 (KeyLevel); every lit level stays lit.

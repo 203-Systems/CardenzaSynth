@@ -10,13 +10,23 @@ option(CARDENZA_FX_IRAM "Place the audio effects' per-sample kernels in IRAM" OF
 # The on-board stress test (Applications/Synth/StressTest.cpp): make DEVICE=Cardenza stress. Never a release.
 option(CARDENZA_STRESS_TEST "Run the stress test 20 s after boot" OFF)
 # CardenzaHAL, an ESP-IDF component of its own: the submodule, or a HAL clone for a test build of a HAL
-# change that is not upstream yet (make HAL_DEV=<clone>). The component is named after its directory.
+# change that is not upstream yet (make HAL_DEV=<clone>). ESP-IDF names a component and its build folder
+# (esp-idf/<name>) after its directory: CardenzaHAL, like the upstream repository. This directory is the
+# firmware's own component, `Cardenza`; a HAL directory named the same but for case (the submodule was
+# `cardenza` until 2026-11-04) shares its build folder on a case-insensitive file system.
 if(DEFINED ENV{CARDENZA_HAL_DEV})
     get_filename_component(CARDENZA_HAL_DIR "$ENV{CARDENZA_HAL_DEV}" ABSOLUTE)
 else()
-    set(CARDENZA_HAL_DIR "${CMAKE_CURRENT_LIST_DIR}/cardenza")
+    set(CARDENZA_HAL_DIR "${CMAKE_CURRENT_LIST_DIR}/CardenzaHAL")
 endif()
 get_filename_component(CARDENZA_HAL_COMPONENT "${CARDENZA_HAL_DIR}" NAME)
+get_filename_component(cardenza_firmware_component "${CMAKE_CURRENT_LIST_DIR}" NAME)
+string(TOLOWER "${CARDENZA_HAL_COMPONENT}" cardenza_hal_lower)
+string(TOLOWER "${cardenza_firmware_component}" cardenza_firmware_lower)
+if(cardenza_hal_lower STREQUAL cardenza_firmware_lower)
+    message(FATAL_ERROR "The HAL directory ${CARDENZA_HAL_DIR} is named like the firmware's component "
+                        "(${cardenza_firmware_component}); name it CardenzaHAL.")
+endif()
 
 if(DEFINED COMPONENT_DIR)
     set(AMY_SRC_DIR ${CARDENZA_ROOT}/Library/third_party/amy/src)
@@ -110,8 +120,9 @@ if(DEFINED COMPONENT_DIR)
 elseif(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}" "${CARDENZA_HAL_DIR}")
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-    # The component manager's lock (dependencies.lock, tracked) hashes the component names; a HAL
-    # clone's differs from the submodule's, so a HAL_DEV build keeps its lock in the build tree.
+    # The component manager's lock (dependencies.lock, tracked) hashes the HAL's manifest and component
+    # name. A HAL clone under test may change its dependencies or be named otherwise, so a HAL_DEV build
+    # keeps its lock in the build tree.
     if(DEFINED ENV{CARDENZA_HAL_DEV})
         idf_build_set_property(DEPENDENCIES_LOCK "${CMAKE_BINARY_DIR}/dependencies.lock")
     endif()
