@@ -19,8 +19,8 @@ constexpr std::size_t kChunkBytes = 256;
 constexpr long long kSlowWriteMs = 40;
 
 std::uint32_t g_lastWriteAt = 0;
-bool g_writerTried = false;
-bool g_writer = false;  // the device writes on a task of its own (Device::Log::StartWriter)
+bool g_background = true;  // the device's background task writes (Device::Background), until it says it cannot
+std::atomic<bool> g_writeAsked{false};  // the background task runs every job when woken: this one only when asked
 
 // One writer at a time: the device's writer task, or the system loop at boot, app switch and shutdown.
 // The settings and the card's state belong to the system loop: it decides whether to write and where,
@@ -99,6 +99,7 @@ bool AppendNoLock()
 
 void WriteInBackground()
 {
+  if (!g_writeAsked.exchange(false)) return;
   std::lock_guard<std::mutex> lock(g_writeMutex);
   (void)AppendNoLock();
 }
@@ -148,12 +149,7 @@ void Service(std::uint32_t nowMs)
   if (os::storage::CardStreaming()) return;
   g_lastWriteAt = nowMs;
   if (!os::storage::LogEnabled() || !Device::Storage::IsMounted() || Device::Log::Pending() == 0) return;
-  if (!g_writerTried)
-  {
-    g_writerTried = true;
-    g_writer = Device::Log::StartWriter(&WriteInBackground);
-  }
-  if (!g_writer)
+  if (!g_background)
   {
     (void)Flush();
     return;
@@ -163,7 +159,13 @@ void Service(std::uint32_t nowMs)
   if (!lock.owns_lock()) return;
   SetPathsNoLock();
   lock.unlock();
-  Device::Log::WakeWriter();
+  g_writeAsked = true;
+  if (!Device::Background::Run(&WriteInBackground))
+  {
+    g_background = false;
+    g_writeAsked = false;
+    (void)Flush();
+  }
 }
 
 }  // namespace os::log

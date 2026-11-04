@@ -49,6 +49,17 @@ struct GivenUpVoices {
   std::uint32_t stolen = 0;
 };
 GivenUpVoices GivenUpVoiceCounts();
+// What the voice budget works with now (the board learns it from the renders; elsewhere the defaults):
+// a voice's cost per block by engine, everything else in a block, and the correction from measured
+// render times (1 = none). For the stress test and the log.
+struct RenderModel {
+  float dx7Micros = 0.0f;
+  float junoMicros = 0.0f;
+  float drumsMicros = 0.0f;
+  float overheadMicros = 0.0f;
+  float budgetScale = 1.0f;
+};
+RenderModel CurrentRenderModel();
 // The notes a track holds, one bit per MIDI note, as of the last rendered block: played and not let
 // go, tails not counted. A drum track holds nothing, its hits end by themselves.
 using NoteSet = std::array<std::uint32_t, 4>;

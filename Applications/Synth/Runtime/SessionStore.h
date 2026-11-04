@@ -11,6 +11,9 @@ namespace synth {
 struct SessionInfo {
   bool dirty = false;
   std::string name;
+  // Counts every autosave, in flash or on the card: at a start the one with the higher number is the
+  // newer (0: written before there was one).
+  std::uint32_t generation = 0;
 };
 
 // The one autosave: the working state in small records in internal flash, there with or without a
@@ -36,6 +39,17 @@ public:
   static void EraseUnknownRecords();
 
   static constexpr std::size_t kSectionCount = 2 + 2 * kSynthTrackCount + kSynthTrackCount * kSequencerMaxPatternCount;
+
+  // The autosave while playing: on the card (the app's Session folder) instead of the internal flash,
+  // whose writes stop both cores for some 45 ms, a click and a late beat. A project file and a small
+  // text with the generation, the name and whether it was unsaved. Thread-safe: SaveCard runs on the
+  // device's background task.
+  static bool SaveCard(const SessionInfo& info, const ProjectData& project);
+  // Only the text: false when there is no card copy.
+  static bool ReadCardInfo(SessionInfo& info);
+  // Whether the flash holds an autosave at all (read or not).
+  static bool InFlash();
+  static bool LoadCard(SessionInfo& info, ProjectData& project);
 
 private:
   bool Store(std::size_t section, const std::string& bytes);

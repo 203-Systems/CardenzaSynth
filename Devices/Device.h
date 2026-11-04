@@ -220,12 +220,16 @@ std::size_t Take(char* destination, std::size_t capacity, std::size_t& lost);
 std::size_t Pending();
 // A line for the log and the console. The simulator's log holds only what comes through here.
 void Write(std::string_view line);
-// Runs `write` on a task of its own, below the UI, each time WakeWriter is called (once more if it is
-// called while `write` runs): a card that takes seconds to accept a write then holds up nobody. False
-// where there is no such task (the simulator), and the caller writes itself.
-bool StartWriter(void (*write)());
-void WakeWriter();
 }  // namespace Log
+
+// One task below the UI for slow work nobody may wait for: what goes to the card while the device plays
+// (the log, the autosave), a card taking seconds to accept a write then holds up nobody. Run registers
+// `job` (once; a few at most) and wakes the task, which calls every registered job in turn, again if
+// woken while busy; a job returns at once when it has nothing to do. Call it from the system loop.
+// False where there is no such task (the simulator): the caller does the work itself.
+namespace Background {
+bool Run(void (*job)());
+}  // namespace Background
 
 std::string Name();
 std::string BackendName();
