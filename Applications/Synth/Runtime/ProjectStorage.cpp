@@ -21,7 +21,10 @@
 namespace synth {
 namespace {
 
-constexpr std::size_t kMaxProjectBytes = 1024 * 1024;
+// The largest project the device can hold: every step of every pattern of every track with eight
+// notes is about 2.6 MB of text (patterns live in PSRAM since 2026-11-04; at 1 MB such a project saved
+// and never opened again).
+constexpr std::size_t kMaxProjectBytes = 4 * 1024 * 1024;
 // Version 2 adds the mixer, the display backlight, swing and per-track step counts.
 // Version 3 adds the song arrangement (SONG and R lines after the sequencer tracks).
 // Version 4 adds the master effects (FX line after SYSTEM: a count, then one value per parameter).

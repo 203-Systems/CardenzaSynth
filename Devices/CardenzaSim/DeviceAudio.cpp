@@ -519,6 +519,8 @@ void SetOutputVolume(std::uint8_t percent)
 
 std::size_t ReadComputerAudio(std::int16_t*, std::size_t) { return 0; }
 
+RenderTiming Timing() { return {}; }
+
 std::uint8_t OutputVolume()
 {
   return g_outputVolume.load(std::memory_order_relaxed);

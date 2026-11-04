@@ -1,5 +1,6 @@
 #include "OS/Storage/Storage.h"
 
+#include <atomic>
 #include <algorithm>
 #include <cstdio>
 
@@ -150,6 +151,20 @@ bool CardPresent()
 bool CardMounted()
 {
   return Device::Storage::IsMounted();
+}
+
+namespace {
+std::atomic<bool> g_cardStreaming{false};
+}  // namespace
+
+void SetCardStreaming(bool streaming)
+{
+  g_cardStreaming.store(streaming, std::memory_order_relaxed);
+}
+
+bool CardStreaming()
+{
+  return g_cardStreaming.load(std::memory_order_relaxed);
 }
 
 bool ReadInternalRecord(std::string_view key, std::string& value)

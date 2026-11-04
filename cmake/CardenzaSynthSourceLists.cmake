@@ -29,6 +29,7 @@ function(cardenza_collect_synth_app_cpp_sources root_dir out_var)
             ${runtime_sources}
             ${root_dir}/Applications/Synth/GrooveApp.cpp
             ${root_dir}/Applications/Synth/GrooveAppGuide.cpp
+            ${root_dir}/Applications/Synth/StressTest.cpp
             ${root_dir}/Applications/Synth/Runtime/SessionStore.cpp
             ${root_dir}/Applications/Synth/UI/Groove/GrooveController.cpp
             ${root_dir}/Applications/Synth/UI/Groove/GrooveGuide.cpp
@@ -306,6 +307,25 @@ function(cardenza_amy_core_source amy_src_dir out_var)
     endif()
     string(REPLACE "${amp_original}" "${amp_patched}" content "${content}")
 
+    # Oscillator state through our allocator (AmyEmbeddedStubs.c): internal RAM while there is room,
+    # PSRAM after; patches.c gives it back when the voice is released (cardenza_amy_patches_source).
+    set(osc_original "    uint8_t *ptr = malloc_caps(sizeof(struct synthinfo) + sizeof(struct mod_synthinfo)\n                               + total_num_breakpoints * (sizeof(float) + sizeof(uint32_t)),\n                               amy_global.config.ram_caps_events);")
+    set(osc_patched "    extern void *cardenza_amy_osc_malloc(uint32_t size);  // Cardenza: internal RAM, PSRAM when short\n    uint8_t *ptr = cardenza_amy_osc_malloc(sizeof(struct synthinfo) + sizeof(struct mod_synthinfo)\n                               + total_num_breakpoints * (sizeof(float) + sizeof(uint32_t)));")
+    string(FIND "${content}" "${osc_original}" match_index)
+    if(match_index EQUAL -1)
+        message(FATAL_ERROR "AMY alloc_osc patch no longer applies in ${source}")
+    endif()
+    string(REPLACE "${osc_original}" "${osc_patched}" content "${content}")
+
+    # The event pool's blocks through our allocator too (PSRAM first, AmyEmbeddedStubs.c).
+    set(pool_original "    struct delta *new_pool = (struct delta *)malloc_caps(max_delta_pool_size * sizeof(struct delta),\n                                                         amy_global.config.ram_caps_synth);")
+    set(pool_patched "    extern void *cardenza_amy_pool_malloc(uint32_t size);  // Cardenza: PSRAM first\n    struct delta *new_pool = (struct delta *)cardenza_amy_pool_malloc(max_delta_pool_size * sizeof(struct delta));")
+    string(FIND "${content}" "${pool_original}" match_index)
+    if(match_index EQUAL -1)
+        message(FATAL_ERROR "AMY deltas_pool_alloc patch no longer applies in ${source}")
+    endif()
+    string(REPLACE "${pool_original}" "${pool_patched}" content "${content}")
+
     set(output_dir ${CMAKE_BINARY_DIR}/cardenza_generated/amy)
     file(WRITE ${output_dir}/amy.c.in "${content}")
     # configure_file only touches amy.c when the content changes, so rebuilds stay incremental.
@@ -314,9 +334,48 @@ function(cardenza_amy_core_source amy_src_dir out_var)
     set(${out_var} ${output_dir}/amy.c PARENT_SCOPE)
 endfunction()
 
+# AMY keeps an oscillator's memory for good once a voice has used it: loading project after project
+# (or switching engines) left four DX7 tracks' worth, about 56 KB, held in internal RAM, and the next
+# project could not load (NO MEMORY, the stress test 2026-11-04). Releasing a voice frees its
+# oscillators instead of only resetting them; AMY allocates them again for the next voice that uses
+# them (ensure_osc_allocd), and every loop over oscillators already skips unallocated ones.
+function(cardenza_amy_patches_source amy_src_dir out_var)
+    set(source ${amy_src_dir}/patches.c)
+    if(CMAKE_SCRIPT_MODE_FILE)
+        set(${out_var} ${source} PARENT_SCOPE)
+        return()
+    endif()
+    file(READ ${source} content)
+    set(release_original "                AMY_UNSET(osc_to_voice[i]);\n                // Make sure the osc is cleared.\n                reset_osc(i);")
+    set(release_patched "                AMY_UNSET(osc_to_voice[i]);\n                // Cardenza: give its memory back; the next voice that uses it allocates it again.\n                free_osc(i);")
+    string(FIND "${content}" "${release_original}" match_index)
+    if(match_index EQUAL -1)
+        message(FATAL_ERROR "AMY release_voice_oscs patch no longer applies in ${source}")
+    endif()
+    string(REPLACE "${release_original}" "${release_patched}" content "${content}")
+    # patches_deinit forgets the voice and patch tables (one block from patches_init) without freeing
+    # them: amy_stop leaked it every time.
+    set(deinit_original "void patches_deinit() {\n    memory_patch_deltas = NULL;")
+    set(deinit_patched "void patches_deinit() {\n    free(memory_patch_deltas);  // Cardenza: the block patches_init allocated\n    memory_patch_deltas = NULL;")
+    string(FIND "${content}" "${deinit_original}" match_index)
+    if(match_index EQUAL -1)
+        message(FATAL_ERROR "AMY patches_deinit patch no longer applies in ${source}")
+    endif()
+    string(REPLACE "${deinit_original}" "${deinit_patched}" content "${content}")
+    # The ROM patches' text (static here), for keeping one as a memory patch: AMY parses a ROM patch
+    # once per voice it builds, a memory patch once (SynthAudioRuntimeAmy.cpp, CachedAmyPatchNoLock).
+    string(APPEND content "\n// Cardenza: a ROM patch's text, null past the table.\nconst char *cardenza_patch_command(uint16_t patch_number) {\n    return patch_number < sizeof(patch_commands) / sizeof(patch_commands[0]) ? patch_commands[patch_number] : NULL;\n}\n")
+    set(output_dir ${CMAKE_BINARY_DIR}/cardenza_generated/amy)
+    file(WRITE ${output_dir}/patches.c.in "${content}")
+    configure_file(${output_dir}/patches.c.in ${output_dir}/patches.c COPYONLY)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${source})
+    set(${out_var} ${output_dir}/patches.c PARENT_SCOPE)
+endfunction()
+
 function(cardenza_collect_amy_c_sources root_dir out_var)
     set(amy_src_dir ${root_dir}/Library/third_party/amy/src)
     cardenza_amy_core_source(${amy_src_dir} amy_core_source)
+    cardenza_amy_patches_source(${amy_src_dir} amy_patches_source)
     set(sources
         ${amy_src_dir}/algorithms.c
         ${amy_core_source}
@@ -332,7 +391,7 @@ function(cardenza_collect_amy_c_sources root_dir out_var)
         ${amy_src_dir}/midi_mappings.c
         ${amy_src_dir}/oscillators.c
         ${amy_src_dir}/parse.c
-        ${amy_src_dir}/patches.c
+        ${amy_patches_source}
         ${amy_src_dir}/pcm.c
         ${amy_src_dir}/sequencer.c
         ${amy_src_dir}/transfer.c

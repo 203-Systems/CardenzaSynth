@@ -66,6 +66,11 @@ private:
 bool CardPresent();
 // The same without asking the device to mount it: cheap enough to call often.
 bool CardMounted();
+// An app reading from the card in real time (a sample played from its file) says so: what writes to
+// the card only to keep a record (the log) waits meanwhile. A card writing is slow to read from, for
+// seconds at a time, and the reader waiting for it starved the UI (the stress test, 2026-11-04).
+void SetCardStreaming(bool streaming);
+bool CardStreaming();
 // Small records in internal flash, there with or without a card. A record is replaced as a whole, so a
 // power cut leaves the old one or the new one. Keys are 1..15 characters of [a-z0-9_]. Writing can stall
 // both cores for a moment now and then: not for use while sound is playing.

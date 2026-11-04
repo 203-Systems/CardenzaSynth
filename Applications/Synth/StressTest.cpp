@@ -1,0 +1,811 @@
+#include "Applications/Synth/StressTest.h"
+
+#if defined(CARDENZA_STRESS_TEST) && defined(ESP_PLATFORM)
+
+#include "Applications/Synth/GrooveApp.h"
+#include "Applications/Synth/Runtime/ProjectStorage.h"
+#include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
+#include "Devices/Device.h"
+#include "Library/Memory/Memory.h"
+#include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Core/SynthStorage.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <string>
+#include <vector>
+
+#include <esp_app_desc.h>
+#include <esp_attr.h>
+#include <esp_heap_caps.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+extern "C" const char* cardenza_previous_crash();
+
+namespace apps {
+namespace {
+
+#include "Applications/Synth/StressTestFixtures.inc"
+
+using synth::SynthEngineKind;
+using synth::SynthSequencer;
+
+constexpr std::int64_t kStartAfterUs = 20 * 1000000;  // the USB console is there by then
+constexpr std::size_t kMaxScenarios = 24;
+constexpr const char* kPrefix = "ZZ-ST-";
+constexpr std::array<std::uint8_t, 8> kKitNotes{{36, 38, 42, 46, 39, 43, 56, 70}};  // the drum machine's lanes
+
+// What survives a reset (RTC slow memory, beside the log ring): where the run is and what it found.
+struct Result {
+  std::uint8_t state = 0;  // 0 not run, 1 running, 2 done, 3 the device restarted during it
+  std::uint8_t ok = 0;
+  std::uint16_t avgRenderUs = 0;
+  std::uint16_t maxRenderUs = 0;
+  std::uint16_t overruns = 0;
+  std::uint16_t underruns = 0;
+  std::uint16_t faded = 0;
+  std::uint16_t shed = 0;
+  std::uint16_t lostTails = 0;    // let-go tails faded early
+  std::uint16_t lostHeld = 0;     // held notes faded: a note missing
+  std::uint16_t lostUnheard = 0;  // notes left out before they sounded: a note missing
+  std::uint16_t lostStolen = 0;   // held notes whose voice a newer one took (the track's voices all held)
+  std::uint16_t uiMaxMs = 0;
+  std::uint16_t uiDrops = 0;
+  std::uint16_t seqLatestUs = 0;
+  std::uint16_t seqLate = 0;
+  std::uint16_t ramMinKb = 0;
+  std::uint16_t psramMinKb = 0;
+  std::uint16_t opMaxMs = 0;
+  std::uint16_t opUnderruns = 0;
+  char note[24] = {};
+};
+struct Persist {
+  std::uint32_t magic;
+  std::uint32_t build;
+  std::uint32_t next;
+  std::uint32_t reboots;
+  Result results[kMaxScenarios];
+};
+constexpr std::uint32_t kMagic = 0x53545231u;  // "STR1"
+RTC_NOINIT_ATTR Persist g_persist;
+
+enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns };
+
+struct Scenario {
+  std::string name;
+  Kind kind = Kind::Idle;
+  Variant variant = Variant::None;
+  std::string project;  // what it loads
+  std::uint32_t seconds = 20;
+};
+
+std::uint32_t BuildId()
+{
+  char elf[9] = {};
+  esp_app_get_elf_sha256(elf, sizeof(elf));
+  return static_cast<std::uint32_t>(std::strtoul(elf, nullptr, 16));
+}
+
+std::uint32_t NowMs() { return static_cast<std::uint32_t>(esp_timer_get_time() / 1000); }
+
+std::uint16_t Cap16(std::uint64_t value) { return static_cast<std::uint16_t>(value > 65535u ? 65535u : value); }
+
+// ---------------------------------------------------------------------------------------------------
+// Projects
+
+std::string ProjectName(Variant variant)
+{
+  switch (variant)
+  {
+    case Variant::Dx7Chords: return std::string(kPrefix) + "DX7";
+    case Variant::JunoPads: return std::string(kPrefix) + "JUNO";
+    case Variant::DrumsFast: return std::string(kPrefix) + "FAST";
+    case Variant::Arps: return std::string(kPrefix) + "ARPS";
+    case Variant::Sampler: return std::string(kPrefix) + "SAMPLER";
+    case Variant::FxMax: return std::string(kPrefix) + "FXMAX";
+    case Variant::MaxPatterns: return std::string(kPrefix) + "MAX";
+    case Variant::None: break;
+  }
+  return std::string(kPrefix) + "NONE";
+}
+
+constexpr const char* kShortSample = "ZZ-ST-SHORT.wav";  // 1.5 s: read into PSRAM
+constexpr const char* kLongSample = "ZZ-ST-LONG.wav";    // 20 s: plays from the card
+
+bool WriteSample(const char* name, std::size_t frames, float frequency)
+{
+  const std::string path = synth::storage::SampleDirectory() + "/" + name;
+  if (std::FILE* file = std::fopen(path.c_str(), "rb"))
+  {
+    std::fclose(file);
+    return true;
+  }
+  return synth::sampler::WriteMono16WavFrom(path, frames, 44100, [&](std::int16_t* chunk, std::size_t offset, std::size_t count) {
+    for (std::size_t index = 0; index < count; ++index)
+    {
+      const float time = static_cast<float>(offset + index) / 44100.0f;
+      const float envelope = 1.0f - 0.7f * std::fmod(time, 2.0f) / 2.0f;
+      const float value = 0.45f * std::sin(6.2831853f * frequency * time) + 0.2f * std::sin(6.2831853f * frequency * 2.01f * time);
+      chunk[index] = static_cast<std::int16_t>(32767.0f * envelope * value);
+    }
+    return true;
+  });
+}
+
+struct TrackSpec {
+  SynthEngineKind kind = SynthEngineKind::Juno;
+  const char* preset = "juno.a68";
+  const char* sample = "";
+  int notesPerStep = 4;     // a chord on the steps that play
+  int stepEvery = 1;        // every step, every second one...
+  int lengthPulses = 48;
+  int baseNote = 48;
+  bool drums = false;       // the eight drums of the kit, not a chord
+  synth::ArpSettings arp{};
+  int chorus = 1, drive = 0, filter = 64, resonance = 20, crush = 0, delay = 0, reverb = 0;
+};
+
+synth::ProjectData MakeProject(Variant variant)
+{
+  synth::ProjectData project;
+  project.sequence.reset(new (memory::slow) SynthSequencer::ProjectState);
+  std::array<TrackSpec, synth::kSynthTrackCount> tracks{};
+  int patterns = 1;
+  int steps = 16;
+  std::uint16_t bpm = 120;
+  auto& fx = project.masterFx;
+  using MP = synth::fx::MasterParam;
+  const auto master = [&](MP param, int value) { fx[static_cast<std::size_t>(param)] = static_cast<std::uint8_t>(value); };
+  switch (variant)
+  {
+    case Variant::Dx7Chords:
+    case Variant::FxMax:
+    {
+      const char* presets[] = {"dx7.rom1a.01", "dx7.rom1a.11", "dx7.rom1a.04", "dx7.rom1a.20"};
+      for (std::size_t track = 0; track < tracks.size(); ++track)
+      {
+        tracks[track] = TrackSpec{SynthEngineKind::Dx7, presets[track], "", 6, 1, 72, 40 + 7 * static_cast<int>(track)};
+        tracks[track].chorus = 2;
+        tracks[track].drive = 40;
+        tracks[track].reverb = 60;
+        tracks[track].delay = 40;
+      }
+      bpm = 140;
+      if (variant == Variant::FxMax)
+      {
+        for (auto& track : tracks)
+        {
+          track.drive = 127;
+          track.resonance = 127;
+          track.filter = 40;
+          track.crush = 90;
+          track.reverb = 127;
+          track.delay = 127;
+        }
+        master(MP::DelayTime, 11);
+        master(MP::DelayFeedback, 120);
+        master(MP::DelayLevel, 127);
+        master(MP::ReverbSize, 127);
+        master(MP::ReverbLevel, 127);
+        master(MP::Compressor, 127);
+        master(MP::EqLow, 127);
+        master(MP::EqHigh, 127);
+        master(MP::Tape, 127);
+      }
+      break;
+    }
+    case Variant::JunoPads:
+    {
+      const char* presets[] = {"juno.a68", "juno.a11", "juno.b78", "juno.a51"};
+      for (std::size_t track = 0; track < tracks.size(); ++track)
+      {
+        tracks[track] = TrackSpec{SynthEngineKind::Juno, presets[track], "", 8, 2, 96, 36 + 9 * static_cast<int>(track)};
+        tracks[track].chorus = 2;
+        tracks[track].reverb = 90;
+        tracks[track].delay = 60;
+      }
+      master(MP::DelayTime, 11);
+      master(MP::ReverbSize, 127);
+      break;
+    }
+    case Variant::DrumsFast:
+    {
+      tracks[0] = TrackSpec{SynthEngineKind::Drums, "drums.808", "", 8, 1, 12, 36, true};
+      tracks[1] = TrackSpec{SynthEngineKind::Dx7, "dx7.rom1a.15", "", 1, 1, 12, 36};
+      tracks[2] = TrackSpec{SynthEngineKind::Juno, "juno.a68", "", 4, 1, 12, 60};
+      tracks[3] = TrackSpec{SynthEngineKind::Drums, "drums.808", "", 8, 1, 12, 36, true};
+      bpm = 300;
+      break;
+    }
+    case Variant::Arps:
+    {
+      const SynthEngineKind kinds[] = {SynthEngineKind::Juno, SynthEngineKind::Dx7, SynthEngineKind::Juno, SynthEngineKind::Dx7};
+      const char* presets[] = {"juno.a11", "dx7.rom1a.11", "juno.a68", "dx7.rom1a.01"};
+      for (std::size_t track = 0; track < tracks.size(); ++track)
+      {
+        tracks[track] = TrackSpec{kinds[track], presets[track], "", 4, 16, 384, 48 + 5 * static_cast<int>(track)};
+        tracks[track].arp.mode = synth::ArpMode::UpDown;
+        tracks[track].arp.rate = 5;  // 1/32
+        tracks[track].arp.octaves = 4;
+        tracks[track].arp.gate = 90;
+      }
+      bpm = 160;
+      break;
+    }
+    case Variant::Sampler:
+    {
+      tracks[0] = TrackSpec{SynthEngineKind::Drums, "drums.808", "", 3, 1, 24, 36, true};
+      tracks[1] = TrackSpec{SynthEngineKind::Juno, "juno.a68", "", 4, 2, 96, 48};
+      tracks[2] = TrackSpec{SynthEngineKind::Sampler, "sampler.empty", kShortSample, 4, 2, 96, 60};
+      tracks[3] = TrackSpec{SynthEngineKind::Sampler, "sampler.empty", kLongSample, 4, 4, 192, 60};
+      break;
+    }
+    case Variant::MaxPatterns:
+    {
+      const SynthEngineKind kinds[] = {SynthEngineKind::Dx7, SynthEngineKind::Juno, SynthEngineKind::Dx7, SynthEngineKind::Juno};
+      const char* presets[] = {"dx7.rom1a.01", "juno.a68", "dx7.rom1a.11", "juno.a11"};
+      for (std::size_t track = 0; track < tracks.size(); ++track)
+        tracks[track] = TrackSpec{kinds[track], presets[track], "", 8, 1, 12, 40 + 6 * static_cast<int>(track)};
+      patterns = static_cast<int>(synth::kSequencerMaxPatternCount);
+      steps = static_cast<int>(synth::kSequencerMaxSteps);
+      break;
+    }
+    case Variant::None: break;
+  }
+
+  auto& sequence = *project.sequence;
+  sequence.bpm = bpm;
+  project.hasPlay = true;
+  for (std::size_t track = 0; track < tracks.size(); ++track)
+  {
+    const TrackSpec& spec = tracks[track];
+    project.kinds[track] = spec.kind;
+    auto& engine = project.engines[track];
+    engine.basePresetId = spec.preset;
+    engine.presetId = spec.preset;
+    engine.presetName = "STRESS";
+    engine.values = {{"fx.chorus", spec.chorus}, {"fx.drive", spec.drive}, {"fx.filter", spec.filter}, {"fx.resonance", spec.resonance},
+                     {"fx.crush", spec.crush},   {"fx.delay", spec.delay}, {"fx.reverb", spec.reverb}};
+    project.samples[track] = spec.sample;
+    project.play[track].arp = spec.arp;
+    auto& data = sequence.tracks[track];
+    data.patternCount = static_cast<std::size_t>(patterns);
+    data.activePattern = 0;
+    for (int pattern = 0; pattern < patterns; ++pattern)
+    {
+      data.patternSteps[static_cast<std::size_t>(pattern)] = static_cast<std::uint16_t>(steps);
+      auto& store = data.patterns[static_cast<std::size_t>(pattern)].steps;
+      for (int step = 0; step < steps; step += spec.stepEvery)
+      {
+        auto& notes = store.Edit(static_cast<std::size_t>(step)).notes;
+        for (int index = 0; index < spec.notesPerStep && index < static_cast<int>(notes.size()); ++index)
+        {
+          auto& note = notes[static_cast<std::size_t>(index)];
+          const int pitch = spec.drums ? kKitNotes[static_cast<std::size_t>(index)]
+                                       : spec.baseNote + 3 * index + (step / 4 + pattern) % 5;
+          note.note = static_cast<std::uint8_t>(std::clamp(pitch, 0, 127));
+          note.velocity = static_cast<std::uint8_t>(90 + (step * 7 + index * 3) % 37);
+          note.lengthPulses = static_cast<std::uint16_t>(spec.lengthPulses);
+          note.microstep = static_cast<std::uint8_t>(spec.drums ? 0 : (index % 3));
+          note.active = true;
+        }
+      }
+    }
+  }
+  sequence.songLength = static_cast<std::size_t>(patterns);
+  for (int row = 0; row < patterns; ++row)
+  {
+    for (auto& pattern : sequence.song[static_cast<std::size_t>(row)].patterns) pattern = static_cast<std::int8_t>(row);
+    sequence.song[static_cast<std::size_t>(row)].repeats = 1;
+  }
+  return project;
+}
+
+bool WriteFixture(const std::string& name, const char* text)
+{
+  const std::string path = synth::storage::ProjectDirectory() + "/" + name + ".ccproj";
+  std::ofstream file(path, std::ios::trunc);
+  file << text;
+  return file.good();
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The run
+
+std::vector<Scenario> BuildScenarios()
+{
+  std::vector<Scenario> list;
+  const auto add = [&](const char* name, Kind kind, Variant variant, std::uint32_t seconds, std::string project = "") {
+    if (list.size() >= kMaxScenarios) return;
+#if defined(CARDENZA_STRESS_ONLY)
+    // `make DEVICE=Cardenza stress STRESS_ONLY=card:DEMO-2,sampler STRESS_SECONDS=60`: those alone.
+    const std::string only = "," CARDENZA_STRESS_ONLY ",";
+    if (only.find("," + std::string(name) + ",") == std::string::npos) return;
+#if defined(CARDENZA_STRESS_SECONDS)
+    seconds = CARDENZA_STRESS_SECONDS;
+#endif
+#endif
+    Scenario scenario;
+    scenario.name = name;
+    scenario.kind = kind;
+    scenario.variant = variant;
+    scenario.seconds = seconds;
+    scenario.project = project.empty() && variant != Variant::None ? ProjectName(variant) : project;
+    list.push_back(scenario);
+  };
+  add("idle-new", Kind::Idle, Variant::None, 10);
+  add("old-v1", Kind::Fixture, Variant::None, 8, std::string(kPrefix) + "OLD-V1");
+  add("old-0.1.0", Kind::Fixture, Variant::None, 15, std::string(kPrefix) + "OLD-DEMO2");
+  add("dx7-chords", Kind::Generated, Variant::Dx7Chords, 30);
+  add("juno-pads", Kind::Generated, Variant::JunoPads, 30);
+  add("drums-300bpm", Kind::Generated, Variant::DrumsFast, 25);
+  add("arps-1/32", Kind::Generated, Variant::Arps, 25);
+  add("sampler", Kind::Generated, Variant::Sampler, 25);
+  add("fx-max", Kind::Generated, Variant::FxMax, 25);
+  add("max-patterns", Kind::Generated, Variant::MaxPatterns, 25);
+  add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
+  add("ui-storm", Kind::UiStorm, Variant::JunoPads, 30);
+  add("worst", Kind::Worst, Variant::FxMax, 40);
+  for (const std::string& name : synth::ListProjects())
+  {
+    if (name.rfind(kPrefix, 0) == 0) continue;
+    const std::string label = "card:" + name;
+    add(label.c_str(), Kind::Card, Variant::None, 10, name);
+  }
+  return list;
+}
+
+struct Window {
+  Device::Audio::RenderTiming audio;
+  std::uint32_t faded = 0;
+  std::uint32_t shed = 0;
+  synth::audio::GivenUpVoices lost;
+  std::uint32_t lastTickMs = 0;
+  std::uint32_t uiMaxMs = 0;
+  std::uint32_t uiDrops = 0;
+  std::uint32_t seqLatest = 0;
+  std::uint32_t seqLate = 0;
+  std::uint32_t opMaxMs = 0;
+  std::uint32_t opUnderruns = 0;
+};
+
+struct Runner {
+  std::vector<Scenario> scenarios;
+  bool started = false;
+  bool active = false;      // a scenario is set up and being measured
+  std::uint32_t endMs = 0;
+  std::uint32_t nextOpMs = 0;
+  std::uint32_t op = 0;
+  std::uint32_t random = 0x12345678u;
+  std::array<bool, 56> held{};
+  Window window;
+  std::uint32_t summaryMs = 0;
+  std::size_t summaryLine = 0;
+  TaskHandle_t watcher = nullptr;
+  volatile std::uint32_t frames = 0;
+};
+Runner g_runner;
+
+std::uint32_t Random()
+{
+  std::uint32_t x = g_runner.random;
+  x ^= x << 13;
+  x ^= x >> 17;
+  x ^= x << 5;
+  return g_runner.random = x;
+}
+
+void CopyNote(Result& result, const std::string& text)
+{
+  std::snprintf(result.note, sizeof(result.note), "%s", text.c_str());
+}
+
+// A frozen UI: what every task is doing (the watchdog restarts the device after 5 s, and the next run
+// prints its backtrace).
+void WatchTask(void*)
+{
+  std::uint32_t last = 0;
+  std::uint32_t still = 0;
+  for (;;)
+  {
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    const std::uint32_t now = g_runner.frames;
+    still = now == last ? still + 1 : 0;
+    last = now;
+    if (still != 3) continue;
+    std::printf("stress: UI stopped for 3 s, internal %u psram %u\n", static_cast<unsigned>(memory::FastFree()), static_cast<unsigned>(memory::SlowFree()));
+    static TaskStatus_t tasks[32];
+    const UBaseType_t count = uxTaskGetSystemState(tasks, 32, nullptr);
+    for (UBaseType_t index = 0; index < count; ++index)
+    {
+      std::printf("stress: task %-14s state=%d prio=%u stack_left=%u\n", tasks[index].pcTaskName, static_cast<int>(tasks[index].eCurrentState),
+                  static_cast<unsigned>(tasks[index].uxCurrentPriority), static_cast<unsigned>(tasks[index].usStackHighWaterMark));
+      vTaskDelay(pdMS_TO_TICKS(30));
+    }
+  }
+}
+
+bool Load(GrooveApp& app, const std::string& name, std::string& message)
+{
+  groove::ProjectUiSettings settings;
+  if (!app.LoadProject(name, settings, message)) return false;
+  app.Ui().Restore(settings, name);
+  return true;
+}
+
+// Runs `work` as one operation: its time, and the underruns while it ran.
+template <typename Work>
+void Operation(Work&& work)
+{
+  const std::uint32_t underruns = Device::Audio::Timing().underruns;
+  const std::uint32_t start = NowMs();
+  work();
+  const std::uint32_t took = NowMs() - start;
+  g_runner.window.opMaxMs = (std::max)(g_runner.window.opMaxMs, took);
+  g_runner.window.opUnderruns += Device::Audio::Timing().underruns - underruns;
+  g_runner.window.lastTickMs = NowMs();  // the operation's own time is not a dropped frame
+}
+
+void StartWindow()
+{
+  Window& window = g_runner.window;
+  window = Window{};
+  window.audio = Device::Audio::Timing();
+  window.faded = synth::audio::FadedVoiceCount();
+  window.shed = synth::audio::ShedVoiceCount();
+  window.lost = synth::audio::GivenUpVoiceCounts();
+  window.lastTickMs = NowMs();
+  heap_caps_monitor_local_minimum_free_size_start();
+}
+
+void PrintResult(std::size_t index)
+{
+  const Result& r = g_persist.results[index];
+  static const char* const kStates[] = {"not run", "running", "done", "RESTARTED"};
+  std::printf("stress: %2u %-18s %-9s %s render %u/%u us under %u | notes lost: held %u unheard %u stolen %u (tails %u) | ui max %u ms drops %u | "
+              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | %s\n",
+              static_cast<unsigned>(index), index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?", kStates[r.state & 3],
+              r.state == 2 ? (r.ok ? "ok  " : "FAIL") : "    ", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
+              r.lostTails, r.uiMaxMs, r.uiDrops, r.seqLatestUs, r.seqLate, r.ramMinKb, r.psramMinKb, r.opMaxMs, r.opUnderruns, r.note);
+}
+
+void FinishWindow(GrooveApp& app, std::size_t index)
+{
+  Result& result = g_persist.results[index];
+  const Window& window = g_runner.window;
+  const Device::Audio::RenderTiming audio = Device::Audio::Timing();
+  const std::uint32_t blocks = audio.blocks - window.audio.blocks;
+  result.avgRenderUs = static_cast<std::uint16_t>(blocks != 0 ? (audio.renderMicros - window.audio.renderMicros) / blocks : 0);
+  result.maxRenderUs = Cap16(audio.longestRenderMicros);
+  result.overruns = Cap16(audio.overruns - window.audio.overruns);
+  result.underruns = Cap16(audio.underruns - window.audio.underruns);
+  result.faded = Cap16(synth::audio::FadedVoiceCount() - window.faded);
+  result.shed = Cap16(synth::audio::ShedVoiceCount() - window.shed);
+  const synth::audio::GivenUpVoices lost = synth::audio::GivenUpVoiceCounts();
+  result.lostTails = Cap16(lost.tails - window.lost.tails);
+  result.lostHeld = Cap16(lost.held - window.lost.held);
+  result.lostUnheard = Cap16(lost.unheard - window.lost.unheard);
+  result.lostStolen = Cap16(lost.stolen - window.lost.stolen);
+  result.uiMaxMs = Cap16(window.uiMaxMs);
+  result.uiDrops = Cap16(window.uiDrops);
+  result.seqLatestUs = Cap16(window.seqLatest);
+  result.seqLate = Cap16(window.seqLate);
+  result.ramMinKb = static_cast<std::uint16_t>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024);
+  result.psramMinKb = static_cast<std::uint16_t>(heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM) / 1024);
+  heap_caps_monitor_local_minimum_free_size_stop();
+  result.opMaxMs = Cap16(window.opMaxMs);
+  result.opUnderruns = Cap16(window.opUnderruns);
+  // Passing: nothing a user hears or sees go wrong while it plays.
+  // Let-go tails fading early are polyphony giving way, which is allowed; a note that was played and
+  // not heard is not (stolen voices are the tracks' voice count, reported apart).
+  result.ok = result.underruns == 0 && result.seqLate == 0 && result.uiMaxMs < 250 && result.ramMinKb >= 12 && result.lostHeld == 0 &&
+                      result.lostUnheard == 0 && result.note[0] == 0
+                  ? 1
+                  : 0;
+  result.state = 2;
+  PrintResult(index);
+}
+
+void ReleaseKeys(GrooveApp& app)
+{
+  for (std::size_t key = 0; key < g_runner.held.size(); ++key)
+    if (g_runner.held[key])
+    {
+      app.HandleMatrixKeyEvent(key / 14, key % 14, false);
+      g_runner.held[key] = false;
+    }
+}
+
+// A storm of keys: pads held and let go in clusters, the GRID tapped, scenes, tracks and pages changed.
+// Never ENTER, ADD, SUB, FN or PLAY: nothing that confirms, edits values or opens menus.
+void KeyStorm(GrooveApp& app, std::uint32_t now)
+{
+  const std::uint32_t roll = Random();
+  const std::size_t row = roll % 4;
+  const std::size_t column = 1 + (roll >> 4) % 12;  // pads 1-8, GRID 9-12
+  const std::size_t key = row * 14 + column;
+  if (g_runner.held[key] || (roll >> 12) % 3 == 0)
+  {
+    if (g_runner.held[key]) app.HandleMatrixKeyEvent(row, column, false);
+    g_runner.held[key] = false;
+  }
+  else if (std::count(g_runner.held.begin(), g_runner.held.end(), true) < 10)
+  {
+    app.HandleMatrixKeyEvent(row, column, true);
+    g_runner.held[key] = true;
+  }
+  if (now % 700 < 17)
+  {
+    const std::size_t edge = (now / 700) % 3 == 0 ? 0 : ((now / 700) % 3 == 1 ? 1 : 3);  // ESC, TAB, CTRL
+    ReleaseKeys(app);
+    app.HandleMatrixKeyEvent(edge, 0, true);
+    app.HandleMatrixKeyEvent(edge, 0, false);
+  }
+}
+
+// One live operation while the project plays, in turn: what a user does in the middle of a song.
+void LiveOperation(GrooveApp& app)
+{
+  std::string message;
+  const SynthEngineKind cycle[] = {SynthEngineKind::Juno, SynthEngineKind::Sampler, SynthEngineKind::Drums, SynthEngineKind::Dx7};
+  switch (g_runner.op++ % 10)
+  {
+    case 0: case 1: case 2: case 3:
+      Operation([&] { (void)app.SwitchEngine(3, cycle[(g_runner.op - 1) % 4], message); });
+      break;
+    case 4:
+      Operation([&] {
+        if (synth::ISynthEngine* engine = app.Engine(2))
+        {
+          char id[24];
+          std::snprintf(id, sizeof(id), "dx7.rom1a.%02u", static_cast<unsigned>(1 + Random() % 32));
+          (void)engine->LoadPreset(id);
+        }
+      });
+      break;
+    case 5:
+      Operation([&] {
+        if (Load(app, ProjectName(Variant::JunoPads), message)) app.Sequencer().Play();
+      });
+      break;
+    case 6:
+      Operation([&] {
+        groove::ProjectUiSettings settings;
+        if (app.NewProject(settings, message)) app.Ui().Restore(settings, "");
+        if (Load(app, ProjectName(Variant::Dx7Chords), message)) app.Sequencer().Play();
+      });
+      break;
+    case 7:
+      Operation([&] { (void)app.SaveProject(std::string(kPrefix) + "SAVED", true, app.Ui().Settings(), message); });
+      break;
+    case 8:
+      Operation([&] { app.FlushSession(); });
+      break;
+    default:
+      Operation([&] {
+        for (std::size_t param = 0; param < synth::fx::kMasterParamCount; ++param)
+          app.SetMasterFx(param, static_cast<int>(Random() % (static_cast<std::uint32_t>(synth::fx::kMasterParams[param].maxValue) + 1)));
+        for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) app.SetTrackLevel(track, static_cast<std::uint8_t>(40 + Random() % 61));
+      });
+      break;
+  }
+}
+
+bool SetUp(GrooveApp& app, const Scenario& scenario, Result& result)
+{
+  std::string message;
+  app.Sequencer().Stop();
+  switch (scenario.kind)
+  {
+    case Kind::Idle:
+    {
+      groove::ProjectUiSettings settings;
+      if (!app.NewProject(settings, message))
+      {
+        CopyNote(result, "new: " + message);
+        return false;
+      }
+      app.Ui().Restore(settings, "");
+      return true;
+    }
+    case Kind::Fixture:
+    case Kind::Card:
+    {
+      if (scenario.kind == Kind::Fixture)
+        (void)WriteFixture(scenario.project, scenario.name == "old-v1" ? kStressFixtureV1 : kStressFixtureRelease);
+      bool loaded = false;
+      Operation([&] { loaded = Load(app, scenario.project, message); });
+      if (!loaded)
+      {
+        // Refusing an old file cleanly is a pass for stability, but worth reading.
+        std::printf("stress: %s did not load: %s\n", scenario.project.c_str(), message.c_str());
+        return true;
+      }
+      app.Sequencer().Play();
+      return true;
+    }
+    case Kind::Generated:
+    case Kind::LiveOps:
+    case Kind::UiStorm:
+    case Kind::Worst:
+    {
+      if (scenario.variant == Variant::Sampler || scenario.kind == Kind::Worst)
+      {
+        if (!WriteSample(kShortSample, 66150, 220.0f) || !WriteSample(kLongSample, 20 * 44100, 110.0f))
+        {
+          CopyNote(result, "sample write failed");
+          return false;
+        }
+      }
+      synth::ProjectData project = MakeProject(scenario.variant);
+      if (scenario.kind == Kind::Worst)
+      {
+        // Track 4 as the sampler scenario has it: the sample streamed from the card.
+        const synth::ProjectData sampler = MakeProject(Variant::Sampler);
+        project.kinds[3] = sampler.kinds[3];
+        project.engines[3] = sampler.engines[3];
+        project.samples[3] = sampler.samples[3];
+        project.play[1].arp.mode = synth::ArpMode::Up;
+        project.play[1].arp.rate = 5;
+        project.play[1].arp.octaves = 4;
+      }
+      const std::uint32_t start = NowMs();
+      const synth::ProjectResult saved = synth::SaveProjectFile(scenario.project, project, true);
+      std::printf("stress: %s written: %d in %u ms\n", scenario.project.c_str(), static_cast<int>(saved), static_cast<unsigned>(NowMs() - start));
+      if (saved != synth::ProjectResult::Ok)
+      {
+        CopyNote(result, "save " + std::to_string(static_cast<int>(saved)));
+        return false;
+      }
+      if (scenario.kind == Kind::LiveOps)
+      {
+        synth::ProjectData pads = MakeProject(Variant::JunoPads);
+        (void)synth::SaveProjectFile(ProjectName(Variant::JunoPads), pads, true);
+      }
+      bool loaded = false;
+      Operation([&] { loaded = Load(app, scenario.project, message); });
+      if (!loaded)
+      {
+        CopyNote(result, "load: " + message);
+        return false;
+      }
+      app.Sequencer().Play();
+      return true;
+    }
+  }
+  return false;
+}
+
+void Summary(std::uint32_t now)
+{
+  if (now < g_runner.summaryMs) return;
+  if (g_runner.summaryLine == 0) std::printf("stress: ===== summary (build %08x, %u restarts) =====\n", static_cast<unsigned>(g_persist.build), static_cast<unsigned>(g_persist.reboots));
+  if (g_runner.summaryLine < g_runner.scenarios.size())
+  {
+    PrintResult(g_runner.summaryLine++);
+    g_runner.summaryMs = now + 40;
+    return;
+  }
+  g_runner.summaryLine = 0;
+  g_runner.summaryMs = now + 20000;
+}
+
+}  // namespace
+
+void StressTestTick(GrooveApp& app)
+{
+  Runner& runner = g_runner;
+  ++runner.frames;
+  if (esp_timer_get_time() < kStartAfterUs) return;
+  const std::uint32_t now = NowMs();
+  if (!runner.started)
+  {
+    runner.started = true;
+    runner.scenarios = BuildScenarios();
+    const std::uint32_t build = BuildId();
+    if (g_persist.magic != kMagic || g_persist.build != build)
+    {
+      std::memset(&g_persist, 0, sizeof(g_persist));
+      g_persist.magic = kMagic;
+      g_persist.build = build;
+    }
+    else if (g_persist.next < kMaxScenarios && g_persist.results[g_persist.next].state == 1)
+    {
+      // The device restarted during this one: a crash or the watchdog.
+      g_persist.results[g_persist.next].state = 3;
+      ++g_persist.reboots;
+      const char* crash = cardenza_previous_crash();
+      std::printf("stress: restarted during %u; the crash: %s\n", static_cast<unsigned>(g_persist.next), crash != nullptr && crash[0] != 0 ? crash : "(none recorded)\n");
+      ++g_persist.next;
+    }
+    xTaskCreatePinnedToCore(WatchTask, "stress_watch", 4096, nullptr, 22, &runner.watcher, 1);
+    std::printf("stress: begin, build %08x, %u scenarios, at %u\n", static_cast<unsigned>(build), static_cast<unsigned>(runner.scenarios.size()),
+                static_cast<unsigned>(g_persist.next));
+    synth::storage::EnsureLayout();
+  }
+  const std::size_t index = g_persist.next;
+  if (index >= runner.scenarios.size())
+  {
+    if (app.Sequencer().Playing()) app.Sequencer().Stop();
+    Summary(now);
+    return;
+  }
+  const Scenario& scenario = runner.scenarios[index];
+  Result& result = g_persist.results[index];
+  if (!runner.active)
+  {
+    std::printf("stress: --- %u %s (%u s)\n", static_cast<unsigned>(index), scenario.name.c_str(), static_cast<unsigned>(scenario.seconds));
+    result = Result{};
+    result.state = 1;  // a restart from here on is this scenario's
+    StartWindow();
+    if (!SetUp(app, scenario, result))
+    {
+      FinishWindow(app, index);
+      ++g_persist.next;
+      return;
+    }
+    (void)app.Sequencer().TakeClockLateness();
+    runner.active = true;
+    runner.endMs = NowMs() + scenario.seconds * 1000;
+    runner.nextOpMs = NowMs() + 1500;
+    runner.op = 0;
+    runner.window.lastTickMs = NowMs();
+    return;
+  }
+
+  // Measuring: the frame time first (what came before this tick).
+  const std::uint32_t frame = now - runner.window.lastTickMs;
+  runner.window.uiMaxMs = (std::max)(runner.window.uiMaxMs, frame);
+  if (frame > 34) ++runner.window.uiDrops;
+  runner.window.lastTickMs = now;
+  // Late clock pulses as they come, to be read next to what the log says happened then.
+  const auto clock = app.Sequencer().TakeClockLateness();
+  runner.window.seqLatest = (std::max)(runner.window.seqLatest, clock.latestMicros);
+  runner.window.seqLate += clock.latePulses;
+  if (clock.latePulses != 0)
+    std::printf("stress: clock %u pulses late, the latest by %u us\n", static_cast<unsigned>(clock.latePulses), static_cast<unsigned>(clock.latestMicros));
+
+  if (scenario.kind == Kind::LiveOps && now >= runner.nextOpMs)
+  {
+    LiveOperation(app);
+    runner.nextOpMs = NowMs() + 1500;
+  }
+  if (scenario.kind == Kind::UiStorm || scenario.kind == Kind::Worst) KeyStorm(app, now);
+  if (scenario.kind == Kind::Worst && now >= runner.nextOpMs)
+  {
+    // A lighter set of operations on top: engine switches and autosaves.
+    std::string message;
+    if ((runner.op++ & 1) == 0) Operation([&] { (void)app.SwitchEngine(2, (runner.op & 2) ? SynthEngineKind::Juno : SynthEngineKind::Dx7, message); });
+    else Operation([&] { app.FlushSession(); });
+    runner.nextOpMs = NowMs() + 3000;
+  }
+  if (scenario.variant == Variant::MaxPatterns && now >= runner.nextOpMs)
+  {
+    for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+      (void)app.Sequencer().QueuePattern(track, Random() % synth::kSequencerMaxPatternCount);
+    runner.nextOpMs = now + 2000;
+  }
+  if (now < runner.endMs) return;
+
+  ReleaseKeys(app);
+  FinishWindow(app, index);
+  runner.active = false;
+  ++g_persist.next;
+}
+
+}  // namespace apps
+
+#else
+
+namespace apps {
+void StressTestTick(GrooveApp&) {}
+}  // namespace apps
+
+#endif

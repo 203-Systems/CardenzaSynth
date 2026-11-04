@@ -1448,6 +1448,36 @@ void TestProjectVersion2() {
   std::filesystem::remove(projectDirectory / "legacy.ccproj");
 }
 
+// The largest project the device can hold (patterns live in PSRAM): every step of every pattern of every
+// track with eight notes. Its file is over 2 MB; at the old 1 MB limit it saved and never opened again.
+void TestLargestProject() {
+  using namespace synth;
+  ProjectData project;
+  project.sequence = std::make_unique<SynthSequencer::ProjectState>();
+  for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+    project.kinds[track] = SynthEngineKind::Juno;
+    project.engines[track] = {"juno.a68", "juno.a68", "Pad", {}};
+    auto& data = project.sequence->tracks[track];
+    data.patternCount = kSequencerMaxPatternCount;
+    for (std::size_t pattern = 0; pattern < kSequencerMaxPatternCount; ++pattern) {
+      data.patternSteps[pattern] = static_cast<std::uint16_t>(kSequencerMaxSteps);
+      for (std::size_t step = 0; step < kSequencerMaxSteps; ++step) {
+        auto& notes = data.patterns[pattern].steps.Edit(step).notes;
+        for (std::size_t index = 0; index < notes.size(); ++index)
+          notes[index] = {static_cast<std::uint8_t>(36 + index * 5 + step % 7), 100, 12, static_cast<std::uint8_t>(index % 3), true};
+      }
+    }
+  }
+  assert(SaveProjectFile("largest", project, true) == ProjectResult::Ok);
+  const auto path = projectDirectory / "largest.ccproj";
+  assert(std::filesystem::file_size(path) > 2 * 1024 * 1024);
+  ProjectData loaded;
+  assert(LoadProjectFile("largest", loaded) == ProjectResult::Ok);
+  const auto& last = loaded.sequence->tracks[3].patterns[15].steps[255].notes[7];
+  assert(last.active && last.note == 36 + 7 * 5 + 255 % 7 && last.microstep == 1);
+  std::filesystem::remove(path);
+}
+
 void TestProjectSong() {
   using namespace synth;
   auto sequencer = std::make_unique<SynthSequencer>();
@@ -1560,6 +1590,7 @@ int main() {
   TestSongPlayback();
   TestSongCueAndToggle();
   TestProjectVersion2();
+  TestLargestProject();
   TestProjectSong();
   Output output; // Outlives the sequencer's final stop callback.
   auto sequencer = std::make_unique<SynthSequencer>();

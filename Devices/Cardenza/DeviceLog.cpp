@@ -278,10 +278,35 @@ const char* ResetReasonName(esp_reset_reason_t reason)
 
 }  // namespace
 
+#if defined(CARDENZA_STRESS_TEST)
+namespace {
+// The stress test (Applications/Synth/StressTest.cpp) reports a crash of the run before: its !!! lines.
+char g_previousCrash[1024];
+void KeepPreviousCrash()
+{
+  std::size_t length = 0;
+  const std::uint32_t used = g_ring.head - g_ring.taken;
+  const std::uint32_t count = used < kRingBytes ? used : kRingBytes;
+  bool inCrash = false;
+  for (std::uint32_t index = 0; index < count && length + 1 < sizeof(g_previousCrash); ++index)
+  {
+    const char c = g_ring.data[(g_ring.head - count + index) % kRingBytes];
+    if (!inCrash && c == '!' && index + 2 < count && g_ring.data[(g_ring.head - count + index + 1) % kRingBytes] == '!') inCrash = true;
+    if (inCrash) g_previousCrash[length++] = c;
+    if (inCrash && c == '\n') inCrash = false;
+  }
+  g_previousCrash[length] = 0;
+}
+}  // namespace
+#endif
+
 void Install()
 {
   g_previousKept = Valid();
   g_previousCrashed = g_previousKept && g_ring.crashed != 0;
+#if defined(CARDENZA_STRESS_TEST)
+  if (g_previousCrashed) KeepPreviousCrash();
+#endif
   if (!g_previousKept)
   {
     g_ring.head = g_ring.taken = 0;
@@ -370,6 +395,37 @@ void Write(std::string_view line)
   if (line.empty() || line.back() != '\n') std::fputc('\n', stdout);
 }
 
+namespace {
+// Below the UI (5) on its core: it takes whatever time is left, and a card busy for seconds (one was,
+// streaming a sample, 2026-11-04) keeps only this task waiting.
+constexpr UBaseType_t kWriterPriority = 2;
+constexpr std::uint32_t kWriterStackBytes = 4096;
+TaskHandle_t g_writer = nullptr;
+void (*g_writerJob)() = nullptr;
+
+void WriterTask(void*)
+{
+  for (;;)
+  {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    g_writerJob();
+  }
+}
+}  // namespace
+
+bool StartWriter(void (*write)())
+{
+  if (g_writer != nullptr) return true;
+  if (write == nullptr) return false;
+  g_writerJob = write;
+  return xTaskCreatePinnedToCore(WriterTask, "log_writer", kWriterStackBytes, nullptr, kWriterPriority, &g_writer, 0) == pdPASS;
+}
+
+void WakeWriter()
+{
+  if (g_writer != nullptr) xTaskNotifyGive(g_writer);
+}
+
 }  // namespace Device::Log
 
 extern "C" void __wrap_esp_panic_handler(panic_info_t* info)
@@ -377,3 +433,7 @@ extern "C" void __wrap_esp_panic_handler(panic_info_t* info)
   if (info != nullptr && Device::Log::Valid()) Device::Log::RecordCrash(info);
   __real_esp_panic_handler(info);
 }
+
+#if defined(CARDENZA_STRESS_TEST)
+extern "C" const char* cardenza_previous_crash() { return Device::Log::g_previousCrash; }
+#endif

@@ -212,6 +212,9 @@ std::size_t Pending()
   return g_log.size();
 }
 
+bool StartWriter(void (*)()) { return false; }
+void WakeWriter() {}
+
 void Write(std::string_view line)
 {
   std::lock_guard<std::mutex> lock(g_logMutex);

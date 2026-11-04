@@ -69,6 +69,13 @@ void SendToComputer(const std::int16_t* mono, std::size_t frameCount)
   }
 }
 
+// Device::Audio::Timing: written by the output task only.
+std::atomic<std::uint32_t> g_timingBlocks{0};
+std::atomic<std::uint64_t> g_timingRenderUs{0};
+std::atomic<std::uint32_t> g_timingOverruns{0};
+std::atomic<std::uint32_t> g_timingUnderruns{0};
+std::atomic<std::uint32_t> g_timingLongestUs{0};
+
 std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
 {
   const device::SynthAudioRenderCallback renderFrames = g_audioRenderCallback.load(std::memory_order_acquire);
@@ -238,6 +245,12 @@ void AudioRenderTask(void*)
     maxWriteUs = (std::max)(maxWriteUs, writeUs);
     totalRenderUs += renderUs;
     if (renderUs > kRenderBudgetUs) ++overBudgetRenderCount;
+    g_timingBlocks.store(renderedBlocks + 1, std::memory_order_relaxed);
+    g_timingRenderUs.store(g_timingRenderUs.load(std::memory_order_relaxed) + static_cast<std::uint64_t>(renderUs), std::memory_order_relaxed);
+    g_timingOverruns.store(overBudgetRenderCount, std::memory_order_relaxed);
+    g_timingUnderruns.store(underruns, std::memory_order_relaxed);
+    if (static_cast<std::uint32_t>(renderUs) > g_timingLongestUs.load(std::memory_order_relaxed))
+      g_timingLongestUs.store(static_cast<std::uint32_t>(renderUs), std::memory_order_relaxed);
 
     ++renderedBlocks;
     if ((renderedBlocks % kTimingLogBlockInterval) == 0)
@@ -385,6 +398,17 @@ std::size_t ReadComputerAudio(std::int16_t* stereoFrames, std::size_t frameCount
   if (gain < 1.0f)
     for (std::size_t sample = 0; sample < 2 * frames; ++sample) stereoFrames[sample] = static_cast<std::int16_t>(stereoFrames[sample] * gain);
   return frames;
+}
+
+RenderTiming Timing()
+{
+  RenderTiming timing;
+  timing.blocks = g_timingBlocks.load(std::memory_order_relaxed);
+  timing.renderMicros = g_timingRenderUs.load(std::memory_order_relaxed);
+  timing.overruns = g_timingOverruns.load(std::memory_order_relaxed);
+  timing.underruns = g_timingUnderruns.load(std::memory_order_relaxed);
+  timing.longestRenderMicros = g_timingLongestUs.exchange(0, std::memory_order_relaxed);
+  return timing;
 }
 
 std::uint8_t OutputVolume()

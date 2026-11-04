@@ -138,6 +138,18 @@ InputStatus ReadInputFrames(std::int16_t* destination,
 // mute and volume already applied. Returns the frames given; 0 when nothing plays.
 std::size_t ReadComputerAudio(std::int16_t* stereoFrames, std::size_t frameCount);
 
+// The output task's timing since it started (zeros on hosts, which have no real-time output): blocks
+// rendered and the time they took, renders longer than a block (overruns, which the DMA queue covers),
+// the times the queue ran dry (underruns: a click), and the longest render since the last call.
+struct RenderTiming {
+  std::uint32_t blocks = 0;
+  std::uint64_t renderMicros = 0;
+  std::uint32_t overruns = 0;
+  std::uint32_t underruns = 0;
+  std::uint32_t longestRenderMicros = 0;
+};
+RenderTiming Timing();
+
 }  // namespace Audio
 
 // The USB port as a MIDI interface to a computer (USB-MIDI 1.0 event packets on cable 0: the code
@@ -208,6 +220,11 @@ std::size_t Take(char* destination, std::size_t capacity, std::size_t& lost);
 std::size_t Pending();
 // A line for the log and the console. The simulator's log holds only what comes through here.
 void Write(std::string_view line);
+// Runs `write` on a task of its own, below the UI, each time WakeWriter is called (once more if it is
+// called while `write` runs): a card that takes seconds to accept a write then holds up nobody. False
+// where there is no such task (the simulator), and the caller writes itself.
+bool StartWriter(void (*write)());
+void WakeWriter();
 }  // namespace Log
 
 std::string Name();

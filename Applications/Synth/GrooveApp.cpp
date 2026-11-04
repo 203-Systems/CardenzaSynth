@@ -1,6 +1,8 @@
 #include "Applications/Synth/GrooveApp.h"
+#include "Applications/Synth/StressTest.h"
 
 #include "Library/Memory/Memory.h"
+#include "Library/Synth/Audio/SampleStream.h"
 
 #include <algorithm>
 #include <cctype>
@@ -27,6 +29,7 @@
 #include "OS/MIDI/MIDI.h"
 #include "OS/Storage/DeviceSettings.h"
 #include "OS/Storage/Settings.h"
+#include "OS/Storage/Storage.h"
 
 namespace apps {
 
@@ -38,6 +41,7 @@ constexpr const char* kSessionProject = "session.ccproj";
 constexpr std::uint32_t kSessionQuietMs = 1500;
 constexpr std::uint32_t kSessionLongestWaitMs = 60000;
 constexpr std::uint32_t kSessionRetryMs = 2000;
+constexpr std::uint32_t kSessionSlowSaveMs = 30;
 constexpr std::uint32_t kSessionFailedRetryMs = 30000;
 constexpr std::uint32_t kCardCheckMs = 2000;
 constexpr std::uint32_t kCardProbeMs = 10000;
@@ -64,6 +68,12 @@ constexpr std::size_t kEngineSizeTrustFactor = 3;
 
 std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
 {
+  // With PSRAM an engine's parameters and presets are there, and what it keeps in internal RAM is a
+  // few hundred bytes (260 to 1750 measured, 2026-11-04). Its voices' oscillator state is AMY's,
+  // which yields internal RAM to everything else (AmyEmbeddedStubs.c) and is given back with the
+  // voices, at the render thread's pace: a measure taken while it is given back once read a Juno at
+  // 15 KB and refused every project after it. The estimate also bounds what a measure may claim.
+  if (memory::HasSlow()) return kind == synth::SynthEngineKind::None ? 0 : 2 * 1024;
   switch (kind)
   {
     case synth::SynthEngineKind::Dx7: return 14 * 1024;
@@ -237,7 +247,15 @@ synth::SessionStore::SaveResult GrooveApp::SaveSessionState()
   synth::SessionInfo info;
   info.name = view.projectName;
   info.dirty = view.dirty;
-  return session_.Save(info, project);
+  const std::uint32_t started = NowMs();
+  const auto result = session_.Save(info, project);
+  // Writing the internal flash stops what runs from it on both cores for as long as a sector takes to
+  // erase: a line when it may have been heard (a late beat, a click).
+  const std::uint32_t took = NowMs() - started;
+  if (sequencer_.Playing() || took >= kSessionSlowSaveMs)
+    std::printf("Groove: autosave %s in %u ms%s\n", result == synth::SessionStore::SaveResult::Failed ? "failed" : "written",
+                static_cast<unsigned>(took), sequencer_.Playing() ? ", playing" : "");
+  return result;
 }
 
 bool GrooveApp::RestoreSessionState()
@@ -346,6 +364,11 @@ void GrooveApp::KeepSessionCurrent(std::uint32_t now)
 
 void GrooveApp::Tick()
 {
+#if defined(CARDENZA_STRESS_TEST)
+  StressTestTick(*this);
+#endif
+  // The log waits while a sample plays from the card (OS/Storage SetCardStreaming).
+  os::storage::SetCardStreaming(synth::audio::SampleStreamsReading());
   ReadComputerMidi();
   sampler_.Tick();
   rack_.DispatchPendingMessages();
@@ -533,11 +556,15 @@ void GrooveApp::RenderFrame()
   renderMaxUs_ = std::max(renderMaxUs_, elapsed);
   if (++renderFrames_ >= 600)
   {
-    std::printf("Groove: render avg=%luus max=%luus heap=%u min=%u largest=%u psram=%u min=%u faded=%u\n",
+    // Notes lost so far: held ones faded and ones left out (only when the output was about to run dry),
+    // held ones whose voice a newer note took (the track's voices all held), let-go tails cut short.
+    const synth::audio::GivenUpVoices lost = synth::audio::GivenUpVoiceCounts();
+    std::printf("Groove: render avg=%luus max=%luus heap=%u min=%u largest=%u psram=%u min=%u lost held=%u unheard=%u stolen=%u tails=%u\n",
                 static_cast<unsigned long>(renderTotalUs_ / renderFrames_), static_cast<unsigned long>(renderMaxUs_),
                 static_cast<unsigned>(memory::FastFree()), static_cast<unsigned>(memory::FastMinimum()),
                 static_cast<unsigned>(memory::FastLargest()), static_cast<unsigned>(memory::SlowFree()),
-                static_cast<unsigned>(memory::SlowMinimum()), static_cast<unsigned>(synth::audio::FadedVoiceCount()));
+                static_cast<unsigned>(memory::SlowMinimum()), static_cast<unsigned>(lost.held), static_cast<unsigned>(lost.unheard),
+                static_cast<unsigned>(lost.stolen), static_cast<unsigned>(lost.tails));
     // The key LED levels this frame (0..f per key, rows top to bottom), to check the lights from
     // the serial console.
     char leds[4 * 15 + 1] = {};
@@ -1051,6 +1078,9 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   // The effects give their memory back while the project is checked and built (nothing plays then),
   // and take what the new one asks for at the end, before the next thing is checked.
   synth::audio::SuspendEffects();
+  // The output holds still while the project is built: building it holds the audio for 20 ms an
+  // engine or preset, which ran the output dry (synth::audio::HoldOutput).
+  const synth::audio::OutputHold outputHold;
   struct ResumeEffectsAtEnd {
     ~ResumeEffectsAtEnd() { synth::audio::ResumeEffects(); }
   } resumeEffects;
@@ -1190,6 +1220,8 @@ bool GrooveApp::MakeRoom(std::string& message)
   // The effects first: the autosave needs room of its own.
   const std::size_t before = Heap().freeBytes;
   synth::audio::SuspendEffects();
+  // Silent while the autosave is written (the flash stops both cores for a moment).
+  const synth::audio::OutputHold outputHold;
   bool saved = true;
 #if defined(ESP_PLATFORM)
   // The autosave is many small plain allocations as well.

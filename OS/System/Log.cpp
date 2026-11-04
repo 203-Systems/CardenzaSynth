@@ -1,7 +1,9 @@
 #include "OS/System/Log.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <mutex>
 
 #include "Devices/Device.h"
 #include "OS/Storage/DeviceSettings.h"
@@ -11,44 +13,48 @@ namespace os::log {
 
 namespace {
 
-// Taken from the ring and written in pieces this size (on the stack of the system loop).
+// Taken from the ring and written in pieces this size (on the stack of the task that writes).
 constexpr std::size_t kChunkBytes = 256;
 // A write that takes longer than this says so in the log.
 constexpr long long kSlowWriteMs = 40;
 
 std::uint32_t g_lastWriteAt = 0;
-bool g_directoryReady = false;
+bool g_writerTried = false;
+bool g_writer = false;  // the device writes on a task of its own (Device::Log::StartWriter)
+
+// One writer at a time: the device's writer task, or the system loop at boot, app switch and shutdown.
+// The settings and the card's state belong to the system loop: it decides whether to write and where,
+// the writer only appends.
+std::mutex g_writeMutex;
+std::string g_path;          // under g_writeMutex
+std::string g_previousPath;  // under g_writeMutex
+std::string g_directory;     // under g_writeMutex
+bool g_directoryReady = false;  // under g_writeMutex
+std::atomic<bool> g_ioFailed{false};  // the system loop has the card looked at
 
 long long ElapsedMs(std::chrono::steady_clock::time_point since)
 {
   return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - since).count();
 }
 
-}  // namespace
-
-std::string FilePath()
+void SetPathsNoLock()
 {
-  return os::storage::JoinPath(os::storage::LogDirectory(), "log.txt");
+  g_path = FilePath();
+  g_previousPath = PreviousFilePath();
+  g_directory = os::storage::LogDirectory();
 }
 
-std::string PreviousFilePath()
+// Appends what the ring holds. False when the card refused it.
+bool AppendNoLock()
 {
-  return os::storage::JoinPath(os::storage::LogDirectory(), "log.1.txt");
-}
-
-bool Flush()
-{
-  // Off, the ring keeps the newest lines; turned on, they are written first.
-  if (!os::storage::LogEnabled() || !Device::Storage::IsMounted()) return false;
   if (Device::Log::Pending() == 0) return true;
   const auto started = std::chrono::steady_clock::now();
-  if (!g_directoryReady) g_directoryReady = os::storage::CreateDirectories(os::storage::LogDirectory());
-  const std::string path = FilePath();
-  FILE* file = std::fopen(path.c_str(), "ab");
+  if (!g_directoryReady) g_directoryReady = os::storage::CreateDirectories(g_directory);
+  FILE* file = std::fopen(g_path.c_str(), "ab");
   if (file == nullptr)
   {
     g_directoryReady = false;
-    Device::Storage::CheckAfterIoError();
+    g_ioFailed = true;
     return false;
   }
   // The chunks are the buffer: no stream buffer on the heap.
@@ -73,14 +79,13 @@ bool Flush()
   written = std::fclose(file) == 0 && written;
   if (!written)
   {
-    Device::Storage::CheckAfterIoError();
+    g_ioFailed = true;
     return false;
   }
   if (size > kMaxFileBytes)
   {
-    const std::string previous = PreviousFilePath();
-    std::remove(previous.c_str());
-    std::rename(path.c_str(), previous.c_str());
+    std::remove(g_previousPath.c_str());
+    std::rename(g_path.c_str(), g_previousPath.c_str());
   }
   const long long took = ElapsedMs(started);
   if (took > kSlowWriteMs)
@@ -92,13 +97,73 @@ bool Flush()
   return true;
 }
 
+void WriteInBackground()
+{
+  std::lock_guard<std::mutex> lock(g_writeMutex);
+  (void)AppendNoLock();
+}
+
+// The system loop: a write the writer could not make has the card looked at (it may have gone).
+void CheckFailedWrite()
+{
+  if (g_ioFailed.exchange(false)) Device::Storage::CheckAfterIoError();
+}
+
+}  // namespace
+
+std::string FilePath()
+{
+  return os::storage::JoinPath(os::storage::LogDirectory(), "log.txt");
+}
+
+std::string PreviousFilePath()
+{
+  return os::storage::JoinPath(os::storage::LogDirectory(), "log.1.txt");
+}
+
+bool Flush()
+{
+  CheckFailedWrite();
+  // Off, the ring keeps the newest lines; turned on, they are written first.
+  if (!os::storage::LogEnabled() || !Device::Storage::IsMounted()) return false;
+  if (Device::Log::Pending() == 0) return true;
+  bool written = false;
+  {
+    std::lock_guard<std::mutex> lock(g_writeMutex);
+    SetPathsNoLock();
+    written = AppendNoLock();
+  }
+  CheckFailedWrite();
+  return written;
+}
+
 void Service(std::uint32_t nowMs)
 {
+  CheckFailedWrite();
   const std::uint32_t since = nowMs - g_lastWriteAt;
   if (since < kBusyWriteIntervalMs) return;
   if (since < kWriteIntervalMs && Device::Log::Pending() < kBusyPendingBytes) return;
+  // While a sample plays from the card the log waits (the ring keeps the newest lines): writing makes
+  // the card slow to read from.
+  if (os::storage::CardStreaming()) return;
   g_lastWriteAt = nowMs;
-  (void)Flush();
+  if (!os::storage::LogEnabled() || !Device::Storage::IsMounted() || Device::Log::Pending() == 0) return;
+  if (!g_writerTried)
+  {
+    g_writerTried = true;
+    g_writer = Device::Log::StartWriter(&WriteInBackground);
+  }
+  if (!g_writer)
+  {
+    (void)Flush();
+    return;
+  }
+  // Busy writing (the card is slow): the writer takes the new text when it is done.
+  std::unique_lock<std::mutex> lock(g_writeMutex, std::try_to_lock);
+  if (!lock.owns_lock()) return;
+  SetPathsNoLock();
+  lock.unlock();
+  Device::Log::WakeWriter();
 }
 
 }  // namespace os::log

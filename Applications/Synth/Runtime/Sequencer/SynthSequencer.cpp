@@ -2482,6 +2482,10 @@ void SynthSequencer::ClockLoop()
       continue;
     }
 
+    const auto late = static_cast<std::uint32_t>((std::min)(now - nextPulseMicros, std::uint64_t{0xffffffffu}));
+    clockPulses_.fetch_add(1, std::memory_order_relaxed);
+    if (late > clockLatestMicros_.load(std::memory_order_relaxed)) clockLatestMicros_.store(late, std::memory_order_relaxed);
+    if (late > kLatePulseMicros) clockLatePulses_.fetch_add(1, std::memory_order_relaxed);
     ProcessPulse();
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -2618,6 +2622,15 @@ void SynthSequencer::SleepUntilMicros(std::uint64_t targetMicros) const
 #else
   std::this_thread::sleep_until(std::chrono::steady_clock::time_point(std::chrono::microseconds(targetMicros)));
 #endif
+}
+
+SynthSequencer::ClockLateness SynthSequencer::TakeClockLateness()
+{
+  ClockLateness lateness;
+  lateness.pulses = clockPulses_.exchange(0, std::memory_order_relaxed);
+  lateness.latestMicros = clockLatestMicros_.exchange(0, std::memory_order_relaxed);
+  lateness.latePulses = clockLatePulses_.exchange(0, std::memory_order_relaxed);
+  return lateness;
 }
 
 std::uint64_t SynthSequencer::PulsePeriodMicrosLocked() const
