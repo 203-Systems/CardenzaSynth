@@ -1,8 +1,7 @@
 /* Cardenza guide: the lessons the Learn site opens on, in the manual's look (learn.css). The rail of
    lessons on the left, the lesson in the middle, the device of the lesson on the right. */
-body.guide { --rail: 236px; --dev: min(520px, 40vw); }
+body.guide { --rail: 236px; }
 .g-layout { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); max-width: 1560px; margin: 0 auto; }
-.g-layout.with-device { grid-template-columns: var(--rail) minmax(0, 1fr) var(--dev); }
 .g-layout main { padding-top: 18px; }
 
 /* Rail: parts and lessons, numbered, a tick for each lesson done. */
@@ -62,44 +61,14 @@ body.guide { --rail: 236px; --dev: min(520px, 40vw); }
 .l-head h1 { font-size: clamp(26px, 3.2vw, 36px); margin: 4px 0 6px; }
 .l-kicker { font: 600 12px var(--mono); color: var(--faint); letter-spacing: .04em; }
 .l-lead { color: var(--dim); font-size: 17px; margin: 0 0 22px; }
-.l-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; counter-reset: step; }
-.step { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); max-width: none; transition: border-color .2s; }
-.s-head { all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; font-size: 16px; line-height: 1.6; }
-.s-head:focus-visible { outline: 1px dashed var(--fn); outline-offset: -3px; border-radius: 10px; }
-.s-num { width: 26px; height: 26px; flex: none; display: grid; place-items: center; border-radius: 4px; background: #000; border: 1px solid var(--line-2);
-  font: 700 13px var(--mono); color: var(--dim); margin-top: 1px; }
-.s-say { flex: 1; min-width: 0; }
-.s-tick { width: 18px; height: 18px; flex: none; margin-top: 4px; }
-.step.current { border-color: var(--fn); border-style: dashed; background: var(--panel-2); }
-.step.current .s-num { background: var(--fn); color: #000; border-color: var(--fn); }
-.step.done .s-num { background: var(--play); color: #000; border-color: var(--play); }
-.step.done .s-tick { background: var(--play); -webkit-mask: var(--tick) center / contain no-repeat; mask: var(--tick) center / contain no-repeat; }
-.step.done:not(.current) .s-say { color: var(--dim); }
-.step.ticked { animation: ticked .7s ease-out; }
-@keyframes ticked { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--play) 70%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
-.s-body { display: none; padding: 0 14px 14px 52px; }
-.step.current .s-body { display: block; }
-.s-body figure { margin: 0; }
-.s-body figcaption { font: 600 11px var(--mono); color: var(--faint); letter-spacing: .05em; text-transform: uppercase; margin-bottom: 6px; }
-.s-keys { max-width: 640px; }
-.s-row { display: flex; gap: 16px; align-items: flex-end; margin-top: 14px; flex-wrap: wrap; }
-.s-shot { width: min(320px, 100%); }
-.s-shot .bezel { padding: 5px; border-radius: 6px; box-shadow: none; }
-.s-bar { display: flex; flex-wrap: wrap; gap: 8px; }
-.s-bar button, .anim-bar button, .d-switch {
-  border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); font: 600 13px var(--mono); padding: 7px 12px; border-radius: 7px; cursor: pointer; }
-.s-bar button:hover, .anim-bar button:hover, .d-switch:hover { border-color: var(--dim); }
-.s-bar .s-skip { color: var(--faint); background: none; border-color: transparent; }
-
-/* The demo on the key picture: a key pressed goes down and lights, as on the device. */
-.s-keys .k .cap, .d-live .k .cap { transition: transform .08s; transform-box: fill-box; }
-.s-keys .k.press, .d-live .k.press { --b: 1 !important; opacity: 1 !important; }
-.s-keys .k.press .cap, .d-live .k.press .cap { transform: translateY(1.5px); }
-.s-keys .k.hint:not(.press) .lamp, .d-live .k.hint:not(.press) .lamp { animation: hint 1s steps(1) infinite; }
-/* The device's own lights on the live keyboard: it blinks the hints itself. */
-.d-live.mirror .k.hint:not(.press) .lamp { animation: none; }
-.s-show:disabled { opacity: .6; cursor: default; }
-@keyframes hint { 0%, 49% { opacity: .55; } 50%, 100% { opacity: 0; } }
+/* The steps' words and checks: the page shows one at a time under the stage. */
+.l-steps { display: none; }
+/* The demo on the key picture: a key pressed goes down and lights, as on the device. The keys to press
+   are framed (no blinking on the page: the frame says it, and the device blinks them itself). */
+.st-keys .k .cap { transition: transform .08s; transform-box: fill-box; }
+.st-keys .k.press { --b: 1 !important; opacity: 1 !important; }
+.st-keys .k.press .cap { transform: translateY(1.5px); }
+.a-show:disabled { opacity: .6; cursor: default; }
 
 .l-done { margin-top: 18px; padding: 16px 18px; border-radius: 10px; background: color-mix(in srgb, var(--play) 14%, var(--panel)); border: 1px solid var(--play);
   display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
@@ -140,6 +109,22 @@ body.guide { --rail: 236px; --dev: min(520px, 40vw); }
 .a-sound { position: absolute; top: 10px; right: 10px; border: 1px solid var(--line-2); background: rgba(14, 14, 13, .85); color: var(--dim);
   font: 600 12px var(--mono); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
 .a-sound[aria-pressed="true"] { border-color: var(--play); color: var(--play); }
+/* Device lessons: the stage is the device, its screen above its keys, one step at a time. */
+.st-stage { aspect-ratio: auto; min-height: 380px; display: grid; place-items: center; padding: 26px 22px 22px; }
+.st-page { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.st-page[hidden] { display: none; }
+.st-screen { width: min(400px, 62%); }
+.st-screen .bezel { padding: 6px; border-radius: 8px; box-shadow: 0 0 0 3px #0a0a09; }
+.st-keys { width: min(720px, 100%); }
+.a-show { position: absolute; top: 10px; right: 10px; border: 1px solid var(--line-2); background: rgba(14, 14, 13, .85); color: var(--dim);
+  font: 600 12px var(--mono); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+.a-show:hover { color: var(--ink); border-color: var(--dim); }
+/* A step done on the device: a green tick over the stage, then the next step. */
+.st-stage::after { content: ""; position: absolute; inset: 0; margin: auto; width: 84px; height: 84px; background: var(--play); opacity: 0; pointer-events: none;
+  -webkit-mask: var(--tick) center / contain no-repeat; mask: var(--tick) center / contain no-repeat; }
+.st-stage.ticked::after { animation: tick .65s ease-out; }
+@keyframes tick { 0% { opacity: 0; transform: scale(.6); } 30% { opacity: .95; transform: scale(1); } 100% { opacity: 0; transform: scale(1.1); } }
+.a-dot.done { background: var(--play); }
 /* The step's words under the picture, the steps as dots. */
 .anim-bar { display: flex; gap: 14px; align-items: center; margin: 12px 0 18px; }
 .anim-bar .a-back { width: 42px; height: 42px; padding: 0; font-size: 16px; flex: none; color: var(--step);
@@ -154,39 +139,31 @@ body.guide { --rail: 236px; --dev: min(520px, 40vw); }
 .a-dot { width: 22px; height: 6px; border: 0; border-radius: 2px; background: var(--line-2); cursor: pointer; padding: 0; }
 .a-dot.on { background: var(--step); }
 .a-dot.seen { background: var(--dim); }
-.lesson[data-kind="anim"] .l-steps { display: none; }
 
 /* The device of the lesson. */
-.g-device { position: sticky; top: var(--top); height: calc(100vh - var(--top)); overflow: auto; padding: 16px 16px 24px; border-left: 1px solid var(--line);
-  display: flex; flex-direction: column; gap: 10px; }
-.g-device[hidden] { display: none; }
-.d-head { display: flex; align-items: center; gap: 8px; font: 600 13px var(--mono); }
-.d-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); flex: none; }
-.d-dot.on { background: var(--play); box-shadow: 0 0 6px var(--play); }
-.d-dot.wait { background: var(--fn); }
-.d-title { flex: 1; min-width: 0; }
-.d-switch { padding: 4px 9px; font-size: 12px; }
-.d-sim iframe { display: block; width: 100%; height: 420px; border: 0; border-radius: 12px; background: var(--bg); }
-.d-tip { color: var(--faint); font-size: 13px; line-height: 1.5; margin: 8px 0 0; }
-.d-live { background: #000; border: 1px solid #1d1d1b; border-radius: 12px; padding: 8px; }
-.d-msg { margin: 0; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--rec); color: var(--ink); font-size: 14px; background: color-mix(in srgb, var(--rec) 12%, var(--panel)); }
-.d-msg[hidden] { display: none; }
+/* One line under a device lesson's lead: whether a Cardenza follows it. */
+.l-device { display: flex; gap: 9px; align-items: baseline; margin: -12px 0 20px; font-size: 13.5px; color: var(--faint); max-width: none; }
+.l-device:empty { display: none; }
+.l-device::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); flex: none; transform: translateY(-1px); }
+.l-device.wait::before { background: var(--fn); }
+.l-device.on { color: var(--dim); }
+.l-device.on::before { background: var(--play); box-shadow: 0 0 6px var(--play); }
+.l-device.warn { color: var(--ink); }
+.l-device.warn::before { background: var(--rec); }
+.l-device.retry { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 
-@media (max-width: 1180px) {
-  body.guide { --dev: min(460px, 44vw); }
-  .g-layout, .g-layout.with-device { grid-template-columns: minmax(0, 1fr); }
-  .g-layout.with-device { grid-template-columns: minmax(0, 1fr) var(--dev); }
+@media (max-width: 980px) {
+  .g-layout { grid-template-columns: minmax(0, 1fr); }
   .menu { display: inline-flex; }
   .g-rail { position: fixed; z-index: 30; left: 0; top: var(--top); bottom: 0; width: min(300px, 86vw); height: auto; background: var(--bg);
     transform: translateX(-102%); transition: transform .2s ease; border-right: 1px solid var(--line-2); }
   .g-rail.open { transform: none; }
 }
 @media (max-width: 860px) {
-  .g-layout.with-device { grid-template-columns: minmax(0, 1fr); }
-  .g-device { position: static; height: auto; border-left: 0; border-bottom: 1px dotted var(--line-2); order: -1; padding: 10px 12px 14px; }
   .hero { grid-template-columns: minmax(0, 1fr); }
-  .s-body { padding-left: 14px; }
+  .st-stage { min-height: 0; padding: 46px 10px 12px; }  /* Show me sits above the screen */
+  .st-screen { width: min(360px, 86%); }
   .anim-text { font-size: 16px; }
   .modes { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { .s-keys .k.hint .lamp, .d-live .k.hint .lamp, .step.ticked { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .st-stage.ticked::after { animation: none; } }

@@ -1,7 +1,8 @@
-// Cardenza guide (built by tools/learn/guide.py): lessons by hash (#/lesson-id), the device of the
-// lessons (the web simulator in a frame, or a Cardenza on USB through Web MIDI), and steps that follow
-// what happens on it. The device speaks the guide link (Applications/Synth/GrooveAppGuide.cpp):
-// short text messages, as SysEx F0 23 7F <text> F7 to a Cardenza and F0 24 7F <text> F7 back.
+// Cardenza guide (built by tools/learn/guide.py): lessons by hash (#/lesson-id), and a Cardenza on USB
+// (Web MIDI) that follows them: its steps tick themselves off as they are done on it. Without one the
+// lessons are pictures and go on with Next. The device speaks the guide link
+// (Applications/Synth/GrooveAppGuide.cpp): short text messages, as SysEx F0 23 7F <text> F7 to the
+// Cardenza and F0 24 7F <text> F7 back.
 (function () {
   'use strict';
   const root = document.documentElement;
@@ -24,12 +25,6 @@
     lang = next;
     root.dataset.lang = lang;
     root.lang = lang === 'zh' ? 'zh-CN' : 'en';
-    // The simulator's own words (hints, status line) follow; its screen is the firmware's, as on the device.
-    try {
-      const frame = document.getElementById('sim-frame');
-      const embed = frame && frame.contentWindow && frame.contentWindow.cardenzaEmbed;
-      if (embed && embed.setLang) embed.setLang(lang);
-    } catch (error) { /* not loaded yet: it reads ?lang= */ }
     store.set('learn.lang', lang);
     $$('[data-set-lang]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.setLang === lang)));
     document.title = say('Cardenza 入门', 'Cardenza guide');
@@ -157,43 +152,117 @@
   });
 
   // ---- The device -----------------------------------------------------------------------------------
-  // One device for the lessons: the simulator (always there), or a Cardenza on USB once connected. A
-  // lesson that uses it starts the guide on it (GE): the device sets the user's work aside in a
-  // practice project, goes where the lesson starts (GL), blinks the keys of the step (GH) and reports
-  // its state (GS) and every key pressed (GK).
-  const aside = $('#device');
-  const layout = $('.g-layout');
-  const device = { mode: 'sim', guide: false, entering: false, leaving: false, state: null, want: false };
-  const sim = { frame: $('#sim-frame'), booted: false };
-  const usb = { midi: null, input: null, output: null, hello: 0, button: $('#usb-btn') };
+  // A Cardenza on USB, through Web MIDI. The page asks for MIDI (SysEx) as it opens: the browser asks
+  // the user once, and from then on a Cardenza plugged in, now or later, is found by itself. A device
+  // lesson starts the guide on it (GE): the device sets the user's work aside in a practice project,
+  // goes where the lesson starts (GL), blinks the keys of the step (GH) and reports its state (GS) and
+  // every key pressed (GK). Its key lights (GD) are on the device itself; the page does not show them.
+  //   status: nomidi (no Web MIDI here) | denied | waiting (allowed, no Cardenza) | hello (asking it) |
+  //           old (its firmware has no guide) | on
+  const device = { status: 'waiting', guide: false, entering: false, leaving: false, state: null, want: false, reason: null };
+  const usb = { midi: null, input: null, output: null, hello: 0 };
+  const hasMidi = 'requestMIDIAccess' in navigator;
+  const isCardenza = (port) => port.state === 'connected' && /cardenza/i.test(`${port.name || ''} ${port.manufacturer || ''}`);
+  const connected = () => device.status === 'on';
 
-  function api() {
-    try { return sim.frame.contentWindow && sim.frame.contentWindow.cardenzaEmbed; } catch (error) { return null; }
+  function usbSend(text) {
+    if (!usb.output) return;
+    const bytes = [0xF0, 0x23, 0x7F];
+    for (let i = 0; i < text.length && i < 60; i++) bytes.push(text.charCodeAt(i) & 0x7F);
+    bytes.push(0xF7);
+    try { usb.output.send(bytes); } catch (error) { detach(); }
   }
-  function send(text) {
-    if (device.mode === 'usb') usbSend(text);
-    else if (sim.booted && api()) api().guide(text);
+  function send(text) { if (connected()) usbSend(text); }
+
+  function setStatus(status) {
+    device.status = status;
+    paintDevice();
   }
 
-  window.addEventListener('message', (event) => {
-    if (event.origin !== location.origin || event.source !== sim.frame.contentWindow) return;
-    const message = event.data || {};
-    if (message.type === 'cardenza-size' && message.height > 0) sim.frame.style.height = message.height + 'px';
-    else if (message.type === 'cardenza-booted') {
-      sim.booted = true;
-      api().listen((text) => { if (device.mode === 'sim') heard(text); });
-      if (device.mode === 'sim' && device.want) beginGuide();
+  // A Cardenza among the ports: take it and ask whether its firmware has the guide.
+  function attach() {
+    if (!usb.midi || usb.input) return;
+    const input = [...usb.midi.inputs.values()].find(isCardenza);
+    const output = [...usb.midi.outputs.values()].find(isCardenza);
+    if (!input || !output) {
+      if (device.status !== 'old') setStatus('waiting');
+      return;
     }
-  });
+    usb.input = input;
+    usb.output = output;
+    input.onmidimessage = onMidi;
+    setStatus('hello');
+    usbSend('G?');
+    clearTimeout(usb.hello);
+    usb.hello = setTimeout(() => {
+      if (device.status !== 'hello') return;
+      release();
+      setStatus('old');
+    }, 2000);
+  }
+
+  function release() {
+    clearTimeout(usb.hello);
+    if (usb.input) usb.input.onmidimessage = null;
+    usb.input = null;
+    usb.output = null;
+  }
+
+  // The Cardenza went away: the lesson goes on as pictures.
+  function detach() {
+    const was = connected();
+    release();
+    device.guide = false;
+    device.entering = false;
+    device.state = null;
+    device.reason = null;
+    setStatus('waiting');
+    if (was) toast(say('Cardenza 断开了：接着看图学，插回去会自动连上。', 'Your Cardenza is gone: go on with the pictures; plug it back in and it reconnects.'));
+  }
+
+  function onMidi(event) {
+    const bytes = event.data;
+    if (bytes.length < 4 || bytes[0] !== 0xF0 || bytes[1] !== 0x24 || bytes[2] !== 0x7F) return;
+    let text = '';
+    for (let i = 3; i < bytes.length && bytes[i] !== 0xF7; i++) text += String.fromCharCode(bytes[i]);
+    if (text.startsWith('G!')) {
+      clearTimeout(usb.hello);
+      if (connected()) return;
+      setStatus('on');
+      toast(say('Cardenza 已连接：它会跟着课程走。', 'Your Cardenza is connected: it follows the lessons.'));
+      if (device.want) beginGuide();
+      return;
+    }
+    if (connected()) heard(text);
+  }
+
+  async function askMidi() {
+    if (!hasMidi) {
+      setStatus('nomidi');
+      return;
+    }
+    try {
+      usb.midi = await navigator.requestMIDIAccess({ sysex: true });
+    } catch (error) {
+      setStatus('denied');
+      return;
+    }
+    usb.midi.onstatechange = (event) => {
+      const port = event.port;
+      if (usb.input && port.state === 'disconnected' && (port === usb.input || port === usb.output)) detach();
+      // Plugged in: both of its ports appear, one after the other.
+      else if (!usb.input && port.state === 'connected' && isCardenza(port)) setTimeout(attach, 300);
+    };
+    attach();
+  }
 
   function beginGuide() {
     device.want = true;
-    if (device.guide || device.entering) return;
-    if (device.mode === 'sim' && !sim.booted) return;
+    if (!connected() || device.guide || device.entering) return;
     device.entering = true;
     device.leaving = false;
+    device.reason = null;
     send('GE');
-    // An old firmware never answers; the simulator always does.
     setTimeout(() => { if (device.entering) { device.entering = false; paintDevice(); } }, 3000);
     paintDevice();
   }
@@ -211,22 +280,45 @@
     save: ['你现在的工程太长，教程没法替你暂存。先用 FN+S 存到卡上，在 SETUP 里新建一个空工程，再点这里重试。',
       'Your project is too long to set aside. Save it with FN+S, start a new project in SETUP, then click here to try again.'],
     mem: ['机器的内存不够：重启一下，再点这里重试。', 'The device is short of memory: restart it, then click here to try again.'],
+    other: ['机器没能开始教程：点这里重试。', 'The device could not start the guide: click here to try again.'],
   };
-  const message = $('#d-msg');
-  message.addEventListener('click', () => { message.hidden = true; beginGuide(); });
+  const STATUS = {
+    nomidi: ['用电脑上的 Chrome 或 Edge 打开这一页，再接上 Cardenza：机器会跟着课程走。', 'Open this page in Chrome or Edge on a computer and plug in your Cardenza: it follows the lessons.'],
+    denied: ['要让 Cardenza 跟着课程走：在地址栏左边的网站设置里允许 MIDI 设备，再刷新这一页。', 'To have your Cardenza follow the lessons, allow MIDI devices in the site settings (left of the address bar) and reload.'],
+    waiting: ['用 USB 线接上 Cardenza，它会跟着这一课走；没有机器也可以看图跟着学。', 'Plug in your Cardenza with a USB cable and it follows this lesson; no device, follow the pictures.'],
+    hello: ['正在连接 Cardenza…', 'Connecting to your Cardenza…'],
+    old: ['这台 Cardenza 的固件还不支持教程：更新到最新固件，再接上。', 'This Cardenza\'s firmware has no guide yet: update it, then plug it in again.'],
+    on: ['Cardenza 已连接：照着机器上闪的键按，做对了自动打勾。', 'Your Cardenza is connected: press the keys that blink on it; the steps tick themselves off.'],
+  };
+  $$('.l-device').forEach((line) => line.addEventListener('click', () => {
+    if (!device.reason) return;
+    device.reason = null;
+    beginGuide();
+  }));
+
+  function paintDevice() {
+    const live = connected() && device.guide;
+    document.body.classList.toggle('usb-on', live);
+    const words = device.reason ? REASONS[device.reason] || REASONS.other
+      : connected() && !device.guide ? STATUS.hello : STATUS[device.status];
+    $$('.l-device').forEach((line) => {
+      line.textContent = say(words[0], words[1]);
+      line.classList.toggle('on', live);
+      line.classList.toggle('wait', device.status === 'hello' || (connected() && !device.guide && !device.reason));
+      line.classList.toggle('warn', !!device.reason || device.status === 'old' || device.status === 'denied');
+      line.classList.toggle('retry', !!device.reason);
+    });
+  }
 
   function heard(text) {
     if (text === 'GE1') {
       device.guide = true;
       device.entering = false;
-      message.hidden = true;
       paintDevice();
       if (run) applyStart();
     } else if (text.startsWith('GE0')) {
       device.entering = false;
-      const reason = REASONS[text.slice(4)] || ['机器没能开始教程。', 'The device could not start the guide.'];
-      message.textContent = say(reason[0], reason[1]);
-      message.hidden = false;
+      device.reason = text.slice(4) in REASONS ? text.slice(4) : 'other';
       paintDevice();
     } else if (text === 'GX') {
       const ours = device.leaving;
@@ -241,10 +333,8 @@
     } else if (/^GK[0-9a-f]{2}[01]$/.test(text)) {
       const key = parseInt(text.slice(2, 4), 16);
       const down = text[4] === '1';
-      liveKey(key, down);
       onKey(key, down);
-    } else if (/^GD[0-9a-f]{56}$/.test(text)) {
-      liveLeds(text.slice(2));
+      pressed(key, down);
     }
   }
 
@@ -261,140 +351,10 @@
   });
   window.addEventListener('pagehide', () => { if (device.guide) send('GX'); });
 
-  function paintDevice() {
-    const dot = $('#d-dot');
-    dot.classList.toggle('on', device.guide);
-    dot.classList.toggle('wait', device.entering);
-    $('#d-title').textContent = device.mode === 'usb'
-      ? say('你的 Cardenza', 'Your Cardenza') + (device.guide ? say(' · 教程中', ' · in the guide') : '')
-      : say('模拟器', 'Simulator') + (sim.booted ? '' : say(' · 加载中…', ' · loading…'));
-    $('#d-sim').hidden = device.mode === 'usb';
-    $('#d-usb').hidden = device.mode !== 'usb';
-    const swap = $('#d-switch');
-    swap.hidden = device.mode !== 'usb';
-    swap.textContent = say('改用模拟器', 'Use the simulator');
-    usb.button.classList.toggle('on', device.mode === 'usb');
-    $('.btn-text', usb.button).innerHTML = device.mode === 'usb'
-      ? `<span>${say('已连接', 'Connected')}</span>` : `<span>${say('连接设备', 'Connect')}</span>`;
-  }
-  $('#d-switch').addEventListener('click', () => switchTo('sim'));
-
-  function switchTo(mode) {
-    if (mode === device.mode) return;
-    const want = device.want;
-    if (device.guide) {
-      device.leaving = true;
-      send('GX');
-    }
-    device.mode = mode;
-    device.guide = false;
-    device.entering = false;
-    device.state = null;
-    if (mode === 'sim') usbDrop();
-    liveLeds(null);
-    paintDevice();
-    if (want) beginGuide();
-  }
-
-  // ---- A Cardenza on USB (Web MIDI) ---------------------------------------------------------------
-  const hasMidi = 'requestMIDIAccess' in navigator;
-  if (hasMidi) usb.button.hidden = false;
-  const isCardenza = (port) => /cardenza/i.test(`${port.name || ''} ${port.manufacturer || ''}`);
-
-  function usbSend(text) {
-    if (!usb.output) return;
-    const bytes = [0xF0, 0x23, 0x7F];
-    for (let i = 0; i < text.length && i < 60; i++) bytes.push(text.charCodeAt(i) & 0x7F);
-    bytes.push(0xF7);
-    try { usb.output.send(bytes); } catch (error) { usbLost(); }
-  }
-
-  function usbDrop() {
-    clearTimeout(usb.hello);
-    if (usb.input) usb.input.onmidimessage = null;
-    usb.input = null;
-    usb.output = null;
-  }
-
-  function usbLost() {
-    usbDrop();
-    if (device.mode === 'usb') {
-      toast(say('设备断开了：改用模拟器。', 'The device is gone: back to the simulator.'));
-      switchTo('sim');
-    }
-  }
-
-  async function usbConnect(quiet) {
-    if (device.mode === 'usb') {
-      switchTo('sim');
-      return;
-    }
-    if (!hasMidi) return;
-    try {
-      usb.midi = usb.midi || await navigator.requestMIDIAccess({ sysex: true });
-    } catch (error) {
-      if (!quiet) toast(say('浏览器没有允许 MIDI（SysEx）：在地址栏的权限里打开它。', 'The browser did not allow MIDI (SysEx): allow it in the site settings.'));
-      return;
-    }
-    usb.midi.onstatechange = (event) => {
-      if (usb.input && event.port.state === 'disconnected' && (event.port === usb.input || event.port === usb.output)) usbLost();
-    };
-    const input = [...usb.midi.inputs.values()].find(isCardenza);
-    const output = [...usb.midi.outputs.values()].find(isCardenza);
-    if (!input || !output) {
-      if (!quiet) toast(say('没有找到 Cardenza：用 USB 线接好、开机，再点一次。', 'No Cardenza found: connect it with a USB cable, turn it on, and try again.'));
-      return;
-    }
-    usb.input = input;
-    usb.output = output;
-    input.onmidimessage = (event) => {
-      const bytes = event.data;
-      if (bytes.length < 4 || bytes[0] !== 0xF0 || bytes[1] !== 0x24 || bytes[2] !== 0x7F) return;
-      let text = '';
-      for (let i = 3; i < bytes.length && bytes[i] !== 0xF7; i++) text += String.fromCharCode(bytes[i]);
-      if (text.startsWith('G!')) {
-        clearTimeout(usb.hello);
-        if (device.mode !== 'usb') {
-          switchTo('usb');
-          toast(say('已连接：你的 Cardenza 会跟着课程走。', 'Connected: your Cardenza follows the lessons.'));
-        }
-        return;
-      }
-      if (device.mode === 'usb') heard(text);
-    };
-    usbSend('G?');
-    clearTimeout(usb.hello);
-    usb.hello = setTimeout(() => {
-      usbDrop();
-      if (!quiet) toast(say('这台 Cardenza 的固件还不支持教程：先更新到最新固件。', 'This Cardenza\'s firmware has no guide yet: update it first.'), 6000);
-    }, 1500);
-  }
-  usb.button.addEventListener('click', () => usbConnect(false));
-  // A page that was allowed before connects by itself.
-  if (hasMidi && navigator.permissions && navigator.permissions.query) {
-    navigator.permissions.query({ name: 'midi', sysex: true }).then((status) => {
-      if (status.state === 'granted') usbConnect(true);
-    }).catch(() => {});
-  }
-
-  // The keyboard beside the lesson while a Cardenza is used: the keys pressed on it go down here, and
-  // its key lights show as the device shows them (GD: a level 0-15 per key, as the eye sees it; the
-  // device blinks the hints itself then). Levels to light as in the manual's pictures (build.py
-  // KEY_LEVEL_FOR_PERCEIVED, at full master level).
-  function liveKey(key, down) {
-    const g = $(`#d-live [data-k="${key}"]`);
+  // A key pressed on the Cardenza goes down on the step's key picture.
+  function pressed(key, down) {
+    const g = run && $(`.st-keys [data-k="${key}"]`, pageOf(run.index));
     if (g) g.classList.toggle('press', down);
-  }
-  const LED_DUTY = [0, 1, 1, 1, 1, 1, 1, 2, 3, 4, 5, 7, 8, 10, 13, 15];
-  function liveLeds(digits) {
-    const live = $('#d-live');
-    live.classList.toggle('mirror', !!digits);
-    $$('.k', live).forEach((g) => {
-      const level = digits ? parseInt(digits[Number(g.dataset.k)] || '0', 16) : 0;
-      const glow = level ? Math.pow(LED_DUTY[level] / 15, 0.45) : 0;
-      g.style.setProperty('--b', glow.toFixed(3));
-      g.classList.toggle('lit', glow > 0.55);
-    });
   }
 
   // ---- Device lessons ---------------------------------------------------------------------------
@@ -420,6 +380,24 @@
     if (run.startFields.t !== undefined) run.startFields.t -= 1;
     delete run.startFields.n;
     send('GL' + start);
+    // Plugged in during the lesson: the device first does the steps already done, then the step's
+    // state is taken from where that leaves it.
+    const earlier = run.steps.slice(0, run.index).flatMap(demoActions);
+    if (earlier.length) {
+      cancelDemo();
+      const token = demoToken;
+      const section = run.section;
+      run.catchingUp = true;
+      replay(earlier, token, () => {
+        if (!run || run.section !== section || token !== demoToken) return;
+        run.catchingUp = false;
+        run.waitingStart = false;
+        run.base = null;
+        sendHint();
+        send('GQ');
+      });
+      return;
+    }
     sendHint();
     clearTimeout(run.startTimer);
     // The state the lesson starts from: the first one that matches the start, or the latest.
@@ -436,6 +414,24 @@
     try { return JSON.parse(li.dataset.done || '[]'); } catch (error) { return []; }
   }
 
+  // The stage shows one step: its picture, its words under it, the steps as dots (as in the picture
+  // lessons). The demo plays once on the key picture when the step comes up; Show me plays it again.
+  function pageOf(index) { return $(`.st-page[data-step="${index}"]`, run.section); }
+
+  function paintRun() {
+    const { section, steps, index } = run;
+    $$('.st-page', section).forEach((page) => { page.hidden = Number(page.dataset.step) !== index; });
+    $('.anim-text', section).innerHTML = $('.s-say', steps[index]).innerHTML;
+    $$('.a-dot', section).forEach((dot, i) => {
+      dot.classList.toggle('on', i === index);
+      dot.classList.toggle('done', i !== index && steps[i].classList.contains('done'));
+    });
+    $('.a-back', section).disabled = index === 0;
+    const complete = section.classList.contains('complete');
+    const last = index === steps.length - 1;
+    $('.a-next', section).innerHTML = complete ? say('下一课 →', 'Next lesson →') : last ? say('完成 ✓', 'Done ✓') : say('下一步 →', 'Next →');
+  }
+
   function activateStep(index) {
     if (!run) return;
     run.index = index;
@@ -443,11 +439,10 @@
     const li = run.steps[index];
     resetConditions(li);
     run.base = run.waitingStart ? null : (device.state ? Object.assign({}, device.state) : null);
+    paintRun();
     sendHint();
-    playDemo(li, 3);
+    playDemo(li, 1);
     if (run.base) evaluate(run.base);
-    const rect = li.getBoundingClientRect();
-    if (index > 0 && (rect.top < 70 || rect.bottom > window.innerHeight)) li.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   function sendHint() {
@@ -455,11 +450,10 @@
     const li = run.steps[run.index];
     const keys = li && !li.classList.contains('done') ? (li.dataset.keys || '').split(',').filter(Boolean).map(Number) : [];
     if (device.guide) send('GH' + keys.map((k) => k.toString(16).padStart(2, '0')).join(''));
-    $$('#d-live .k').forEach((g) => g.classList.toggle('hint', keys.includes(Number(g.dataset.k))));
   }
 
   function onState(state) {
-    if (!run || run.demo) return;
+    if (!run || run.demo || run.catchingUp) return;
     if (run.waitingStart) {
       const matches = Object.keys(run.startFields).every((f) => state[f] === run.startFields[f]);
       if (matches) takeBase(state);
@@ -476,7 +470,7 @@
   }
 
   function onKey(key, down) {
-    if (!run || run.waitingStart || run.demo || !down) return;
+    if (!run || run.waitingStart || run.demo || run.catchingUp || !down) return;
     const li = run.steps[run.index];
     stopDemo();
     conditions(li).forEach((condition, i) => {
@@ -488,7 +482,7 @@
   }
 
   function evaluate(state) {
-    if (!run || run.waitingStart || run.demo || !run.base) return;
+    if (!run || run.waitingStart || run.demo || run.catchingUp || !run.base) return;
     const li = run.steps[run.index];
     if (li.classList.contains('done')) return;
     conditions(li).forEach((condition, i) => {
@@ -502,23 +496,31 @@
 
   function finishIfDone() {
     if (!run || !run.latched.length || !run.latched.every(Boolean)) return;
-    completeStep(run.index);
+    if (run.steps[run.index].classList.contains('done')) return;
+    completeStep(run.index, 'device');
   }
 
-  function completeStep(index) {
+  // by: 'device' (it was done on the Cardenza: a tick, then the next step) or 'next' (the Next button).
+  function completeStep(index, by) {
     const li = run.steps[index];
-    if (li.classList.contains('done')) return;
-    li.classList.add('done', 'ticked');
-    stopDemo();
-    sendHint();
     const section = run.section;
-    setTimeout(() => {
+    stopDemo();
+    const wasDone = li.classList.contains('done');
+    li.classList.add('done');
+    sendHint();
+    const advance = () => {
       if (!run || run.section !== section) return;
-      li.classList.remove('ticked');
-      const next = run.steps.findIndex((s, i) => i > index && !s.classList.contains('done'));
-      if (next >= 0) activateStep(next);
-      else lessonComplete(section);
-    }, 650);
+      if (index + 1 < run.steps.length) activateStep(index + 1);
+      else if (!section.classList.contains('complete')) lessonComplete(section);
+    };
+    if (by === 'device' && !wasDone) {
+      const stage = $('.st-stage', section);
+      stage.classList.remove('ticked');
+      void stage.offsetWidth;
+      stage.classList.add('ticked');
+      paintRun();
+      setTimeout(advance, 650);
+    } else advance();
   }
 
   function lessonComplete(section) {
@@ -526,24 +528,27 @@
     section.classList.add('complete');
     markDone(section.dataset.lesson);
     if (run && run.section === section) {
-      run.steps.forEach((li) => li.classList.remove('current'));
       if (device.guide) send('GH');
-      $$('#d-live .k').forEach((g) => g.classList.remove('hint'));
+      paintRun();
     }
     toast(say('完成！这一课学会了。', 'Done! You have got this one.'));
   }
 
   document.addEventListener('click', (event) => {
-    const li = event.target.closest('.lesson[data-kind="device"] .step');
-    if (!li || !run || !run.steps.includes(li)) return;
-    const index = run.steps.indexOf(li);
-    if (run.demo) return;  // the device is showing a step: it finishes first
-    if (event.target.closest('.s-show')) showOnDevice(li);
-    else if (event.target.closest('.s-skip')) completeStep(index);
-    else if (event.target.closest('.s-head')) {
-      li.classList.remove('done');
-      $('.l-done', run.section).hidden = true;
-      activateStep(index);
+    const section = event.target.closest('.lesson[data-kind="device"]');
+    if (!section || !run || run.section !== section) return;
+    if (run.demo || run.catchingUp) return;  // the device is showing or catching up: it finishes first
+    if (event.target.closest('.a-next')) {
+      if (section.classList.contains('complete')) {
+        const nextLink = $('.l-pager .next', section);
+        if (nextLink) location.hash = nextLink.getAttribute('href');
+      } else completeStep(run.index, 'next');
+    } else if (event.target.closest('.a-back')) {
+      if (run.index > 0) activateStep(run.index - 1);
+    } else if (event.target.closest('.a-dot')) {
+      activateStep(Number(event.target.closest('.a-dot').dataset.step));
+    } else if (event.target.closest('.a-show')) {
+      showOnDevice(run.steps[run.index]);
     }
   });
 
@@ -567,7 +572,7 @@
     demoToken++;
     clearTimeout(demoTimer);
     releaseInjected();
-    $$('.s-keys .k.press').forEach((g) => g.classList.remove('press'));
+    $$('.st-keys .k.press').forEach((g) => g.classList.remove('press'));
   }
   function stopDemo() {
     cancelDemo();
@@ -583,10 +588,8 @@
     cancelDemo();
     const token = demoToken;
     const actions = demoActions(li);
-    const keys = (li.dataset.keys || '').split(',').filter(Boolean).map(Number);
-    const figure = $('.s-keys', li);
+    const figure = $('.st-keys', pageOf(run.steps.indexOf(li)));
     if (!figure) return;
-    $$('.k', figure).forEach((g) => g.classList.toggle('hint', keys.includes(Number(g.dataset.k))));
     const key = (k) => $(`[data-k="${k}"]`, figure);
     let at = 0;
     const step = () => {
@@ -635,7 +638,7 @@
       return;
     }
     const index = run.steps.indexOf(li);
-    const button = $('.s-show', li);
+    const button = $('.a-show', run.section);
     run.demo = { button };
     button.disabled = true;
     button.dataset.label = button.innerHTML;
@@ -785,15 +788,12 @@
     $('.g-home-link').classList.toggle('active', id === '');
     const section = sections[id];
     const isDevice = section && section.dataset.kind === 'device';
-    aside.hidden = !isDevice;
-    layout.classList.toggle('with-device', !!isDevice);
     window.scrollTo(0, 0);
     if (!section) {
       endGuide();
       return;
     }
     if (isDevice) {
-      if (!sim.frame.src) sim.frame.src = new URL('../?embed=1&lang=' + lang, location.href).href;
       startDeviceLesson(section);
     } else {
       startAnimLesson(section);
@@ -856,4 +856,5 @@
 
   setLang(lang);
   route();
+  askMidi();
 })();

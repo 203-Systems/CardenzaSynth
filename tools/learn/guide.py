@@ -223,13 +223,10 @@ def run(guide, sim_build, work, img):
 PART_WORD = {"zh": "第 {n} 课", "en": "Lesson {n}"}
 UI = {
     "show": {"zh": "▶ 演示", "en": "▶ Show me"},
-    "skip": {"zh": "跳过这一步", "en": "Skip this step"},
     "next": {"zh": "下一步", "en": "Next"},
     "back": {"zh": "上一步", "en": "Back"},
     "sound": {"zh": "声音", "en": "Sound"},
     "more": {"zh": "字典里的详细说明", "en": "In the reference"},
-    "keys": {"zh": "要按的键", "en": "Keys to press"},
-    "screen": {"zh": "会看到", "en": "You will see"},
     "redo": {"zh": "重新学习", "en": "Learn again"},
 }
 
@@ -279,7 +276,7 @@ def render(guide, say, dictionary_ids, leds):
         more = lesson.get("more")
         if more and more not in dictionary_ids:
             sys.exit(f"guide: {lesson_id} links to unknown manual section #{more}")
-        steps = []
+        steps, pages = [], []
         for index, step in enumerate(lesson["steps"], start=1):
             text = both(step["say"], say)
             if "anim" in lesson:
@@ -293,27 +290,29 @@ def render(guide, say, dictionary_ids, leds):
             shot = shot_name(lesson_id, index)
             marks = [("mark", target, "") for target in step.get("marks", [])]
             picture, _items = figures.screen(f"img/{shot}.png", marks, f"guide:{shot}", plain(step["say"]["en"]), 1, True)
+            # The step's words and what checks it; its picture is a page of the lesson's stage: the device
+            # as it looks, its screen above its keys (the keys to press framed, the others dimmed).
             steps.append(
                 f'<li class="step" data-keys="{",".join(map(str, keys))}" data-done=\'{html.escape(json.dumps(done))}\' '
-                f'data-demo=\'{html.escape(json.dumps(demo))}\'>'
-                f'<button type="button" class="s-head"><span class="s-num">{index}</span><span class="s-say">{text}</span>'
-                f'<span class="s-tick" aria-hidden="true"></span></button>'
-                f'<div class="s-body">'
-                f'<figure class="s-keys"><figcaption>{ui("keys")}</figcaption>{keys_figure(step.get("keys", ""), "guide:" + shot)}</figure>'
-                f'<div class="s-row"><figure class="s-shot"><figcaption>{ui("screen")}</figcaption><div class="bezel">{picture}</div></figure>'
-                f'<div class="s-bar"><button type="button" class="s-show">{ui("show")}</button>'
-                f'<button type="button" class="s-skip">{ui("skip")}</button></div></div></div></li>')
+                f'data-demo=\'{html.escape(json.dumps(demo))}\'><span class="s-say">{text}</span></li>')
+            pages.append(
+                f'<div class="st-page" data-step="{index - 1}" hidden>'
+                f'<div class="st-screen"><div class="bezel">{picture}</div></div>'
+                f'<div class="st-keys">{keys_figure(step.get("keys", ""), "guide:" + shot)}</div></div>')
         kind = "anim" if "anim" in lesson else "device"
         attrs = f'data-anim="{lesson["anim"]}"' if kind == "anim" else f'data-start="{html.escape(lesson["start"])}"'
-        stage = ""
+        # Both kinds show one step at a time: a stage, and under it the step's words with the steps as dots.
+        dots = "".join(f'<button type="button" class="a-dot" data-step="{i}" aria-label="{i + 1}"></button>'
+                       for i in range(len(lesson["steps"])))
+        bar = (f'<div class="anim-bar"><button type="button" class="a-back" aria-label="Back">←</button>'
+               f'<div class="anim-say"><div class="anim-dots">{dots}</div><p class="anim-text"></p></div>'
+               f'<button type="button" class="a-next">{ui("next")} →</button></div>')
         if kind == "anim":
-            dots = "".join(f'<button type="button" class="a-dot" data-step="{i}" aria-label="{i + 1}"></button>'
-                           for i in range(len(lesson["steps"])))
             stage = (f'<div class="anim-wrap"><div class="anim-stage" data-anim="{lesson["anim"]}"></div>'
-                     f'<button type="button" class="a-sound" aria-pressed="false">♪ {ui("sound")}</button></div>'
-                     f'<div class="anim-bar"><button type="button" class="a-back" aria-label="Back">←</button>'
-                     f'<div class="anim-say"><div class="anim-dots">{dots}</div><p class="anim-text"></p></div>'
-                     f'<button type="button" class="a-next">{ui("next")} →</button></div>')
+                     f'<button type="button" class="a-sound" aria-pressed="false">♪ {ui("sound")}</button></div>' + bar)
+        else:
+            stage = (f'<div class="anim-wrap"><div class="anim-stage st-stage">{"".join(pages)}</div>'
+                     f'<button type="button" class="a-show">{ui("show")}</button></div>' + bar)
         prev_id = order[position - 1] if position > 0 else None
         next_id = order[position + 1] if position + 1 < len(order) else None
         # The links say what they do, not the other lesson's title (a bare "换界面 →" reads like an action;
@@ -331,7 +330,9 @@ def render(guide, say, dictionary_ids, leds):
         sections.append(
             f'<section class="lesson" id="lesson-{lesson_id}" data-lesson="{lesson_id}" data-kind="{kind}" {attrs} hidden>'
             f'<header class="l-head"><div class="l-kicker">{plain_both(part["title"])} · {number} / {len(part["lessons"])}</div>'
-            f'<h1>{plain_both(lesson["title"])}</h1><p class="l-lead">{plain_both(lesson["lead"])}</p></header>'
+            f'<h1>{plain_both(lesson["title"])}</h1><p class="l-lead">{plain_both(lesson["lead"])}</p>'
+            # Whether a Cardenza follows the lesson (guide.js says it).
+            + ('<p class="l-device" role="status"></p>' if kind == "device" else "") + '</header>'
             f'{stage}<ol class="l-steps">{"".join(steps)}</ol>'
             f'<div class="l-done" hidden><b>{plain_both({"zh": "完成！", "en": "Done!"})}</b>'
             f'<span>{plain_both({"zh": "这一课学会了。", "en": "You have got this one."})}</span></div>'

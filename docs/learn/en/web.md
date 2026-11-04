@@ -21,14 +21,12 @@ Every screenshot in this manual has **▶ Try it live here** under it:
 
 ## Connect your Cardenza (USB) {#web-usb}
 
-{{icon:usb}} Plug the Cardenza into the computer with a USB cable, press **Device USB** at the top of the manual (Chrome or Edge) and pick the device: from then on every key you press on the real device is pressed on the device running in the manual too, so you can read along and play on the real keys.
+{{icon:usb}} Plug the Cardenza into the computer with a USB cable (Chrome or Edge). There is no button to press: when the [guide](./) opens, the browser asks whether the page may use MIDI devices; allow it, and from then on the device connects as soon as it is plugged in.
 
-- Keys go to the device of the section you opened last; if none is open, the section at your reading position opens.
-- The Cardenza itself keeps running as usual; the manual's device just follows along.
-- Press the button again to disconnect. Only Chrome and Edge on a computer show the button.
-- It talks to the Cardenza over USB MIDI (Web MIDI): the first time, the browser asks whether the page may use MIDI devices (SysEx included); allow it. No driver is needed, and USB MIDI and USB audio keep working.
-
-> [!note] A Cardenza started with the HOME side key held does not do USB MIDI but keeps its serial port (for development); the button then uses the serial port, and you pick the device in the list.
+- In the guide the device follows the lessons: it goes to the lesson's screen, the keys to press blink, and steps tick themselves off.
+- In this manual every key you press on the real device is pressed on the device running in the manual too: keys go to the device of the section you opened last; if none is open, the section at your reading position opens. The Cardenza itself keeps running as usual.
+- Unplug the cable to disconnect; plug it back in and it reconnects.
+- It talks to the Cardenza over USB MIDI (Web MIDI, SysEx included): no driver is needed, and USB MIDI and USB audio keep working. If you blocked it before, allow MIDI devices in the site settings (left of the address bar) and reload.
 
 <!-- keywords: usb, connect, device, cable, web serial, hardware, real device, device not found, serial port, midi, web midi, sysex, allow, 连接, 真机 -->
 

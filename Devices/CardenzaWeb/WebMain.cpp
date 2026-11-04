@@ -195,8 +195,8 @@ EMSCRIPTEN_KEEPALIVE void cardenza_web_set_home(int pressed)
   RunDeviceFrame();
 }
 
-// The guide (tools/learn/guide.js): app messages between the page and the firmware, the same text as
-// a Cardenza exchanges with the page over USB (Device::USB::ReadAppMessage / WriteAppMessage).
+// The guide link (Device::USB::ReadAppMessage / WriteAppMessage): the same text a Cardenza exchanges
+// with the guide page over USB. The guide's browser test lets the simulator stand in for one.
 EMSCRIPTEN_KEEPALIVE void cardenza_web_app_send(const char* text)
 {
   if (!g_booted || text == nullptr) return;
