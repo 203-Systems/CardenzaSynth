@@ -609,7 +609,7 @@ namespace {
 // Polyphase decimation by kBusDecimation of `frames` inputs into `out` (one sample per completed
 // group), transposed form: the input at phase p adds coefficients[p][k] to the output k groups
 // ahead. Returns the number of outputs.
-__attribute__((noinline)) SYNTH_FX_HOT std::size_t Decimate(const float* in, std::size_t frames, int phase, float* accumulators, const float* coefficients, float* out)
+SYNTH_FX_NOINLINE SYNTH_FX_HOT std::size_t Decimate(const float* in, std::size_t frames, int phase, float* accumulators, const float* coefficients, float* out)
 {
   float a0 = accumulators[0], a1 = accumulators[1], a2 = accumulators[2], a3 = accumulators[3], a4 = accumulators[4];
   std::size_t count = 0;
@@ -666,7 +666,7 @@ __attribute__((noinline)) SYNTH_FX_HOT std::size_t Decimate(const float* in, std
 // Polyphase interpolation by kBusDecimation of the bus-rate samples `in` into `mix` (added),
 // mirroring Decimate's phases: the frame that completes a group first takes the group's new bus
 // sample into the history (newest first).
-__attribute__((noinline)) SYNTH_FX_HOT void Interpolate(const float* in, float* mix, std::size_t frames, int phase, float* history, const float* coefficients)
+SYNTH_FX_NOINLINE SYNTH_FX_HOT void Interpolate(const float* in, float* mix, std::size_t frames, int phase, float* history, const float* coefficients)
 {
   float u0 = history[0], u1 = history[1], u2 = history[2], u3 = history[3], u4 = history[4];
   std::size_t next = 0;
@@ -833,7 +833,7 @@ void SendBuses::UpdateReverb(const SendBusSettings& settings)
 
 // One delay sample at the bus rate while the read head glides (fractional delay). The line and
 // the loop filters work in line units (int16 steps), so reading and writing need no scaling.
-inline __attribute__((always_inline)) float SendBuses::DelayTick(float input)
+SYNTH_FX_INLINE float SendBuses::DelayTick(float input)
 {
   const float error = delayTargetTicks_ - delayTicks_;
   delayTicks_ = std::fabs(error) < 0.001f ? delayTargetTicks_ : delayTicks_ + std::clamp(error * kDelayGlideRate, -kDelayMaxGlide, kDelayMaxGlide);
@@ -855,7 +855,7 @@ inline __attribute__((always_inline)) float SendBuses::DelayTick(float input)
 }
 
 // The same at rest, the head a whole number of ticks behind: one read, no interpolation.
-inline __attribute__((always_inline)) float SendBuses::DelayTickAt(float input, std::uint32_t distance)
+SYNTH_FX_INLINE float SendBuses::DelayTickAt(float input, std::uint32_t distance)
 {
   const std::int16_t sample = DelaySample(delayWrite_ - distance);
   delayActivity_ |= sample;
@@ -870,7 +870,7 @@ inline __attribute__((always_inline)) float SendBuses::DelayTickAt(float input, 
 
 // One reverb sample at the bus rate, in line units like DelayTick. Every delay is read and
 // written relative to one counter in the interleaved rings.
-inline __attribute__((always_inline)) float SendBuses::ReverbTick(float input)
+SYNTH_FX_INLINE float SendBuses::ReverbTick(float input)
 {
   const std::uint32_t now = reverbCounter_++;
   std::int16_t* lines = reverbMemory_.get();
@@ -913,7 +913,7 @@ inline __attribute__((always_inline)) float SendBuses::ReverbTick(float input)
   return (tap0 - tap1 + tap2 - tap3) * (kReverbOutputGain * kInverseLineScale);
 }
 
-__attribute__((noinline)) SYNTH_FX_HOT void SendBuses::RunDelay(const float* inputs, float* returns, std::size_t ticks, float levelTarget)
+SYNTH_FX_NOINLINE SYNTH_FX_HOT void SendBuses::RunDelay(const float* inputs, float* returns, std::size_t ticks, float levelTarget)
 {
   float level = delayLevel_;
   const float step = (levelTarget - level) * Inverse(ticks);
@@ -941,7 +941,7 @@ __attribute__((noinline)) SYNTH_FX_HOT void SendBuses::RunDelay(const float* inp
   delayHighPassLow_ = Flush(delayHighPassLow_);
 }
 
-__attribute__((noinline)) SYNTH_FX_HOT void SendBuses::RunReverb(const float* inputs, float* returns, std::size_t ticks, float levelTarget)
+SYNTH_FX_NOINLINE SYNTH_FX_HOT void SendBuses::RunReverb(const float* inputs, float* returns, std::size_t ticks, float levelTarget)
 {
   float level = reverbLevel_;
   const float step = (levelTarget - level) * Inverse(ticks);

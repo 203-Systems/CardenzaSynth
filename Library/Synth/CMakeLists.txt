@@ -17,6 +17,11 @@ target_compile_definitions(CardenzaAmy PUBLIC
     AMY_NO_MINIAUDIO
     _CRT_SECURE_NO_WARNINGS
 )
+# amy.h includes windows.h on Windows: without NOMINMAX its min / max macros break std::max and
+# std::numeric_limits<T>::max in everything that includes AMY.
+if(WIN32)
+    target_compile_definitions(CardenzaAmy PUBLIC NOMINMAX)
+endif()
 
 if(MSVC)
     target_compile_options(CardenzaAmy PRIVATE

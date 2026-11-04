@@ -1980,7 +1980,7 @@ void UpdateFxMetersNoLock(std::size_t frameCount, float delayPeak, float reverbP
 // MUL8_SS, which keeps only gain >> 12; the S8.23 result then becomes int16 with 15 fraction bits.
 float AmyVoiceToMixScale()
 {
-  constexpr float kOne = 8388608.0f;  // 1.0 in S8.23
+  static constexpr float kOne = 8388608.0f;  // 1.0 in S8.23 (static: MSVC asks a lambda to capture a local)
   const auto toSample = [](float value) { return static_cast<std::int32_t>(value * kOne); };
   const std::int32_t volume = ((toSample(0.1f) >> 10) * (toSample(amy_embed::amy_global.volume) >> 9)) >> 4;
   const std::int32_t pan = toSample(amy_embed::dsps_sqrtf_f32_ansi(0.5f));

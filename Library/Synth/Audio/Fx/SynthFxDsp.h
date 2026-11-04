@@ -31,6 +31,14 @@
 #else
 #define SYNTH_FX_HOT
 #endif
+// Inlined into the per-sample loops, or kept out of them (MSVC for the simulator, GCC on the device).
+#if defined(_MSC_VER)
+#define SYNTH_FX_INLINE __forceinline
+#define SYNTH_FX_NOINLINE __declspec(noinline)
+#else
+#define SYNTH_FX_INLINE inline __attribute__((always_inline))
+#define SYNTH_FX_NOINLINE __attribute__((noinline))
+#endif
 
 namespace synth::fx::dsp {
 
