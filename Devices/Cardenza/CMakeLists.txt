@@ -7,6 +7,8 @@ set(CARDENZA_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/po
 # The effects' per-sample kernels (Library/Synth/Audio/Fx) in IRAM instead of flash: no flash-cache
 # misses while AMY competes for the 16 KB instruction cache, at the cost of internal RAM.
 option(CARDENZA_FX_IRAM "Place the audio effects' per-sample kernels in IRAM" OFF)
+# The on-board stress test (Applications/Synth/StressTest.cpp): make DEVICE=Cardenza stress. Never a release.
+option(CARDENZA_STRESS_TEST "Run the stress test 20 s after boot" OFF)
 # CardenzaHAL, an ESP-IDF component of its own: the submodule, or a HAL clone for a test build of a HAL
 # change that is not upstream yet (make HAL_DEV=<clone>). The component is named after its directory.
 if(DEFINED ENV{CARDENZA_HAL_DEV})
@@ -63,6 +65,15 @@ if(DEFINED COMPONENT_DIR)
         AMY_WAVETABLE
         AMY_NO_MINIAUDIO
     )
+    if(CARDENZA_STRESS_TEST)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE CARDENZA_STRESS_TEST=1)
+        if(CARDENZA_STRESS_ONLY)
+            target_compile_definitions(${COMPONENT_LIB} PRIVATE "CARDENZA_STRESS_ONLY=\"${CARDENZA_STRESS_ONLY}\"")
+        endif()
+        if(CARDENZA_STRESS_SECONDS)
+            target_compile_definitions(${COMPONENT_LIB} PRIVATE CARDENZA_STRESS_SECONDS=${CARDENZA_STRESS_SECONDS})
+        endif()
+    endif()
     if(CARDENZA_FX_IRAM)
         target_compile_definitions(${COMPONENT_LIB} PRIVATE CARDENZA_FX_IRAM=1)
     endif()

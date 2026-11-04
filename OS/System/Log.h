@@ -9,9 +9,11 @@
 //
 // The device keeps the newest lines in its log ring (Device::Log), with a crash and its backtrace,
 // through a crash reset; this appends what is new to the file, so a crash is on the card after the next
-// start. Made to cost nothing that shows: no task and no heap buffer of its own, writes from the
-// system loop at most every few seconds, in one short append, only while the card is mounted; a
-// failed write loses only that text.
+// start. Made to cost nothing that shows: no heap buffer of its own, at most every few seconds, in one
+// short append, only while the card is mounted; a failed write loses only that text. On the device the
+// append runs on a task of its own below the UI (Device::Log::StartWriter): a card busy streaming a
+// sample took 2-4 s per append, and in the system loop that froze the screen and the keys
+// (2026-11-04).
 namespace os::log {
 
 // Every so often, sooner when the ring is half full. A power cut loses at most this much.

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstring>
 #include <string_view>
 #include <utility>
 
@@ -26,7 +27,7 @@
 
 namespace {
 
-std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
+alignas(4) std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
 Device::Keyboard::MatrixKeyState keyboardState{};
 Device::LED::detail::LedFrameBuffer keyboardLedFrames;
 
@@ -100,9 +101,82 @@ void Clear(Pixel color) {
   frameBuffer.fill(color);
 }
 
+namespace {
+
+// A whole frame takes the panel 17 ms (SPI at 40 MHz, the HAL sending eight rows at a time and waiting
+// for each), longer than a frame at 60 fps, and with the audio busy the UI task waited behind the
+// render for every band: 25-30 ms (the stress test, 2026-11-04). So only what changed is sent. Every
+// row is hashed in segments of 30 pixels and compared with the last frame's; each band of eight rows
+// sends its changed rows across the span of its changed segments.
+constexpr int kSegmentPixels = 30;
+constexpr int kSegments = kWidth / kSegmentPixels;
+constexpr int kBandRows = 8;
+constexpr int kBands = (kHeight + kBandRows - 1) / kBandRows;
+static_assert(kSegments * kSegmentPixels == kWidth && kSegments <= 32 && kSegmentPixels % 2 == 0);
+// kHeight * kSegments hashes, read once a frame: PSRAM. Null: whole frames.
+std::uint32_t* segmentHashes = nullptr;
+bool segmentHashesTried = false;
+
+std::uint32_t HashSegment(const Pixel* pixels)
+{
+  std::uint32_t hash = 2166136261u;
+  for (int index = 0; index < kSegmentPixels; index += 2)
+  {
+    std::uint32_t word;
+    std::memcpy(&word, pixels + index, sizeof(word));
+    hash = (hash ^ word) * 16777619u;
+  }
+  return hash ^ (hash >> 15);
+}
+
+}  // namespace
+
 void Present() {
-  // The HAL sends the frame and waits for it. The first frame also turns the backlight on.
-  (void)CardenzaHAL::Display::Present(frameBuffer.data());
+  // The HAL waits for what it sends. Its first frame, and the one after a failed send, is always the
+  // whole screen; it also turns the backlight on and applies its level when nothing changed.
+  if (!segmentHashesTried)
+  {
+    segmentHashesTried = true;
+    segmentHashes = new (memory::slow) std::uint32_t[static_cast<std::size_t>(kHeight) * kSegments]();
+  }
+  if (segmentHashes == nullptr)
+  {
+    (void)CardenzaHAL::Display::Present(frameBuffer.data());
+    return;
+  }
+  std::array<CardenzaHAL::Display::Region, kBands> regions{};
+  std::size_t count = 0;
+  for (int band = 0; band < kHeight; band += kBandRows)
+  {
+    std::uint32_t changed = 0;
+    int first = -1, last = -1;
+    for (int y = band; y < std::min(band + kBandRows, kHeight); ++y)
+    {
+      std::uint32_t row = 0;
+      for (int segment = 0; segment < kSegments; ++segment)
+      {
+        const std::uint32_t hash = HashSegment(frameBuffer.data() + y * kWidth + segment * kSegmentPixels);
+        std::uint32_t& previous = segmentHashes[y * kSegments + segment];
+        if (hash == previous) continue;
+        previous = hash;
+        row |= 1u << segment;
+      }
+      if (row == 0) continue;
+      if (first < 0) first = y;
+      last = y;
+      changed |= row;
+    }
+    if (changed == 0) continue;
+    const int left = __builtin_ctz(changed);
+    const int right = 31 - __builtin_clz(changed);
+    const CardenzaHAL::Display::Region region{left * kSegmentPixels, first, (right - left + 1) * kSegmentPixels, last - first + 1};
+    CardenzaHAL::Display::Region* above = count > 0 ? &regions[count - 1] : nullptr;
+    if (above != nullptr && above->x == region.x && above->width == region.width && above->y + above->height == region.y)
+      above->height += region.height;
+    else
+      regions[count++] = region;
+  }
+  (void)CardenzaHAL::Display::Present(frameBuffer.data(), regions.data(), count);
 }
 
 void SetBacklight(std::uint8_t level) {

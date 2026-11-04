@@ -207,6 +207,17 @@ public:
 
   void SetTempo(std::uint16_t bpm);
   std::uint16_t Tempo() const;
+
+  // How late the clock task ran its pulses (on the board it sleeps until each one is due): pulses
+  // since the last call, the latest of them, and how many were more than kLatePulseMicros late (a note
+  // that late is heard off the beat).
+  static constexpr std::uint32_t kLatePulseMicros = 5000;
+  struct ClockLateness {
+    std::uint32_t pulses = 0;
+    std::uint32_t latestMicros = 0;
+    std::uint32_t latePulses = 0;
+  };
+  ClockLateness TakeClockLateness();
   void SetTrackEnabled(std::size_t track, bool enabled);
   bool TrackEnabled(std::size_t track) const;
   bool ClearPatternEvents(std::size_t track, std::size_t patternIndex);
@@ -556,6 +567,9 @@ private:
   MidiSink midiSink_ = nullptr;
   void* midiSinkContext_ = nullptr;
   std::atomic<bool> clockWorkerRunning_{false};
+  std::atomic<std::uint32_t> clockPulses_{0};
+  std::atomic<std::uint32_t> clockLatestMicros_{0};
+  std::atomic<std::uint32_t> clockLatePulses_{0};
   std::atomic<bool> clockWorkerExited_{true};
 
 #if defined(ESP_PLATFORM)

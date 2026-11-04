@@ -39,6 +39,16 @@ std::uint32_t ShedVoiceCount();
 // Voices faded out so far to keep the next block within the render budget (on the board: let-go tails
 // when many pile up; 0 on hosts).
 std::uint32_t FadedVoiceCount();
+// Every voice given up since the start, by what it was: a let-go tail fading early (hardly heard), a
+// note still held (only when the output was about to run dry), a note left out before it sounded (the
+// same), and a held note whose voice a newer note took because its track had no free voice.
+struct GivenUpVoices {
+  std::uint32_t tails = 0;
+  std::uint32_t held = 0;
+  std::uint32_t unheard = 0;
+  std::uint32_t stolen = 0;
+};
+GivenUpVoices GivenUpVoiceCounts();
 // The notes a track holds, one bit per MIDI note, as of the last rendered block: played and not let
 // go, tails not counted. A drum track holds nothing, its hits end by themselves.
 using NoteSet = std::array<std::uint32_t, 4>;
@@ -93,5 +103,18 @@ bool FxBusAvailable(std::size_t bus);
 // returns. Calls nest. For building a project, while nothing plays.
 void SuspendEffects();
 void ResumeEffects();
+// While a project is built (load, NEW): the output fades out and stays silent, so building it may
+// hold the audio for as long as it takes (setting up an engine or a preset is some 20 ms) without the
+// output running dry or clicking; the first block after fades in. HoldOutput waits until the output
+// is silent (a block or two). Calls nest. Hosts render at their own pace: nothing changes there.
+void HoldOutput();
+void ReleaseOutput();
+class OutputHold {
+public:
+  OutputHold() { HoldOutput(); }
+  ~OutputHold() { ReleaseOutput(); }
+  OutputHold(const OutputHold&) = delete;
+  OutputHold& operator=(const OutputHold&) = delete;
+};
 
 }  // namespace synth::audio

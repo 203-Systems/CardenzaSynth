@@ -40,7 +40,7 @@ endif
 IDF_PORT_ARG := $(if $(PORT),-p '$(PORT)',)
 CARDENZA_IDF_ARGS := -B '$(abspath $(BUILD))'
 
-.PHONY: all build run set-target flash remote-flash bootloader-flash app-flash erase monitor flash-monitor clean fullclean validate-architecture firmware firmware-target host cardenza cardenza-firmware cardenza-flash cardenza-monitor cardenza-flash-monitor cardenza-host cardenza-clean cardenza-fullclean web web-serve web-deploy learn hal-check hal-update
+.PHONY: all build stress run set-target flash remote-flash bootloader-flash app-flash erase monitor flash-monitor clean fullclean validate-architecture firmware firmware-target host cardenza cardenza-firmware cardenza-flash cardenza-monitor cardenza-flash-monitor cardenza-host cardenza-clean cardenza-fullclean web web-serve web-deploy learn hal-check hal-update
 
 all: build
 
@@ -139,6 +139,29 @@ ifeq ($(DEVICE),Cardenza)
 	$(call RUN_IDF,$(CARDENZA_IDF_ARGS) $(IDF_PORT_ARG) flash monitor)
 else
 	@echo flash-monitor is only supported for DEVICE=Cardenza
+	@exit 1
+endif
+
+# The on-board stress test (Applications/Synth/StressTest.cpp, docs/groovebox-design.md 压力测试): the
+# release configuration plus the task watchdog (a hang becomes a crash report with its backtrace) and
+# the task list for the test's stall watcher. Flash it with BUILD=build/Cardenza-stress
+# tools/remote-flash/push.sh and read the `stress:` lines of the log. Never ship this build.
+# STRESS_ONLY=card:DEMO-2,sampler (scenario names, comma separated) and STRESS_SECONDS=60 run those alone.
+STRESS_BUILD := build/Cardenza-stress
+stress:
+ifeq ($(DEVICE),Cardenza)
+	@$(MAKE) --no-print-directory hal-check
+	@mkdir -p $(STRESS_BUILD)
+	@sed -e 's/^# CONFIG_ESP_TASK_WDT_PANIC is not set$$/CONFIG_ESP_TASK_WDT_PANIC=y/' \
+	     -e 's/^# CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0 is not set$$/CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y/' \
+	     -e 's/^# CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1 is not set$$/CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y/' \
+	     -e 's/^# CONFIG_FREERTOS_USE_TRACE_FACILITY is not set$$/CONFIG_FREERTOS_USE_TRACE_FACILITY=y/' \
+	     $(DEVICE_PROJECT_DIR)/sdkconfig > $(STRESS_BUILD)/sdkconfig.next
+	@cmp -s $(STRESS_BUILD)/sdkconfig.next $(STRESS_BUILD)/sdkconfig.stress || cp $(STRESS_BUILD)/sdkconfig.next $(STRESS_BUILD)/sdkconfig.stress
+	$(call RUN_IDF,-B '$(abspath $(STRESS_BUILD))' -DSDKCONFIG='$(abspath $(STRESS_BUILD))/sdkconfig.stress' -DCARDENZA_STRESS_TEST=ON -DCARDENZA_STRESS_ONLY='$(STRESS_ONLY)' -DCARDENZA_STRESS_SECONDS='$(STRESS_SECONDS)' build)
+	@echo "stress firmware in $(STRESS_BUILD): BUILD=$(STRESS_BUILD) tools/remote-flash/push.sh, then read the stress: lines"
+else
+	@echo stress is only supported for DEVICE=Cardenza
 	@exit 1
 endif
 

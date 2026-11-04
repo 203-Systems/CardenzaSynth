@@ -32,7 +32,7 @@ constexpr std::size_t kMinBlocks = 4;
 constexpr std::size_t kHeapFloorBytes = 40 * 1024;
 
 struct Block {
-  std::atomic<std::uint64_t> key{0};  // stream id << 32 | block index + 1, 0 = empty
+  std::atomic<std::uint32_t> key{0};  // BlockKey, 0 = empty
   std::uint32_t lastUse = 0;
   std::array<std::int16_t, kStreamBlockFrames> frames{};
 };
@@ -49,10 +49,22 @@ struct StreamState {
   bool failed = false;
 };
 
-std::uint64_t BlockKey(std::uint32_t id, std::uint32_t block)
+// A block's key in 32 bits: the stream's id above, the block's index + 1 below. Atomics of 64 bits are
+// library calls on this chip (with PSRAM even a load is one), behind a single lock with interrupts off
+// that both cores share: the worker's and the voices' lookups with 64-bit keys kept the worker busy
+// for seconds, above the UI on its core (the stress test, 2026-11-04). 32-bit loads and stores are
+// plain instructions.
+constexpr unsigned kKeyBlockBits = 15;  // 32767 blocks, 12 minutes at 44.1 kHz
+constexpr std::uint32_t kKeyBlockMask = (1u << kKeyBlockBits) - 1;
+constexpr std::uint32_t kMaxStreamId = (1u << (32 - kKeyBlockBits)) - 1;
+
+std::uint32_t BlockKey(std::uint32_t id, std::uint32_t block)
 {
-  return (static_cast<std::uint64_t>(id) << 32) | (static_cast<std::uint64_t>(block) + 1);
+  return (id << kKeyBlockBits) | (block + 1);
 }
+
+std::uint32_t KeyStream(std::uint32_t key) { return key >> kKeyBlockBits; }
+std::uint32_t KeyBlock(std::uint32_t key) { return (key & kKeyBlockMask) - 1; }
 
 // Deliberately never destroyed: the worker runs for as long as the program.
 struct Pool {
@@ -60,7 +72,7 @@ struct Pool {
   std::array<StreamState, kMaxStreams> streams{};
   std::array<std::atomic<Block*>, kMaxBlocks> blocks{};
   std::atomic<std::size_t> blockCount{0};
-  std::array<std::atomic<std::uint64_t>, kMaxStreamReaders> readers{};
+  std::array<std::atomic<std::uint32_t>, kMaxStreamReaders> readers{};
   std::uint32_t nextId = 1;
   std::uint32_t clock = 0;
 #if defined(ESP_PLATFORM)
@@ -181,7 +193,7 @@ void Pump(Pool& pool)
     for (std::size_t index = 0; index < count; ++index)
     {
       Block* block = pool.blocks[index].load(std::memory_order_relaxed);
-      if ((block->key.load(std::memory_order_relaxed) >> 32) == id) block->key.store(0, std::memory_order_release);
+      if (KeyStream(block->key.load(std::memory_order_relaxed)) == id) block->key.store(0, std::memory_order_release);
     }
     stream.path.clear();
     stream.failed = false;
@@ -204,20 +216,20 @@ void Pump(Pool& pool)
   };
   // What is needed, most urgent first: each voice's block and the next, the start of every sample,
   // then one more ahead for each voice. A wanted block is never evicted.
-  std::array<std::uint64_t, kMaxStreamReaders * 3 + kMaxStreams * 2> needs{};
+  std::array<std::uint32_t, kMaxStreamReaders * 3 + kMaxStreams * 2> needs{};
   std::size_t needCount = 0;
   auto need = [&](std::uint32_t id, std::uint32_t block) {
     const StreamState* stream = stateOf(id);
     if (stream == nullptr || block * kStreamBlockFrames >= stream->frameCount) return;
-    const std::uint64_t key = BlockKey(id, block);
+    const std::uint32_t key = BlockKey(id, block);
     if (std::find(needs.begin(), needs.begin() + needCount, key) == needs.begin() + needCount && needCount < needs.size()) needs[needCount++] = key;
   };
   for (const auto& reader : pool.readers)
   {
-    const std::uint64_t key = reader.load(std::memory_order_acquire);
+    const std::uint32_t key = reader.load(std::memory_order_acquire);
     if (key == 0) continue;
-    const auto id = static_cast<std::uint32_t>(key >> 32);
-    const auto block = static_cast<std::uint32_t>(key & 0xFFFFFFFFu) - 1;
+    const std::uint32_t id = KeyStream(key);
+    const std::uint32_t block = KeyBlock(key);
     need(id, block);
     need(id, block + 1);
   }
@@ -231,21 +243,21 @@ void Pump(Pool& pool)
   }
   for (const auto& reader : pool.readers)
   {
-    const std::uint64_t key = reader.load(std::memory_order_acquire);
-    if (key != 0) need(static_cast<std::uint32_t>(key >> 32), static_cast<std::uint32_t>(key & 0xFFFFFFFFu) + 1);
+    const std::uint32_t key = reader.load(std::memory_order_acquire);
+    if (key != 0) need(KeyStream(key), KeyBlock(key) + 1);
   }
 
   const std::size_t count = pool.blockCount.load(std::memory_order_relaxed);
-  auto isNeeded = [&](std::uint64_t key) { return std::find(needs.begin(), needs.begin() + needCount, key) != needs.begin() + needCount; };
+  auto isNeeded = [&](std::uint32_t key) { return std::find(needs.begin(), needs.begin() + needCount, key) != needs.begin() + needCount; };
   for (std::size_t index = 0; index < needCount; ++index)
   {
-    const std::uint64_t key = needs[index];
+    const std::uint32_t key = needs[index];
     Block* victim = nullptr;
     bool cached = false;
     for (std::size_t blockIndex = 0; blockIndex < count; ++blockIndex)
     {
       Block* block = pool.blocks[blockIndex].load(std::memory_order_relaxed);
-      const std::uint64_t held = block->key.load(std::memory_order_relaxed);
+      const std::uint32_t held = block->key.load(std::memory_order_relaxed);
       if (held == key)
       {
         block->lastUse = ++pool.clock;
@@ -257,9 +269,9 @@ void Pump(Pool& pool)
     }
     if (cached) continue;
     if (victim == nullptr) break;  // every block is in use: the rest waits
-    StreamState* stream = stateOf(static_cast<std::uint32_t>(key >> 32));
+    StreamState* stream = stateOf(KeyStream(key));
     if (stream == nullptr || stream->failed) continue;
-    const auto blockNumber = static_cast<std::size_t>((key & 0xFFFFFFFFu) - 1);
+    const auto blockNumber = static_cast<std::size_t>(KeyBlock(key));
     const std::size_t firstFrame = blockNumber * kStreamBlockFrames;
     const std::size_t frames = std::min(kStreamBlockFrames, stream->frameCount - firstFrame);
     victim->key.store(0, std::memory_order_release);
@@ -328,12 +340,19 @@ std::shared_ptr<SampleStream> SampleStream::Open(const std::string& path, std::u
       slot = index;
     }
   }
-  if (free == nullptr || frameCount == 0) return nullptr;
+  // Longer than a key can number: not from the card (no sample here is that long).
+  if (free == nullptr || frameCount == 0 || frameCount / kStreamBlockFrames + 1 > kKeyBlockMask) return nullptr;
   GrowCache(pool, live * kBlocksPerStream);
   if (pool.blockCount.load(std::memory_order_relaxed) < kMinBlocks) return nullptr;
   EnsureWorker(pool);
 
-  const std::uint32_t id = pool.nextId++;
+  // Ids wrap within what a key holds, never 0 and never one a stream still has.
+  std::uint32_t id = 0;
+  do
+  {
+    id = pool.nextId;
+    pool.nextId = pool.nextId >= kMaxStreamId ? 1 : pool.nextId + 1;
+  } while (std::any_of(pool.streams.begin(), pool.streams.end(), [id](const StreamState& state) { return state.id.load(std::memory_order_relaxed) == id; }));
   free->path = path;
   free->dataOffset = dataOffset;
   free->frameCount = frameCount;
@@ -363,7 +382,7 @@ SampleStream::~SampleStream()
 bool SampleStream::FindBlock(StreamCursor& cursor, std::uint32_t index) const
 {
   Pool& pool = ThePool();
-  const std::uint64_t key = BlockKey(id_, index);
+  const std::uint32_t key = BlockKey(id_, index);
   cursor.block = nullptr;
   cursor.blockIndex = index;
 #if defined(__EMSCRIPTEN__)
@@ -400,7 +419,7 @@ void SampleStream::PublishReader(std::size_t reader, const SampleStream* stream,
 {
   Pool& pool = ThePool();
   if (reader >= pool.readers.size()) return;
-  const std::uint64_t key = stream != nullptr ? BlockKey(stream->id_, static_cast<std::uint32_t>(frame / kStreamBlockFrames)) : 0;
+  const std::uint32_t key = stream != nullptr ? BlockKey(stream->id_, static_cast<std::uint32_t>(frame / kStreamBlockFrames)) : 0;
   if (pool.readers[reader].exchange(key, std::memory_order_acq_rel) != key && key != 0) Wake(pool);
 }
 
@@ -410,6 +429,12 @@ bool SampleStream::ReadFrames(std::size_t frame, std::int16_t* destination, std:
   Pool& pool = ThePool();
   std::lock_guard<std::recursive_mutex> lock(pool.io);
   return ReadFromFile(pool, pool.streams[slot_], frame, destination, count);
+}
+
+bool SampleStreamsReading()
+{
+  const Pool& pool = ThePool();
+  return std::any_of(pool.readers.begin(), pool.readers.end(), [](const std::atomic<std::uint32_t>& reader) { return reader.load(std::memory_order_relaxed) != 0; });
 }
 
 void RetrySampleStreams()

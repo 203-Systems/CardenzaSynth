@@ -13,14 +13,21 @@ namespace synth::audio {
 // such a sample is loaded (16 KB for one, 32 KB at most) and the render thread never blocks on it:
 // a block that is late plays as the last frame held, a short gap and nothing worse.
 inline constexpr std::size_t kStreamBlockFrames = 1024;  // 2 KB, 23 ms at 44.1 kHz
-inline constexpr std::size_t kMaxStreamReaders = 16;     // every sampler voice of every track
+inline constexpr std::size_t kMaxStreamReaders = 24;     // every sampler voice of every track
 
 // What a voice remembers between frames.
 struct StreamCursor {
   const std::int16_t* block = nullptr;
   std::uint32_t blockIndex = 0;
   std::int16_t last = 0;
+  std::uint16_t retryIn = 0;  // the block is not there yet: reads before the cache is looked through again
 };
+
+// A block that is not there yet is looked for again after this many reads, not on every one: the
+// cache is looked through with 64-bit atomics, library calls on this chip, and doing that for every
+// frame took a whole block's time with a few voices waiting for the card (the stress test,
+// 2026-11-04). About one audio block (a voice reads two frames per sample).
+inline constexpr std::uint16_t kStreamMissRetryReads = 256;
 
 class SampleStream {
 public:
@@ -36,7 +43,19 @@ public:
   std::int16_t Read(StreamCursor& cursor, std::size_t frame) const
   {
     const auto index = static_cast<std::uint32_t>(frame / kStreamBlockFrames);
-    if ((cursor.block == nullptr || cursor.blockIndex != index) && !FindBlock(cursor, index)) return cursor.last;
+    if (cursor.block == nullptr || cursor.blockIndex != index)
+    {
+      if (cursor.block == nullptr && cursor.blockIndex == index && cursor.retryIn > 0)
+      {
+        --cursor.retryIn;
+        return cursor.last;
+      }
+      if (!FindBlock(cursor, index))
+      {
+        cursor.retryIn = kStreamMissRetryReads;
+        return cursor.last;
+      }
+    }
     cursor.last = cursor.block[frame % kStreamBlockFrames];
     return cursor.last;
   }
@@ -58,6 +77,8 @@ private:
 
 // The card is back: streams that gave up on a failed read try again.
 void RetrySampleStreams();
+// A voice is playing from the card right now.
+bool SampleStreamsReading();
 
 // While it lives the file is not open for streaming and no stream reads it, so it can be renamed,
 // replaced or deleted (FAT refuses that for an open file).
