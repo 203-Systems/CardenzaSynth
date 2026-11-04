@@ -175,8 +175,9 @@ enum class Arrow : std::uint8_t { Up, Down, Left, Right };
 // it is: steady = holds a value, breathe = runs an action when pressed, shimmer = focus / selection,
 // blink = waiting (queued / cued). The Animator turns effects into motion.
 // Steady holds the level; Blink alternates it with off (something waiting).
-// Blink: waiting (4 changes a second).
-enum class LedEffect : std::uint8_t { Steady, Blink };
+// Blink: waiting (4 changes a second). Hint: the keys a Learn guide step waits for, often a whole block,
+// blink at half that speed (easier on the eye) until the step is learned.
+enum class LedEffect : std::uint8_t { Steady, Blink, Hint };
 
 struct LedCell {
   std::uint8_t level = 0;
@@ -485,11 +486,16 @@ public:
   void ComputeLeds(std::array<std::uint8_t, kKeyCount>& levels) const;
 
   // The guide: a lesson page on a computer drives the device (GrooveApp's guide link,
-  // docs/groovebox-design.md). The header says GUIDE, and the keys the lesson waits for blink: bit
-  // KeyIndex(row, column) of `keys`.
+  // docs/groovebox-design.md). The header says GUIDE, and the keys of the step are lit (bit
+  // KeyIndex(row, column) of `keys`): blinking while the step waits for the user, steady once it is
+  // learned and the user tries more keys.
   void SetGuide(bool on);
   bool Guide() const { return guide_; }
-  void SetGuideHint(std::uint64_t keys) { guideHint_ = guide_ ? keys : 0; }
+  void SetGuideHint(std::uint64_t keys, bool waiting = true)
+  {
+    guideHint_ = guide_ ? keys : 0;
+    guideHintWaits_ = waiting;
+  }
   std::uint64_t GuideHint() const { return guideHint_; }
   // Where a lesson starts: the track, then the scene and its page (from 0; -1 keeps the scene's page).
   void GuideGoTo(Scene scene, int page, std::size_t track);
@@ -696,6 +702,7 @@ private:
   bool pianoRollOnDrums_ = false;
   bool guide_ = false;
   std::uint64_t guideHint_ = 0;
+  bool guideHintWaits_ = true;
   void ComputeSceneLeds(LedFrame& frame) const;
   void FillPresetRows(Modal& modal) const;
   void SetCellParameter(std::size_t index, int value);

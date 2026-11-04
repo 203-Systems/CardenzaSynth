@@ -10,7 +10,8 @@
 //   GQ        the state now                 GS<Controller::GuideState()>
 //   GL<pairs> lesson start: r1 a fresh      GS... (s scene, p page, t track 1-4, d1 the song
 //             practice project               lesson's demo project)
-//   GH<keys>  keys to blink: two hex digits per KeyIndex, none clears
+//   GH<keys>  the step's keys, blinking: two hex digits per KeyIndex, none clears
+//   GT<keys>  the same, steady: the step is learned and the user tries more keys
 //   GK<kk><0|1> press / release a key       GK<kk><0|1> for every key the user presses
 //                                           GD<56 hex digits> the key lights as shown (over USB)
 //
@@ -148,6 +149,7 @@ void GrooveApp::HandleGuideMessage(const char* text, std::size_t length, std::ui
       SendGuideState(now, true);
       return;
     case 'H':
+    case 'T':
     {
       std::uint64_t keys = 0;
       for (std::size_t at = 2; at + 1 < length; at += 2)
@@ -155,7 +157,7 @@ void GrooveApp::HandleGuideMessage(const char* text, std::size_t length, std::ui
         const int index = HexByte(text + at);
         if (index >= 0 && static_cast<std::size_t>(index) < groove::kKeyCount) keys |= std::uint64_t{1} << index;
       }
-      controller_.SetGuideHint(keys);
+      controller_.SetGuideHint(keys, text[1] == 'H');
       return;
     }
     case 'K':

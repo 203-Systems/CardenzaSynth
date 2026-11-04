@@ -2571,9 +2571,9 @@ void TestGuide(Harness& h)
   assert(state().find("nVOICE") != std::string::npos);
   h.Render();
 
-  // The hint, as the lesson page shows it: ESC and ADD full and steady, every other key no brighter than
-  // half. On the device the two edge keys go full too (otherwise held to the dimmest glow), and nothing
-  // blinks. Only while the guide runs.
+  // The hint, as the lesson page shows it: ESC and ADD full, every other key no brighter than half; on
+  // the device the two edge keys go full too (otherwise held to the dimmest glow). While the step waits
+  // (GH) they blink slowly; once it is learned (GT) they stay lit. Only while the guide runs.
   const auto settle = [&]() {
     for (int frame = 0; frame < 20; ++frame)
     {
@@ -2581,22 +2581,39 @@ void TestGuide(Harness& h)
       app.UpdateLeds();
     }
   };
+  const auto hintIs = [&](groove::LedEffect effect) {
+    groove::LedFrame frame{};
+    ui.ComputeLeds(frame);
+    for (std::size_t index = 0; index < groove::kKeyCount; ++index)
+    {
+      const bool hinted = index == 0 || index == 13;
+      assert(!hinted || frame[index].effect == effect);
+      assert(hinted ? frame[index].level == groove::kLedFull : frame[index].level <= groove::kLedHalf);
+    }
+  };
   send("GH000d");
-  groove::LedFrame frame{};
-  ui.ComputeLeds(frame);
-  for (std::size_t index = 0; index < groove::kKeyCount; ++index)
+  hintIs(groove::LedEffect::Hint);
+  settle();
+  // Blinking: lit and dark in turn, half a second each, ADD with ESC; the other edge keys stay dim.
+  bool seenLit = false, seenDark = false;
+  for (int look = 0; look < 12; ++look)
   {
-    const bool hinted = index == 0 || index == 13;
-    assert(frame[index].effect == groove::LedEffect::Steady || !hinted);
-    assert(hinted ? frame[index].level == groove::kLedFull : frame[index].level <= groove::kLedHalf);
+    h.Wait(130);
+    app.UpdateLeds();
+    const std::uint8_t esc = Device::LED::Brightness(0, 0);
+    seenLit = seenLit || esc == groove::kLedFull;
+    seenDark = seenDark || esc == 0;
+    assert(Device::LED::Brightness(1, 0) <= groove::kLedEdgeMax);
   }
+  assert(seenLit && seenDark);
+  send("GT000d");
+  hintIs(groove::LedEffect::Steady);
   settle();
   for (int look = 0; look < 6; ++look)
   {
     h.Wait(130);
     app.UpdateLeds();
     assert(Device::LED::Brightness(0, 0) == groove::kLedFull && Device::LED::Brightness(0, 13) == groove::kLedFull);
-    assert(Device::LED::Brightness(1, 0) <= groove::kLedEdgeMax);
   }
   send("GH");
   settle();

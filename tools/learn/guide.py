@@ -6,7 +6,7 @@ run on the live device of the page (the web simulator, or a Cardenza on USB) thr
 (Applications/Synth/GrooveAppGuide.cpp): "start" puts the device where the lesson begins (GL fields:
 s scene, p page, t track 1-4, r1 a fresh project, d1 the song demo), and per step
 
-  keys   the keys lit on the device (the others dimmed) and framed on the picture (figures.keys_for tokens)
+  keys   the keys that blink on the device until the step is learned (the others dimmed), framed on the picture (figures.keys_for tokens)
   done   what completes it, all of: ["press", KEYS] a key pressed (["press", KEYS, n]: n different
          ones of them), ["state", f, n] / ["seen", f, n]
          field f of the device state is n, ["change", f] it changed since the step began,
@@ -304,8 +304,11 @@ def render(guide, say, dictionary_ids, leds):
         # Both kinds show one step at a time: a stage, and under it the step's words with the steps as dots.
         dots = "".join(f'<button type="button" class="a-dot" data-step="{i}" aria-label="{i + 1}"></button>'
                        for i in range(len(lesson["steps"])))
+        # Device lessons: "learned" shows under the words once the step is done on a Cardenza (guide.js).
+        passed = ('<p class="anim-pass" hidden role="status"><span class="pass-badge" aria-hidden="true"></span>'
+                  '<span class="pass-text"></span></p>' if kind == "device" else "")
         bar = (f'<div class="anim-bar"><button type="button" class="a-back" aria-label="Back">←</button>'
-               f'<div class="anim-say"><div class="anim-dots">{dots}</div><p class="anim-text"></p></div>'
+               f'<div class="anim-say"><div class="anim-dots">{dots}</div><p class="anim-text"></p>{passed}</div>'
                f'<button type="button" class="a-next">{ui("next")} →</button></div>')
         if kind == "anim":
             stage = (f'<div class="anim-wrap"><div class="anim-stage" data-anim="{lesson["anim"]}"></div>'
