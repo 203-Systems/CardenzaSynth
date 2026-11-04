@@ -8,6 +8,7 @@
 #include <string_view>
 #include <vector>
 
+#include "Library/Memory/Memory.h"
 #include "Library/Synth/Core/ISynthEngine.h"
 
 namespace midi {
@@ -52,9 +53,12 @@ protected:
     std::uint16_t parameter;
     std::int16_t value;
   };
+  // The parameter list, the presets and the factory order are read by the UI and on a preset change,
+  // never per sample: they live in PSRAM (Library/Memory/Memory.h).
+  using PresetValues = std::vector<PresetValue, memory::SlowAllocator<PresetValue>>;
   struct PresetState {
     SynthPresetInfo info;
-    std::vector<PresetValue> values;
+    PresetValues values;
     std::string basePresetId;
   };
 
@@ -82,7 +86,7 @@ protected:
   // Index of a parameter of this engine (the list is fixed after the constructor).
   std::size_t ParameterIndex(const SynthParameterInfo& parameter) const;
   // Values by parameter ID (the file and project form) into the compact form; false for an unknown ID.
-  bool CompactValues(const std::map<std::string, int>& values, std::vector<PresetValue>& compact) const;
+  bool CompactValues(const std::map<std::string, int>& values, PresetValues& compact) const;
   static const PresetValue* FindPresetValue(const PresetState& preset, std::size_t parameterIndex);
 
   virtual std::string FormatParameterValue(const SynthParameterInfo& parameter) const;
@@ -105,10 +109,11 @@ private:
   RuntimeBinding TakeBinding() override;
 
   SynthDescriptor descriptor_;
-  std::deque<SynthParameterInfo> parameters_{};
+  using PresetStates = std::vector<PresetState, memory::SlowAllocator<PresetState>>;
+  std::deque<SynthParameterInfo, memory::SlowAllocator<SynthParameterInfo>> parameters_{};
   std::size_t declaredParameters_ = 0;
-  std::vector<std::uint16_t> factoryOrder_{};
-  std::vector<PresetState> presets_{};
+  std::vector<std::uint16_t, memory::SlowAllocator<std::uint16_t>> factoryOrder_{};
+  PresetStates presets_{};
   std::unique_ptr<midi::MidiPort> port_;
   std::string currentPresetId_;
   std::string basePresetId_;

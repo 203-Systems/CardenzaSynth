@@ -44,6 +44,8 @@ if(DEFINED COMPONENT_DIR)
             freertos
             log
             nvs_flash
+            esp_mm
+            esp_psram
             pthread
             sdmmc
             vfs

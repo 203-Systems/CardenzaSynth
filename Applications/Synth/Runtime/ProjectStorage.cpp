@@ -1,5 +1,7 @@
 #include "Applications/Synth/Runtime/ProjectStorage.h"
 
+#include "Library/Memory/Memory.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -234,7 +236,7 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
   std::ifstream file(source);
   if (!file) return ProjectResult::StorageError;
   ProjectData project;
-  project.sequence.reset(new (std::nothrow) SynthSequencer::ProjectState);
+  project.sequence.reset(new (memory::slow) SynthSequencer::ProjectState);
   if (!project.sequence) return ProjectResult::NoMemory;
   int version = 0;
   int build = 0;

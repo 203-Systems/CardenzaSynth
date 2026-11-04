@@ -237,7 +237,7 @@ void AudioRenderTask(void*)
                  static_cast<unsigned long>(usb.emptyPacketsToHost), static_cast<unsigned long>(usb.fifoToHost),
                  static_cast<unsigned long>(g_framesToComputer.load()), static_cast<unsigned>(g_peakToComputer.exchange(0)),
                  CardenzaHAL::USB::AudioInputActive() ? 1 : 0,
-                 CardenzaHAL::USB::AudioOutputActive() ? 1 : 0, static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)));
+                 CardenzaHAL::USB::AudioOutputActive() ? 1 : 0, static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
       }
       maxRenderUs = 0;
       maxWriteUs = 0;

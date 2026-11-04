@@ -1,4 +1,5 @@
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Memory/Memory.h"
 #include "Library/Synth/Audio/RenderLoad.h"
 #include "Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.h"
 #include "Library/Synth/Core/Engines/Juno/JunoFactoryPresets.h"
@@ -497,11 +498,15 @@ int MapJunoPreset(std::string_view presetId)
 // Called by AMY (on the rendering core) for each sounding voice block, before it is mixed.
 // The buses and sends are shared by the voices of both cores. Each voice adds to them for microseconds;
 // the other core never holds this while waiting for anything.
-std::atomic_flag g_fxBusLock = ATOMIC_FLAG_INIT;
+// Not std::atomic_flag: with PSRAM, ESP-IDF builds everything with -mdisable-hardware-atomics, and GCC
+// has no library call for test_and_set, so it became a plain load and store. A release falling between
+// the other core's load and store was overwritten with "taken" and both cores spun for ever: the device
+// froze on PLAY (2026-11-04). exchange() is a library call there, atomic across the cores.
+std::atomic<bool> g_fxBusLock{false};
 class FxBusLock {
 public:
-  FxBusLock() { while (g_fxBusLock.test_and_set(std::memory_order_acquire)) {} }
-  ~FxBusLock() { g_fxBusLock.clear(std::memory_order_release); }
+  FxBusLock() { while (g_fxBusLock.exchange(true, std::memory_order_acquire)) {} }
+  ~FxBusLock() { g_fxBusLock.store(false, std::memory_order_release); }
 };
 
 SYNTH_FX_HOT std::uint8_t ApplyTrackGainToAmyVoice(std::uint16_t osc, std::int32_t* buffer, std::uint16_t length)
@@ -629,6 +634,15 @@ void EnsureAmyInitialized()
   #endif
     // CARDENZA sequences in SynthSequencer; AMY's own tag table would only cost internal RAM.
     config.max_sequencer_tags = 1;
+  #if defined(ESP_PLATFORM)
+    // What AMY touches per block stays in internal RAM, whatever answers MALLOC_CAP_DEFAULT: the
+    // oscillators, the render and mix blocks, the event pool (Library/Memory/Memory.h).
+    constexpr std::uint32_t kAmyFastCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    config.ram_caps_synth = kAmyFastCaps;
+    config.ram_caps_block = kAmyFastCaps;
+    config.ram_caps_fbl = kAmyFastCaps;
+    config.ram_caps_events = kAmyFastCaps;
+  #endif
     config.max_synths = kAmyMaxSynths;
     config.max_voices = kAmyMaxVoices;
     config.max_oscs = kAmyMaxOscs;
@@ -1207,17 +1221,13 @@ void SetTrackFxParameterNoLock(std::size_t track, std::string_view id, int value
 // SuspendEffects calls not yet resumed (render lock).
 int g_fxSuspended = 0;
 
-// The effects can do without their memory, the small plain allocations elsewhere cannot: no piece of
-// it below this much free (the device's nothrow new keeps the same floor for blocks of 4 KB and more;
-// the choruses and buses are 1 KB each and took the heap down to 4 KB on the board, 2026-11-03).
+// The effects run per sample and stay in internal RAM. They can do without their memory, the small
+// plain allocations elsewhere cannot: no piece of it below this much internal RAM free (the device's
+// nothrow new keeps the same floor for blocks of 4 KB and more; the choruses and buses are 1 KB each
+// and took the heap down to 4 KB on the board, 2026-11-03).
 bool FxRoom(std::size_t bytes)
 {
-#if defined(ESP_PLATFORM)
-  return heap_caps_get_free_size(MALLOC_CAP_8BIT) >= bytes + 20 * 1024;
-#else
-  (void)bytes;
-  return true;
-#endif
+  return memory::FastFree() >= bytes + 20 * 1024;
 }
 
 void UpdateFxNoLock()
