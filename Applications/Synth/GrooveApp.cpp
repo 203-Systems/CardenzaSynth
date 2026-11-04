@@ -533,11 +533,11 @@ void GrooveApp::RenderFrame()
   renderMaxUs_ = std::max(renderMaxUs_, elapsed);
   if (++renderFrames_ >= 600)
   {
-    std::printf("Groove: render avg=%luus max=%luus heap=%u min=%u largest=%u psram=%u min=%u\n",
+    std::printf("Groove: render avg=%luus max=%luus heap=%u min=%u largest=%u psram=%u min=%u faded=%u\n",
                 static_cast<unsigned long>(renderTotalUs_ / renderFrames_), static_cast<unsigned long>(renderMaxUs_),
                 static_cast<unsigned>(memory::FastFree()), static_cast<unsigned>(memory::FastMinimum()),
                 static_cast<unsigned>(memory::FastLargest()), static_cast<unsigned>(memory::SlowFree()),
-                static_cast<unsigned>(memory::SlowMinimum()));
+                static_cast<unsigned>(memory::SlowMinimum()), static_cast<unsigned>(synth::audio::FadedVoiceCount()));
     // The key LED levels this frame (0..f per key, rows top to bottom), to check the lights from
     // the serial console.
     char leds[4 * 15 + 1] = {};

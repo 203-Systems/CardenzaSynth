@@ -20,8 +20,9 @@
 // Written for the ESP32-S3, whose FPU has no fast divide and no double precision: no division,
 // transcendental function or double runs per sample (saturation is a cubic), and
 // the delay and reverb share one 11.025 kHz rate behind polyphase FIR decimators and a single
-// interpolator. Memory is allocated only by the explicit Allocate* calls, with new (std::nothrow),
-// and is kept until destruction.
+// interpolator. Memory is allocated only by the explicit Allocate* calls and is kept until destruction:
+// the delay and reverb lines in PSRAM (read and written in order, at the bus rate), the chorus lines in
+// internal RAM (read anywhere in them, every sample).
 //
 // Defining CARDENZA_FX_IRAM places the per-sample kernels in IRAM (ESP-IDF's .iram1 sections), out
 // of reach of flash-cache misses, at the cost of internal RAM.

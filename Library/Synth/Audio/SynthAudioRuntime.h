@@ -31,10 +31,14 @@ void SetSamplerFrames(std::size_t engineIndex, SharedSampleBuffer frames, std::u
 // unity gain: interleaved stereo int16 frames, the number given back. Null for none.
 using LineInput = std::size_t (*)(std::int16_t* stereoFrames, std::size_t frameCount);
 void SetLineInput(LineInput input);
-// Stops the voice that will be missed least, whole, as rendering does when it cannot keep up (RenderLoad).
+// Fades out (over the next block) and stops the voice that will be missed least, whole, as rendering
+// does when it cannot keep up (RenderLoad).
 bool ShedVoice();
-// Voices stopped so far because the audio core could not keep up (0 in normal use).
+// Voices stopped so far because rendering fell behind anyway (0 in normal use).
 std::uint32_t ShedVoiceCount();
+// Voices faded out so far to keep the next block within the render budget (on the board: let-go tails
+// when many pile up; 0 on hosts).
+std::uint32_t FadedVoiceCount();
 // The notes a track holds, one bit per MIDI note, as of the last rendered block: played and not let
 // go, tails not counted. A drum track holds nothing, its hits end by themselves.
 using NoteSet = std::array<std::uint32_t, 4>;

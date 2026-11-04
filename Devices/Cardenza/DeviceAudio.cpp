@@ -88,6 +88,10 @@ constexpr uint32_t kAudioTaskStackSize = 12 * 1024;  // Measured: 7 KB.
 constexpr int64_t kRenderBudgetUs =
   static_cast<int64_t>((1000000ULL * kRenderFrameCount) / device::kDefaultSynthAudioSampleRate);
 constexpr uint32_t kTimingLogBlockInterval = 1024;
+// What the output's DMA holds (CardenzaHAL audio: six descriptors of 256 frames), and how long a write
+// has to wait to tell that it was full.
+constexpr int64_t kOutputQueueUs = 6 * kRenderBudgetUs;
+constexpr int64_t kWriteWaitedUs = 300;
 constexpr char kLogTag[] = "CardenzaAudio";
 std::mutex g_audioPumpMutex;
 TaskHandle_t g_audioPumpTask = nullptr;
@@ -184,6 +188,12 @@ void AudioRenderTask(void*)
   std::uint32_t overBudgetRenderCount = 0;
   int64_t totalRenderUs = 0;
   std::uint32_t outputFailures = 0;
+  // Underruns: the DMA played out everything it had (a click) because rendering fell behind for longer
+  // than the queue lasts. Estimated from the clock: a write that had to wait found the queue full; time
+  // between writes drains it.
+  std::uint32_t underruns = 0;
+  int64_t queuedUs = 0;
+  int64_t lastWriteEndUs = 0;
   for (;;)
   {
     const int64_t renderStartUs = esp_timer_get_time();
@@ -195,6 +205,7 @@ void AudioRenderTask(void*)
     // The input has GPIO43: keep the engines running, slower, with nowhere to send the sound.
     if (OutputPaused())
     {
+      lastWriteEndUs = 0;  // no queue to run dry while paused
       vTaskDelay(1);
       continue;
     }
@@ -202,6 +213,7 @@ void AudioRenderTask(void*)
     // and is tried again.
     if (!EnsureOutputChannelEnabled() || !WriteOutputFrames(outputChannel, buffer.data(), buffer.size()))
     {
+      lastWriteEndUs = 0;
       if (OutputPaused()) continue;
       if ((++outputFailures % 64) == 1) ESP_LOGE(kLogTag, "I2S output failed after %" PRIu32 " rendered blocks", renderedBlocks);
       vTaskDelay(1);
@@ -211,6 +223,17 @@ void AudioRenderTask(void*)
     const int64_t writeEndUs = esp_timer_get_time();
     const int64_t renderUs = renderEndUs - renderStartUs;
     const int64_t writeUs = writeEndUs - writeStartUs;
+    if (lastWriteEndUs != 0)
+    {
+      queuedUs -= writeStartUs - lastWriteEndUs;
+      if (queuedUs < 0)
+      {
+        ++underruns;
+        queuedUs = 0;
+      }
+    }
+    queuedUs = writeUs > kWriteWaitedUs ? kOutputQueueUs : (std::min)(kOutputQueueUs, queuedUs + kRenderBudgetUs);
+    lastWriteEndUs = writeEndUs;
     maxRenderUs = (std::max)(maxRenderUs, renderUs);
     maxWriteUs = (std::max)(maxWriteUs, writeUs);
     totalRenderUs += renderUs;
@@ -220,13 +243,14 @@ void AudioRenderTask(void*)
     if ((renderedBlocks % kTimingLogBlockInterval) == 0)
     {
       ESP_LOGI(kLogTag,
-               "audio timing: blocks=%" PRIu32 " avg_render=%" PRId64 "us max_render=%" PRId64 "us max_write=%" PRId64 "us budget=%" PRId64 "us overruns=%" PRIu32,
+               "audio timing: blocks=%" PRIu32 " avg_render=%" PRId64 "us max_render=%" PRId64 "us max_write=%" PRId64 "us budget=%" PRId64 "us overruns=%" PRIu32 " underruns=%" PRIu32,
                renderedBlocks,
                totalRenderUs / kTimingLogBlockInterval,
                maxRenderUs,
                maxWriteUs,
                kRenderBudgetUs,
-               overBudgetRenderCount);
+               overBudgetRenderCount,
+               underruns);
       if (CardenzaHAL::USB::Started())
       {
         const CardenzaHAL::USB::AudioCounters usb = CardenzaHAL::USB::AudioStats();
