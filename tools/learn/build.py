@@ -237,10 +237,9 @@ def run_shots(sim_build, out_dir, work):
     script.write_text(shot_script())
     raw = work / "shots"
     shutil.rmtree(raw, ignore_errors=True)
-    # A fresh card and internal flash every run: settings, projects and the autosaved working state
-    # from the last run would change the screens.
+    # A fresh card every run: settings, projects and the autosaved working state from the last run
+    # would change the screens.
     shutil.rmtree(work / "sdcard", ignore_errors=True)
-    shutil.rmtree(work / "internal", ignore_errors=True)
     subprocess.run([str(shot_tool), "--script", str(script), "--out", str(raw), "--scale", "2"], check=True,
                    cwd=work, stdout=subprocess.DEVNULL)
     leds = {}

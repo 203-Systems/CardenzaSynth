@@ -60,7 +60,6 @@ if(DEFINED COMPONENT_DIR)
             fatfs
             freertos
             log
-            nvs_flash
             esp_mm
             esp_psram
             pthread

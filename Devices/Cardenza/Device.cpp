@@ -18,8 +18,6 @@
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <esp_vfs_fat.h>
-#include <nvs.h>
-#include <nvs_flash.h>
 
 #include "cardenzaHAL.h"
 #include "usb/usb.h"
@@ -37,9 +35,6 @@ constexpr char kCardRoot[] = "/sdcard";
 constexpr std::int64_t kMountRetryUs = 5 * 1000 * 1000;
 std::int64_t lastMountAttemptUs = 0;
 bool mountAttempted = false;
-// Internal flash records (settings kept while the card is missing).
-constexpr char kNvsNamespace[] = "cardenza";
-bool nvsReady = false;
 
 constexpr bool IsValidMatrixPosition(std::size_t row, std::size_t column) {
   return row < static_cast<std::size_t>(Device::LED::kRows) &&
@@ -67,20 +62,6 @@ void PublishLedFrame(bool changed) {
   if (!halLedsKnown || frame.enabled != halLeds.enabled) (void)CardenzaHAL::Keyboard::enableLED(frame.enabled);
   halLeds = frame;
   halLedsKnown = true;
-}
-
-bool InitNvs() {
-  // Never erased from here, whatever state it is in: under the Launcher this partition also holds the
-  // Launcher's settings, its list of installed apps and its self-update state. Without NVS the device
-  // runs on without internal records (no autosave, settings only on the card).
-  const esp_err_t status = nvs_flash_init();
-  if (status != ESP_OK) ESP_LOGE("Cardenza", "NVS unavailable (%s): no internal records", esp_err_to_name(status));
-  return status == ESP_OK;
-}
-
-bool ValidInternalKey(std::string_view key) {
-  return !key.empty() && key.size() <= Device::Storage::kInternalKeyMax &&
-         std::all_of(key.begin(), key.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
 }
 
 }  // namespace
@@ -414,75 +395,6 @@ std::uint64_t FreeBytes() {
   return IsMounted() && esp_vfs_fat_info(kCardRoot, &total, &free) == ESP_OK ? free : 0;
 }
 
-bool ReadInternal(std::string_view key, std::string& value) {
-  if (!nvsReady || !ValidInternalKey(key)) {
-    return false;
-  }
-  nvs_handle_t handle = 0;
-  if (nvs_open(kNvsNamespace, NVS_READONLY, &handle) != ESP_OK) {
-    return false;
-  }
-  const std::string name(key);
-  std::size_t length = 0;
-  bool ok = nvs_get_blob(handle, name.c_str(), nullptr, &length) == ESP_OK && length <= kInternalValueMax;
-  std::string data(ok ? length : 0, '\0');
-  if (ok && length != 0) {
-    ok = nvs_get_blob(handle, name.c_str(), data.data(), &length) == ESP_OK && length == data.size();
-  }
-  nvs_close(handle);
-  if (ok) {
-    value = std::move(data);
-  }
-  return ok;
-}
-
-bool WriteInternal(std::string_view key, std::string_view value) {
-  if (!nvsReady || !ValidInternalKey(key) || value.size() > kInternalValueMax) {
-    return false;
-  }
-  nvs_handle_t handle = 0;
-  if (nvs_open(kNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) {
-    return false;
-  }
-  const std::string name(key);
-  const bool ok = nvs_set_blob(handle, name.c_str(), value.data(), value.size()) == ESP_OK && nvs_commit(handle) == ESP_OK;
-  nvs_close(handle);
-  return ok;
-}
-
-bool EraseInternal(std::string_view key) {
-  if (!nvsReady || !ValidInternalKey(key)) {
-    return false;
-  }
-  nvs_handle_t handle = 0;
-  if (nvs_open(kNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) {
-    return false;
-  }
-  const std::string name(key);
-  const esp_err_t status = nvs_erase_key(handle, name.c_str());
-  const bool ok = (status == ESP_OK || status == ESP_ERR_NVS_NOT_FOUND) && nvs_commit(handle) == ESP_OK;
-  nvs_close(handle);
-  return ok;
-}
-
-std::vector<std::string> ListInternal() {
-  std::vector<std::string> keys;
-  if (!nvsReady) {
-    return keys;
-  }
-  nvs_iterator_t entry = nullptr;
-  esp_err_t status = nvs_entry_find(NVS_DEFAULT_PART_NAME, kNvsNamespace, NVS_TYPE_ANY, &entry);
-  while (status == ESP_OK) {
-    nvs_entry_info_t info{};
-    if (nvs_entry_info(entry, &info) == ESP_OK) {
-      keys.emplace_back(info.key);
-    }
-    status = nvs_entry_next(&entry);
-  }
-  nvs_release_iterator(entry);
-  return keys;
-}
-
 }  // namespace Storage
 
 std::string Name() {
@@ -509,10 +421,10 @@ bool Init() {
     return false;
   }
 
-  // CardenzaHAL::Init has just tried to mount the card; Storage::Mount retries later.
+  // CardenzaHAL::Init has just tried to mount the card; Storage::Mount retries later. The SD card is
+  // the only storage: internal flash holds the firmware and nothing else of ours.
   mountAttempted = true;
   lastMountAttemptUs = esp_timer_get_time();
-  nvsReady = InitNvs();
   return true;
 }
 
@@ -526,7 +438,7 @@ void Start() {}
 // A large block must not take the internal RAM the small plain allocations need: below the floor it
 // goes to PSRAM (slower, but there). Any block goes to PSRAM when internal RAM has none, and is null
 // only when PSRAM is full too. Small nothrow blocks get no floor: libraries use them for what they
-// need (NVS refused to write the autosave when they had one, 2026-11-03); our own optional small
+// need (a flash library refused to write when they had one, 2026-11-03); our own optional small
 // pieces check for themselves (the effects' choruses and buses). Data that belongs in PSRAM asks for
 // it (Library/Memory/Memory.h); malloc itself never goes there, so C code and the drivers stay in
 // internal RAM.

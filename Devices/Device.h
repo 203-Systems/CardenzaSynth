@@ -178,8 +178,9 @@ struct FileHandleView {
   bool writable = false;
 };
 
-// Low-level storage only. Folders and files on the card belong to the OS storage protocol
-// (OS/Storage, docs/app-storage-protocol.md); apps never call these functions directly.
+// Low-level storage only: the SD card is the only place anything is kept (nothing in internal flash).
+// Folders and files on the card belong to the OS storage protocol (OS/Storage,
+// docs/app-storage-protocol.md); apps never call these functions directly.
 
 // Root of the removable card: "/sdcard" on the device, "<working directory>/sdcard" in the
 // simulator (beside the executable on Windows).
@@ -194,17 +195,6 @@ void CheckAfterIoError();
 // Size and free space of the mounted card in bytes (0 when unknown).
 std::uint64_t CapacityBytes();
 std::uint64_t FreeBytes();
-
-// Small records in internal flash that work without a card: NVS on the device, files in
-// "<working directory>/internal" in the simulator. Keys are 1..15 characters of [a-z0-9_].
-inline constexpr std::size_t kInternalKeyMax = 15;
-inline constexpr std::size_t kInternalValueMax = 4000;
-bool ReadInternal(std::string_view key, std::string& value);
-bool WriteInternal(std::string_view key, std::string_view value);
-bool EraseInternal(std::string_view key);
-// Every key there is. They outlive firmware updates, so what no firmware reads any more stays until
-// someone erases it.
-std::vector<std::string> ListInternal();
 
 }  // namespace Storage
 

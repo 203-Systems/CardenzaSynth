@@ -1,7 +1,7 @@
-// Device::Storage for host builds: the "card" is the sdcard/ folder and internal flash is the
-// internal/ folder, both in the working directory, so each test run gets its own card by starting in
-// a folder of its own (the desktop simulator starts beside its executable). Self-contained so other
-// host devices can compile it unchanged.
+// Device::Storage for host builds: the "card" is the sdcard/ folder in the working directory, so each
+// test run gets its own card by starting in a folder of its own (the desktop simulator starts beside its
+// executable). Like the device, it keeps nothing anywhere else. Self-contained so other host devices
+// can compile it unchanged.
 #include "Devices/Device.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
 
@@ -39,15 +39,6 @@ const fs::path& Base() {
 
 fs::path CardDirectory() {
   return Base() / "sdcard";
-}
-
-bool ValidInternalKey(std::string_view key) {
-  return !key.empty() && key.size() <= Device::Storage::kInternalKeyMax &&
-         std::all_of(key.begin(), key.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
-}
-
-fs::path InternalPath(std::string_view key) {
-  return Base() / "internal" / (std::string(key) + ".rec");
 }
 
 }  // namespace
@@ -92,61 +83,6 @@ std::uint64_t FreeBytes() {
   std::error_code error;
   const fs::space_info info = fs::space(CardDirectory(), error);
   return IsMounted() && !error ? static_cast<std::uint64_t>(info.available) : 0;
-}
-
-bool ReadInternal(std::string_view key, std::string& value) {
-  if (!ValidInternalKey(key)) {
-    return false;
-  }
-  std::ifstream file(InternalPath(key), std::ios::binary);
-  if (!file) {
-    return false;
-  }
-  std::string contents((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-  if (file.bad() || contents.size() > kInternalValueMax) {
-    return false;
-  }
-  value = std::move(contents);
-  return true;
-}
-
-bool WriteInternal(std::string_view key, std::string_view value) {
-  if (!ValidInternalKey(key) || value.size() > kInternalValueMax) {
-    return false;
-  }
-  std::error_code error;
-  fs::create_directories(InternalPath(key).parent_path(), error);
-  const fs::path temporary = InternalPath(key).string() + ".tmp";
-  {
-    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-    file.write(value.data(), static_cast<std::streamsize>(value.size()));
-    if (!file.good()) {
-      return false;
-    }
-  }
-  // Host file systems replace atomically on rename (Windows included, via std::filesystem).
-  fs::rename(temporary, InternalPath(key), error);
-  return !error;
-}
-
-std::vector<std::string> ListInternal() {
-  std::vector<std::string> keys;
-  std::error_code error;
-  for (const fs::directory_entry& entry : fs::directory_iterator(Base() / "internal", error)) {
-    if (entry.path().extension() == ".rec") {
-      keys.push_back(entry.path().stem().string());
-    }
-  }
-  return keys;
-}
-
-bool EraseInternal(std::string_view key) {
-  if (!ValidInternalKey(key)) {
-    return false;
-  }
-  std::error_code error;
-  fs::remove(InternalPath(key), error);
-  return !error;
 }
 
 }  // namespace Device::Storage

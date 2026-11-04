@@ -192,8 +192,7 @@ def run(guide, sim_build, work, img):
     shot_tool = sim_build / "Devices" / "CardenzaSim" / "CardenzaSimShot"
     raw = work / "guide-shots"
     shutil.rmtree(raw, ignore_errors=True)
-    for name in ("sdcard", "internal"):
-        shutil.rmtree(work / name, ignore_errors=True)
+    shutil.rmtree(work / "sdcard", ignore_errors=True)
     (work / "guide.script").write_text(script(guide))
     subprocess.run([str(shot_tool), "--script", str(work / "guide.script"), "--out", str(raw), "--scale", "2"], check=True,
                    cwd=work, stdout=subprocess.DEVNULL)

@@ -8,10 +8,9 @@
   const COLUMNS = 14;
   const WIDTH = 240;
   const HEIGHT = 135;
+  // The SD card, the only place the firmware keeps anything (settings, projects, the autosaved working
+  // state): kept in the browser.
   const STORAGE_MOUNT = '/sdcard';
-  // The device's internal flash (Device::Storage internal records): the groovebox's autosaved working
-  // state lives there, so it is kept in the browser like the card.
-  const INTERNAL_MOUNT = '/internal';
   const loadStarted = performance.now();
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   // ?embed=1: just the device (screen, keys, HOME) inside another page, the Learn manual. The host
@@ -322,17 +321,14 @@
 
   function mountStorage(module) {
     const FS = module.FS;
-    for (const mount of [STORAGE_MOUNT, INTERNAL_MOUNT]) {
-      try {
-        FS.mkdir(mount);
-      } catch (error) { /* exists */ }
-    }
+    try {
+      FS.mkdir(STORAGE_MOUNT);
+    } catch (error) { /* exists */ }
     let persistent = true;
     try {
       if (typeof indexedDB === 'undefined') throw new Error('IndexedDB unavailable');
       // autoPersist writes every closed file, rename and delete back to IndexedDB.
       FS.mount(module.IDBFS, { autoPersist: true }, STORAGE_MOUNT);
-      FS.mount(module.IDBFS, { autoPersist: true }, INTERNAL_MOUNT);
     } catch (error) {
       persistent = false;
       console.warn('CardenzaWeb: no persistent storage, using memory only', error);
@@ -356,7 +352,7 @@
   }
 
   // Settings are written a second after the last change; leaving the page writes them at once,
-  // then commits /sdcard and /internal to IndexedDB.
+  // then commits /sdcard to IndexedDB.
   function flushStorage() {
     if (booted && mod && typeof mod._cardenza_web_flush_storage === 'function') {
       try { mod._cardenza_web_flush_storage(); } catch (error) { /* ignore */ }
