@@ -51,6 +51,18 @@ std::atomic<std::uint32_t> g_framesToComputer{0};
 std::atomic<std::uint32_t> g_framesFromComputer{0};
 std::atomic<std::uint16_t> g_peakFromComputer{0};
 std::atomic<std::uint16_t> g_peakToComputer{0};  // since the last console line
+// Set by ReadComputerAudio; a block that did not read the computer's audio drops it.
+std::atomic<bool> g_computerAudioRead{false};
+
+// What the computer plays and nothing read this block (an app that does not use it): taken from USB and
+// dropped, so the computer's stream keeps running; the HAL's playback feedback follows how full its
+// FIFO is, and a FIFO left full would hold the computer at its slowest rate.
+void DropUnreadComputerAudio()
+{
+  if (g_computerAudioRead.exchange(false, std::memory_order_relaxed)) return;
+  std::array<std::int16_t, 2 * 64> scratch;
+  for (int round = 0; round < 32 && CardenzaHAL::USB::AudioRead(scratch.data(), scratch.size() / 2) > 0; ++round) {}
+}
 
 void SendToComputer(const std::int16_t* mono, std::size_t frameCount)
 {
@@ -264,6 +276,7 @@ void AudioRenderTask(void*)
 
     const int64_t renderStartUs = esp_timer_get_time();
     RenderSynthFrames(buffer.data(), buffer.size());
+    DropUnreadComputerAudio();
     const int64_t renderEndUs = esp_timer_get_time();
     SendToComputer(buffer.data(), buffer.size());
     const int64_t writeStartUs = esp_timer_get_time();
@@ -454,6 +467,7 @@ ComputerAudioStats ComputerStats()
 
 std::size_t ReadComputerAudio(std::int16_t* stereoFrames, std::size_t frameCount)
 {
+  g_computerAudioRead.store(true, std::memory_order_relaxed);
   const std::size_t frames = CardenzaHAL::USB::AudioRead(stereoFrames, frameCount);
   if (frames == 0) return 0;
   g_framesFromComputer.fetch_add(static_cast<std::uint32_t>(frames), std::memory_order_relaxed);

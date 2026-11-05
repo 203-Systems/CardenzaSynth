@@ -135,7 +135,9 @@ InputStatus ReadInputFrames(std::int16_t* destination,
                             std::uint32_t timeoutMs = 0);
 
 // What a computer plays to the device over USB: interleaved stereo int16 frames at 44.1 kHz, its own
-// mute and volume already applied. Returns the frames given; 0 when nothing plays.
+// mute and volume already applied. Returns the frames given; 0 when nothing plays. In a block where
+// nothing reads it, the device takes it from USB and drops it, so the computer's stream keeps running
+// for an app that does not use it.
 std::size_t ReadComputerAudio(std::int16_t* stereoFrames, std::size_t frameCount);
 
 // The output task's timing since it started (zeros on hosts, which have no real-time output): blocks

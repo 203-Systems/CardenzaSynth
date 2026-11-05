@@ -165,7 +165,11 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
   (void)args;
   if (initialized_) return;
   os::midi::Initialize();
-  synth::audio::SetLineInput(&Device::Audio::ReadComputerAudio);
+  // What a computer plays over USB is not heard for now: the device is its microphone only (the user,
+  // 2026-11-06; mixed in, it also came back in what the computer recorded). The channel stays, the
+  // device drops what nobody reads; synth::audio::SetLineInput(&Device::Audio::ReadComputerAudio)
+  // would mix it in at unity.
+  synth::audio::SetLineInput(nullptr);
   sequencer_.SetMidiSink(&GrooveApp::SendSequencerMidi, this);
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
