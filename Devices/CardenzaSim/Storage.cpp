@@ -119,25 +119,6 @@ bool ReadInternal(std::string_view key, std::string& value) {
   return true;
 }
 
-bool WriteInternal(std::string_view key, std::string_view value) {
-  if (!ValidInternalKey(key) || value.size() > kInternalValueMax) {
-    return false;
-  }
-  std::error_code error;
-  fs::create_directories(InternalPath(key).parent_path(), error);
-  const fs::path temporary = InternalPath(key).string() + ".tmp";
-  {
-    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-    file.write(value.data(), static_cast<std::streamsize>(value.size()));
-    if (!file.good()) {
-      return false;
-    }
-  }
-  // Host file systems replace atomically on rename (Windows included, via std::filesystem).
-  fs::rename(temporary, InternalPath(key), error);
-  return !error;
-}
-
 std::vector<std::string> ListInternal() {
   std::vector<std::string> keys;
   std::error_code error;

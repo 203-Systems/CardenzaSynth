@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -48,8 +49,9 @@ public:
   using HeapProbe = void (*)(std::size_t& freeBytes, std::size_t& largestBlock);
   void UseHeapProbe(HeapProbe probe) { heapProbe_ = probe; }
 
-  // Writes the autosave now if something changed (not during a sample recording). The web host calls
-  // it when the page is hidden or closed, where waiting for a quiet moment would lose the last edits.
+  // Writes the autosave to the card now if something changed (not during a sample recording or a
+  // lesson). The web host calls it when the page is hidden or closed, where waiting for a quiet moment
+  // would lose the last edits.
   void FlushSession();
 
   groove::Controller& Ui() { return controller_; }
@@ -150,18 +152,23 @@ private:
   // The project's play settings (keyboard, chords, arpeggiators) into `settings` and the sequencer;
   // a project without them (format before 6) keeps the current ones.
   void ApplyPlaySettings(const synth::ProjectData& project, groove::ProjectUiSettings& settings);
-  // The working state stays in internal flash, so the power can go at any moment (SessionStore): every
-  // key may have changed something, so after a key what changed is written once it is quiet.
+  // The working state stays on the card, so the power can go at any moment (SessionStore): every key
+  // may have changed something, so after a key what changed is written once it is quiet, or while it
+  // plays a little later, on the device's background task. Without a card it is not kept (said once).
   void KeepSessionCurrent(std::uint32_t now);
-  synth::SessionStore::SaveResult SaveSessionState();
+  // The autosave written now, waiting for the card: false without one, or when it fails.
+  bool SaveSessionState();
   // Two projects do not always fit in RAM side by side. The current patterns go to the autosave
-  // (internal flash) and are given back, and the effects give their memory back until
+  // (the card) and are given back, and the effects give their memory back until
   // synth::audio::ResumeEffects; a caller that still fails brings the patterns back with
   // RestoreSessionPatterns (the engines are only changed by a load that works). False (NO MEMORY)
-  // when the autosave cannot be written.
+  // when the autosave cannot be written (no card).
   bool MakeRoom(std::string& message);
   bool RestoreSessionPatterns();
   bool RestoreSessionState();
+  // Makes `project` the working state with its name and unsaved mark, as the start and the end of a
+  // lesson bring one back.
+  bool ApplySession(const synth::SessionInfo& info, synth::ProjectData& project, std::string& message);
   bool Quiet(std::uint32_t now) const;
   void CheckCard(std::uint32_t now);
   void ApplyPendingSamples();
@@ -180,10 +187,18 @@ private:
   std::array<char, 2 + groove::kKeyCount> guideLeds_{};  // the last GD sent
   groove::Scene guideScene_ = groove::Scene::Instrument;  // where the user was, to go back there
   std::uint8_t guidePage_ = 0;
-  synth::SessionStore session_;
+  // The working state of before a lesson, in RAM (PSRAM: the pattern pages are shared with what was
+  // playing until either side changes one), given back when it ends.
+  std::unique_ptr<synth::ProjectData> guideReturn_;
+  synth::SessionInfo guideReturnInfo_;
+  bool guideSessionChanged_ = false;  // changes the card did not have when the lesson began
   bool sessionChanged_ = false;
-  bool autosavePartialShown_ = false;
   bool autosaveFailureShown_ = false;
+  bool noCardShown_ = false;
+  // An older firmware's autosave in internal flash: erased at a quiet moment once the card has the state.
+  bool flashSessionLeft_ = false;
+  // Started without the card: its autosave comes back when it does (CheckCard), unless there is new work.
+  bool sessionWaitsForCard_ = false;
   bool cardWasMounted_ = false;
   int keysHeld_ = 0;
   std::array<std::string, synth::kSynthTrackCount> pendingSamples_;
@@ -206,18 +221,12 @@ private:
   bool computerConnected_ = false;
   bool orphanCandidates_ = false;
   std::uint32_t endedOrphanNotes_ = 0;
+  // Changes not on the card yet since when, the last try, and the generation of the last autosave.
   std::uint32_t sessionChangedAt_ = 0;
   std::uint32_t lastSessionTryAt_ = 0;
-  // While it plays the autosave goes to the card (on the device's background task), the flash waits
-  // until nothing is heard (its writes stop both cores for some 45 ms: a click, a late beat). Changes
-  // not on the card yet and since when; the generation of the last autosave anywhere.
-  bool cardSessionChanged_ = false;
-  std::uint32_t cardSessionChangedAt_ = 0;
-  std::uint32_t lastCardSessionTryAt_ = 0;
   std::uint32_t sessionGeneration_ = 0;
-  // The newest autosave is the card's: the flash's next one has to number above it. Otherwise the
-  // flash keeps its number, so an unchanged project writes nothing.
-  bool cardSessionNewest_ = false;
+  // Takes the working state and has the background task write it to the card: false when it could
+  // not start (no card, a write still going, no room for the snapshot).
   bool SaveSessionToCard();
   void CheckCardSession(std::uint32_t now);
   std::uint32_t lastCardCheckAt_ = 0;

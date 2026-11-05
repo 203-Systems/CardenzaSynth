@@ -67,13 +67,15 @@ Settings live in RAM (`os::storage::Settings`). A change marks the store dirty; 
 every dirty store one second after the last change, whenever an app is suspended, and on shutdown.
 Apps never need to call `Flush()` themselves, but may.
 
-When the card is missing or cannot be written, the store goes to internal flash instead ("kept on the
-device"): NVS on the device (namespace `cardenza`, key `sys` for the system, `app<FNV-1a of the id>`
-for apps), files in `<working directory>/internal/` in the simulator. The record holds the whole
-settings file. When the card is back, the next flush (the system retries every ten seconds) writes
-the card file and deletes the internal record. At start the internal record, when there is one, wins
-key by key over the card file, because it only exists while it is newer. On the device a missing
-card is probed at most every five seconds.
+When the card is missing or cannot be written, the changes stay in RAM until it is back (the system
+tries again every ten seconds; on the device a missing card is probed at most every five seconds) and
+are lost if the power goes first: internal flash is never written (it is the Launcher's and every
+firmware's, and a write stops both cores for some 45 ms). A store loaded without the card reads the
+card file in when the card is back, under the changes made meanwhile, so the first write keeps what
+only the file had. Older firmware kept the settings in internal flash while the card was out (NVS
+namespace `cardenza`, key `sys` for the system, `app<FNV-1a of the id>` for apps, the whole settings
+file; files in `<working directory>/internal/` in the simulator): such a record wins key by key over
+the card file at the start, goes to the card at the next flush and is then erased.
 
 ## 3. System settings
 
@@ -117,7 +119,8 @@ failed write loses only that text. Users send these two files when something wen
 - `Setup()` is the resume point: an app that keeps its working state in its `Session/` folder restores
   it there. There is no warning before a power cut, so an app that wants to survive one writes that
   state as it changes, not only in `Suspend()`, and never marks it used: the next start finds it again.
-  Small records in internal flash (`os::storage::WriteInternalRecord`) work without a card.
+  Without a card nothing outlives the power: internal flash is not written (the records older firmware
+  left there are only read and erased, `os::storage::ReadInternalRecord` / `EraseInternalRecord`).
 - Boot starts `boot.app` when it is registered and not a system app, else the default app
   (`Cardenza/Synth`).
 - The HOME side button belongs to the running app (the groovebox stops everything on it).
@@ -182,8 +185,9 @@ system loop), `Flush()`, `FilePath()`, `PreviousFilePath()`. `OS/Storage/Migrati
 
 `Devices/Device.h` (`Device::Log`): `Take`, `Pending`, `Write`, the console log ring the OS writes out.
 `Devices/Device.h` (`Device::Storage`, the device layer only): `RootPath()` (card root), `Mount()`,
-`IsMounted()`, `CapacityBytes()`, `FreeBytes()`, and the internal-flash records `ReadInternal`,
-`WriteInternal`, `EraseInternal` (keys up to 15 characters of `a–z 0–9 _`, values up to 4000 bytes).
+`IsMounted()`, `CapacityBytes()`, `FreeBytes()`, and the records older firmware left in internal flash,
+`ReadInternal`, `EraseInternal`, `ListInternal` (keys up to 15 characters of `a–z 0–9 _`, values up to
+4000 bytes; nothing writes them).
 Apps never call these.
 
 ## 6. Moving the pre-protocol layout
@@ -227,7 +231,7 @@ moves, so the card keeps working with 0.1.0. The groovebox reads two of those fo
 | user preset banks `user.ccpreset` | `Apps/Cardenza/Synth/Presets/{DX7,Juno,Sampler,Drums}/` |
 | samples (WAV) | `Shared/Samples/` |
 | app preferences (SELECT) | `Apps/Cardenza/Synth/settings.cfg` |
-| working state (autosave) | internal flash (NVS records `as_*`), with or without a card; while it plays, `Apps/Cardenza/Synth/Session/autosave.ccproj` and `autosave.txt` (generation, name, unsaved) instead, the newer one coming back at the start (internal flash writes stop both cores) |
+| working state (autosave) | `Apps/Cardenza/Synth/Session/autosave.ccproj` and `autosave.txt` (generation, name, unsaved); `restore.txt` counts the starts that restore it. Never internal flash |
 | sample take | `Apps/Cardenza/Synth/Session/take-<track>.wav`: a sample recording in progress or not saved yet; removed when it is saved or discarded |
 | volume, key LEDs, screen | `System/settings.cfg` (device settings) |
 
@@ -250,31 +254,35 @@ the `PLAY` line is skipped. Version 7 ends each `T` line with the length of ever
 instead of one length for the track; older files give all patterns of a track their one length. The next
 format change takes version 8.
 
-Autosave: the groovebox keeps its working state in internal flash so the power can go at any moment,
-card or no card. There is one autosave, in NVS, the partition every firmware on this device has (the
-partition table stays compatible with the Launcher). It is split into small binary records, each replaced
-as a whole: `as_g` (name, unsaved state, keyboard, tempo, mix, master effects, chords, arps), `as_s` (song),
-`as_e<track>` (engine, preset, sample name, the parameters that differ from the preset), `as_t<track>`
-(pattern count and lengths, track settings), `as_p<track>_<pattern>` (notes, no record when empty). Only a
-record that changed is written. After a key it waits for quiet: 1.5 s without keys, none held, transport
-stopped, not recording (an erase stalls both cores for longer than the audio buffer); while something keeps
-playing, 60 s at most. `Setup()` restores it and leaves it valid. The guide (a lesson page driving the
-device, docs/groovebox-design.md) saves it before it starts, writes nothing while its practice project
-runs, and restores it when it ends. A record outlives a firmware update, so at the start any `as_*` key this firmware does not know is
-erased; other keys are left alone. The NVS partition is never erased as a whole, not even when it cannot be
-opened: under the Launcher it also holds the Launcher's settings, app list and self-update state. Nothing is written while nothing changes. `as_boot` counts starts begun and not
-finished: at 3 the autosave is skipped once, so it cannot keep crashing the start. A sample it names that
-is not there (the card may just be out) is kept as a name and loaded when the card is back. A sound this
-firmware no longer knows starts from the engine's first preset. Past about 12 KB (`kMaxEntries`) the
-patterns not playing stay out and the screen says so. `Suspend()` writes it right away. Named projects are
-only written by SAVE.
+Autosave: the groovebox keeps its working state on the card so the power can go at any moment: one
+project file, `Session/autosave.ccproj`, and `autosave.txt` (its generation, the project name, whether it
+was unsaved), the text written after the project. It is written on the device's background task: after a
+key at the next quiet moment (1.5 s without keys, none held, transport stopped, not recording), while
+something keeps playing once the changes have waited 10 s, while a sample plays from the card only after
+60 s (the stream reads the card in real time). `Suspend()` writes it right away, after a write already on
+its way. `Setup()` restores it and leaves it valid; `restore.txt` counts starts begun and not finished: at
+3 the autosave is skipped once, so it cannot keep crashing the start. Started without the card nothing
+comes back; when the card arrives and nothing was changed meanwhile, its autosave is restored then.
+Without a card nothing is written, and the screen says (once) that changes are not kept.
+
+Internal flash is never written (the user's decision, 2026-11-05): the NVS partition holds the
+Launcher's settings, app list and self-update state, and a write stops both cores for some 45 ms (a
+click, the key lights' scan stops). Older firmware kept the autosave there, in small binary records
+(`as_g`, `as_s`, `as_e<track>`, `as_t<track>`, `as_p<track>_<pattern>`, `as_boot`): at the start that copy
+comes back when it is newer than the card's (a higher generation), goes to the card, and every `as_*` key
+is erased at the next quiet moment once the card has the state. Other keys are left alone; the partition
+is never erased as a whole. The guide (a lesson page driving the device, docs/groovebox-design.md) keeps
+the working state in RAM while its practice project runs (the card's autosave is written as it starts)
+and brings it back when it ends. A sample it names that is not there is kept as a name and loaded when
+the card is back. A sound this firmware no longer knows starts from the engine's first preset. Named
+projects are only written by SAVE.
 
 ## 8. Device notes
 
 - FAT long file names are enabled (`CONFIG_FATFS_LFN_HEAP`); without them neither `CardenzaSynth`,
   `settings.cfg.bak` nor `<name>.ccproj` can exist on the card.
-- NVS is initialised in `Device::Init` (erased and re-initialised when it is full or from a newer
-  layout; it only holds settings copies).
+- NVS is initialised in `Device::Init` and never erased (under the Launcher it is shared); this
+  firmware only reads it and erases the keys older firmware wrote.
 - The browser simulator mounts `/sdcard` as IDBFS with `autoPersist`, so every write of this
   protocol reaches IndexedDB; the page also flushes settings when it is hidden. Its card is always
   present.

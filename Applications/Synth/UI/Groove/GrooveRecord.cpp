@@ -313,6 +313,7 @@ void Controller::ToggleSeqView()
   rec.view = rec.view == SeqView::Roll ? SeqView::Step : SeqView::Roll;
   rec.stepWritten = false;
   rec.stepBeforeKnown = false;
+  rec.cursorTapped = false;
   host_.Sequencer().ClearSelectedSteps();
   const std::size_t steps = host_.Sequencer().TrackStepCount(state_.track);
   if (rec.cursor >= steps) rec.cursor = 0;
@@ -325,6 +326,7 @@ void Controller::ToggleSeqView()
 void Controller::StepCursorMove(int delta)
 {
   RecordState& rec = state_.record;
+  if (delta != 0) rec.cursorTapped = false;
   const int steps = static_cast<int>(std::max<std::size_t>(1, host_.Sequencer().TrackStepCount(state_.track)));
   rec.cursor = static_cast<std::uint8_t>(((static_cast<int>(rec.cursor) + delta) % steps + steps) % steps);
   // The GRID stays on the page with the cursor.
@@ -338,6 +340,7 @@ bool Controller::StepRecordPress()
   const std::size_t count = CollectHeldNotes(notes);
   if (count == 0) return false;
   RecordState& rec = state_.record;
+  rec.cursorTapped = false;
   StepCursorMove(0);
   auto& sequencer = host_.Sequencer();
   // The first write of a press to a step remembers what was there: the same notes again erase it.
@@ -387,14 +390,23 @@ void Controller::EraseCursorStep()
   ShowToast("STEP " + std::to_string(cursor + 1) + (hadNotes ? " CLEARED" : " EMPTY"));
 }
 
-// STEP REC, GRID tapped: the cursor goes there, and held pads write to that step at once, or erase
-// it when it holds just their notes.
+// STEP REC, GRID tapped: the cursor goes there (the step is chosen), and the chosen step tapped again
+// loses its notes, a recording taken back (as a tap on a hit takes it out on the drum page). Held pads
+// write to that step at once, or erase it when it holds just their notes.
 void Controller::StepRecordGrid(std::size_t step, std::size_t heldNotes)
 {
   RecordState& rec = state_.record;
   if (step >= host_.Sequencer().TrackStepCount(state_.track)) return;
+  if (heldNotes == 0)
+  {
+    const bool again = rec.cursorTapped && rec.cursorTappedTrack == state_.track && rec.cursor == step;
+    rec.cursor = static_cast<std::uint8_t>(step);
+    rec.cursorTapped = true;
+    rec.cursorTappedTrack = static_cast<std::uint8_t>(state_.track);
+    if (again) EraseCursorStep();
+    return;
+  }
   rec.cursor = static_cast<std::uint8_t>(step);
-  if (heldNotes == 0) return;
   rec.stepBeforeKnown = false;  // this tap decides for this step on its own
   if (!StepRecordPress()) return;
   if (StepRecordRepeats()) EraseCursorStep();

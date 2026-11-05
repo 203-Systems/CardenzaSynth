@@ -28,11 +28,13 @@ std::vector<SettingsEntry> ParseSettings(std::string_view text, std::size_t* rej
 std::string FormatSettings(const std::vector<SettingsEntry>& entries, std::string_view header);
 
 // One settings store: a RAM cache of a settings file. Values are changed in RAM (Dirty) and written
-// by Flush(): to the card when it is present, otherwise to a record in internal flash ("saved on
-// the device"), which is copied to the card by the first Flush() after the card is back.
+// to the card by Flush(); without a card they wait in RAM until it is back (lost if the power goes
+// first). Internal flash is never written (Device::Storage): a record older firmware kept there is
+// read once, wins over the card file and is copied to the card and erased by the first Flush() the
+// card takes.
 class Settings {
 public:
-  // `scope` is "system" or an app id and names the internal-flash record; `path` is the card file.
+  // `scope` is "system" or an app id and names the old internal-flash record; `path` is the card file.
   Settings(std::string scope, std::string path);
 
   const std::string& Scope() const { return scope_; }
@@ -59,19 +61,20 @@ public:
   const std::vector<SettingsEntry>& Entries() const { return entries_; }
   // Changes that are only in RAM.
   bool Dirty() const { return dirty_; }
-  // The newest values are in internal flash and not yet on the card.
+  // The newest values are in an old internal-flash record and not yet on the card.
   bool PendingCardSync() const { return internalOnly_; }
   // Increases on every change; lets the system write settings a moment after the last change.
   std::uint32_t Revision() const { return revision_; }
 
-  // Writes RAM changes and copies an internal-only state to the card. True when nothing is left
-  // only in RAM afterwards.
+  // Writes RAM changes and an old internal-flash state to the card. True when nothing is left only in
+  // RAM afterwards; false without a card (the changes stay, Dirty).
   bool Flush();
 
 private:
   std::string InternalKey() const;
   std::string FileHeader() const;
   void Put(std::string_view key, std::string_view value);
+  void MergeCardFile();
 
   std::string scope_;
   std::string path_;
@@ -79,6 +82,7 @@ private:
   bool loaded_ = false;
   bool dirty_ = false;
   bool internalOnly_ = false;
+  bool cardRead_ = false;  // the card's file is in entries_ (false: loaded without the card)
   std::uint32_t revision_ = 0;
 };
 
@@ -92,7 +96,7 @@ void ReleaseAppSettings(std::string_view appId);
 // Flushes every loaded store. True when nothing is left only in RAM.
 bool FlushAllSettings();
 // For the system's write-behind: the sum of every loaded store's Revision(), whether any store has
-// changes only in RAM, and whether any waits in internal flash for the card.
+// changes only in RAM, and whether any waits in an old internal-flash record for the card.
 std::uint32_t SettingsRevision();
 bool AnySettingsDirty();
 bool AnySettingsPendingCardSync();
