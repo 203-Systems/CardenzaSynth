@@ -99,18 +99,26 @@ void DrawTextEntry(Gfx& g, const Controller& controller, Animator& animator, con
   g.Text(kContentX, kContentY + 80, "FN + , / MOVE   FN + ; . START / END   FN + DEL DELETE", kFaint);
 }
 
+// A confirm or a notice keeps clear of the edge strips: its words and buttons sit this far inside the
+// content area on both sides, and its two buttons share the width between.
+constexpr int kPanelPad = 6;
+constexpr int kPanelX = kContentX + kPanelPad;
+constexpr int kPanelWidth = kContentWidth - 2 * kPanelPad;
+constexpr int kButtonGap = 10;
+constexpr int kButtonWidth = (kPanelWidth - kButtonGap) / 2;
+
 // A notice: the title, the first line of the detail as the warning it is, the rest dim, and one way out.
 void DrawNotice(Gfx& g, const Modal& modal)
 {
-  g.TextFit(kContentX, kContentY + 14, kContentWidth, modal.title, kInk, Font::Small);
+  g.TextFit(kPanelX, kContentY + 14, kPanelWidth, modal.title, kInk, Font::Small);
   std::string_view detail = modal.detail;
   for (int line = 0; !detail.empty() && line < 2; ++line)
   {
     const std::size_t end = detail.find('\n');
-    g.TextFit(kContentX, kContentY + 30 + line * 10, kContentWidth, detail.substr(0, end), line == 0 ? kRec : kDim);
+    g.TextFit(kPanelX, kContentY + 30 + line * 10, kPanelWidth, detail.substr(0, end), line == 0 ? kRec : kDim);
     detail = end == std::string_view::npos ? std::string_view() : detail.substr(end + 1);
   }
-  const Rect ok{kContentX, kContentY + 56, 104, 26};
+  const Rect ok{kPanelX, kContentY + 56, kButtonWidth, 26};
   g.Fill(ok, kInk);
   g.DrawGlyph(ok.x + 8, ok.y + 10, Glyph::Enter, kBlack);
   g.Text(ok.x + 20, ok.y + 9, "ENTER  OK", kBlack, Font::Micro);
@@ -124,10 +132,10 @@ void DrawConfirm(Gfx& g, Animator& animator, const Modal& modal)
     return;
   }
   const Color accent = modal.danger ? kRec : kInk;
-  g.TextFit(kContentX, kContentY + 14, kContentWidth, modal.title, kInk, Font::Small);
-  g.TextFit(kContentX, kContentY + 30, kContentWidth, modal.detail, modal.danger ? kRec : kDim);
-  const Rect yes{kContentX, kContentY + 56, 104, 26};
-  const Rect no{kContentX + 115, kContentY + 56, 104, 26};
+  g.TextFit(kPanelX, kContentY + 14, kPanelWidth, modal.title, kInk, Font::Small);
+  g.TextFit(kPanelX, kContentY + 30, kPanelWidth, modal.detail, modal.danger ? kRec : kDim);
+  const Rect yes{kPanelX, kContentY + 56, kButtonWidth, 26};
+  const Rect no{kPanelX + kButtonWidth + kButtonGap, kContentY + 56, kButtonWidth, 26};
   g.Fill(yes, accent);
   if (modal.danger)
   {
