@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cmath>
 #include <chrono>
+#include <complex>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -129,6 +130,172 @@ void MeasurePresetNote(std::size_t track, double& peak, double& loudness)
   _Exit(0);
 }
 
+// What a preset sounds like, to compare two builds (an AMY update, a change to an engine): a held
+// middle C (0.8 s, then 0.6 s of release) or a drum hit, at the level the device plays it
+// (PresetLevels.inc applied). One CSV line each: id, loudness (loudest 0.3 s, dBFS), peak (dBFS),
+// the spectrum of the held part in third-octave bands (dB against its total) and the envelope in
+// 50 ms frames (dBFS). tools/audio/compare_preset_profiles.py compares two such files.
+// PRESET_WAV_DIR=<dir> also writes each one as a WAV file there, to listen to.
+void WriteWav(const std::filesystem::path& path, const std::vector<std::int16_t>& audio)
+{
+  std::FILE* file = std::fopen(path.string().c_str(), "wb");
+  if (file == nullptr) return;
+  const auto u32 = [&](std::uint32_t value) { std::fwrite(&value, 4, 1, file); };
+  const auto u16 = [&](std::uint16_t value) { std::fwrite(&value, 2, 1, file); };
+  const auto bytes = static_cast<std::uint32_t>(audio.size() * 2);
+  std::fwrite("RIFF", 1, 4, file); u32(36 + bytes); std::fwrite("WAVEfmt ", 1, 8, file);
+  u32(16); u16(1); u16(1); u32(kSampleRate); u32(kSampleRate * 2); u16(2); u16(16);
+  std::fwrite("data", 1, 4, file); u32(bytes);
+  std::fwrite(audio.data(), 2, audio.size(), file);
+  std::fclose(file);
+}
+
+void Fft(std::vector<std::complex<double>>& values)
+{
+  const std::size_t count = values.size();
+  for (std::size_t i = 1, j = 0; i < count; ++i)
+  {
+    std::size_t bit = count >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) std::swap(values[i], values[j]);
+  }
+  for (std::size_t length = 2; length <= count; length <<= 1)
+  {
+    const std::complex<double> step = std::polar(1.0, -2.0 * 3.14159265358979323846 / static_cast<double>(length));
+    for (std::size_t start = 0; start < count; start += length)
+    {
+      std::complex<double> w(1.0, 0.0);
+      for (std::size_t k = 0; k < length / 2; ++k, w *= step)
+      {
+        const std::complex<double> even = values[start + k], odd = values[start + k + length / 2] * w;
+        values[start + k] = even + odd;
+        values[start + k + length / 2] = even - odd;
+      }
+    }
+  }
+}
+
+void PrintProfile(const char* id, const std::vector<std::int16_t>& audio, std::size_t heldFrames)
+{
+  const auto decibels = [](double power) { return 10.0 * std::log10((std::max)(power, 1e-12)); };
+  double peak = 0.0, loudest = 0.0;
+  for (const std::int16_t sample : audio) peak = (std::max)(peak, std::abs(static_cast<double>(sample)) / 32767.0);
+  const std::size_t window = kSampleRate * 3 / 10;
+  for (std::size_t start = 0; start + window <= heldFrames; start += window / 4)
+  {
+    double sum = 0.0;
+    for (std::size_t i = start; i < start + window; ++i) sum += std::pow(audio[i] / 32767.0, 2);
+    loudest = (std::max)(loudest, sum / static_cast<double>(window));
+  }
+  // Third-octave bands from 40 Hz to 16 kHz, averaged over the held part (Hann, 4096 points).
+  constexpr std::size_t kFft = 4096;
+  std::vector<double> power(kFft / 2, 0.0);
+  std::size_t frames = 0;
+  for (std::size_t start = 0; start + kFft <= heldFrames; start += kFft / 2, ++frames)
+  {
+    std::vector<std::complex<double>> values(kFft);
+    for (std::size_t i = 0; i < kFft; ++i)
+      values[i] = audio[start + i] / 32767.0 * (0.5 - 0.5 * std::cos(2.0 * 3.14159265358979323846 * static_cast<double>(i) / kFft));
+    Fft(values);
+    for (std::size_t bin = 0; bin < kFft / 2; ++bin) power[bin] += std::norm(values[bin]);
+  }
+  std::vector<double> bands;
+  double total = 0.0;
+  for (double low = 40.0; low < 16000.0; low *= std::pow(2.0, 1.0 / 3.0))
+  {
+    const double high = low * std::pow(2.0, 1.0 / 3.0);
+    double sum = 0.0;
+    for (std::size_t bin = 1; bin < kFft / 2; ++bin)
+    {
+      const double frequency = static_cast<double>(bin) * kSampleRate / kFft;
+      if (frequency >= low && frequency < high) sum += power[bin];
+    }
+    bands.push_back(sum);
+    total += sum;
+  }
+  std::printf("%s,%.2f,%.2f", id, decibels(loudest), 20.0 * std::log10((std::max)(peak, 1e-6)));
+  for (const double band : bands) std::printf(",%.2f", decibels(band) - decibels(total));
+  const std::size_t frame = kSampleRate / 20;
+  for (std::size_t start = 0; start + frame <= audio.size(); start += frame)
+  {
+    double sum = 0.0;
+    for (std::size_t i = start; i < start + frame; ++i) sum += std::pow(audio[i] / 32767.0, 2);
+    std::printf(",%.2f", decibels(sum / static_cast<double>(frame)));
+  }
+  std::printf("\n");
+}
+
+[[noreturn]] void PrintPresetProfiles()
+{
+  const char* wavDirectory = std::getenv("PRESET_WAV_DIR");
+  std::array<std::int16_t, 256> block{};
+  const auto render = [&](std::vector<std::int16_t>& audio, std::size_t frames) {
+    for (std::size_t done = 0; done < frames; done += block.size())
+    {
+      RenderFrames(block.data(), block.size());
+      audio.insert(audio.end(), block.begin(), block.end());
+    }
+  };
+  const auto finish = [&](const char* id, const std::vector<std::int16_t>& audio, std::size_t held) {
+    PrintProfile(id, audio, held);
+    if (wavDirectory != nullptr) WriteWav(std::filesystem::path(wavDirectory) / (std::string(id) + ".wav"), audio);
+  };
+  // PRESET_FROM=<patch> starts there and PRESET_COUNT=<n> profiles only that many (no drums): one
+  // preset in a fresh process, since AMY's noise goes on from wherever the presets before it left it.
+  // PRESET_RAW=1 leaves out PresetLevels.inc: what the engine gives before the table evens it out.
+  const char* from = std::getenv("PRESET_FROM");
+  const char* countText = std::getenv("PRESET_COUNT");
+  const bool raw = std::getenv("PRESET_RAW") != nullptr;
+  const std::size_t first = from != nullptr ? std::strtoul(from, nullptr, 10) : 0;
+  const std::size_t last = countText != nullptr ? (std::min)(first + std::strtoul(countText, nullptr, 10), std::size_t{256}) : 256;
+  for (std::size_t patch = first; patch < last; ++patch)
+  {
+    const bool juno = patch < 128;
+    const std::size_t index = juno ? patch : patch - 128;
+    const std::size_t track = juno ? 1 : 2;
+    char id[32];
+    if (juno) std::snprintf(id, sizeof(id), "juno.%c%zu%zu", index < 64 ? 'a' : 'b', (index % 64) / 8 + 1, index % 8 + 1);
+    else std::snprintf(id, sizeof(id), "dx7.rom%zu%c.%02zu", index / 64 + 1, index % 64 < 32 ? 'a' : 'b', index % 32 + 1);
+    EnsureEngine(track, juno ? SynthEngineKind::Juno : SynthEngineKind::Dx7);
+    SetEnginePreset(track, id);
+    // The preset is loaded by the first block (calls are queued), which also sets its level.
+    RenderFrames(block.data(), block.size());
+    if (raw) g_engines[track].presetGain = 1.0f;
+    for (std::size_t settle = 0; settle < 8; ++settle) RenderFrames(block.data(), block.size());
+    assert(g_engines[track].patchNumber == static_cast<int>(patch) && (!raw || g_engines[track].presetGain == 1.0f));
+    std::vector<std::int16_t> audio;
+    NoteOn(track, 60, 110);
+    render(audio, kSampleRate * 8 / 10);
+    const std::size_t held = audio.size();
+    NoteOff(track, 60);
+    render(audio, kSampleRate * 6 / 10);
+    finish(id, audio, held);
+    for (std::size_t index2 = 0; index2 < 40; ++index2) RenderFrames(block.data(), block.size());
+  }
+  if (countText != nullptr)
+  {
+    std::fflush(stdout);
+    _Exit(0);
+  }
+  EnsureEngine(0, SynthEngineKind::Drums);
+  SetEnginePreset(0, "drums.808");
+  for (std::size_t settle = 0; settle < 8; ++settle) RenderFrames(block.data(), block.size());
+  for (const std::uint8_t note : kDrumNotes)
+  {
+    char id[32];
+    std::snprintf(id, sizeof(id), "drums.808.%u", static_cast<unsigned>(note));
+    std::vector<std::int16_t> audio;
+    NoteOn(0, note, 110);
+    render(audio, kSampleRate * 7 / 10);
+    NoteOff(0, note);
+    finish(id, audio, audio.size());
+    for (std::size_t index2 = 0; index2 < 40; ++index2) RenderFrames(block.data(), block.size());
+  }
+  std::fflush(stdout);
+  _Exit(0);
+}
+
 }  // namespace
 
 int main()
@@ -157,6 +324,7 @@ int main()
   };
 
   if (std::getenv("PRINT_PRESET_LEVELS") != nullptr) PrintPresetLevels();
+  if (std::getenv("PRINT_PRESET_PROFILE") != nullptr) PrintPresetProfiles();
   EnsureEngine(0, SynthEngineKind::Sampler);
   NoteOn(0, 60, 127);
   RenderFrames(pcm.data(), pcm.size());
