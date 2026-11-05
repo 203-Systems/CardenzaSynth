@@ -3,7 +3,8 @@
   "title": {"zh": "Cardenza 入门", "en": "Cardenza guide"},
   "parts": [
     {"id": "music", "title": {"zh": "编曲基础", "en": "Making music"}, "lessons": ["music-box", "four-boxes", "boxes-in-a-row"]},
-    {"id": "device", "title": {"zh": "认识机器", "en": "The device"}, "lessons": ["key-areas", "make-sound", "screens", "tracks", "first-pattern", "scales", "chord-arp", "first-song"]}
+    {"id": "device", "title": {"zh": "认识机器", "en": "The device"}, "lessons": ["key-areas", "make-sound", "screens", "tracks", "first-pattern", "scales", "chord-arp", "first-song"]},
+    {"id": "launcher", "title": {"zh": "启动器和固件", "en": "Launcher and firmware"}, "lessons": ["update-launcher", "install-firmware"]}
   ],
   "lessons": {
     "music-box": {
@@ -166,6 +167,38 @@
          "keys": "G1 OK PLAY", "marks": ["cell:1,1"], "done": [["state", "l", 1], ["state", "y", 1]], "demo": "tap G1; tap OK; wait 10; tap PLAY"},
         {"say": {"zh": "听：第二段鼓点变了。{{key:PLAY}} 停。", "en": "Listen: the drums change in part 2. {{key:PLAY}} stops."},
          "keys": "PLAY", "done": [["state", "y", 0]], "demo": "wait 200; tap PLAY"}
+      ]
+    },
+    "update-launcher": {
+      "more": "faq-apps",
+      "title": {"zh": "更新启动器", "en": "Updating the Launcher"},
+      "lead": {"zh": "启动器是一插电先出来的那个系统：装固件、换固件都靠它。它自己也会出新版本。", "en": "The Launcher is the system that comes up first when you plug in: it installs and switches firmware. It gets new versions too."},
+      "anim": "update-launcher",
+      "steps": [
+        {"say": {"zh": "拔掉 USB 线再插上：Cardenza 没有电池，一插电就开机，先是 203 标志，然后是启动器的首页。", "en": "Unplug the USB cable and plug it back in: Cardenza has no battery, so it starts at once, shows the 203 logo, then the Launcher's home."}},
+        {"say": {"zh": "开了 Boot last app（开机直接进上次的固件）的话，屏幕写着 Press Func to enter Launcher 时按任意键。插线时别按着侧面的 HOME 键：那是下载模式，屏幕不亮，再拔插一次就好。", "en": "With Boot last app on (straight into the last firmware), press any key while it says Press Func to enter Launcher. Don't hold the HOME key on the side while plugging in: that is download mode, a dark screen; just plug in again."}},
+        {"say": {"zh": "启动器看键帽上印的字：GRID 右下角印着黄色箭头的 {{key:,}} {{key:/}} {{key:;}} {{key:.}} 是方向键，{{key:OK}} 确认，{{key:ESC}} 返回。首页有 6 张卡片，左右翻。", "en": "The Launcher goes by the prints on the caps: the yellow arrows on {{key:,}} {{key:/}} {{key:;}} {{key:.}} at the GRID's bottom right move, {{key:OK}} confirms, {{key:ESC}} goes back. The home has 6 cards, side by side."}},
+        {"say": {"zh": "按 {{key:/}} 翻到 Download Softwares（在线下载），按 {{key:OK}}。第一次会先列出附近的 Wi-Fi：选你的网络，用键盘输入密码，按 {{key:OK}}。", "en": "{{key:/}} to Download Softwares, then {{key:OK}}. The first time it lists the Wi-Fi networks nearby: pick yours, type the password, {{key:OK}}."}},
+        {"say": {"zh": "在列表里选 203-Launcher，再选最上面的版本（标着 Release），然后选 Install。", "en": "In the list pick 203-Launcher, then the top version (marked Release), then Install."}},
+        {"say": {"zh": "屏幕问 Update Launcher?，默认选中的是 Back：按 {{key:,}} 选到 Update，再按 {{key:OK}}。", "en": "It asks Update Launcher? with Back chosen: {{key:,}} to Update, then {{key:OK}}."}},
+        {"say": {"zh": "它下载、校验，然后自己重启两次，把新启动器换上。这时别拔电。回到首页就好了：装过的固件、你的工程、SD 卡里的文件和 Wi-Fi 都还在。", "en": "It downloads and checks it, then restarts twice by itself to put the new Launcher in place. Keep it plugged in. Back on the home it is done: your firmware, projects, SD card files and Wi-Fi are all kept."}},
+        {"say": {"zh": "Install 失败（启动器太旧，0.1.1 以前），或者现在没有网络？在上面那一步选 Download to SD，文件会存到卡上的 downloads 文件夹。之后在 File Browser 里选中它，选 Install，一样会问 Update Launcher?。", "en": "Install fails (a Launcher before 0.1.1), or no network right now? Choose Download to SD in that step: the file goes to the card's downloads folder. Later pick it in File Browser and choose Install; it asks Update Launcher? the same way."}}
+      ]
+    },
+    "install-firmware": {
+      "more": "faq-apps",
+      "title": {"zh": "安装和更新固件", "en": "Installing and updating firmware"},
+      "lead": {"zh": "Groovebox 是装在启动器里的一个固件。装新的、换新版本都在启动器里做，你的工程不会丢。", "en": "The Groovebox is one firmware installed in the Launcher. New firmware and new versions go in there, and your projects stay."},
+      "anim": "install-firmware",
+      "steps": [
+        {"say": {"zh": "拔掉 USB 线再插上，进启动器的首页（按键见上一课）。", "en": "Unplug the USB cable and plug it back in: the Launcher's home (the keys are in the previous lesson)."}},
+        {"say": {"zh": "按 {{key:/}} 翻到 Download Softwares，按 {{key:OK}}（要连 Wi-Fi）。选 Cardenza Synth，选一个版本，再选 Install。", "en": "{{key:/}} to Download Softwares, {{key:OK}} (it needs Wi-Fi). Pick Cardenza Synth, a version, then Install."}},
+        {"say": {"zh": "选装在哪里：上面的条是机器的存储空间，黑的那段是要写的地方。按 {{key:,}} {{key:/}} 换：Free space 是另装一份；选旧的 Cardenza Synth，就是把它换成这个版本。", "en": "Choose where: the bar is the device's storage, the black part is where it goes. {{key:,}} {{key:/}} move: Free space installs another copy; the old Cardenza Synth is replaced by this version."}},
+        {"say": {"zh": "按 {{key:OK}}。替换旧版本时它再问一次 Replace?，默认选中的是 Back：按 {{key:,}} 选到 Replace，再按 {{key:OK}}。", "en": "{{key:OK}}. Replacing asks Replace? with Back chosen: {{key:,}} to Replace, then {{key:OK}}."}},
+        {"say": {"zh": "等进度走完：下载、写入、校验，然后重启回到启动器。这时别拔电。", "en": "Wait for it: download, write, check, then it restarts into the Launcher. Keep it plugged in."}},
+        {"say": {"zh": "打开它：第一张卡片 Software Launcher，按 {{key:OK}}，选 Cardenza Synth，再选 Launch。", "en": "Open it: the first card, Software Launcher, {{key:OK}}, pick Cardenza Synth, then Launch."}},
+        {"say": {"zh": "手上有 .bin 文件（比如测试版），就从 SD 卡装：首页 USB Mode 把卡变成电脑上的 U 盘，拷进去，先在电脑上弹出，再按 {{key:ESC}}。然后 File Browser → 选中文件 → Install，和上面一样选位置。", "en": "Got a .bin file (a test build, say)? Install it from the SD card: USB Mode makes the card a drive on your computer; copy it there, eject it on the computer, then {{key:ESC}}. Then File Browser → the file → Install, and choose where as above."}},
+        {"say": {"zh": "以后看有没有新版本：Download Softwares 列表最下面的 Check for Updates。换版本只换固件：工程、采样和设置另外存在 SD 卡和机器里，新版本打开时接着你上次的工程。", "en": "To look for new versions later: Check for Updates at the bottom of the Download Softwares list. A new version replaces only the firmware: projects, samples and settings are kept apart on the SD card and the device, and it opens on your last project."}}
       ]
     }
   }
