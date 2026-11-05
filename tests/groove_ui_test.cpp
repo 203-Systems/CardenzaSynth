@@ -1921,11 +1921,11 @@ void TestDrumPads(Harness& h)
   h.Chord(kTab, Grid(0));
   h.Wait(1000);
 
-  // At rest the columns get brighter towards the top; a hard hit strikes at once and runs down the
-  // whole column, a soft one stays near its key.
-  assert(Led(h, Key{0, 5}) > Led(h, Key{3, 5}) && Led(h, Key{3, 5}) >= groove::kLedHalf);
-  const int restTop = Led(h, Key{0, 5});
-  const int restBottom = Led(h, Key{3, 5});
+  // At rest every drum pad is half, no brighter than a melodic pad; a hard hit strikes at once and
+  // runs down the whole column, a soft one stays near its key.
+  for (std::size_t row = 0; row < groove::kRows; ++row) assert(Led(h, Key{row, 5}) == groove::kLedHalf);
+  const int restTop = groove::kLedHalf;
+  const int restBottom = groove::kLedHalf;
   h.Down(Key{0, 5});
   assert(Led(h, Key{0, 5}) >= 12 && Led(h, Key{3, 5}) == restBottom);  // Not there yet.
   h.Up(Key{0, 5});

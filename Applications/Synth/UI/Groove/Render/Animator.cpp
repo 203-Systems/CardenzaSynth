@@ -457,13 +457,12 @@ void Animator::DecorateLeds(const Controller& controller, const LedFrame& frame,
         if (frame[index].level == 0 || !controller.PadNoteFor(row, column, note)) continue;
         if (drums)
         {
-          // At rest the columns already say which way is harder: brighter towards the top. A hit runs
-          // along its column and strikes, it does not glide in.
-          static constexpr std::array<std::uint8_t, kRows> kRestLevels{{9, 8, 7, 6}};
+          // At rest a drum pad is half, as bright as a melodic pad: half is already the dimmest duty
+          // the HAL has, so a resting gradient could only be brighter. A hit runs along its column and
+          // strikes, it does not glide in.
           const std::size_t lane = column - kPadFirstColumn;
-          if (levels[index] == kLedHalf) levels[index] = kRestLevels[row];
           // The bar of a held drum grows with the wave: a key waits until it arrives.
-          else if (!controller.IsPadDown(row, column) && !DrumWaveArrived(lane, row)) levels[index] = kRestLevels[row];
+          if (levels[index] != kLedHalf && !controller.IsPadDown(row, column) && !DrumWaveArrived(lane, row)) levels[index] = kLedHalf;
           const float wave = DrumWave(lane, row);
           if (wave > 0.0f)
           {

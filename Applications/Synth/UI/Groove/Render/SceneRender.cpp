@@ -73,6 +73,10 @@ void GridRipple(Gfx& g, Animator& animator, std::size_t index, Color color)
   fx::Ripple(g, Cell(index / kGridColumns, index % kGridColumns), fx::Progress(animator.Now(), pressed, kRippleMs), color);
 }
 
+// How hard, in the four steps of the pad rows: solid, checker, a quarter, an eighth.
+constexpr std::array<int, 4> kDrumDensity{{16, 8, 4, 2}};
+int DrumDensity(std::uint8_t velocity) { return kDrumDensity[DrumRowForVelocity(velocity)]; }
+
 // The kit's eight drums in one row, like the eight pad columns on the keyboard (a column is a drum).
 // With fill (VOICE) they take the whole area, as the keyboard of a melodic track does, less the room
 // a hit kicks them up; otherwise (the KIT page's graphic) a strip of at most 24 px in its middle.
@@ -96,7 +100,7 @@ void DrawPads(Gfx& g, const Controller& controller, Animator& animator, const Re
     const float level = Glide(animator, controller.State().track, engine, kIds[pad], 0.8f);
     // How hard shows in how dense the pad fills, and in how far a hit kicks it up.
     const float strength = static_cast<float>(animator.DrumHitVelocity(pad)) / 127.0f;
-    const int density = 3 + static_cast<int>(strength * 13.0f);
+    const int density = DrumDensity(animator.DrumHitVelocity(pad));
     const int kick = static_cast<int>(hit * hit * strength * 3.0f);
     const Rect body{rect.x, rect.y - kick, rect.width, rect.height};
     const int filled = static_cast<int>(level * static_cast<float>(body.height - 2));
@@ -911,7 +915,7 @@ void DrawDrumMachine(Gfx& g, const Controller& controller, Animator& animator, c
       const int late = timing[step][lane];
       const Rect mark{x + late * (kColumn - 3) / (synth::kSequencerMicrostepCount - 1), y + 2, late == 0 ? kColumn - 1 : 2, rowHeight - 5};
       if (head) g.Fill(mark, kPlay);
-      else g.Dither(mark, selected ? kInk : trackColor, 3 + velocity * 13 / 127);
+      else g.Dither(mark, selected ? kInk : trackColor, DrumDensity(velocity));
     }
   }
   if (playingHere)
@@ -940,7 +944,7 @@ void DrawDrumMachine(Gfx& g, const Controller& controller, Animator& animator, c
     const bool down = state.gridDown[index];
     const float flash = info.playing ? fx::Decay(now, animator.StepPlayedAt(index), kStepFlashMs) : 0.0f;
     if (down) g.Fill(cell, kInk);
-    else if (velocity != 0) g.Dither(cell, trackColor, 3 + velocity * 13 / 127);
+    else if (velocity != 0) g.Dither(cell, trackColor, DrumDensity(velocity));
     else if (info.hasEvents) g.Fill(Rect{cell.x, cell.y + cell.height - 2, cell.width, 2}, kDim);
     if (info.playing && !down)
     {
