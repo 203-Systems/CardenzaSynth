@@ -176,7 +176,7 @@ std::string Controller::PageTab(Scene scene, std::size_t page) const
     }
     case Scene::Sequence:
       if (page == 0 && DrumLayout()) return "DRUMS";
-      if (page == 0) return state_.record.view == SeqView::Roll ? "ROLL" : "STEP";
+      if (page == 0) return View() == SeqView::Roll ? "ROLL" : "STEP";
       return page < kSequence.size() ? kSequence[page] : "";
     case Scene::Tape: return page < kTape.size() ? kTape[page] : "";
     case Scene::Setup:
@@ -278,10 +278,19 @@ void Controller::AddHeldPadNotes(std::size_t track, std::array<std::uint32_t, 4>
       notes[note / 32] |= 1u << (note % 32);
     }
   }
+  // A step key held while stopped sounds its step (AuditionStep).
+  const StepAudition& audition = state_.stepAudition;
+  if (static_cast<std::size_t>(audition.track) != track) return;
+  for (std::size_t slot = 0; slot < audition.count; ++slot)
+  {
+    const std::uint8_t note = audition.notes[slot] & 0x7F;
+    notes[note / 32] |= 1u << (note % 32);
+  }
 }
 
 void Controller::ReleaseAllPads()
 {
+  StopStepAudition();
   for (std::size_t index = 0; index < state_.padNote.size(); ++index)
   {
     if (state_.padNote[index] == kNoNote) continue;
@@ -342,12 +351,15 @@ void Controller::KeyEvent(std::size_t row, std::size_t column, bool pressed, std
         return;
       case KeyRole::Grid:
         state_.gridDown[GridIndex(row, column)] = false;
+        StepKeyRelease(GridIndex(row, column));
         return;
       default:
         return;
     }
   }
 
+  // A step key on the SEQ note page down while any other key is pressed: a hold, not a tap.
+  if (pressed) UseStepKeys();
   switch (role)
   {
     case KeyRole::Esc:
@@ -554,15 +566,19 @@ void Controller::PressPad(std::size_t row, std::size_t column)
   const std::uint8_t velocity = drums ? kDrumRowVelocity[row] : state_.keyboard.velocity;
   state_.padVelocity[index] = velocity;
   if (drums) state_.drumPadHits[column - kPadFirstColumn] = DrumHit{state_.now == 0 ? 1 : state_.now, static_cast<std::uint8_t>(row), velocity};
-  if (state_.scene == Scene::Sequence && CurrentPage() == 0 && TopModal() == nullptr && DrumLayout())
-  {
-    state_.drumLane[state_.track] = static_cast<std::uint8_t>(column - kPadFirstColumn);
-    state_.drumVelocity[state_.track] = velocity;
-  }
-  // A selection in STEPS turns the pads into a note editor for the selected steps.
+  // Selected steps (held or tapped) turn the pads into a note editor for them; on the drum machine a
+  // drum goes in as hard as the pad's row, and the pad becomes the drum its GRID view shows.
   bool editing = false;
   if (state_.scene == Scene::Sequence && CurrentPage() == 0 && TopModal() == nullptr)
-    for (std::size_t voice = 0; voice < voices; ++voice) editing = PadForSequence(chord[voice], true) || editing;
+  {
+    if (drums)
+    {
+      state_.drumLane[state_.track] = static_cast<std::uint8_t>(column - kPadFirstColumn);
+      state_.drumVelocity[state_.track] = velocity;
+    }
+    else state_.noteLane[state_.track] = static_cast<std::uint8_t>(note);
+    for (std::size_t voice = 0; voice < voices; ++voice) editing = PadForSequence(chord[voice], true, drums ? velocity : std::uint8_t{0}) || editing;
+  }
   const bool audition = !editing || !sequencer.Playing();
   state_.padNote[index] = static_cast<std::uint8_t>(note);
   state_.padChord[index] = chord;
@@ -577,14 +593,6 @@ void Controller::PressPad(std::size_t row, std::size_t column)
     return;
   }
   SoundPad(index, true);
-  // STEP REC: the held pads become the notes of the cursor step. Not on a drum track, which has no
-  // STEP view: a view left on STEP by a melodic track wrote its pads into a cursor nobody saw.
-  if (!editing && state_.scene == Scene::Sequence && CurrentPage() == 0 && TopModal() == nullptr && state_.record.view == SeqView::Step &&
-      !DrumLayout())
-  {
-    (void)StepRecordPress();
-    return;
-  }
   // The arpeggiator records its own notes; straight notes are recorded here.
   if (!editing && !state_.padArp[index] && sequencer.RecordArmed() && sequencer.Playing())
   {
@@ -602,7 +610,6 @@ void Controller::ReleasePad(std::size_t row, std::size_t column)
   SoundPad(index, false);
   state_.padNote[index] = kNoNote;
   state_.padChordCount[index] = 0;
-  StepRecordRelease();
 }
 
 void Controller::PressGrid(std::size_t index)
@@ -677,7 +684,8 @@ void Controller::ReleaseGrid(std::size_t index)
     state_.cellPress = CellPress{};
     if (press.stepOnRelease && !press.picked && TopModal() == nullptr && state_.now - press.at < kCellPickMs) StepCell(index);
   }
-  if (TopModal() == nullptr && state_.scene == Scene::Sequence) SequenceGridRelease(index);
+  // A step key settles wherever its release lands (a modal or another scene may be up by now).
+  StepKeyRelease(index);
 }
 
 bool Controller::HandleTextKey(std::size_t row, std::size_t column)
@@ -814,12 +822,6 @@ void Controller::Tick(std::uint32_t nowMs)
   state_.now = nowMs;
   OkTick();
   if (CellPickerActive()) ShowCellHud();
-  // Held long enough to be an edit, not a tap: say what ADD / SUB change.
-  if (state_.drumPress.down && !state_.drumPress.shown && nowMs - state_.drumPress.at >= kDrumStepHoldMs)
-  {
-    state_.drumPress.shown = true;
-    ShowDrumStepHud();
-  }
   if (synth::SynthSequencer::ConsumePatternMemoryFull()) ShowToast("MEMORY FULL - NOTE NOT WRITTEN", ToastKind::Error);
   auto& repeat = state_.repeat;
   if (repeat.down && nowMs >= repeat.nextAt)
@@ -998,8 +1000,6 @@ AdjustMeaning Controller::AdjustKeysMean() const
     case Scene::Instrument:
       return CurrentInstrumentPage()->graphic == PageGraphic::Voice ? AdjustMeaning::List : AdjustMeaning::Value;
     case Scene::Sequence:
-      if (CurrentPage() == 0 && state_.record.view == SeqView::Step && !DrumLayout() && !host_.Sequencer().BuildUiState(state_.track).hasHeldSteps)
-        return AdjustMeaning::Sideways;
       return AdjustMeaning::Value;
     case Scene::Tape:
       return CurrentPage() == kTapeSession ? AdjustMeaning::List : AdjustMeaning::Value;
@@ -1136,7 +1136,7 @@ void Controller::ArrowKey(Arrow arrow)
     }
     case Scene::Sequence:
     {
-      if (CurrentPage() != 0 || DrumLayout()) break;
+      if (CurrentPage() != 0) break;
       auto& sequencer = host_.Sequencer();
       const auto ui = sequencer.BuildUiState(state_.track);
       const int step = vertical != 0 ? vertical * static_cast<int>(kGridColumns) : horizontal;
@@ -1263,7 +1263,7 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
   set(addKey, adjustable ? kLedHalf : kLedOff);
   set(subKey, adjustable ? kLedHalf : kLedOff);
   if (modal != nullptr && modal->kind == ModalKind::Confirm) set(enterKey, kLedFull, LedEffect::Blink);
-  else if (modal == nullptr && state_.scene == Scene::Sequence && page == 0) set(enterKey, choice(state_.record.view == SeqView::Step));
+  else if (modal == nullptr && state_.scene == Scene::Sequence && page == 0) set(enterKey, choice(View() == SeqView::Step));
   else set(enterKey, enterAction ? kLedHalf : kLedOff);
   if (sequencer.RecordArmed()) set(playKey, kLedFull, LedEffect::Blink);
   else set(playKey, choice(seq.playing));
@@ -1393,8 +1393,9 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
 
   // Pads: the keyboard of the current track. A key that sounds is half, a held or sounding key
   // full (with the other tones of its chord and the arpeggiator's note); a key that cannot sound
-  // (PIANO gaps, keys the scale lock mutes) is off. With a step held in SEQ the pads edit it: its
-  // notes are full; playing with no step held, the notes of the step under the playhead are full.
+  // (PIANO gaps, keys the scale lock mutes) is off. With a step selected in SEQ the pads edit it: its
+  // notes (or drums) are full; playing with no step selected, the notes of the step under the
+  // playhead are full.
   const bool chordEditor = state_.scene == Scene::Sequence && page == 0 && modal == nullptr && seq.hasHeldSteps;
   std::array<bool, 128> lit{};
   if (chordEditor)
@@ -1422,14 +1423,16 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
     if (chordEditor || (state_.scene == Scene::Sequence && page == 0 && modal == nullptr && seq.playing))
     {
       std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
-      const std::size_t count = sequencer.StepNoteEvents(state_.track, chordEditor ? seq.primaryHeldStep : seq.currentStep, notes);
+      const std::size_t step = chordEditor ? seq.primaryHeldStep : seq.currentStep;
+      const std::size_t count = sequencer.StepNoteEvents(state_.track, step, notes);
       for (std::size_t slot = 0; slot < count; ++slot)
         for (std::size_t lane = 0; lane < kDrumNotes.size(); ++lane)
           if (kDrumNotes[lane] == notes[slot].note) raiseBar(lane, notes[slot].velocity);
     }
     for (std::size_t pad = 0; pad < state_.padNote.size(); ++pad)
       if (state_.padNote[pad] != kNoNote && state_.padTrack[pad] == state_.track) raiseBar(pad % kPadColumns, state_.padVelocity[pad]);
-    if (state_.scene == Scene::Sequence && page == 0 && modal == nullptr && DrumLayout()) raiseBar(DrumLane(), state_.drumVelocity[state_.track]);
+    // The drum the pads chose, while no step is selected (a selected step shows its own drums).
+    if (state_.scene == Scene::Sequence && page == 0 && modal == nullptr && !chordEditor) raiseBar(DrumLane(), state_.drumVelocity[state_.track]);
   }
   for (std::size_t row = 0; row < kRows; ++row)
     for (std::size_t column = kPadFirstColumn; column < kPadFirstColumn + kPadColumns; ++column)
@@ -1473,7 +1476,6 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
       const RecordState& rec = state_.record;
       setGrid(kRecordRec, choice(sequencer.RecordArmed() || rec.focus == kRecordRec));
       setGrid(kRecordSnap, choice(rec.snap || rec.focus == kRecordSnap));
-      setGrid(kRecordStepLength, choice(rec.focus == kRecordStepLength));
       setGrid(kRecordView, choice(rec.focus == kRecordView));
       for (std::size_t order = 0; order < kCaptureTakes; ++order)
         if (TakeAt(order) != nullptr) setGrid(kRecordFirstTake + order, choice(rec.focus == kRecordFirstTake + order));
@@ -1505,29 +1507,28 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
     case Scene::Sequence:
       if (page == 0)
       {
-        // Steps: empty off, with notes half, selected (held) full; the playhead runs full. STEP REC:
-        // the write cursor blinks.
+        // Steps, every view and the drum machine alike: empty off, with notes half, selected full; the
+        // playhead runs full. With pads held (and nothing selected) the steps that hold their notes
+        // (drums) are full too: a step tapped now takes those out.
         const std::size_t steps = seq.tracks[state_.track].stepCount;
-        // Drums: the chosen drum's hits full, steps with only other drums half.
-        if (DrumLayout())
         {
+          std::array<std::uint8_t, kRows * kPadColumns> heldNotes{};
+          const std::size_t heldCount = seq.hasHeldSteps ? 0 : CollectHeldNotes(heldNotes);
           for (std::size_t index = 0; index < kGridCount && seq.firstViewStep + index < steps; ++index)
           {
-            std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
-            const std::size_t count = sequencer.StepNoteEvents(state_.track, seq.firstViewStep + index, notes);
-            bool chosen = false;
-            for (std::size_t slot = 0; slot < count; ++slot) chosen = chosen || notes[slot].note == kDrumNotes[DrumLane()];
-            if (chosen || seq.steps[index].playing) setGrid(index, kLedFull);
-            else if (count != 0) setGrid(index, kLedHalf);
+            const auto& step = seq.steps[index];
+            bool holdsHeld = false;
+            if (heldCount != 0 && step.hasEvents)
+            {
+              std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+              const std::size_t count = sequencer.StepNoteEvents(state_.track, seq.firstViewStep + index, notes);
+              for (std::size_t slot = 0; slot < count && !holdsHeld; ++slot)
+                holdsHeld = std::find(heldNotes.begin(), heldNotes.begin() + static_cast<std::ptrdiff_t>(heldCount), notes[slot].note) !=
+                            heldNotes.begin() + static_cast<std::ptrdiff_t>(heldCount);
+            }
+            if (step.held || step.playing || holdsHeld) setGrid(index, kLedFull);
+            else if (step.hasEvents) setGrid(index, kLedHalf);
           }
-        }
-        else
-        for (std::size_t index = 0; index < kGridCount && seq.firstViewStep + index < steps; ++index)
-        {
-          const auto& step = seq.steps[index];
-          if (state_.record.view == SeqView::Step && seq.firstViewStep + index == state_.record.cursor) setGrid(index, kLedFull, LedEffect::Blink);
-          else if (step.held || step.playing) setGrid(index, kLedFull);
-          else if (step.hasEvents) setGrid(index, kLedHalf);
         }
       }
       else if (page == 1)

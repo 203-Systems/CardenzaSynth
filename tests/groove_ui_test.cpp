@@ -902,7 +902,7 @@ void TestLeds(Harness& h)
   assert(level(Key{3, 1}) == kHalf);
 
   // Edge keys: navigation half (CTRL too, SEQ has pages), ADD / SUB half, OK half (the record key:
-  // full in STEP REC), PLAY half when stopped and full while playing.
+  // full in the STEP view), PLAY half when stopped and full while playing.
   for (std::size_t row = 0; row < 4; ++row) assert(level(Key{row, 0}) == kHalf);
   assert(level(kAdd) == kHalf && level(kSub) == kHalf && level(kEnter) == kHalf && level(kPlay) == kHalf);
   h.Down(kTab);
@@ -1180,78 +1180,106 @@ void TestRecording(Harness& h)
   h.Chord(kCtrl, Grid(0));
   assert(sequencer.ActivePattern(1) == patterns && !h.Seq().populatedStepCount);
 
-  // A tap on OK switches the note page between PIANO ROLL and STEP REC.
+  // A tap on OK switches the note page between PIANO ROLL and STEPS. Both take the same keys.
   if (app.Ui().View() != groove::SeqView::Roll) h.Tap(kEnter);
   assert(app.Ui().View() == groove::SeqView::Roll && app.Ui().PageTab(Scene::Sequence, 0) == "ROLL");
   h.Render();
   h.Tap(kEnter);
-  assert(app.Ui().View() == groove::SeqView::Step && h.State().hud.value == "STEP REC" && app.Ui().PageTab(Scene::Sequence, 0) == "STEP");
+  assert(app.Ui().View() == groove::SeqView::Step && h.State().hud.value == "STEPS" && app.Ui().PageTab(Scene::Sequence, 0) == "STEP");
   groove::LedFrame frame{};
   app.Ui().ComputeLeds(frame);
   assert(frame[groove::KeyIndex(kEnter.row, kEnter.column)].level == kFull);
-  assert(frame[groove::KeyIndex(Grid(0).row, Grid(0).column)].effect == groove::LedEffect::Blink);  // the cursor
+  for (std::size_t step = 0; step < 16; ++step)
+    assert(frame[groove::KeyIndex(Grid(step).row, Grid(step).column)].effect == groove::LedEffect::Steady);  // no write cursor
+  const auto gridLevel = [&](std::size_t step) {
+    app.Ui().ComputeLeds(frame);
+    return static_cast<int>(frame[groove::KeyIndex(Grid(step).row, Grid(step).column)].level);
+  };
 
-  // STEP REC: held pads become the cursor step's notes; letting go moves the cursor on.
+  // A tap selects a step and keeps it: the pads put their notes in or take them out, and the
+  // selection stays where it is (nothing moves on by itself).
   const Key c3{3, 1}, e3{3, 3}, g3{3, 5};
-  h.Tap(c3);
   std::array<std::uint8_t, 8> notes{};
-  assert(sequencer.StepNotes(0, notes) == 1 && notes[0] == 48 && h.State().record.cursor == 1);
-  h.Down(c3);
-  h.Down(e3);
-  h.Up(c3);
-  assert(h.State().record.cursor == 1);  // still a pad down: same step
-  h.Up(e3);
-  assert(sequencer.StepNotes(1, notes) == 2 && notes[0] == 48 && notes[1] == 52 && h.State().record.cursor == 2);
-  h.Tap(kAdd);  // a rest
-  assert(h.State().record.cursor == 3);
-  h.Tap(kSub);
-  h.Tap(Grid(8));  // the GRID moves the cursor
-  assert(h.State().record.cursor == 8);
-  h.Tap(g3);
-  assert(sequencer.StepNotes(8, notes) == 1 && notes[0] == 55 && h.State().record.cursor == 9);
-  // The notes a step holds, pressed again, erase it (a rest); other notes replace them.
-  h.Tap(Grid(8));
-  h.Tap(g3);
-  assert(sequencer.StepNotes(8, notes) == 0 && h.State().record.cursor == 9 && h.State().toast.text == "STEP 9 CLEARED");
-  h.Tap(Grid(1));  // C + E there: the chord again, one pad after the other
-  h.Down(c3);
-  assert(sequencer.StepNotes(1, notes) == 1);  // written as it is played
-  h.Down(e3);
-  h.Up(e3);
-  h.Up(c3);
-  assert(sequencer.StepNotes(1, notes) == 0 && h.State().record.cursor == 2);
-  h.Tap(Grid(0));  // C there: E replaces it
+  h.Tap(Grid(0));
+  assert(h.Seq().hasHeldSteps && h.Seq().steps[0].held && gridLevel(0) == kFull);
+  h.Tap(c3);
   h.Tap(e3);
-  assert(sequencer.StepNotes(0, notes) == 1 && notes[0] == 52 && h.State().record.cursor == 1);
-  // Held pads + GRID: a step with just their notes is erased, the next tap writes them again.
-  h.Tap(Grid(4));
+  assert(sequencer.StepNotes(0, notes) == 2 && notes[0] == 48 && notes[1] == 52 && h.Seq().steps[0].held && h.Seq().heldStepCount == 1);
+  h.Tap(e3);
+  assert(sequencer.StepNotes(0, notes) == 1 && notes[0] == 48);
+  // ADD / SUB and OK edit it, as in the piano roll; the selection stays.
+  h.Tap(kEnter);
+  assert(h.Seq().editLane == synth::SequencerEditLane::Length && app.Ui().View() == groove::SeqView::Step);
+  h.Tap(kEnter);
+  h.Tap(kEnter);
+  h.Tap(kEnter);
+  assert(h.Seq().editLane == synth::SequencerEditLane::Note && h.Seq().steps[0].held);
+  // A tap on the step selected alone lets it go, and the pads play again.
+  h.Tap(Grid(0));
+  assert(!h.Seq().hasHeldSteps);
+  h.Tap(c3);
+  assert(sequencer.StepNotes(0, notes) == 1);
+  // A tap on another step moves the selection there (SELECT ONE).
+  h.Tap(Grid(0));
+  h.Tap(Grid(3));
+  assert(!h.Seq().steps[0].held && h.Seq().steps[3].held && h.Seq().heldStepCount == 1);
+  h.Tap(Grid(3));
+  assert(!h.Seq().hasHeldSteps);
+
+  // Held (MatrixOS): a step is selected while its key is down, steps held together are edited
+  // together, and they let go with their keys.
+  h.Down(Grid(1));
+  h.Down(Grid(2));
+  assert(h.Seq().heldStepCount == 2);
+  h.Tap(g3);
+  h.Up(Grid(2));
+  h.Up(Grid(1));
+  assert(!h.Seq().hasHeldSteps);
+  assert(sequencer.StepNotes(1, notes) == 1 && notes[0] == 55 && sequencer.StepNotes(2, notes) == 1 && notes[0] == 55);
+  // Held long with nothing else pressed: still a hold.
+  h.Down(Grid(3));
+  h.Wait(400);
+  assert(h.Seq().steps[3].held);
+  h.Up(Grid(3));
+  assert(!h.Seq().hasHeldSteps);
+  // A selected step held to edit it stays selected.
+  h.Tap(Grid(1));
+  h.Down(Grid(1));
+  h.Tap(kAdd);
+  h.Up(Grid(1));
+  assert(h.Seq().steps[1].held);
+  h.Tap(kEsc);
+  assert(!h.Seq().hasHeldSteps && h.State().scene == Scene::Sequence);
+
+  // Pads held, steps tapped: their notes go in, or come out of a step that has them. The steps
+  // that hold them are full; steps left alone are rests.
   h.Down(e3);
-  h.Tap(Grid(0));
-  assert(sequencer.StepNotes(0, notes) == 0);
-  h.Tap(Grid(0));
-  assert(sequencer.StepNotes(0, notes) == 1 && notes[0] == 52);
+  h.Tap(Grid(8));
+  h.Tap(Grid(10));
+  assert(sequencer.StepNotes(8, notes) == 1 && notes[0] == 52 && sequencer.StepNotes(10, notes) == 1 && notes[0] == 52);
+  assert(gridLevel(8) == kFull && gridLevel(1) == kHalf && gridLevel(9) == kOff);
+  h.Tap(Grid(10));
+  assert(sequencer.StepNotes(10, notes) == 0 && !h.Seq().hasHeldSteps);
   h.Up(e3);
-  assert(sequencer.StepNotes(0, notes) == 1 && h.State().record.cursor == 1);
-  // FN + X: the cursor step is erased, not the pattern, and the cursor moves on.
-  h.Tap(Grid(4));  // E there, written when the pad went down above
-  assert(sequencer.StepNotes(4, notes) == 1);
+  assert(gridLevel(8) == kHalf);
+  // FN + X clears the selected step, not the pattern.
+  h.Tap(Grid(8));
   h.Down(kFn);
-  assert(h.App().Ui().Menu()[2].detail == "STEP 5");
+  assert(h.App().Ui().Menu()[2].detail == "STEPS");
   h.Tap(Key{3, 4});  // X
   h.Up(kFn);
   assert(!h.App().Ui().MenuOpen() && h.Modal() == nullptr);
-  assert(sequencer.StepNotes(4, notes) == 0 && h.State().record.cursor == 5 && h.State().toast.text == "STEP 5 CLEARED");
-  h.Tap(Grid(0));
-  h.Chord(kFn, Key{3, 4});
-  assert(sequencer.StepNotes(0, notes) == 0 && h.State().record.cursor == 1 && h.State().toast.text == "STEP 1 CLEARED");
+  assert(sequencer.StepNotes(8, notes) == 0 && sequencer.StepNotes(1, notes) == 1 && h.State().toast.text == "STEPS CLEARED");
+  h.Tap(kEsc);
+  for (const std::size_t step : {std::size_t{0}, std::size_t{1}, std::size_t{2}}) assert(sequencer.SetStepNotes(1, step, nullptr, 0, 0));
   assert(h.Seq().populatedStepCount == 0);  // nothing left in the pattern
   h.Render();
   h.Tap(kEnter);
   assert(app.Ui().View() == groove::SeqView::Roll);
   h.Render();
 
-  // Capture: notes played without recording are kept as takes, split by pauses (the STEP REC
-  // writes above are the take before).
+  // Capture: notes played without recording are kept as takes, split by pauses (the pads played
+  // above are the take before).
   h.Wait(3000);
   const std::size_t takes = app.Ui().TakeCount();
   for (const Key pad : {c3, e3, g3, e3})
@@ -1519,17 +1547,16 @@ void TestLongPatternUi(Harness& h)
   assert(sequencer.StepHasEvents(20) && h.Seq().tracks[track].populatedStepCount == before + 1);
   h.Render();
   sequencer.ClearStep(20);
-  // STEP view: the cursor crosses into the next page and the GRID follows.
+  // STEP view: the same keys on the same page.
   h.Chord(kFn, Grid(5));
-  assert(h.State().record.view == groove::SeqView::Step);
-  while (h.State().record.cursor != 15) h.Tap(kAdd);
-  assert(h.Seq().viewPage == 0);
-  h.Tap(kAdd);
-  assert(h.State().record.cursor == 16 && h.Seq().viewPage == 1);
+  assert(h.App().Ui().View() == groove::SeqView::Step);
+  h.Tap(Grid(1));
+  assert(h.Seq().primaryHeldStep == 17 && h.Seq().viewPage == 1);
   h.Render();
-  // FN + ADD / SUB jumps a page.
+  // FN + ADD / SUB flips the page once nothing is selected.
+  h.Tap(kEsc);
   h.Chord(kFn, kSub);
-  assert(h.State().record.cursor == 0 && h.Seq().viewPage == 0);
+  assert(h.Seq().viewPage == 0 && !h.Seq().hasHeldSteps);
   h.Chord(kFn, Grid(5));
   // The longest pattern is 256 steps; TRACK steps by one, FN by a page.
   sequencer.SetTrackStepCount(track, 255);
@@ -1658,42 +1685,58 @@ void TestDrumMachine(Harness& h)
   auto& sequencer = h.App().Sequencer();
   std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
   const auto hitsOn = [&](std::size_t step) { return sequencer.StepNoteEvents(0, step, notes); };
-  // Pads choose the lane.
+  const std::uint8_t drumA = groove::kDrumNotes[kDrumPadA.column - groove::kPadFirstColumn];
+  const std::uint8_t drumB = groove::kDrumNotes[kDrumPadB.column - groove::kPadFirstColumn];
+  // Pads choose the drum the GRID view shows.
   const std::size_t firstLane = h.App().Ui().DrumLane();
   h.Tap(kDrumPadA);
-  const std::size_t secondLane = h.App().Ui().DrumLane();
-  assert(secondLane != firstLane);
-  // Add at once, a second tap removes when let go.
+  assert(h.App().Ui().DrumLane() != firstLane);
+  // The step keys are the note page's. A tap selects a step and adds nothing.
   assert(hitsOn(5) == 0);
-  h.Down(Grid(5));
-  assert(hitsOn(5) == 1);
-  h.Up(Grid(5));
-  assert(hitsOn(5) == 1);
-  h.Down(Grid(5));
-  assert(hitsOn(5) == 1);
-  h.Up(Grid(5));
-  assert(hitsOn(5) == 0);
-  // Another lane on the same step is another hit, and removing one keeps the other.
-  h.Tap(Grid(6));
-  h.Tap(kDrumPadB);
-  assert(h.App().Ui().DrumLane() != secondLane);
-  h.Tap(Grid(6));
-  assert(hitsOn(6) == 2);
-  h.Tap(Grid(6));
-  assert(hitsOn(6) == 1);
+  h.Tap(Grid(5));
+  assert(hitsOn(5) == 0 && h.Seq().steps[5].held);
+  // Pads on the selected step: each drum goes in (as hard as its pad's row) or comes out.
   h.Tap(kDrumPadA);
+  h.Tap(kDrumPadB);
+  assert(hitsOn(5) == 2 && notes[0].velocity == groove::kDrumRowVelocity[kDrumPadA.row]);
+  h.Tap(kDrumPadA);
+  assert(hitsOn(5) == 1 && notes[0].note == drumB);
+  h.Tap(Grid(5));  // the step selected alone: let go
+  assert(!h.Seq().hasHeldSteps && hitsOn(5) == 1);
+  // Hold a drum pad, tap steps: it goes in there, and comes out of a step that has it.
+  h.Down(kDrumPadA);
   h.Tap(Grid(6));
-  assert(hitsOn(6) == 0);
-  // Hold + ADD / SUB: velocity, and no removal when let go.
   h.Tap(Grid(7));
-  assert(hitsOn(7) == 1);
-  const std::uint8_t before = notes[0].velocity;
-  h.Down(Grid(7));
-  h.Tap(kSub);
-  h.Up(Grid(7));
-  assert(hitsOn(7) == 1 && notes[0].velocity < before);
+  h.Up(kDrumPadA);
+  assert(hitsOn(6) == 1 && hitsOn(7) == 1 && notes[0].note == drumA && !h.Seq().hasHeldSteps);
+  h.Down(kDrumPadA);
   h.Tap(Grid(7));
+  h.Up(kDrumPadA);
   assert(hitsOn(7) == 0);
+  // A held step is selected only while held; nothing is edited by holding it long.
+  h.Down(Grid(6));
+  h.Wait(500);
+  assert(h.Seq().steps[6].held && hitsOn(6) == 1);
+  // ADD / SUB: the NOTE lane does not move a drum off its pad; OK goes on to LEN, VEL, TIME.
+  h.Tap(kAdd);
+  assert(hitsOn(6) == 1 && notes[0].note == drumA && h.State().hud.value == "PADS PICK DRUMS");
+  h.Tap(kEnter);
+  h.Tap(kEnter);
+  assert(h.Seq().editLane == synth::SequencerEditLane::Velocity);
+  const std::uint8_t before = notes[0].velocity;
+  h.Tap(kSub);
+  assert(hitsOn(6) == 1 && notes[0].velocity == before - 1);
+  h.Up(Grid(6));
+  assert(!h.Seq().hasHeldSteps && hitsOn(6) == 1);
+  // The drum machine is the STEP view; OK switches drum tracks to the piano roll and back.
+  h.Render();
+  h.Tap(kEnter);
+  assert(h.App().Ui().View() == groove::SeqView::Roll && !h.App().Ui().DrumLayout() && h.App().Ui().PageTab(Scene::Sequence, 0) == "ROLL");
+  h.Down(kDrumPadA);
+  h.Render();
+  h.Up(kDrumPadA);
+  h.Tap(kEnter);
+  assert(h.App().Ui().DrumLayout() && h.App().Ui().PageTab(Scene::Sequence, 0) == "DRUMS");
   GoToScene(h, 1);
 }
 
@@ -1852,13 +1895,13 @@ void TestAdjustIcons(Harness& h)
   h.Tap(kAdd);
   h.Up(kTab);
   h.Chord(kTab, Grid(1));
-  // SEQ: a value (pattern, velocity), except the step cursor of STEP REC.
+  // SEQ: a value (pattern, velocity), in both note views.
   GoToScene(h, 2);
   while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
   assert(app.Ui().AdjustKeysMean() == Meaning::Value);
   h.Tap(kEnter);
   h.Wait(50);
-  if (app.Ui().View() == groove::SeqView::Step) assert(app.Ui().AdjustKeysMean() == Meaning::Sideways);
+  assert(app.Ui().AdjustKeysMean() == Meaning::Value);
   if (app.Ui().View() == groove::SeqView::Step) { h.Tap(kEnter); h.Wait(50); }
   // TAPE: the session is a list, the rest values.
   GoToScene(h, 3);
@@ -1948,7 +1991,8 @@ void TestDrumPads(Harness& h)
   assert(top == restTop);
   h.Wait(1000);
 
-  // On the drum page a pad chooses the drum and how hard the GRID puts it in.
+  // On the drum page a pad chooses the drum and how hard: held, the steps tapped take it at its row's
+  // velocity.
   GoToScene(h, 2);
   while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
   auto& sequencer = app.Sequencer();
@@ -1959,47 +2003,30 @@ void TestDrumPads(Harness& h)
   h.Tap(Key{1, 4});
   assert(app.Ui().DrumLane() == 3 && h.State().drumVelocity[0] == groove::kDrumRowVelocity[1]);
   assert(logical(Key{1, 4}) == groove::kLedFull && logical(Key{3, 4}) == groove::kLedFull && logical(Key{0, 4}) == groove::kLedHalf);
+  h.Down(Key{1, 4});
   h.Tap(Grid(step));
+  h.Up(Key{1, 4});
   assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].note == groove::kDrumNotes[3] && notes[0].velocity == groove::kDrumRowVelocity[1]);
+  // A tapped step stays selected: its pad takes the drum out, a pad of another row puts it back as
+  // hard as that row.
+  h.Tap(Grid(step));
+  assert(h.Seq().steps[step].held && sequencer.StepNoteEvents(0, step, notes) == 1);
   h.Tap(Key{0, 4});
-  h.Tap(Grid(step));
   assert(sequencer.StepNoteEvents(0, step, notes) == 0);
-  h.Tap(Grid(step));
+  h.Tap(Key{0, 4});
   assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].velocity == groove::kDrumRowVelocity[0]);
-  // Holding a hit: ADD / SUB change its velocity, ENTER switches them to its timing and back.
-  assert(notes[0].microstep == 0 && !h.State().drumEditsMicrostep);
-  h.Hold(Grid(step), 400);
-  assert(h.State().hud.label == "OH VELOCITY");
-  h.Tap(kSub);
-  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].velocity == 121 && notes[0].microstep == 0);
+  // Its values as on the note page: OK picks the lane (NOTE, LEN, VEL, TIME), ADD / SUB change it.
   h.Tap(kEnter);
-  assert(h.State().drumEditsMicrostep && h.State().hud.label == "OH MICRO" && h.State().hud.value == "ON GRID");
-  h.Tap(kAdd);
-  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 1 && notes[0].velocity == 121);
-  assert(h.State().hud.value == "+1/6");
-  h.Tap(kAdd);
-  h.Tap(kAdd);
-  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 3);
+  h.Tap(kEnter);
   h.Tap(kSub);
-  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 2);
-  // It stops at both ends of the step, FN takes bigger steps.
-  for (int press = 0; press < 8; ++press) h.Tap(kAdd);
-  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 5);
-  h.Chord(kFn, kSub);
-  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 2);
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].velocity == groove::kDrumRowVelocity[0] - 1 && notes[0].microstep == 0);
+  h.Tap(kEnter);
+  h.Tap(kAdd);
+  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 1);
   h.Render();
-  h.Up(Grid(step));
-  // Letting go keeps the hit, and the next held hit edits timing again.
-  assert(sequencer.StepNoteEvents(0, step, notes) == 1 && notes[0].microstep == 2);
-  h.Hold(Grid(step), 400);
-  assert(h.State().hud.label == "OH MICRO");
-  h.Tap(kEnter);
-  assert(!h.State().drumEditsMicrostep && h.State().hud.label == "OH VELOCITY");
-  h.Up(Grid(step));
-  // A short tap still takes it out, off the beat or not.
-  assert(sequencer.StepNoteEvents(0, step, notes) == 1);
   h.Tap(Grid(step));
-  assert(sequencer.StepNoteEvents(0, step, notes) == 0);
+  assert(!h.Seq().hasHeldSteps && sequencer.StepNoteEvents(0, step, notes) == 1);
+  assert(sequencer.RemoveNote(0, sequencer.ActivePattern(0), step, groove::kDrumNotes[3]));
   // Moving a note that is not there, or out of the step, does nothing.
   assert(sequencer.InsertNote(0, sequencer.ActivePattern(0), step, 2, groove::kDrumNotes[3], 100, 24));
   assert(!sequencer.MoveNote(0, sequencer.ActivePattern(0), step, groove::kDrumNotes[3], 0, 1));

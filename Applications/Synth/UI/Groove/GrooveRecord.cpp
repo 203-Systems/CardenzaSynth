@@ -1,6 +1,6 @@
-// Recording in SEQ: the OK key, the two note views, step recording, the RECORD panel and capture.
+// Recording in SEQ: the OK key, the two note views, the RECORD panel and capture.
 //
-// OK (ENTER) on the SEQ note page: a tap switches the view (PIANO ROLL <-> STEP REC), a hold opens
+// OK (ENTER) on the SEQ note page: a tap switches the view (PIANO ROLL <-> STEPS), a hold opens
 // the RECORD panel. With steps selected it keeps cycling the edit lane. Capture keeps every note
 // the pads play as takes, without recording; the RECORD panel puts one bar of a take into a new
 // pattern (OK) or merges it into the playing one (FN + OK).
@@ -18,19 +18,9 @@ constexpr std::uint32_t kPulsesPerStep = synth::kSequencerPulsesPerStep;
 constexpr std::uint32_t kPulsesPerMicrostep = synth::kSequencerPulsesPerMicrostep;
 constexpr std::uint32_t kPulsesPerQuarter = kPulsesPerStep * 4;
 
-const char* ViewName(SeqView view)
+const char* ViewName(SeqView view, bool drums)
 {
-  return view == SeqView::Roll ? "PIANO ROLL" : "STEP REC";
-}
-
-// The notes on a step, in order: what STEP REC compares with the pads.
-std::size_t SortedStepNotes(const synth::SynthSequencer& sequencer, std::size_t track, std::size_t step, std::array<std::uint8_t, 8>& notes)
-{
-  std::array<synth::SynthSequencer::StepNoteView, 8> views{};
-  const std::size_t count = sequencer.StepNoteEvents(track, step, views);
-  for (std::size_t index = 0; index < count; ++index) notes[index] = views[index].note;
-  std::sort(notes.begin(), notes.begin() + static_cast<std::ptrdiff_t>(count));
-  return count;
+  return view == SeqView::Roll ? "PIANO ROLL" : drums ? "MACHINE" : "STEPS";
 }
 
 struct TimedNote {
@@ -273,11 +263,11 @@ bool Controller::PlaceTake(bool merge)
 }
 
 // ---------------------------------------------------------------------------------------------
-// OK key, views and step recording
+// OK key and views
 
 bool Controller::OkDeferred() const
 {
-  return state_.scene == Scene::Sequence && CurrentPage() == 0 && TopModal() == nullptr && !DrumLayout() &&
+  return state_.scene == Scene::Sequence && CurrentPage() == 0 && TopModal() == nullptr &&
          !host_.Sequencer().BuildUiState(state_.track).hasHeldSteps;
 }
 
@@ -306,100 +296,13 @@ void Controller::OkTick()
   OpenRecord();
 }
 
+// The two views draw the same steps and take the same keys; the selection stays as it is. Drum and
+// melodic tracks each keep their own.
 void Controller::ToggleSeqView()
 {
-  if (DrumLayout()) return;
-  RecordState& rec = state_.record;
-  rec.view = rec.view == SeqView::Roll ? SeqView::Step : SeqView::Roll;
-  rec.stepWritten = false;
-  rec.stepBeforeKnown = false;
-  host_.Sequencer().ClearSelectedSteps();
-  const std::size_t steps = host_.Sequencer().TrackStepCount(state_.track);
-  if (rec.cursor >= steps) rec.cursor = 0;
-  // The cursor comes to the page on the GRID, never writes out of sight.
-  const std::size_t first = host_.Sequencer().ViewFirstStep(state_.track);
-  if (rec.cursor / kGridCount != first / kGridCount) rec.cursor = static_cast<std::uint8_t>(first);
-  ShowHud("VIEW", ViewName(rec.view));
-}
-
-void Controller::StepCursorMove(int delta)
-{
-  RecordState& rec = state_.record;
-  const int steps = static_cast<int>(std::max<std::size_t>(1, host_.Sequencer().TrackStepCount(state_.track)));
-  rec.cursor = static_cast<std::uint8_t>(((static_cast<int>(rec.cursor) + delta) % steps + steps) % steps);
-  // The GRID stays on the page with the cursor.
-  auto& sequencer = host_.Sequencer();
-  if (sequencer.ViewFirstStep(state_.track) / kGridCount != rec.cursor / kGridCount) sequencer.SetViewPage(state_.track, rec.cursor / kGridCount);
-}
-
-bool Controller::StepRecordPress()
-{
-  std::array<std::uint8_t, kRows * kPadColumns> notes{};
-  const std::size_t count = CollectHeldNotes(notes);
-  if (count == 0) return false;
-  RecordState& rec = state_.record;
-  StepCursorMove(0);
-  auto& sequencer = host_.Sequencer();
-  // The first write of a press to a step remembers what was there: the same notes again erase it.
-  if (!rec.stepWritten || !rec.stepBeforeKnown || rec.stepBeforeAt != rec.cursor)
-  {
-    rec.stepBeforeCount = static_cast<std::uint8_t>(SortedStepNotes(sequencer, state_.track, rec.cursor, rec.stepBefore));
-    rec.stepBeforeAt = rec.cursor;
-    rec.stepBeforeKnown = true;
-  }
-  if (!sequencer.SetStepNotes(state_.track, rec.cursor, notes.data(), count, state_.keyboard.velocity)) return false;
-  rec.stepWritten = true;
-  MarkDirty();
-  return true;
-}
-
-void Controller::StepRecordRelease()
-{
-  RecordState& rec = state_.record;
-  if (!rec.stepWritten) return;
-  for (std::size_t index = 0; index < state_.padNote.size(); ++index)
-    if (state_.padNote[index] != kNoNote && state_.padTrack[index] == state_.track) return;
-  rec.stepWritten = false;
-  // The notes that were there, pressed again: the step is erased (a rest), as a pad on a selected
-  // step takes its note out in the piano roll.
-  if (StepRecordRepeats()) EraseCursorStep();
-  rec.stepBeforeKnown = false;
-  StepCursorMove(rec.stepLength);
-}
-
-// The cursor step holds just the notes it had before the pads now down wrote there.
-bool Controller::StepRecordRepeats() const
-{
-  const RecordState& rec = state_.record;
-  if (!rec.stepBeforeKnown || rec.stepBeforeAt != rec.cursor || rec.stepBeforeCount == 0) return false;
-  std::array<std::uint8_t, 8> now{};
-  const std::size_t count = SortedStepNotes(host_.Sequencer(), state_.track, rec.cursor, now);
-  return count == rec.stepBeforeCount && std::equal(now.begin(), now.begin() + static_cast<std::ptrdiff_t>(count), rec.stepBefore.begin());
-}
-
-// STEP REC: the cursor step loses its notes (FN + X, or its notes pressed again).
-void Controller::EraseCursorStep()
-{
-  const std::uint8_t cursor = state_.record.cursor;
-  std::array<std::uint8_t, 8> notes{};
-  const bool hadNotes = SortedStepNotes(host_.Sequencer(), state_.track, cursor, notes) != 0;
-  if (hadNotes && host_.Sequencer().SetStepNotes(state_.track, cursor, nullptr, 0, 0)) MarkDirty();
-  ShowToast("STEP " + std::to_string(cursor + 1) + (hadNotes ? " CLEARED" : " EMPTY"));
-}
-
-// STEP REC, GRID tapped: the cursor goes there, and held pads write to that step at once, or erase
-// it when it holds just their notes.
-void Controller::StepRecordGrid(std::size_t step, std::size_t heldNotes)
-{
-  RecordState& rec = state_.record;
-  if (step >= host_.Sequencer().TrackStepCount(state_.track)) return;
-  rec.cursor = static_cast<std::uint8_t>(step);
-  if (heldNotes == 0) return;
-  rec.stepBeforeKnown = false;  // this tap decides for this step on its own
-  if (!StepRecordPress()) return;
-  if (StepRecordRepeats()) EraseCursorStep();
-  rec.stepBeforeKnown = false;  // decided: letting go of the pads only moves the cursor on
-  StepRecordRelease();
+  SeqView& view = DrumTrack() ? state_.record.drumView : state_.record.noteView;
+  view = view == SeqView::Roll ? SeqView::Step : SeqView::Roll;
+  ShowHud("VIEW", ViewName(view, DrumTrack()));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -419,14 +322,14 @@ void Controller::OpenRecord()
 void Controller::RecordGrid(std::size_t index)
 {
   RecordState& rec = state_.record;
-  if (index >= kRecordFirstTake + kCaptureTakes) return;
+  // Row 0 has three settings; its fourth cell is empty.
+  if (index >= kRecordFirstTake + kCaptureTakes || (index > kRecordView && index < kRecordFirstTake)) return;
   const bool again = rec.focus == index;
   rec.focus = static_cast<std::uint8_t>(index);
   switch (index)
   {
     case kRecordRec: ToggleRecord(); break;
     case kRecordSnap: rec.snap = !rec.snap; break;
-    case kRecordStepLength: rec.stepLength = rec.stepLength == 1 ? 2 : rec.stepLength == 2 ? 4 : 1; break;
     case kRecordView: ToggleSeqView(); break;
     default:
       if (!again) rec.takeBar = 0;
@@ -444,11 +347,8 @@ void Controller::RecordAdjust(int delta)
       if ((delta > 0) != sequencer.RecordArmed()) ToggleRecord();
       break;
     case kRecordSnap: rec.snap = delta > 0; break;
-    case kRecordStepLength:
-      rec.stepLength = delta > 0 ? (rec.stepLength >= 4 ? 4 : rec.stepLength * 2) : (rec.stepLength <= 1 ? 1 : rec.stepLength / 2);
-      break;
     case kRecordView:
-      if ((delta > 0) != (rec.view == SeqView::Step)) ToggleSeqView();
+      if ((delta > 0) != (View() == SeqView::Step)) ToggleSeqView();
       break;
     default:
     {

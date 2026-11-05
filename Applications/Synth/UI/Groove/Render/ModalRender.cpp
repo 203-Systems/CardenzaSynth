@@ -235,12 +235,12 @@ void DrawRecord(Gfx& g, const Controller& controller, Animator& animator)
   const RecordState& rec = state.record;
   const std::uint32_t now = animator.Now();
   const bool armed = controller.HostView().Sequencer().RecordArmed();
-  const std::array<std::pair<const char*, std::string>, 4> settings{{
+  const std::array<std::pair<const char*, std::string>, 3> settings{{
       {"REC", armed ? "ON" : "OFF"},
       {"SNAP", rec.snap ? "STEPS" : "FREE"},
-      {"STEP", "+" + std::to_string(rec.stepLength)},
-      {"VIEW", controller.DrumLayout() ? "DRUMS" : rec.view == SeqView::Roll ? "ROLL" : "STEP"},
+      {"VIEW", controller.PageTab(Scene::Sequence, 0)},
   }};
+  g.DottedHLine(Cell(0, 3).x, Cell(0, 3).y + Cell(0, 3).height - 1, Cell(0, 3).width, kShade);
   for (std::size_t index = 0; index < settings.size(); ++index)
   {
     const CellStyle style = rec.focus == index ? CellStyle::Focused : CellStyle::Normal;
@@ -283,11 +283,10 @@ void DrawRecord(Gfx& g, const Controller& controller, Animator& animator)
   const CaptureTake* take = rec.focus >= kRecordFirstTake ? controller.TakeAt(rec.focus - kRecordFirstTake) : nullptr;
   if (take == nullptr)
   {
-    static constexpr std::array<const char*, 4> kHelp{{
+    static constexpr std::array<const char*, 3> kHelp{{
         "REC: PLAY + PADS RECORD INTO THE PATTERN (ALSO FN + PLAY)",
         "SNAP: TAKES LAND ON WHOLE STEPS, OR KEEP THEIR TIMING",
-        "STEP REC: STEPS THE CURSOR MOVES AFTER EACH WRITE",
-        "VIEW: PIANO ROLL OR STEP REC (TAP OK)",
+        "VIEW: PIANO ROLL OR STEPS (TAP OK)",
     }};
     g.TextFit(area.x + 2, area.y + 4, area.width - 4, rec.focus < kHelp.size() ? kHelp[rec.focus] : "", kDim, Font::Micro);
     g.TextFit(area.x + 2, area.y + 15, area.width - 4,

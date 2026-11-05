@@ -784,161 +784,137 @@ void Controller::RunSlotAction(SlotAction action)
 // ---------------------------------------------------------------------------------------------
 // SEQ
 
-bool Controller::PadForSequence(int note, bool pressed)
+// A pad while steps are selected (held or tapped): its note goes into them, or comes out. A new note
+// gets `velocity` (a drum pad's row), or with 0 the track's new-note velocity.
+bool Controller::PadForSequence(int note, bool pressed, std::uint8_t velocity)
 {
   if (!pressed) return false;
   auto& sequencer = host_.Sequencer();
   if (!sequencer.BuildUiState(state_.track).hasHeldSteps) return false;
-  if (sequencer.ToggleNoteOnSelectedSteps(static_cast<std::uint8_t>(note))) MarkDirty();
+  if (sequencer.ToggleNoteOnSelectedSteps(static_cast<std::uint8_t>(note), velocity)) MarkDirty();
   return true;
 }
 
-bool Controller::DrumLayout() const
-{
-  return ActiveKind() == synth::SynthEngineKind::Drums && !pianoRollOnDrums_;
-}
-
-void Controller::DrumStepPress(std::size_t index)
+// The note page's step keys, as MatrixOS's sequencer has them: a step is selected while its key is
+// down, so the pads (its notes), ADD / SUB and OK (its values) edit it, and steps held together are
+// edited together. Pads held and a step pressed: their notes go in (or come out). Beyond MatrixOS,
+// a tap keeps the step selected, to edit it with the hands free; a tap on the step selected alone
+// lets it go (with SELECT MULTI a tap adds a step, and a tap on a selected one lets that one go).
+// The drum machine takes the same keys: its pads are the notes, a drum hit as hard as its pad's row.
+void Controller::StepKeyPress(std::size_t index)
 {
   auto& sequencer = host_.Sequencer();
   const auto ui = sequencer.BuildUiState(state_.track);
   const std::size_t step = ui.firstViewStep + index;
-  if (step >= ui.tracks[state_.track].stepCount) return;
-  const std::uint8_t note = kDrumNotes[DrumLane()];
-  DrumPress& press = state_.drumPress;
-  press = DrumPress{};
-  press.down = true;
-  press.index = index;
-  press.step = step;
-  press.at = state_.now;
-  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
-  const std::size_t count = sequencer.StepNoteEvents(state_.track, step, notes);
-  for (std::size_t slot = 0; slot < count; ++slot)
-    if (notes[slot].note == note) return;  // There already: the release decides.
-  const std::uint8_t velocity = state_.drumVelocity[state_.track];
-  if (!sequencer.InsertNote(state_.track, ui.activePattern, step, 0, note, velocity, synth::kSequencerPulsesPerStep)) return;
-  press.added = true;
-  MarkDirty();
-  // Stopped, you hear what you put in.
-  if (!sequencer.Playing())
+  if (index >= kGridCount || step >= ui.tracks[state_.track].stepCount) return;
+  StepKey& key = state_.stepKeys[index];
+  key = StepKey{};
+  key.down = true;
+  key.step = step;
+  key.at = state_.now;
+  std::array<std::uint8_t, kRows * kPadColumns> notes{};
+  const std::size_t count = CollectHeldNotes(notes);
+  if (count > 0)
   {
-    host_.NoteOn(state_.track, note, velocity);
-    host_.NoteOff(state_.track, note);
-  }
-}
-
-void Controller::DrumStepRelease(std::size_t index)
-{
-  const DrumPress press = state_.drumPress;
-  if (!press.down || press.index != index) return;
-  state_.drumPress = DrumPress{};
-  // A tap on a hit takes it out. Held, or edited while held, it stays.
-  if (press.added || press.edited || state_.now - press.at >= kDrumStepHoldMs) return;
-  auto& sequencer = host_.Sequencer();
-  if (sequencer.RemoveNote(state_.track, sequencer.ActivePattern(state_.track), press.step, kDrumNotes[DrumLane()])) MarkDirty();
-}
-
-// ADD / SUB while a step is held: how hard that hit is.
-bool Controller::DrumStepAdjust(int delta, bool coarse)
-{
-  DrumPress& press = state_.drumPress;
-  if (!press.down) return false;
-  auto& sequencer = host_.Sequencer();
-  const std::uint8_t note = kDrumNotes[DrumLane()];
-  const std::size_t pattern = sequencer.ActivePattern(state_.track);
-  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
-  const std::size_t count = sequencer.StepNoteEvents(state_.track, press.step, notes);
-  for (std::size_t slot = 0; slot < count; ++slot)
-  {
-    if (notes[slot].note != note) continue;
-    if (state_.drumEditsMicrostep)
-    {
-      const int last = static_cast<int>(synth::kSequencerMicrostepCount) - 1;
-      const int microstep = std::clamp(static_cast<int>(notes[slot].microstep) + delta * (coarse ? 3 : 1), 0, last);
-      if (sequencer.MoveNote(state_.track, pattern, press.step, note, notes[slot].microstep, static_cast<std::uint8_t>(microstep))) MarkDirty();
-    }
-    else
-    {
-      const int velocity = std::clamp(static_cast<int>(notes[slot].velocity) + delta * (coarse ? 24 : 6), 1, 127);
-      (void)sequencer.InsertNote(state_.track, pattern, press.step, notes[slot].microstep, note,
-                                 static_cast<std::uint8_t>(velocity), notes[slot].lengthPulses);
-      MarkDirty();
-    }
-    press.edited = true;
-    ShowDrumStepHud();
-    break;
-  }
-  return true;
-}
-
-// What ADD / SUB change on the hit being held, and its value now.
-void Controller::ShowDrumStepHud()
-{
-  const DrumPress& press = state_.drumPress;
-  const std::uint8_t note = kDrumNotes[DrumLane()];
-  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
-  const std::size_t count = host_.Sequencer().StepNoteEvents(state_.track, press.step, notes);
-  for (std::size_t slot = 0; slot < count; ++slot)
-  {
-    if (notes[slot].note != note) continue;
-    const std::string name = kDrumNames[DrumLane()];
-    if (state_.drumEditsMicrostep)
-    {
-      const int last = static_cast<int>(synth::kSequencerMicrostepCount) - 1;
-      ShowHud(name + " MICRO", notes[slot].microstep == 0 ? std::string("ON GRID") : "+" + std::to_string(notes[slot].microstep) + "/" + std::to_string(last + 1),
-              static_cast<float>(notes[slot].microstep) / static_cast<float>(last));
-    }
-    else ShowHud(name + " VELOCITY", std::to_string(notes[slot].velocity), static_cast<float>(notes[slot].velocity) / 127.0f);
+    key.wrote = true;
+    // Drums go in as hard as the row of the pad that holds them; melodic notes at the track's
+    // new-note velocity.
+    std::array<std::uint8_t, kRows * kPadColumns> velocities{};
+    const bool drums = ActiveKind() == synth::SynthEngineKind::Drums;
+    for (std::size_t held = 0; drums && held < count; ++held)
+      for (std::size_t pad = 0; pad < state_.padNote.size(); ++pad)
+        if (state_.padNote[pad] == notes[held] && state_.padTrack[pad] == state_.track)
+          velocities[held] = std::max(velocities[held], state_.padVelocity[pad]);
+    if (sequencer.ToggleStepNotes(state_.track, step, notes.data(), count, drums ? velocities.data() : nullptr)) MarkDirty();
     return;
   }
+  key.wasSelected = ui.steps[index].held;
+  key.wasOnly = key.wasSelected && ui.heldStepCount == 1;
+  // Another step key down (KeyEvent made it a hold): this step joins it.
+  bool joining = false;
+  for (std::size_t other = 0; other < kGridCount; ++other)
+    joining = joining || (other != index && state_.stepKeys[other].down && !state_.stepKeys[other].wrote);
+  if (joining) key.used = true;
+  else if (!state_.keyboard.multiSelect && !key.wasOnly) sequencer.ClearSelectedSteps();
+  sequencer.SetStepSelected(step, true);
+  AuditionStep(index, step);
+}
+
+void Controller::StepKeyRelease(std::size_t index)
+{
+  if (index >= kGridCount || !state_.stepKeys[index].down) return;
+  const StepKey key = state_.stepKeys[index];
+  state_.stepKeys[index] = StepKey{};
+  if (static_cast<std::size_t>(state_.stepAudition.key) == index) StopStepAudition();
+  if (key.wrote) return;
+  auto& sequencer = host_.Sequencer();
+  if (!key.used && state_.now - key.at < kHoldMs)
+  {
+    if (state_.keyboard.multiSelect ? key.wasSelected : key.wasOnly) sequencer.SetStepSelected(key.step, false);
+    return;
+  }
+  // Held: selected for as long as the key was down.
+  if (!key.wasSelected) sequencer.SetStepSelected(key.step, false);
+}
+
+void Controller::UseStepKeys()
+{
+  for (StepKey& key : state_.stepKeys)
+    if (key.down) key.used = true;
+}
+
+// Stopped, a step sounds while its key is down, as MatrixOS does: you hear what you are on.
+void Controller::AuditionStep(std::size_t index, std::size_t step)
+{
+  StopStepAudition();
+  auto& sequencer = host_.Sequencer();
+  if (sequencer.Playing()) return;
+  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+  const std::size_t count = sequencer.StepNoteEvents(state_.track, step, notes);
+  StepAudition& audition = state_.stepAudition;
+  audition.track = static_cast<std::uint8_t>(state_.track);
+  audition.key = static_cast<std::uint8_t>(index);
+  for (std::size_t slot = 0; slot < count; ++slot)
+  {
+    host_.NoteOn(state_.track, notes[slot].note, notes[slot].velocity);
+    audition.notes[audition.count++] = notes[slot].note;
+  }
+}
+
+void Controller::StopStepAudition()
+{
+  StepAudition& audition = state_.stepAudition;
+  for (std::size_t slot = 0; slot < audition.count; ++slot)
+  {
+    // A pad sounding the same note itself keeps it: its own release ends it.
+    bool held = false;
+    for (std::size_t pad = 0; pad < state_.padNote.size() && !held; ++pad)
+      for (std::size_t voice = 0; voice < state_.padChordCount[pad] && !held; ++voice)
+        held = state_.padTrack[pad] == audition.track && !state_.padArp[pad] && state_.padChord[pad][voice] == audition.notes[slot];
+    if (!held) host_.NoteOff(audition.track, audition.notes[slot]);
+  }
+  audition = StepAudition{};
+}
+
+bool Controller::DrumTrack() const
+{
+  return ActiveKind() == synth::SynthEngineKind::Drums;
+}
+
+bool Controller::DrumLayout() const
+{
+  return DrumTrack() && state_.record.drumView == SeqView::Step;
 }
 
 void Controller::SequenceGrid(std::size_t index)
 {
   auto& sequencer = host_.Sequencer();
-  if (CurrentPage() == 0 && DrumLayout())
-  {
-    DrumStepPress(index);
-    return;
-  }
   switch (CurrentPage())
   {
     case 0:
-    {
-      const auto ui = sequencer.BuildUiState(state_.track);
-      std::array<std::uint8_t, kRows * kPadColumns> notes{};
-      const std::size_t count = CollectHeldNotes(notes);
-      // The GRID shows one page of the pattern.
-      const std::size_t step = ui.firstViewStep + index;
-      if (state_.record.view == SeqView::Step)
-      {
-        // STEP REC: a step key moves the write cursor; with pads held it writes them there (or
-        // erases a step that holds just those notes).
-        StepRecordGrid(step, count);
-        return;
-      }
-      if (!ui.hasHeldSteps && count > 0)
-      {
-        // Hold pads, tap steps: step input without selecting.
-        sequencer.PressStep(step, notes.data(), count);
-        sequencer.ReleaseStep(step);
-        MarkDirty();
-        return;
-      }
-      if (state_.keyboard.multiSelect)
-      {
-        sequencer.SetStepSelected(step, !ui.steps[index].held);
-        break;
-      }
-      // SELECT ONE: the GRID walks to this step; tapping the step it is on again lets go (the pads
-      // play again).
-      {
-        const bool onlyThis = ui.steps[index].held && ui.heldStepCount == 1;
-        sequencer.ClearSelectedSteps();
-        if (!onlyThis) sequencer.SetStepSelected(step, true);
-      }
+      // ROLL, STEP and the drum machine alike: the GRID is one page of the pattern's steps.
+      StepKeyPress(index);
       break;
-    }
     case 1:
     {
       const auto ui = sequencer.BuildUiState(state_.track);
@@ -994,11 +970,6 @@ void Controller::AdjustPatternLength(int delta, bool coarse)
   ShowHud("LENGTH", std::to_string(next) + " STEPS", static_cast<float>(next - 1) / static_cast<float>(synth::kSequencerMaxSteps - 1));
 }
 
-void Controller::SequenceGridRelease(std::size_t index)
-{
-  DrumStepRelease(index);
-}
-
 void Controller::SequenceAdjust(int delta, bool coarse)
 {
   auto& sequencer = host_.Sequencer();
@@ -1006,16 +977,18 @@ void Controller::SequenceAdjust(int delta, bool coarse)
   switch (CurrentPage())
   {
     case 0:
+      // Selected steps: the value of the edit lane (OK chooses it). Nothing selected: FN flips the
+      // GRID's page, plain ADD / SUB the pattern.
       if (ui.hasHeldSteps)
       {
+        // On a drum track the pads pick the drum: the NOTE lane does not move hits to pitches that
+        // are no drum (OK goes on to the length, velocity and timing).
+        if (DrumTrack() && ui.editLane == synth::SequencerEditLane::Note)
+        {
+          ShowHud("NOTE", "PADS PICK DRUMS");
+          return;
+        }
         if (sequencer.AdjustSelectedSteps(delta, coarse)) MarkDirty();
-        return;
-      }
-      if (DrumLayout() && DrumStepAdjust(delta, coarse)) return;
-      if (state_.record.view == SeqView::Step && !DrumLayout())
-      {
-        // FN + ADD / SUB jumps a page once the pattern has more than one.
-        StepCursorMove(delta * (coarse ? (ui.viewPageCount > 1 ? static_cast<int>(kGridCount) : 4) : 1));
         return;
       }
       if (coarse)
@@ -1062,14 +1035,6 @@ void Controller::SequenceEnter()
   switch (CurrentPage())
   {
     case 0:
-      // A held hit on the drum page: ENTER chooses what ADD / SUB change, velocity or timing.
-      if (DrumLayout() && state_.drumPress.down)
-      {
-        state_.drumEditsMicrostep = !state_.drumEditsMicrostep;
-        state_.drumPress.edited = true;
-        ShowDrumStepHud();
-        break;
-      }
       if (sequencer.BuildUiState(state_.track).hasHeldSteps) sequencer.CycleEditLane();
       break;
     case 1:
@@ -1505,16 +1470,6 @@ void Controller::Clear()
   if (state_.scene != Scene::Sequence) return;
   auto& sequencer = host_.Sequencer();
   const auto ui = sequencer.BuildUiState(state_.track);
-  // STEP REC: the cursor is the selection. Its step is erased and the cursor moves on, as after a
-  // write.
-  if (CurrentPage() == 0 && !DrumLayout() && state_.record.view == SeqView::Step && !ui.hasHeldSteps)
-  {
-    StepCursorMove(0);
-    EraseCursorStep();
-    state_.record.stepBeforeKnown = false;
-    StepCursorMove(state_.record.stepLength);
-    return;
-  }
   if (CurrentPage() == 0 && ui.hasHeldSteps)
   {
     sequencer.ClearHeldStepEvents();
@@ -1669,13 +1624,10 @@ MenuItems Controller::Menu() const
       const bool pasteable = state_.clipboardValid && (state_.clipboardIsPattern || steps);
       put(0, MenuAction::Copy, "COPY", target, "C");
       put(1, MenuAction::Paste, "PASTE", target, "V", pasteable);
-      // STEP REC: CLEAR erases the cursor step.
-      const bool cursorStep = page == 0 && !steps && !DrumLayout() && state_.record.view == SeqView::Step;
-      put(2, MenuAction::Clear, "CLEAR", cursorStep ? "STEP " + std::to_string(state_.record.cursor + 1) : target, "X");
+      put(2, MenuAction::Clear, "CLEAR", target, "X");
       put(3, MenuAction::Quantize, "QUANT", target, "Q");
       put(4, MenuAction::Duplicate, "DUP", "PATTERN", "D", ui.tracks[state_.track].patternCount < synth::kSequencerMaxPatternCount);
-      if (DrumLayout()) put(5, MenuAction::View, "VIEW", "DRUMS", nullptr, false);
-      else put(5, MenuAction::View, "VIEW", state_.record.view == SeqView::Roll ? "ROLL" : "STEP", nullptr, true, state_.record.view == SeqView::Step);
+      put(5, MenuAction::View, "VIEW", PageTab(Scene::Sequence, 0), nullptr, true, View() == SeqView::Step);
       put(6, MenuAction::RecordPanel, "RECORD", "TAKES");
       put(7, MenuAction::Scope, "SCOPE", steps ? ui.scopeLabel : "", "OK", steps);
       // The pages of a long pattern, and how long it is.

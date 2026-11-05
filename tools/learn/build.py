@@ -106,8 +106,8 @@ def shot_script():
     s.act("down 3,2", f"tap {grid_key(4)}", f"tap {grid_key(12)}", "up 3,2")
     s.act("down 3,3", *[f"tap {grid_key(i)}" for i in range(0, 16, 2)], "up 3,3")
     s.shot("seq-drums")
-    # Hold a hit (CH on step 1) and ADD: its velocity on screen; a changed hit stays.
-    s.act(f"down {grid_key(0)}").wait(20).act("tap del").shot("seq-drum-edit", 10).act(f"up {grid_key(0)}").wait(120)
+    # Hold step 1: it is selected while held; OK twice picks VEL and ADD raises it.
+    s.act(f"down {grid_key(0)}").wait(20).act("tap enter", "tap enter", "tap del").shot("seq-drum-edit", 10).act(f"up {grid_key(0)}").wait(120)
     s.act("tap space").shot("seq-drums-playing", 40)
     s.act("tap space").wait(40)
     # TAB: next track; the left keys show which one for a moment.
@@ -128,10 +128,11 @@ def shot_script():
     s.act(f"tap {grid_key(4)}").wait(20)
     s.act("tap space").shot("seq-playing", 30)
     s.act("tap space").wait(40)
-    # STEP REC: OK switches the view; pads write into the cursor step.
+    # STEP view: OK switches the view; a tapped step stays selected and takes the pads' notes.
     s.act("tap enter").shot("seq-step-view", 30).act(f"tap {grid_key(1)}", "tap 3,2", "tap 3,3")
     s.shot("seq-step", 140)
-    s.act("tap enter").wait(200)
+    # ESC lets the selected step go first: with one selected, OK cycles its edit lane.
+    s.act("tap esc", "tap enter").wait(200)
     # Capture: a few phrases, then hold OK for the RECORD panel; OK puts a bar into a new pattern.
     for pad in ("3,1", "3,3", "3,5", "3,3", "3,1"):
         s.act(f"down {pad}").wait(8).act(f"up {pad}").wait(10)

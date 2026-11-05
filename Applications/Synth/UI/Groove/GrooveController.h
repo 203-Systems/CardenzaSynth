@@ -53,11 +53,14 @@ enum class ModalKind : std::uint8_t {
   SampleOptions,
   SampleRecord,
   Menu,    // a tap on FN: the menu of the screen underneath, kept open
-  Record,  // SEQ: hold OK. Live recording, step recording and the captured takes
+  Record,  // SEQ: hold OK. Live recording, the note view and the captured takes
 };
 
-// SEQ note editor views. ROLL (default): a piano roll, GRID taps select steps, live recording
-// with REC. STEP: the 4x4 steps with a write cursor; pads write into the cursor step and advance it.
+// SEQ note page views, for melodic and drum tracks alike: ROLL draws a piano roll, STEP a machine
+// (the drum machine's look: a row per drum or note over the page's steps, beside the GRID). Melodic
+// tracks start on ROLL, drum tracks on STEP. Both take the same keys (Controller::StepKeyPress): a
+// step key selects its step while it is down, a tap keeps it selected, pads held and a step tapped
+// put their notes in.
 enum class SeqView : std::uint8_t { Roll, Step };
 
 // Capture: everything the pads play is kept, without recording, as takes split by pauses. A take
@@ -89,11 +92,11 @@ struct CaptureTake {
   std::uint32_t id = 0;           // take number, counting up; 0 = empty
 };
 
-// The RECORD panel's GRID: settings on row 0, takes on rows 1 and 2 (newest first).
+// The RECORD panel's GRID: settings on row 0 (the fourth cell is empty), takes on rows 1 and 2
+// (newest first).
 inline constexpr std::size_t kRecordRec = 0;
 inline constexpr std::size_t kRecordSnap = 1;
-inline constexpr std::size_t kRecordStepLength = 2;
-inline constexpr std::size_t kRecordView = 3;
+inline constexpr std::size_t kRecordView = 2;
 inline constexpr std::size_t kRecordFirstTake = 4;
 
 enum class TextPurpose : std::uint8_t {
@@ -334,16 +337,8 @@ inline constexpr std::array<FnQuickControl, 3> kFnQuickControls{{
 }};
 
 struct RecordState {
-  SeqView view = SeqView::Roll;
-  std::uint8_t cursor = 0;        // STEP view: the step the pads write into
-  std::uint8_t stepLength = 1;    // STEP view: steps the cursor moves after a write (1, 2, 4)
-  bool stepWritten = false;       // pads wrote since they were last all released
-  // STEP view: the notes step stepBeforeAt had before the pads now down wrote there (sorted). The
-  // same notes pressed again erase the step.
-  std::array<std::uint8_t, 8> stepBefore{};
-  std::uint8_t stepBeforeCount = 0;
-  std::uint8_t stepBeforeAt = 0;
-  bool stepBeforeKnown = false;
+  SeqView noteView = SeqView::Roll;  // the view of melodic tracks
+  SeqView drumView = SeqView::Step;  // the view of drum tracks (STEP: the drum machine)
   bool snap = true;               // placing a take snaps its notes to whole steps
   std::uint8_t focus = kRecordFirstTake;  // RECORD panel GRID focus
   std::uint8_t takeBar = 0;       // which bar of the focused take goes into a pattern
@@ -361,17 +356,25 @@ struct RecordState {
   std::array<std::uint16_t, 128> openNote{};  // capture note index + 1 of each held pitch
 };
 
-// A GRID key down on the drum page: a hit goes in at once; one that was there comes out at the release
-// of a tap, and stays when the key was held to change it.
-inline constexpr std::uint32_t kDrumStepHoldMs = 350;
-struct DrumPress {
+// A GRID key down on the note page (ROLL, STEP and the drum machine), as MatrixOS's sequencer has it: its step is
+// selected while the key is down. A tap (shorter than kHoldMs, nothing else pressed meanwhile) keeps
+// it selected; a hold lets it go at the release, unless it was selected before.
+struct StepKey {
   bool down = false;
-  bool added = false;
-  bool edited = false;
-  bool shown = false;  // Held long enough to say what ADD / SUB change.
-  std::size_t index = 0;
-  std::size_t step = 0;
+  bool wrote = false;        // pads were held: the press put their notes in and selects nothing
+  bool used = false;         // another key was pressed while this one was down: it was a hold
+  bool wasSelected = false;  // selected before this press
+  bool wasOnly = false;      // the only step selected before this press: a tap lets it go
+  std::size_t step = 0;      // from the start of the pattern
   std::uint32_t at = 0;
+};
+
+// Stopped, a step sounds while its key is down: its notes, until that key lets go.
+struct StepAudition {
+  std::array<std::uint8_t, 8> notes{};
+  std::uint8_t count = 0;
+  std::uint8_t track = 0;
+  std::uint8_t key = 0xFF;  // the GRID index of the step key; 0xFF = none
 };
 
 struct UiState {
@@ -379,12 +382,15 @@ struct UiState {
   Scene scene = Scene::Instrument;
   Scene previousScene = Scene::Sequence;
   std::array<std::uint8_t, kSceneCount> page{};
-  std::array<std::uint8_t, kTrackCount> drumVelocity{{100, 100, 100, 100}};  // how hard the GRID puts hits in
+  std::array<std::uint8_t, kTrackCount> drumVelocity{{100, 100, 100, 100}};  // how hard the drum the pads last chose was hit
   std::array<std::uint8_t, kRows * kPadColumns> padVelocity{};
   std::array<DrumHit, kDrumNotes.size()> drumPadHits{};
   std::array<std::uint8_t, kTrackCount> drumLane{};  // the drum each track's pads last chose on the drum page
-  DrumPress drumPress;
-  bool drumEditsMicrostep = false;  // ADD / SUB on a held hit: its timing instead of its velocity.
+  // The note each melodic track's pads last chose on the note page (kNoNote: none yet): the row the
+  // STEP view's GRID shows.
+  std::array<std::uint8_t, kTrackCount> noteLane{{kNoNote, kNoNote, kNoNote, kNoNote}};
+  std::array<StepKey, kGridCount> stepKeys{};
+  StepAudition stepAudition;
   std::size_t track = synth::kDefaultActiveTrack;
   KeyboardSettings keyboard{};
   // Each track's chord effect (INSTR CHORD).
@@ -477,8 +483,9 @@ public:
   void Tick(std::uint32_t nowMs);
   // What ENTER on a project in FILES does: with unsaved changes it asks first.
   void OpenProject(std::string name);
-  // A track on the Drums engine has a drum machine on SEQ's note page: the pads choose the drum, the
-  // GRID puts it on the steps. No other views there.
+  // A track on the Drums engine: its pads are the drums (and how hard). In the STEP view its note page
+  // is the drum machine (DrumLayout); the GRID's step keys work as on any note page.
+  bool DrumTrack() const;
   bool DrumLayout() const;
   AdjustMeaning AdjustKeysMean() const;
   // The pads as the values of the GRID cell being held. What a cell offers: `info` is its range and
@@ -487,7 +494,7 @@ public:
   bool CellParameter(std::size_t index, std::string& label, synth::SynthParameterInfo& info, std::string& text) const;
   // Marks the notes the pads held down are sounding on a track, one bit per MIDI note.
   void AddHeldPadNotes(std::size_t track, std::array<std::uint32_t, 4>& notes) const;
-  void UsePianoRollOnDrums(bool roll) { pianoRollOnDrums_ = roll; }  // For tests of the piano roll on T1.
+  void UsePianoRollOnDrums(bool roll) { state_.record.drumView = roll ? SeqView::Roll : SeqView::Step; }  // Tests: the drum tracks' view.
   std::size_t DrumLane() const { return state_.drumLane[state_.track]; }
   // A take came back from the card: its screen opens, as it was left.
   void ResumeTake(std::size_t track);
@@ -532,7 +539,8 @@ public:
   // The menu kept open by a tap on FN (a modal).
   bool MenuOpen() const { return TopModal() != nullptr && TopModal()->kind == ModalKind::Menu; }
   bool RecordOpen() const { return TopModal() != nullptr && TopModal()->kind == ModalKind::Record; }
-  SeqView View() const { return state_.record.view; }
+  // The current track's note page view (drum and melodic tracks keep one each).
+  SeqView View() const { return DrumTrack() ? state_.record.drumView : state_.record.noteView; }
 
   // Captured takes, newest first (order 0). Null past the last take.
   struct PlacedNote {
@@ -626,7 +634,6 @@ private:
   void InstrumentEnter();
   void InstrumentReset();
   void SequenceGrid(std::size_t index);
-  void SequenceGridRelease(std::size_t index);
   void SequenceAdjust(int delta, bool coarse);
   void SequenceEnter();
   void SongGrid(std::size_t index);
@@ -658,10 +665,12 @@ private:
   void ShowSettingHud(const char* id, const char* label);
   void ShowHud(const std::string& label, const std::string& value, float fraction = -1.0f, bool bipolar = false);
   void FlipStepPage(int delta);
-  void DrumStepPress(std::size_t index);
-  void DrumStepRelease(std::size_t index);
-  bool DrumStepAdjust(int delta, bool coarse);
-  void ShowDrumStepHud();
+  // The note page's step keys (StepKey). Any other key pressed while one is down makes it a hold.
+  void StepKeyPress(std::size_t index);
+  void StepKeyRelease(std::size_t index);
+  void UseStepKeys();
+  void AuditionStep(std::size_t index, std::size_t step);
+  void StopStepAudition();
   void AdjustPatternLength(int delta, bool coarse);
   void SettingsGrid(std::size_t index);
   void SettingsAdjust(int delta, bool coarse);
@@ -679,7 +688,7 @@ private:
   bool ConfirmLosingEdits(ConfirmPurpose purpose, const std::string& title, const std::string& payload);
   void ApplyPreset(const std::string& presetId);
   void ApplyEngine(synth::SynthEngineKind kind);
-  bool PadForSequence(int note, bool pressed);
+  bool PadForSequence(int note, bool pressed, std::uint8_t velocity = 0);
   // Recording (GrooveRecord.cpp).
   void CaptureNoteOn(std::size_t track, std::uint8_t note, std::uint8_t velocity);
   void CaptureNoteOff(std::size_t track, std::uint8_t note);
@@ -694,12 +703,6 @@ private:
   void RecordEnter();
   void RecordFnEnter();
   bool PlaceTake(bool merge);
-  bool StepRecordPress();
-  void StepRecordRelease();
-  void StepCursorMove(int delta);
-  bool StepRecordRepeats() const;
-  void EraseCursorStep();
-  void StepRecordGrid(std::size_t step, std::size_t heldNotes);
 
   // Fn functions
   void AllStop();
@@ -721,7 +724,6 @@ private:
   void OpenConfirm(ConfirmPurpose purpose, const std::string& title, const std::string& detail, bool danger, const std::string& payload = {});
   void OpenPresetBrowser();
   void RefreshPresetBrowser();
-  bool pianoRollOnDrums_ = false;
   bool guide_ = false;
   std::uint64_t guideHint_ = 0;
   bool guideHintWaits_ = true;
