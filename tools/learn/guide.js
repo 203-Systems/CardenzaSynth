@@ -278,6 +278,7 @@
     save: ['你现在的工程太长，教程没法替你暂存。先用 FN+S 存到卡上，在 SETUP 里新建一个空工程，再点这里重试。',
       'Your project is too long to set aside. Save it with FN+S, start a new project in SETUP, then click here to try again.'],
     mem: ['机器的内存不够：重启一下，再点这里重试。', 'The device is short of memory: restart it, then click here to try again.'],
+    card: ['机器里没有 SD 卡：教程开始前要先把你的工程存到卡上。插上卡，重启机器，再点这里重试。', 'There is no SD card in the device: the guide first keeps your project on it. Put a card in, restart the device, then click here to try again.'],
     other: ['机器没能开始教程：点这里重试。', 'The device could not start the guide: click here to try again.'],
   };
   const STATUS = {
@@ -286,6 +287,7 @@
     waiting: ['用 USB 线接上 Cardenza，它会跟着这一课走；没有机器也可以看图跟着学。', 'Plug in your Cardenza with a USB cable and it follows this lesson; no device, follow the pictures.'],
     hello: ['正在连接 Cardenza…', 'Connecting to your Cardenza…'],
     old: ['这台 Cardenza 的固件还不支持教程：更新到最新固件，再接上。', 'This Cardenza\'s firmware has no guide yet: update it, then plug it in again.'],
+    song: ['这一课要新固件：机器上的固件还不能接着做这首歌，先看图跟着学；更新方法见「启动器和固件」。', 'This lesson needs newer firmware: the one on your Cardenza cannot pick up the song here yet. Follow the pictures; updating is in "Launcher and firmware".'],
     on: ['Cardenza 已连接：照着机器上闪的键按，学会了再点「下一步」。', 'Your Cardenza is connected: press the keys blinking on it; when you have got it, press Next.'],
   };
   $$('.l-device').forEach((line) => line.addEventListener('click', () => {
@@ -299,7 +301,7 @@
     if (run) paintRun();
     document.body.classList.toggle('usb-on', live);
     const words = device.reason ? REASONS[device.reason] || REASONS.other
-      : connected() && !device.guide ? STATUS.hello : STATUS[device.status];
+      : connected() && !device.guide ? STATUS.hello : run && run.oldFirmware && device.guide ? STATUS.song : STATUS[device.status];
     $$('.l-device').forEach((line) => {
       line.textContent = say(words[0], words[1]);
       line.classList.toggle('on', live);
@@ -328,6 +330,7 @@
       if (!ours && device.want && document.visibilityState === 'visible') setTimeout(beginGuide, 400);
     } else if (text.startsWith('GS')) {
       device.state = parseState(text.slice(2));
+      if (run && run.pendingStart) applyStart();
       onState(device.state);
     } else if (/^GK[0-9a-f]{2}[01]$/.test(text)) {
       const key = parseInt(text.slice(2, 4), 16);
@@ -378,6 +381,24 @@
     if (!run || !device.guide) return;
     const start = run.section.dataset.start;
     run.waitingStart = true;
+    // The song lessons start from the song so far (GL d<n>): firmware without it would load its old demo
+    // and could not finish the steps. Its state has no song bars (b): the lesson goes by the pictures.
+    run.pendingStart = false;
+    run.oldFirmware = false;
+    paintDevice();
+    if (/d\d/.test(start)) {
+      if (!device.state) {
+        run.pendingStart = true;
+        send('GQ');
+        return;
+      }
+      if (device.state.b === undefined) {
+        run.oldFirmware = true;
+        send('GH');
+        paintDevice();
+        return;
+      }
+    }
     run.startFields = parseState(start.replace(/[rd]\d/g, ''));
     if (run.startFields.t !== undefined) run.startFields.t -= 1;
     delete run.startFields.n;
@@ -435,7 +456,7 @@
   function paintRun(justLearned) {
     const { section, steps, index } = run;
     const li = steps[index];
-    const follows = connected() && device.guide;
+    const follows = connected() && device.guide && !run.oldFirmware;
     const learned = li.dataset.learned === '1';
     $$('.st-page', section).forEach((page) => { page.hidden = Number(page.dataset.step) !== index; });
     $('.anim-text', section).innerHTML = $('.s-say', li).innerHTML;
@@ -476,7 +497,7 @@
   }
 
   function sendHint() {
-    if (!run) return;
+    if (!run || run.oldFirmware) return;
     const li = run.steps[run.index];
     const keys = li ? (li.dataset.keys || '').split(',').filter(Boolean).map(Number) : [];
     // Blinking while the step waits for the user, steady once it is learned (they try more keys).
@@ -484,7 +505,7 @@
   }
 
   function onState(state) {
-    if (!run || run.demo || run.catchingUp) return;
+    if (!run || run.demo || run.catchingUp || run.oldFirmware || run.pendingStart) return;
     if (run.waitingStart) {
       const matches = Object.keys(run.startFields).every((f) => state[f] === run.startFields[f]);
       if (matches) takeBase(state);
@@ -660,7 +681,7 @@
   }
 
   function showOnDevice(li) {
-    if (!run || !device.guide || run.waitingStart) {
+    if (!run || !device.guide || run.waitingStart || run.oldFirmware) {
       playDemo(li, 1);
       return;
     }
@@ -672,7 +693,7 @@
     button.innerHTML = say('演示中…', 'Showing…');
     const toStepStart = (token, then) => {
       const start = run.section.dataset.start;
-      send('GL' + (/[rd]1/.test(start) ? start : 'r1' + start));
+      send('GL' + (/[rd]\d/.test(start) ? start : 'r1' + start));
       replay(run.steps.slice(0, index).flatMap(demoActions), token, then);
     };
     cancelDemo();
