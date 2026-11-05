@@ -416,7 +416,9 @@ bool Init() {
   // One composite device: MIDI, audio both ways, HID, and the HAL's system channel (console, restart
   // into the Launcher or the ROM download mode). Func held at start keeps USB-Serial-JTAG.
   CardenzaHAL::USB::Config usb;
-  usb.product = "Cardenza";
+  // What a computer lists the device, its MIDI ports and its audio as. Host tools and the guide page
+  // find it by "Cardenza" in the name.
+  usb.product = "203 Systems Cardenza";
   // No HID keyboard: this firmware types nothing, and with one macOS lets host tools open the HID
   // interface only with the Input Monitoring permission.
   usb.keyboard = false;
