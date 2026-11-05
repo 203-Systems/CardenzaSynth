@@ -961,6 +961,39 @@ bool SynthSequencer::SetStepNotes(std::size_t trackIndex, std::size_t stepIndex,
   return true;
 }
 
+bool SynthSequencer::ToggleStepNotes(std::size_t trackIndex, std::size_t stepIndex, const std::uint8_t* notes, std::size_t count,
+                                     const std::uint8_t* velocities)
+{
+  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerMaxSteps || notes == nullptr || count == 0) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  TrackData& track = tracks_[trackIndex];
+  auto& steps = ActivePatternLocked(track).steps;
+  std::array<bool, 128> given{};
+  std::array<std::uint8_t, 128> velocity{};
+  for (std::size_t index = 0; index < count; ++index)
+  {
+    if (notes[index] >= given.size()) continue;
+    given[notes[index]] = true;
+    velocity[notes[index]] = velocities != nullptr ? velocities[index] : 0;
+  }
+  const auto& current = steps[stepIndex].notes;
+  const bool present = std::any_of(current.begin(), current.end(), [&](const NoteEvent& event) { return event.active && event.note < given.size() && given[event.note]; });
+  if (present)
+  {
+    for (NoteEvent& event : steps.Edit(stepIndex).notes)
+      if (event.active && event.note < given.size() && given[event.note]) event = NoteEvent{};
+    steps.ReleaseEmptyPages();
+  }
+  else
+  {
+    StepData& step = steps.Edit(stepIndex);
+    for (std::size_t note = 0; note < given.size(); ++note)
+      if (given[note]) ToggleNoteInStepLocked(step, static_cast<std::uint8_t>(note), track, stepIndex, velocity[note]);
+  }
+  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  return true;
+}
+
 bool SynthSequencer::MoveNote(std::size_t trackIndex, std::size_t patternIndex, std::size_t stepIndex, std::uint8_t note, std::uint8_t fromMicrostep, std::uint8_t toMicrostep)
 {
   if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerMaxSteps || toMicrostep >= kSequencerMicrostepCount) return false;
@@ -1941,7 +1974,7 @@ void SynthSequencer::ClearSelectedSteps()
   ClearHeldSteps();
 }
 
-bool SynthSequencer::ToggleNoteOnSelectedSteps(std::uint8_t note)
+bool SynthSequencer::ToggleNoteOnSelectedSteps(std::uint8_t note, std::uint8_t velocity)
 {
   if (note > 127)
   {
@@ -1957,7 +1990,7 @@ bool SynthSequencer::ToggleNoteOnSelectedSteps(std::uint8_t note)
   TrackData& track = tracks_[activeTrack_];
   PatternData& pattern = ActivePatternLocked(track);
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
-    if (heldSteps_[stepIndex]) ToggleNoteInStepLocked(pattern.steps.Edit(stepIndex), note, track, stepIndex);
+    if (heldSteps_[stepIndex]) ToggleNoteInStepLocked(pattern.steps.Edit(stepIndex), note, track, stepIndex, velocity);
   NormalizeScopeLocked();
   return true;
 }
@@ -2775,7 +2808,7 @@ void SynthSequencer::AuditionScopedNoteLocked(std::array<PendingMidiEvent, kMaxP
   AddPendingMidi(events, count, activeTrack_, midi::MidiPacket::NoteOn(0, note->note, note->velocity));
 }
 
-void SynthSequencer::ToggleNoteInStepLocked(StepData& step, std::uint8_t note, TrackData& track, std::size_t stepIndex)
+void SynthSequencer::ToggleNoteInStepLocked(StepData& step, std::uint8_t note, TrackData& track, std::size_t stepIndex, std::uint8_t velocity)
 {
   if (note > 127) return;
   for (NoteEvent& event : step.notes)
@@ -2793,7 +2826,7 @@ void SynthSequencer::ToggleNoteInStepLocked(StepData& step, std::uint8_t note, T
     {
       event.active = true;
       event.note = note;
-      event.velocity = track.defaultVelocity;
+      event.velocity = velocity != 0 ? std::min<std::uint8_t>(velocity, 127) : track.defaultVelocity;
       event.microstep = 0;
       event.lengthPulses = ClampLengthForStepMicrostep(stepIndex, event.microstep, track.defaultLengthPulses);
       return;

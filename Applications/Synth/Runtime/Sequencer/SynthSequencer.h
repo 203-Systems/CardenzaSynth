@@ -75,6 +75,12 @@ public:
   std::size_t StepNoteEvents(std::size_t track, std::size_t step, std::array<StepNoteView, 8>& notes) const;
   // Step recording: the step's notes become exactly these (one step long, on the grid).
   bool SetStepNotes(std::size_t track, std::size_t step, const std::uint8_t* notes, std::size_t count, std::uint8_t velocity);
+  // Notes held on the pads and a step tapped (MatrixOS): when the step of the track's active pattern
+  // holds any of them they come out, else they all go in, with the track's new-note length and each
+  // its velocity from `velocities` (null, or 0 for a note: the track's new-note velocity). The
+  // selection is left alone. False when nothing was given.
+  bool ToggleStepNotes(std::size_t track, std::size_t step, const std::uint8_t* notes, std::size_t count,
+                       const std::uint8_t* velocities = nullptr);
   // Adds one timed note to a pattern of a track (a note of the same pitch on that step is
   // replaced). False when the step already holds eight other notes or the pattern does not exist.
   bool RemoveNote(std::size_t track, std::size_t pattern, std::size_t step, std::uint8_t note);
@@ -168,7 +174,9 @@ public:
   void SetStepSelected(std::size_t step, bool selected);
   bool StepSelected(std::size_t step) const;
   void ClearSelectedSteps();
-  bool ToggleNoteOnSelectedSteps(std::uint8_t note);
+  // A note into the selected steps, or out of those that have it; a new one gets `velocity` (0: the
+  // track's new-note velocity).
+  bool ToggleNoteOnSelectedSteps(std::uint8_t note, std::uint8_t velocity = 0);
   void SetEditLane(SequencerEditLane lane);
   void CycleEditLane();
   void CycleNoteScope();
@@ -405,7 +413,7 @@ private:
   void StopAuditionLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
   void AuditionScopedNoteLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
 
-  void ToggleNoteInStepLocked(StepData& step, std::uint8_t note, TrackData& track, std::size_t stepIndex);
+  void ToggleNoteInStepLocked(StepData& step, std::uint8_t note, TrackData& track, std::size_t stepIndex, std::uint8_t velocity = 0);
   void ApplyLengthToHeldStepsLocked(std::uint16_t lengthPulses);
   void ApplyVelocityToHeldStepsLocked(std::uint8_t velocity);
   void ApplyMicrostepToHeldStepsLocked(std::uint8_t microstep);
