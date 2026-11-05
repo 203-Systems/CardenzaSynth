@@ -111,6 +111,8 @@ enum class ConfirmPurpose : std::uint8_t {
   DeleteSample,
   DiscardTake,
   ReplaceTake,
+  ChangePreset,  // the track's sound has edits: loading a preset (payload: its id) loses them
+  ChangeEngine,  // the same for another engine (payload: its SynthEngineKind as a number)
   Notice,  // only says something (title, and the detail's lines): ENTER or ESC closes it
 };
 
@@ -671,6 +673,12 @@ private:
   void RunMenuAction(const MenuItem& item);
   void SoundPad(std::size_t index, bool on);
   void StepPreset(int delta);
+  // Edits to the track's sound are lost by loading a preset or switching the engine: with edits this
+  // asks first (ENTER loads, ESC keeps them) and returns true; the confirm sits over the browser or
+  // picker it came from, so ESC goes back there.
+  bool ConfirmLosingEdits(ConfirmPurpose purpose, const std::string& title, const std::string& payload);
+  void ApplyPreset(const std::string& presetId);
+  void ApplyEngine(synth::SynthEngineKind kind);
   bool PadForSequence(int note, bool pressed);
   // Recording (GrooveRecord.cpp).
   void CaptureNoteOn(std::size_t track, std::uint8_t note, std::uint8_t velocity);

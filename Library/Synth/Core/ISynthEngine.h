@@ -95,6 +95,9 @@ public:
   // The same with only the values that differ from the base preset: RestoreState takes the preset's
   // value for the others.
   virtual SynthEngineState CaptureChanges() const { return CaptureState(); }
+  // Whether a value differs from what LoadPreset(CurrentPresetId()) would set: edits that loading a
+  // preset (that one again too) or another engine would lose.
+  virtual bool HasEdits() const { return false; }
   virtual bool RestoreState(const SynthEngineState& state) = 0;
   // Whether RestoreState would take this state, without changing anything: a project is checked
   // before any of its tracks replaces what plays now.

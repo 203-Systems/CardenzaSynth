@@ -73,6 +73,40 @@ void Controller::OpenConfirm(ConfirmPurpose purpose, const std::string& title, c
   OpenModal(std::move(modal));
 }
 
+bool Controller::ConfirmLosingEdits(ConfirmPurpose purpose, const std::string& title, const std::string& payload)
+{
+  // A lesson plays on a practice project the guide throws away, and its steps say which key to press
+  // next: a question no step mentions would only stop it.
+  const synth::ISynthEngine* engine = ActiveEngine();
+  if (guide_ || engine == nullptr || !engine->HasEdits()) return false;
+  OpenConfirm(purpose, Upper(title), "EDITS TO " + Upper(engine->CurrentPresetName()) + " WILL BE LOST", true, payload);
+  return true;
+}
+
+void Controller::ApplyPreset(const std::string& presetId)
+{
+  synth::ISynthEngine* engine = ActiveEngine();
+  if (engine == nullptr) return;
+  ReleaseAllPads();
+  if (engine->LoadPreset(presetId)) MarkDirty();
+  else ShowToast("PRESET UNAVAILABLE", ToastKind::Error);
+}
+
+void Controller::ApplyEngine(synth::SynthEngineKind kind)
+{
+  if (kind == ActiveKind()) return;
+  ReleaseAllPads();
+  std::string error;
+  if (host_.SwitchEngine(state_.track, kind, error))
+  {
+    MarkDirty();
+    state_.page[static_cast<std::size_t>(Scene::Instrument)] = 0;
+    state_.instrumentFocus.fill(0);
+    ShowToast(std::string("T") + std::to_string(state_.track + 1) + " " + std::string(EngineShortName(kind)), ToastKind::Ok);
+  }
+  else ShowToast(error.empty() ? "ENGINE UNAVAILABLE" : error, ToastKind::Error);
+}
+
 void Controller::ShowNoCardNotice()
 {
   OpenConfirm(ConfirmPurpose::Notice, "NO SD CARD", "NOTHING WILL BE SAVED\nINSERT A CARD AND RESTART TO SAVE", false);
@@ -236,28 +270,26 @@ void Controller::ModalEnter()
       const ListItem* row = modal->Row(modal->cursor);
       if (engine == nullptr || row == nullptr) return;
       const std::string id = row->id;
+      // The current preset too: loading it again drops its edits.
+      if (ConfirmLosingEdits(ConfirmPurpose::ChangePreset, "LOAD " + row->label + "?", id)) return;
       CloseModal();
-      ReleaseAllPads();
-      if (engine->LoadPreset(id)) MarkDirty();
-      else ShowToast("PRESET UNAVAILABLE", ToastKind::Error);
+      ApplyPreset(id);
       return;
     }
     case ModalKind::EnginePicker:
     {
       if (modal->items.empty()) return;
       const auto kind = static_cast<synth::SynthEngineKind>(std::stoi(modal->items[modal->cursor].id));
-      CloseModal();
-      if (kind == ActiveKind()) return;
-      ReleaseAllPads();
-      std::string error;
-      if (host_.SwitchEngine(state_.track, kind, error))
+      if (kind == ActiveKind())
       {
-        MarkDirty();
-        state_.page[static_cast<std::size_t>(Scene::Instrument)] = 0;
-        state_.instrumentFocus.fill(0);
-        ShowToast(std::string("T") + std::to_string(state_.track + 1) + " " + std::string(EngineShortName(kind)), ToastKind::Ok);
+        CloseModal();
+        return;
       }
-      else ShowToast(error.empty() ? "ENGINE UNAVAILABLE" : error, ToastKind::Error);
+      if (ConfirmLosingEdits(ConfirmPurpose::ChangeEngine, "SWITCH TO " + std::string(EngineShortName(kind)) + "?",
+                             std::to_string(static_cast<int>(kind))))
+        return;
+      CloseModal();
+      ApplyEngine(kind);
       return;
     }
     case ModalKind::SampleBrowser:
@@ -493,6 +525,14 @@ void Controller::Confirmed()
     case ConfirmPurpose::ReplaceTake:
       OpenSampleRecord();
       if (!sampler.BeginRecord(state_.track, true)) ShowToast(sampler.BuildUiState(state_.track).statusText, ToastKind::Error);
+      break;
+    case ConfirmPurpose::ChangePreset:
+      if (Top() != nullptr && Top()->kind == ModalKind::PresetBrowser) CloseModal();
+      ApplyPreset(payload);
+      break;
+    case ConfirmPurpose::ChangeEngine:
+      if (Top() != nullptr && Top()->kind == ModalKind::EnginePicker) CloseModal();
+      ApplyEngine(static_cast<synth::SynthEngineKind>(std::stoi(payload)));
       break;
     case ConfirmPurpose::Notice:
       break;  // read: closed

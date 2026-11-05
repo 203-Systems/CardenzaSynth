@@ -415,6 +415,25 @@ SynthEngineState PagedSynthEngine::CaptureChanges() const
   return state;
 }
 
+bool PagedSynthEngine::HasEdits() const
+{
+  // What LoadPreset(currentPresetId_) sets (the same lookup): a stored preset's values over its base,
+  // or the factory preset's.
+  const auto iterator = std::find_if(presets_.begin(), presets_.end(), [&](const PresetState& preset) {
+    return preset.info.id == currentPresetId_;
+  });
+  const PresetState* stored = iterator == presets_.end() ? nullptr : &*iterator;
+  for (std::size_t index = 0; index < parameters_.size(); ++index)
+  {
+    const SynthParameterInfo& parameter = parameters_[index];
+    const PresetValue* value = stored ? FindPresetValue(*stored, index) : nullptr;
+    const int loaded = value ? ClampToParameterRange(parameter, value->value)
+                             : FactoryParameterValue(stored ? stored->basePresetId : currentPresetId_, parameter);
+    if (parameter.value != loaded) return true;
+  }
+  return false;
+}
+
 bool PagedSynthEngine::ValidState(const SynthEngineState& state) const
 {
   if (state.presetName.empty() || state.presetName.size() > 48 || state.presetId.size() > 64 ||

@@ -734,8 +734,9 @@ void Controller::StepPreset(int delta)
   const int next = (static_cast<int>(current) + delta % static_cast<int>(total) + static_cast<int>(total)) % static_cast<int>(total);
   const auto target = engine->ListPresets({static_cast<std::size_t>(next), 1});
   if (target.items.empty()) return;
-  ReleaseAllPads();
-  if (engine->LoadPreset(target.items.front().id)) MarkDirty();
+  const synth::SynthPresetInfo& preset = target.items.front();
+  if (ConfirmLosingEdits(ConfirmPurpose::ChangePreset, "LOAD " + preset.name + "?", preset.id)) return;
+  ApplyPreset(preset.id);
 }
 
 void Controller::RunSlotAction(SlotAction action)

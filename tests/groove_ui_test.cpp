@@ -489,12 +489,21 @@ void TestInstrument(Harness& h)
   h.Tap(kEsc);
   assert(h.State().scene == Scene::Instrument);
 
-  // ENGINE picker: switch track 2 from Juno to DX7.
+  // ENGINE picker: switch track 2 from Juno to DX7. Its sound has the edits made above, so the switch
+  // asks first: ESC goes back to the picker with the Juno kept, ENTER switches.
   while (h.App().Ui().CurrentPage() != 0) h.Tap(kCtrl);
   h.Tap(Grid(0));
   assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker);
   h.Render();
+  assert(app.Engine(1)->HasEdits());
   h.Tap(Grid(0));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm && h.Modal()->confirmPurpose == groove::ConfirmPurpose::ChangeEngine);
+  assert(h.Modal()->title == "SWITCH TO DX7?" && app.EngineKind(1) == synth::SynthEngineKind::Juno);
+  h.Render();
+  h.Tap(kEsc);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && app.EngineKind(1) == synth::SynthEngineKind::Juno);
+  h.Tap(Grid(0));
+  h.Tap(kEnter);
   assert(app.EngineKind(1) == synth::SynthEngineKind::Dx7);
   assert(h.Modal() == nullptr);
   // The preset browser: the pads do not type; FN + F opens the search field, ENTER filters. ADD
@@ -520,6 +529,58 @@ void TestInstrument(Harness& h)
   h.Tap(kSub);
   h.Tap(kEnter);
   assert(h.Modal() == nullptr);
+}
+
+// Loading a preset (ADD / SUB on VOICE, the browser) asks first when the track's sound has edits;
+// without edits it loads at once.
+void TestPresetEdits(Harness& h)
+{
+  auto& app = h.App();
+  GoToScene(h, 1);
+  h.Chord(kTab, Grid(2));
+  while (h.App().Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  synth::ISynthEngine* engine = app.Engine(2);
+  assert(engine != nullptr && !engine->HasEdits());
+  const auto isConfirm = [&] {
+    return h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm && h.Modal()->confirmPurpose == groove::ConfirmPurpose::ChangePreset;
+  };
+  const auto edit = [&] {
+    const int delay = ParameterValue(app, 2, "fx.delay");
+    assert(engine->SetParameterValue("fx.delay", delay < 100 ? delay + 9 : delay - 9) && engine->HasEdits());
+  };
+  const std::string first = engine->CurrentPresetId();
+  h.Tap(kAdd);
+  const std::string second = engine->CurrentPresetId();
+  assert(second != first && h.Modal() == nullptr);
+
+  // ADD with an edit asks; ESC keeps the sound and the edit.
+  edit();
+  h.Tap(kAdd);
+  assert(isConfirm() && h.Modal()->danger && h.Modal()->detail.find("WILL BE LOST") != std::string::npos);
+  assert(h.Modal()->title.rfind("LOAD ", 0) == 0);
+  h.Render();
+  h.Tap(kEsc);
+  assert(h.Modal() == nullptr && engine->CurrentPresetId() == second && engine->HasEdits());
+  // ENTER loads: the edit is gone, so the next SUB does not ask.
+  h.Tap(kAdd);
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && engine->CurrentPresetId() != second && !engine->HasEdits());
+  h.Tap(kSub);
+  assert(h.Modal() == nullptr && engine->CurrentPresetId() == second);
+
+  // The browser: the confirm sits over it, ESC goes back to the list, ENTER loads and closes both.
+  edit();
+  h.Tap(Grid(1));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::PresetBrowser);
+  h.Tap(kAdd);  // up the list: the current preset is its last (ADD on VOICE went back from the first)
+  h.Tap(kEnter);
+  assert(isConfirm());
+  h.Tap(kEsc);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::PresetBrowser && engine->HasEdits());
+  h.Tap(kEnter);
+  assert(isConfirm());
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && !engine->HasEdits() && engine->CurrentPresetId() != second);
 }
 
 void TestTape(Harness& h)
@@ -1755,8 +1816,10 @@ void TestAdjustIcons(Harness& h)
   GoToScene(h, 1);
   h.Chord(kTab, Grid(1));
   while (app.Ui().CurrentInstrumentPage()->graphic != groove::PageGraphic::Voice) h.Tap(kCtrl);
-  // The instrument's first page walks the presets: up goes up the list, as in the browser.
+  // The instrument's first page walks the presets: up goes up the list, as in the browser. (The
+  // earlier tests left edits on T2, which would make the first step ask: they go first.)
   assert(app.Ui().AdjustKeysMean() == Meaning::List);
+  assert(app.Engine(1)->LoadPreset(app.Engine(1)->CurrentPresetId()) && !app.Engine(1)->HasEdits());
   h.Tap(kSub);
   h.Tap(kSub);
   const std::string lower = app.Engine(1)->CurrentPresetName();
@@ -2591,6 +2654,10 @@ void TestGuide(Harness& h)
   GoToScene(h, 2);
   h.Chord(kTab, Grid(0));
   const std::uint8_t kick = 36;
+  // One pattern, whatever the tests before left on T1 (the key storm makes some).
+  app.Sequencer().SetActiveTrack(0);
+  (void)app.Sequencer().SelectOrCreatePattern(0);
+  while (app.Sequencer().PatternCount(0) > 1) assert(app.Sequencer().DeletePattern(app.Sequencer().PatternCount(0) - 1));
   for (std::size_t step = 0; step < 16; ++step) (void)app.Sequencer().SetStepNotes(0, step, &kick, 0, 100);
   assert(app.Sequencer().SetStepNotes(0, 2, &kick, 1, 100));
   assert(hits(0) == 1);
@@ -2861,6 +2928,7 @@ int main()
   TestPatterns(h);
   TestTransport(h);
   TestInstrument(h);
+  TestPresetEdits(h);
   TestTape(h);
   TestMix(h);
   TestSendsAndFx(h);
