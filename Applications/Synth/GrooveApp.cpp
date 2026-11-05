@@ -674,7 +674,12 @@ void GrooveApp::RenderFrame()
   groove::Gfx gfx(Device::Display::MutableFrameBuffer());
   groove::RenderFrame(gfx, controller_, animator_);
 #if defined(ESP_PLATFORM)
-  // Frame budget report on the serial console every ~12 s (600 frames at 50 fps).
+  // Frame budget report, looked at every ~12 s (600 frames at 50 fps): printed when notes were lost, a
+  // frame took more than a frame's time or the internal RAM's low mark fell by 4 KB, otherwise every
+  // 25 reports (5 minutes). Printed every time, an idle device wrote the log on the card every 5 s.
+  constexpr std::uint32_t kSlowFrameUs = 20000;
+  constexpr std::uint32_t kQuietReports = 25;
+  constexpr std::uint32_t kFastMinimumStep = 4096;
   const auto elapsed = static_cast<std::uint32_t>(
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
   renderTotalUs_ += elapsed;
@@ -684,6 +689,20 @@ void GrooveApp::RenderFrame()
     // Notes lost so far: held ones faded and ones left out (only when the output was about to run dry),
     // held ones whose voice a newer note took (the track's voices all held), let-go tails cut short.
     const synth::audio::GivenUpVoices lost = synth::audio::GivenUpVoiceCounts();
+    const std::uint32_t lostNotes = lost.held + lost.unheard + lost.stolen + lost.tails;
+    const auto fastMinimum = static_cast<std::uint32_t>(memory::FastMinimum());
+    const bool report = ++quietRenderReports_ >= kQuietReports || lostNotes != loggedLostNotes_ || renderMaxUs_ > kSlowFrameUs ||
+                        loggedFastMinimum_ == 0 || fastMinimum + kFastMinimumStep <= loggedFastMinimum_;
+    if (!report)
+    {
+      renderFrames_ = 0;
+      renderTotalUs_ = 0;
+      renderMaxUs_ = 0;
+      return;
+    }
+    quietRenderReports_ = 0;
+    loggedLostNotes_ = lostNotes;
+    loggedFastMinimum_ = fastMinimum;
     std::printf("Groove: render avg=%luus max=%luus heap=%u min=%u largest=%u psram=%u min=%u lost held=%u unheard=%u stolen=%u tails=%u\n",
                 static_cast<unsigned long>(renderTotalUs_ / renderFrames_), static_cast<unsigned long>(renderMaxUs_),
                 static_cast<unsigned>(memory::FastFree()), static_cast<unsigned>(memory::FastMinimum()),

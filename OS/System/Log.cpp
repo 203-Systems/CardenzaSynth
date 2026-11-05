@@ -31,6 +31,10 @@ std::string g_previousPath;  // under g_writeMutex
 std::string g_directory;     // under g_writeMutex
 bool g_directoryReady = false;  // under g_writeMutex
 std::atomic<bool> g_ioFailed{false};  // the system loop has the card looked at
+// What the ring held after the last slow-write note (under g_writeMutex). A write that carries only
+// that note does not note itself again: on a card where every write is slow, an idle device would
+// otherwise write the log every few seconds for the note alone.
+std::size_t g_noteBytes = 0;
 
 long long ElapsedMs(std::chrono::steady_clock::time_point since)
 {
@@ -47,7 +51,10 @@ void SetPathsNoLock()
 // Appends what the ring holds. False when the card refused it.
 bool AppendNoLock()
 {
-  if (Device::Log::Pending() == 0) return true;
+  const std::size_t pending = Device::Log::Pending();
+  if (pending == 0) return true;
+  const bool onlyNote = pending == g_noteBytes;
+  g_noteBytes = 0;
   const auto started = std::chrono::steady_clock::now();
   if (!g_directoryReady) g_directoryReady = os::storage::CreateDirectories(g_directory);
   FILE* file = std::fopen(g_path.c_str(), "ab");
@@ -88,11 +95,12 @@ bool AppendNoLock()
     std::rename(g_path.c_str(), g_previousPath.c_str());
   }
   const long long took = ElapsedMs(started);
-  if (took > kSlowWriteMs)
+  if (took > kSlowWriteMs && !onlyNote)
   {
     char line[48];
     std::snprintf(line, sizeof(line), "log: writing took %lld ms", took);
     Device::Log::Write(line);
+    g_noteBytes = Device::Log::Pending();
   }
   return true;
 }

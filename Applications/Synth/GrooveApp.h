@@ -228,6 +228,11 @@ private:
   std::uint32_t renderFrames_ = 0;
   std::uint64_t renderTotalUs_ = 0;
   std::uint32_t renderMaxUs_ = 0;
+  // What the last render report said: it is printed when notes were lost, a frame was slow or the
+  // internal RAM's low mark fell, otherwise every few minutes (it ends up on the card).
+  std::uint32_t quietRenderReports_ = 0;
+  std::uint32_t loggedLostNotes_ = 0;
+  std::uint32_t loggedFastMinimum_ = 0;
 };
 
 void RegisterGrooveApplication();

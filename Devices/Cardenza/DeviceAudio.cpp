@@ -96,6 +96,10 @@ constexpr uint32_t kAudioTaskStackSize = 12 * 1024;  // Measured: 7 KB.
 constexpr int64_t kRenderBudgetUs =
   static_cast<int64_t>((1000000ULL * kRenderFrameCount) / device::kDefaultSynthAudioSampleRate);
 constexpr uint32_t kTimingLogBlockInterval = 1024;
+// The timing line is printed when an interval had underruns, the USB line when the computer's audio
+// starts, stops or restarts; otherwise both once every this many intervals (about 5 minutes). Every
+// line ends up on the card: printed every interval, an idle device wrote the log every 5 s.
+constexpr uint32_t kQuietLogIntervals = 50;
 // What the output's DMA holds (CardenzaHAL audio: six descriptors of 256 frames), and how long a write
 // has to wait to tell that it was full.
 constexpr int64_t kOutputQueueUs = 6 * kRenderBudgetUs;
@@ -211,6 +215,12 @@ void AudioRenderTask(void*)
   std::uint32_t underruns = 0;
   int64_t queuedUs = 0;
   int64_t lastWriteEndUs = 0;
+  // What the last printed lines said (kQuietLogIntervals).
+  std::uint32_t loggedUnderruns = 0;
+  std::uint32_t quietIntervals = kQuietLogIntervals;  // the first interval is printed
+  unsigned long previousUsbPackets = 0;  // USB audio packets counted at the end of the last interval
+  unsigned long loggedUsbRestarts = 0;
+  bool loggedUsbStreaming = false;
   // Without a speaker to write to (the microphone has GPIO43, the codec is down, a write failed),
   // nothing paces the render: blocks are rendered at the rate they would be heard, at most two in a
   // row before a tick's sleep, so the engines, streamed samples and the audio to the computer keep real
@@ -298,18 +308,31 @@ void AudioRenderTask(void*)
     ++renderedBlocks;
     if ((renderedBlocks % kTimingLogBlockInterval) == 0)
     {
-      ESP_LOGI(kLogTag,
-               "audio timing: blocks=%" PRIu32 " avg_render=%" PRId64 "us max_render=%" PRId64 "us max_write=%" PRId64 "us budget=%" PRId64 "us overruns=%" PRIu32 " underruns=%" PRIu32,
-               renderedBlocks,
-               totalRenderUs / kTimingLogBlockInterval,
-               maxRenderUs,
-               maxWriteUs,
-               kRenderBudgetUs,
-               overBudgetRenderCount,
-               underruns);
-      if (CardenzaHAL::USB::Started())
+      const bool heartbeat = ++quietIntervals >= kQuietLogIntervals;
+      if (heartbeat || underruns != loggedUnderruns)
       {
-        const CardenzaHAL::USB::AudioCounters usb = CardenzaHAL::USB::AudioStats();
+        ESP_LOGI(kLogTag,
+                 "audio timing: blocks=%" PRIu32 " avg_render=%" PRId64 "us max_render=%" PRId64 "us max_write=%" PRId64 "us budget=%" PRId64 "us overruns=%" PRIu32 " underruns=%" PRIu32,
+                 renderedBlocks,
+                 totalRenderUs / kTimingLogBlockInterval,
+                 maxRenderUs,
+                 maxWriteUs,
+                 kRenderBudgetUs,
+                 overBudgetRenderCount,
+                 underruns);
+        loggedUnderruns = underruns;
+        quietIntervals = 0;
+      }
+      const CardenzaHAL::USB::AudioCounters usb =
+          CardenzaHAL::USB::Started() ? CardenzaHAL::USB::AudioStats() : CardenzaHAL::USB::AudioCounters{};
+      const unsigned long usbPackets = static_cast<unsigned long>(usb.packetsFromHost) + static_cast<unsigned long>(usb.packetsToHost);
+      const bool usbStreaming = usbPackets != previousUsbPackets;
+      previousUsbPackets = usbPackets;
+      if (CardenzaHAL::USB::Started() &&
+          (usbStreaming != loggedUsbStreaming || usb.playbackRestarts != loggedUsbRestarts || (heartbeat && usbStreaming)))
+      {
+        loggedUsbStreaming = usbStreaming;
+        loggedUsbRestarts = usb.playbackRestarts;
         ESP_LOGI(kLogTag, "usb audio: from_pc %lu pkts %lu B fifo %lu read %lu restarts %lu | to_pc %lu pkts %lu B empty %lu fifo %lu written %lu peak %u | in=%d out=%d heap=%u",
                  static_cast<unsigned long>(usb.packetsFromHost), static_cast<unsigned long>(usb.bytesFromHost),
                  static_cast<unsigned long>(usb.fifoFromHost), static_cast<unsigned long>(g_framesFromComputer.load()),

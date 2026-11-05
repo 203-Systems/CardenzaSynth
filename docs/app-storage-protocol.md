@@ -155,7 +155,9 @@ full), once at boot right after the settings are read, and before an app switch 
 device the append runs on its background task (`Device::Background`), never while a sample plays from
 the card (`SetCardStreaming`). Past 512 KB the file becomes `log.1.txt`, replacing the one before. A
 line starts with the seconds since boot; every start begins with `==== <app> <version> (elf <hash>)
-started`. There is no heap buffer for it, and a failed write loses only that text. A run without a
+started`. There is no heap buffer for it, and a failed write loses only that text. Nothing is written while
+nothing is printed, and the firmware's periodic reports print only when they have news (otherwise every
+five minutes), so an idle device leaves the card alone. A run without a
 card writes no log: the ring keeps the newest lines. Users send these two files when something went
 wrong.
 
