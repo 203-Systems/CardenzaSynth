@@ -94,6 +94,8 @@ constexpr int kSegments = kWidth / kSegmentPixels;
 constexpr int kBandRows = 8;
 constexpr int kBands = (kHeight + kBandRows - 1) / kBandRows;
 static_assert(kSegments * kSegmentPixels == kWidth && kSegments <= 32 && kSegmentPixels % 2 == 0);
+// Every segment starts on a word boundary (the buffer is alignas(4)), so it is hashed a word at a time.
+static_assert((kWidth * sizeof(Pixel)) % 4 == 0 && (kSegmentPixels * sizeof(Pixel)) % 4 == 0);
 // kHeight * kSegments hashes, read once a frame: PSRAM. Null: whole frames.
 std::uint32_t* segmentHashes = nullptr;
 bool segmentHashesTried = false;
@@ -102,13 +104,17 @@ bool segmentHashesTried = false;
 // nothing the panel lost or a hash missed stays on screen. A whole frame at once would take 17 ms.
 int refreshBand = 0;
 
+// ESP-IDF builds with -fno-builtin-memcpy: std::memcpy is a call to the ROM even for one word, and
+// hashing a frame that way took 3.6 ms of the UI's 20 (5.5 ms with the audio busy). __builtin_memcpy
+// of an aligned word is one load: 0.4 ms (2026-11-05).
 std::uint32_t HashSegment(const Pixel* pixels)
 {
   std::uint32_t hash = 2166136261u;
+  const auto* bytes = static_cast<const unsigned char*>(__builtin_assume_aligned(pixels, 4));
   for (int index = 0; index < kSegmentPixels; index += 2)
   {
     std::uint32_t word;
-    std::memcpy(&word, pixels + index, sizeof(word));
+    __builtin_memcpy(&word, __builtin_assume_aligned(bytes + 2 * index, 4), sizeof(word));
     hash = (hash ^ word) * 16777619u;
   }
   return hash ^ (hash >> 15);
