@@ -577,8 +577,10 @@ void Controller::PressPad(std::size_t row, std::size_t column)
     return;
   }
   SoundPad(index, true);
-  // STEP REC: the held pads become the notes of the cursor step.
-  if (!editing && state_.scene == Scene::Sequence && CurrentPage() == 0 && TopModal() == nullptr && state_.record.view == SeqView::Step)
+  // STEP REC: the held pads become the notes of the cursor step. Not on a drum track, which has no
+  // STEP view: a view left on STEP by a melodic track wrote its pads into a cursor nobody saw.
+  if (!editing && state_.scene == Scene::Sequence && CurrentPage() == 0 && TopModal() == nullptr && state_.record.view == SeqView::Step &&
+      !DrumLayout())
   {
     (void)StepRecordPress();
     return;
