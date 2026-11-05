@@ -1526,9 +1526,20 @@ void TestLongPatternUi(Harness& h)
   h.Chord(kFn, Grid(9));
   assert(h.Seq().viewPage == 1 && h.Seq().firstViewStep == 16);
   h.Render();
-  h.Chord(kFn, kSub);
-  assert(h.Seq().viewPage == 0);
+  // ADD / SUB flip the pages (the keys show sideways arrows); FN + ADD / SUB go through the patterns.
+  assert(h.App().Ui().AdjustKeysMean() == groove::AdjustMeaning::Sideways);
+  h.Tap(kSub);
+  assert(h.Seq().viewPage == 0 && h.State().hud.label == "PAGE");
+  h.Tap(kAdd);
+  assert(h.Seq().viewPage == 1);
+  const std::size_t pattern = sequencer.ActivePattern(track);
+  const std::size_t patterns = sequencer.PatternCount(track);
   h.Chord(kFn, kAdd);
+  assert(sequencer.ActivePattern(track) == (pattern + 1) % patterns && h.State().hud.label.rfind("PATTERN", 0) == 0);
+  h.Chord(kFn, kSub);
+  assert(sequencer.ActivePattern(track) == pattern && h.State().hud.value == "P" + std::string(pattern + 1 < 10 ? "0" : "") + std::to_string(pattern + 1));
+  // Another pattern shows its first page; back on the second.
+  if (h.Seq().viewPage != 1) h.Tap(kAdd);
   assert(h.Seq().viewPage == 1);
   h.Render();
   // The GRID edits the page it shows: its third cell is step 19 here.
@@ -1553,9 +1564,9 @@ void TestLongPatternUi(Harness& h)
   h.Tap(Grid(1));
   assert(h.Seq().primaryHeldStep == 17 && h.Seq().viewPage == 1);
   h.Render();
-  // FN + ADD / SUB flips the page once nothing is selected.
+  // ADD / SUB flip the page once nothing is selected.
   h.Tap(kEsc);
-  h.Chord(kFn, kSub);
+  h.Tap(kSub);
   assert(h.Seq().viewPage == 0 && !h.Seq().hasHeldSteps);
   h.Chord(kFn, Grid(5));
   // The longest pattern is 256 steps; TRACK steps by one, FN by a page.
@@ -1895,14 +1906,18 @@ void TestAdjustIcons(Harness& h)
   h.Tap(kAdd);
   h.Up(kTab);
   h.Chord(kTab, Grid(1));
-  // SEQ: a value (pattern, velocity), in both note views.
+  // SEQ note page: sideways (pages) with nothing selected, in both views; a value with a step
+  // selected (its edit lane).
   GoToScene(h, 2);
   while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
-  assert(app.Ui().AdjustKeysMean() == Meaning::Value);
+  assert(app.Ui().AdjustKeysMean() == Meaning::Sideways);
   h.Tap(kEnter);
   h.Wait(50);
-  assert(app.Ui().AdjustKeysMean() == Meaning::Value);
+  assert(app.Ui().AdjustKeysMean() == Meaning::Sideways);
   if (app.Ui().View() == groove::SeqView::Step) { h.Tap(kEnter); h.Wait(50); }
+  h.Tap(Grid(0));
+  assert(app.Ui().AdjustKeysMean() == Meaning::Value);
+  h.Tap(kEsc);
   // TAPE: the session is a list, the rest values.
   GoToScene(h, 3);
   while (app.Ui().CurrentPage() != groove::kTapeSession) h.Tap(kCtrl);

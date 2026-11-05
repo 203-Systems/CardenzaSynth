@@ -977,8 +977,8 @@ void Controller::SequenceAdjust(int delta, bool coarse)
   switch (CurrentPage())
   {
     case 0:
-      // Selected steps: the value of the edit lane (OK chooses it). Nothing selected: FN flips the
-      // GRID's page, plain ADD / SUB the pattern.
+      // Selected steps: the value of the edit lane (OK chooses it). Nothing selected: ADD / SUB flip
+      // the GRID's page, FN + ADD / SUB go to the next / previous pattern.
       if (ui.hasHeldSteps)
       {
         // On a drum track the pads pick the drum: the NOTE lane does not move hits to pitches that
@@ -991,7 +991,7 @@ void Controller::SequenceAdjust(int delta, bool coarse)
         if (sequencer.AdjustSelectedSteps(delta, coarse)) MarkDirty();
         return;
       }
-      if (coarse)
+      if (!coarse)
       {
         FlipStepPage(delta);
         return;
@@ -1004,6 +1004,10 @@ void Controller::SequenceAdjust(int delta, bool coarse)
       const int count = static_cast<int>(track.patternCount);
       const int next = (static_cast<int>(base) + (delta > 0 ? 1 : -1) + count) % count;
       sequencer.QueuePattern(state_.track, static_cast<std::size_t>(next));
+      // Say where to: while playing the switch waits for the loop's end.
+      const bool waits = sequencer.Playing() && static_cast<std::size_t>(next) != track.activePattern;
+      ShowHud(std::string(waits ? "NEXT PATTERN " : "PATTERN ") + std::to_string(next + 1) + "/" + std::to_string(count),
+              PatternLabel(static_cast<std::size_t>(next)), count > 1 ? static_cast<float>(next) / static_cast<float>(count - 1) : -1.0f);
       break;
     }
     case 2:
@@ -1565,7 +1569,7 @@ std::vector<Controller::FnEntry> Controller::FnEntries() const
       {"6/Y", "BPM+-", true},
       {"7/U", "VOL+-", true},
       {"8/I", "OCT+-", true},
-      {"+-", state_.scene == Scene::Sequence && CurrentPage() == 0 ? "STEP PAGE" : "BIG STEP", true},
+      {"+-", state_.scene == Scene::Sequence && CurrentPage() == 0 && !host_.Sequencer().HasHeldSteps() ? "PATTERN" : "BIG STEP", true},
       {"CTRL", "PREV PAGE", PageCount(state_.scene) > 1},
       {"TAB", "PREV TRK", true},
       {"ESC", "STOP", true},

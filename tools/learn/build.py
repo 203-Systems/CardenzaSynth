@@ -224,9 +224,9 @@ def shot_script():
     # FILES after the save: the list shows the project.
     s.scene(0).page(1).shot("setup-files")
     s.act("tap esc").wait(30)
-    # A long pattern: SEQ menu LEN + twice (16 -> 48 steps), then FN + ADD to its second page.
+    # A long pattern: SEQ menu LEN + twice (16 -> 48 steps), then ADD to its second page.
     s.scene(2).page(0)
-    s.act("down fn", f"tap {grid_key(11)}", f"tap {grid_key(11)}", "tap del", "up fn").shot("seq-long", 30)
+    s.act("down fn", f"tap {grid_key(11)}", f"tap {grid_key(11)}", "up fn", "tap del").shot("seq-long", 30)
     return "\n".join(s.lines) + "\n"
 
 

@@ -1000,6 +1000,8 @@ AdjustMeaning Controller::AdjustKeysMean() const
     case Scene::Instrument:
       return CurrentInstrumentPage()->graphic == PageGraphic::Voice ? AdjustMeaning::List : AdjustMeaning::Value;
     case Scene::Sequence:
+      // The note page with nothing selected: ADD / SUB flip the GRID's page.
+      if (CurrentPage() == 0 && !host_.Sequencer().HasHeldSteps()) return AdjustMeaning::Sideways;
       return AdjustMeaning::Value;
     case Scene::Tape:
       return CurrentPage() == kTapeSession ? AdjustMeaning::List : AdjustMeaning::Value;
