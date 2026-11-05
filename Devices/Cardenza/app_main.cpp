@@ -19,7 +19,7 @@ constexpr char kLogTag[] = "Cardenza";
 // A frame every 10 ms (keys, LEDs, the app's tick); the screen is drawn every other one, 50 fps.
 // pdMS_TO_TICKS rounds down: 16 ms was one 10 ms tick at 100 Hz.
 constexpr TickType_t kFrameTick = pdMS_TO_TICKS(10);
-static_assert(kFrameTick >= 1, "the frame tick needs a tick rate of 100 Hz or more");
+static_assert(kFrameTick >= 1, "the frame tick needs a tick rate of 100 Hz or more (the screen wants 1000 Hz, sdkconfig.defaults)");
 // ESP-IDF's task creation APIs take bytes, unlike upstream FreeRTOS.
 constexpr uint32_t kRuntimeTaskStackBytes = 16384;
 constexpr UBaseType_t kRuntimeTaskPriority = 5;
@@ -97,7 +97,7 @@ void CardenzaRuntimeTask(void*)
              Device::Display::kHeight);
     LogInternalHeap("after boot");
 
-    // A frame per tick (10 ms at 100 Hz), drawn every other one (50 fps). xTaskDelayUntil does not
+    // A frame every 10 ms, drawn every other one (50 fps). xTaskDelayUntil does not
     // block after a frame longer than that, and the tasks below this one on core 0 (the card's log and
     // autosave writer, the idle task) then never ran while the frames stayed long: a restored project
     // with 10 ms frames kept core 0 at 93% with nothing left to them, and the stress build's watchdog

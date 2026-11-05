@@ -6,6 +6,10 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+# A millisecond tick: the HAL waits for each 8-row band it sends to the screen, and esp_lcd does not
+# yield from the transfer's completion, so the waiting task runs at the next tick. At 100 Hz a band
+# took 10 ms and the UI drew at under 30 fps (2026-11-05); 0.1.0 shipped with 1000 Hz.
+CONFIG_FREERTOS_HZ=1000
 # Long file names: the storage protocol uses names such as settings.cfg.bak and <project>.ccproj.
 CONFIG_FATFS_LFN_HEAP=y
 
