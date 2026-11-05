@@ -25,7 +25,7 @@
 
 namespace amy_embed { extern "C" {
 extern std::uint16_t* voice_to_base_osc;
-extern std::uint8_t* osc_to_voice;
+extern std::uint16_t* osc_to_voice;
 } }
 
 namespace { std::filesystem::path storageRoot; }
@@ -328,7 +328,7 @@ int main()
   // Juno A12 carries +7/-3/-3 dB EQ and A13 carries -8/0/0 dB in AMY's ROM.
   // Loading either track must leave the shared master flat, independent of order.
   const auto assertFlatMaster = []() {
-    for (const auto gain : amy_embed::amy_global.eq) assert(std::abs(S2F(gain) - 1.0f) < 0.000001f);
+    for (const auto gain : amy_embed::amy_global.bus[0]->eq.eq) assert(std::abs(S2F(gain) - 1.0f) < 0.000001f);
   };
   EnsureEngine(0, SynthEngineKind::Juno);
   SetEnginePreset(0, "juno.a12");
@@ -495,7 +495,7 @@ int main()
     return std::sqrt(sum / double(pcm.size()));
   };
   const auto settle = [&](int buffers) { for (int i = 0; i < buffers; ++i) RenderFrames(pcm.data(), pcm.size()); };
-  const auto near = [](double value, double expected, double tolerance) { return std::abs(value - expected) <= tolerance; };
+  const auto nearValue = [](double value, double expected, double tolerance) { return std::abs(value - expected) <= tolerance; };
   const auto resetMixTracks = [&]() {
     for (std::size_t track = 0; track < kSynthTrackCount; ++track)
     {
@@ -558,7 +558,7 @@ int main()
   }};
   // Each run holds note 60 for 12 buffers (~0.56 s) on a fixed schedule; LFOs and operator beating
   // make the level drift within a note, so runs are compared window by window with a reference.
-  constexpr int kRunBuffers = 12;
+  static constexpr int kRunBuffers = 12;  // static: MSVC cannot use a captured constexpr local as a template argument
   const auto runNote = [&](auto beforeBuffer) {
     std::array<double, kRunBuffers> levels{};
     NoteOn(0, 60, 100);
@@ -586,22 +586,22 @@ int main()
     setupTrack(mixCase.kind, mixCase.preset, mixCase.frames);
     const auto reference = runNote([](int) {});
     assert(ratio(reference, reference, 0, kRunBuffers - 1) == 1.0 && reference[2] > 100.0);
-    assert(near(ratio(runNote([](int) {}), reference, 2, kRunBuffers - 1), 1.0, 0.05)); // Runs repeat.
+    assert(nearValue(ratio(runNote([](int) {}), reference, 2, kRunBuffers - 1), 1.0, 0.05)); // Runs repeat.
     // New notes start at the track gain.
     SetTrackGain(0, 0.5f);
     settle(1);
     const auto half = runNote([&](int buffer) {
       if (buffer == 2) assert(mixCase.frames ? g_trackMix[0].samplerGain == 0.5f : amyTrackGainIs(0.5f));
     });
-    assert(near(ratio(half, reference, 0, kRunBuffers - 1), 0.5, 0.05));
+    assert(nearValue(ratio(half, reference, 0, kRunBuffers - 1), 0.5, 0.05));
     // A held note follows the fader down and back up.
     const auto held = runNote([&](int buffer) {
       if (buffer == 3) SetTrackGain(0, 0.5f);
       if (buffer == 7) SetTrackGain(0, 1.0f);
     });
-    assert(near(ratio(held, reference, 0, 2), 1.0, 0.05));
-    assert(near(ratio(held, reference, 4, 6), 0.5, 0.06));
-    assert(near(ratio(held, reference, 8, kRunBuffers - 1), 1.0, 0.06));
+    assert(nearValue(ratio(held, reference, 0, 2), 1.0, 0.05));
+    assert(nearValue(ratio(held, reference, 4, 6), 0.5, 0.06));
+    assert(nearValue(ratio(held, reference, 8, kRunBuffers - 1), 1.0, 0.06));
     // Mute silences the held note for 24 AMY blocks, longer than AMY's ten-block silence
     // suspension, and drops new notes; unmute brings the held note back.
     const auto muted = runNote([&](int buffer) {
@@ -611,7 +611,7 @@ int main()
       if (buffer == 7) SetTrackMuted(0, false);
       if (buffer >= 8) assert(sounding(60));
     });
-    assert(near(ratio(muted, reference, 8, kRunBuffers - 1), 1.0, 0.06));
+    assert(nearValue(ratio(muted, reference, 8, kRunBuffers - 1), 1.0, 0.06));
     // Note-offs pass while muted, so nothing hangs after unmute.
     const auto released = runNote([&](int buffer) {
       if (buffer == 2) SetTrackMuted(0, true);
@@ -637,7 +637,7 @@ int main()
     if (buffer == 0) SetTrackGain(0, 0.5f);
     if (buffer == 3) SetEngineParameter(0, "vca.level", 50);
   });
-  assert(near(ratio(junoEditedHalf, junoEdited, 4, kRunBuffers - 1), 0.5, 0.05));
+  assert(nearValue(ratio(junoEditedHalf, junoEdited, 4, kRunBuffers - 1), 0.5, 0.05));
   SetTrackGain(0, 0.5f);
   SetEnginePreset(0, "juno.a51");
   EnsureEngine(0, SynthEngineKind::Dx7);
@@ -645,7 +645,7 @@ int main()
   SetEnginePreset(0, "juno.a51");
   settle(1);
   assert(amyTrackGainIs(0.5f));
-  assert(near(ratio(runNote([](int) {}), junoReference, 0, kRunBuffers - 1), 0.5, 0.05));
+  assert(nearValue(ratio(runNote([](int) {}), junoReference, 0, kRunBuffers - 1), 0.5, 0.05));
 
   // Drums: one-shots scale with the gain, master.level composes with it, mute drops pads.
   resetMixTracks();
@@ -665,13 +665,13 @@ int main()
   const auto kick = hit(36);
   SetTrackGain(0, 0.5f);
   settle(1);
-  assert(near(rmsOf(hit(36)) / rmsOf(kick), 0.5, 0.05));
+  assert(nearValue(rmsOf(hit(36)) / rmsOf(kick), 0.5, 0.05));
   SetEngineParameter(0, "master.level", 60);
   const double quietKickHalf = rmsOf(hit(36));
   SetTrackGain(0, 1.0f);
   settle(1);
   const double quietKick = rmsOf(hit(36));
-  assert(quietKick < rmsOf(kick) * 0.8 && near(quietKickHalf / quietKick, 0.5, 0.05));
+  assert(quietKick < rmsOf(kick) * 0.8 && nearValue(quietKickHalf / quietKick, 0.5, 0.05));
   SetEngineParameter(0, "master.level", 100);
   assert(hit(36) == kick); // A unity round trip renders the deterministic PCM path bit-identically.
   SetTrackMuted(0, true);
@@ -701,10 +701,10 @@ int main()
   const float heldActivity = TrackActivity(0);
   assert(heldActivity > 0.5f && heldActivity <= 1.0f);
   settle(20);
-  assert(near(TrackActivity(0), 0.5, 0.01)); // Held keys keep half the note-on bump.
+  assert(nearValue(TrackActivity(0), 0.5, 0.01)); // Held keys keep half the note-on bump.
   SetTrackGain(0, 0.5f);
   settle(8);
-  assert(near(TrackActivity(0), 0.25, 0.01));
+  assert(nearValue(TrackActivity(0), 0.25, 0.01));
   const float peakWhilePlaying = OutputPeak();
   NoteOff(0, 60);
   settle(10);
@@ -746,8 +746,8 @@ int main()
   assert(MasterFx(MasterParam::DelayFeedback) == 127 && MasterFx(MasterParam::DelayTime) == 0);
   resetMasterFx();
   assert(FxBusAvailable(fx::kBusDelay) && FxBusAvailable(fx::kBusReverb) && !FxBusAvailable(fx::kBusCount) && FxReturnLevel(fx::kBusCount) == 0.0f);
-  assert(near(fx::dsp::DelaySeconds(5, 120.0f), 0.25, 1e-6) && near(fx::dsp::DelaySeconds(7, 120.0f), 0.375, 1e-6));
-  assert(near(fx::dsp::DelaySeconds(11, 30.0f), 1.0, 1e-6)); // A 4 s half note halves until it fits the long line.
+  assert(nearValue(fx::dsp::DelaySeconds(5, 120.0f), 0.25, 1e-6) && nearValue(fx::dsp::DelaySeconds(7, 120.0f), 0.375, 1e-6));
+  assert(nearValue(fx::dsp::DelaySeconds(11, 30.0f), 1.0, 1e-6)); // A 4 s half note halves until it fits the long line.
 
   // Neutral settings render bit-identically; a flat master EQ is an exact bypass, so a boost
   // changes the kick and returning to flat restores it bit for bit.
@@ -863,8 +863,8 @@ int main()
     const double echo = centroid(onset + 2000, audio.size());
     return (echo - dry) / double(kSampleRate);
   };
-  assert(near(echoDelay(120.0f), 0.25, 0.001));
-  assert(near(echoDelay(90.0f), 1.0 / 3.0, 0.001));
+  assert(nearValue(echoDelay(120.0f), 0.25, 0.001));
+  assert(nearValue(echoDelay(90.0f), 1.0 / 3.0, 0.001));
   SetEngineParameter(1, "fx.delay", 0);
   assert(drainFx(150));
   SetTempo(120.0f);
@@ -940,15 +940,15 @@ int main()
   SetEngineParameter(0, "op1.coarse", 1);
   settle(1);
   assert(oscillator(1, 1).wave == SAW_UP);
-  assert(near(oscillator(1, 0).freq_coefs[amy_embed::COEF_MOD], 0.6 * std::pow(1.7, 2.0) * 50.0 / 1188.0, 1e-5));
-  assert(g_engines[0].dx7[105 + 7] == 20 && near(oscillator(1, 7).eg0_values[0], Dx7Level(20), 1e-4));
+  assert(nearValue(oscillator(1, 0).freq_coefs[amy_embed::COEF_MOD], 0.6 * std::pow(1.7, 2.0) * 50.0 / 1188.0, 1e-5));
+  assert(g_engines[0].dx7[105 + 7] == 20 && nearValue(oscillator(1, 7).eg0_values[0], Dx7Level(20), 1e-4));
   assert(std::isnan(oscillator(1, 7).ratio) && oscillator(1, 7).freq_coefs[amy_embed::COEF_CONST] > 9.0f);
   SetEngineParameter(0, "op1.mode", 0);
   settle(1);
   {
     const auto& op = g_engines[0].dx7;
     const double expectedRatio = 1.0 + (op[105 + 19] + (op[105 + 20] - 7.0) / 8.0) / 100.0;
-    assert(op[105 + 17] == 0 && near(oscillator(1, 7).ratio, expectedRatio, 1e-3));
+    assert(op[105 + 17] == 0 && nearValue(oscillator(1, 7).ratio, expectedRatio, 1e-3));
   }
   // Juno: DCO LFO depth, pulse switch, VCF polarity and the VCA mode, which swaps the envelopes.
   EnsureEngine(0, SynthEngineKind::Juno);
@@ -959,7 +959,7 @@ int main()
   SetEngineParameter(0, "vcf.polarity", 1);
   SetEngineParameter(0, "vca.mode", 0);
   settle(1);
-  assert(near(oscillator(1, 2).freq_coefs[amy_embed::COEF_MOD], 0.03, 1e-6) && oscillator(1, 2).amp_coefs[amy_embed::COEF_CONST] == 0.0f);
+  assert(nearValue(oscillator(1, 2).freq_coefs[amy_embed::COEF_MOD], 0.03, 1e-6) && oscillator(1, 2).amp_coefs[amy_embed::COEF_CONST] == 0.0f);
   auto control = oscillator(1, 0);
   const std::uint32_t attackMs = 6 + 8 * g_engines[0].juno[11];
   const auto zero = [](float coefficient) { return coefficient == 0.0f || std::isnan(coefficient); }; // AMY reports zero coefficients as unset.

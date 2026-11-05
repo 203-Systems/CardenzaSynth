@@ -68,19 +68,20 @@ extern "C" {
 #include "amy.h"
 // AMY's voice table (patches.c): the first oscillator of every allocated voice.
 extern uint16_t* voice_to_base_osc;
-// A ROM patch's text (patches.c, a build-time addition: cmake/CardenzaSynthSourceLists.cmake).
-const char* cardenza_patch_command(uint16_t patch_number);
+// Where oscillator state and the event pool's blocks go (AmyEmbeddedStubs.c, amy_config_t's hooks).
+void* cardenza_amy_osc_malloc(uint32_t size);
+void* cardenza_amy_pool_malloc(uint32_t size);
 
 // What AMY does to an oscillator that has gone silent (amy.c).
 void reset_modosc(struct mod_synthinfo* pmsynth);
 void reset_osc_state(struct synthinfo* psynth);
-// The block being rendered, per core (amy.c).
-extern SAMPLE* fbl[AMY_MAX_CORES];
+// The block being rendered, per core and bus (amy.c; one bus here, EnsureAmyInitialized).
+extern SAMPLE** fbl[AMY_MAX_CORES];
 extern SAMPLE core_max[AMY_MAX_CORES];
-// One oscillator's block, as amy_render does it for each (amy.c).
-extern SAMPLE* per_osc_fb[AMY_MAX_CORES];
+// One oscillator's block, as amy_render does it for each, per core and bus (amy.c).
+extern SAMPLE** per_osc_fb[AMY_MAX_CORES];
 SAMPLE render_osc_wave(uint16_t osc, uint8_t core, SAMPLE* buf);
-void mix_with_pan(SAMPLE* stereo_dest, SAMPLE* mono_src, float pan_start, float pan_end);
+void mix_with_pan(SAMPLE* stereo_dest, SAMPLE* mono_src, float pan_start, float pan_end, float level);
 }
 }  // namespace amy_embed
 
@@ -630,19 +631,24 @@ void EnsureAmyInitialized()
     // CARDENZA sequences in SynthSequencer; AMY's own tag table would only cost internal RAM.
     config.max_sequencer_tags = 1;
   #if defined(ESP_PLATFORM)
-    // The render and mix blocks and the event pool stay in internal RAM (ram_caps_synth is AMY's name
-    // for the event pool and the oscillator tables). Each oscillator's state (ram_caps_events, despite
-    // the name) no longer uses these caps: it goes through cardenza_amy_osc_malloc (internal RAM while
-    // there is room, PSRAM after) and is given back with its voice (AmyEmbeddedStubs.c).
+    // The render and mix blocks and AMY's tables stay in internal RAM (ram_caps_synth is AMY's name for
+    // the oscillator tables). Each oscillator's state and the event pool's blocks do not use these caps:
+    // they go through our allocators (internal RAM while there is room, PSRAM after,
+    // AmyEmbeddedStubs.c); an oscillator's state is given back when its voice is released.
     constexpr std::uint32_t kAmyFastCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     config.ram_caps_synth = kAmyFastCaps;
     config.ram_caps_block = kAmyFastCaps;
     config.ram_caps_fbl = kAmyFastCaps;
     config.ram_caps_events = kAmyFastCaps;
+    config.ram_caps_oscs = kAmyFastCaps;
   #endif
+    config.amy_external_osc_alloc_hook = amy_embed::cardenza_amy_osc_malloc;
+    config.amy_external_delta_alloc_hook = amy_embed::cardenza_amy_pool_malloc;
     config.max_synths = kAmyMaxSynths;
     config.max_voices = kAmyMaxVoices;
     config.max_oscs = kAmyMaxOscs;
+    // The tracks' effects are ours (SynthFx): AMY mixes every voice into one stereo bus.
+    config.max_buses = 1;
     config.amy_external_render_hook = ApplyTrackGainToAmyVoice;
     amy_start(config);
     g_amyInitialized = true;
@@ -699,6 +705,19 @@ void SendAmyNoteEventNoLock(const EngineState& engine, std::uint8_t note, float 
   event.synth = static_cast<uint16_t>(engine.synthId);
   event.midi_note = static_cast<uint16_t>(amyNote);
   event.velocity = velocity;
+  if (engine.kind == SynthEngineKind::Drums)
+  {
+    // AMY no longer maps GM drum notes to its tiny PCM kit (_SYNTH_FLAGS_MIDI_DRUMS is gone): each pad
+    // names the sample its GM note had there (808 kick, snare, closed and open hat, clap, tom, cowbell,
+    // maraca) at the sample's own pitch, which is also the note its release finds.
+    constexpr std::array<std::uint16_t, kDrumNotes.size()> kPcmPresets{{1, 2, 6, 7, 9, 8, 10, 0}};
+    const auto pad = std::find(kDrumNotes.begin(), kDrumNotes.end(), note);
+    if (pad == kDrumNotes.end()) return;
+    event.preset = kPcmPresets[static_cast<std::size_t>(pad - kDrumNotes.begin())];
+    event.midi_note = amy_embed::pcm_map[event.preset].midinote;
+    event.wave = PCM;
+    event.feedback = 0;
+  }
   amy_add_event(&event);
 }
 
@@ -1060,7 +1079,7 @@ int CachedAmyPatchNoLock(const EngineState& engine, int patch)
   const int slot = kFirstMemoryPatch + static_cast<int>(track);
   if (g_cachedAmyPatch[track] != patch)
   {
-    const char* text = amy_embed::cardenza_patch_command(static_cast<std::uint16_t>(patch));
+    const char* text = amy_embed::amy_builtin_patch_command(static_cast<std::uint16_t>(patch));
     if (text == nullptr) return patch;
     amy_embed::patches_reset_patch(slot);
     amy_event store = amy_default_event();
@@ -1089,8 +1108,9 @@ void ConfigureAmySynthNoLock(EngineState& engine)
   {
     event.oscs_per_voice = 1;
     event.wave = PCM;
-    // Do not use AMY's IGNORE_NOTE_OFFS flag: it also suppresses explicit stop.
-    event.synth_flags = _SYNTH_FLAGS_MIDI_DRUMS;
+    // No synth flags: AMY's IGNORE_NOTE_OFFS also suppresses explicit stop, and each pad names its
+    // sample itself (SendAmyNoteEventNoLock).
+    event.synth_flags = 0;
     event.amp_coefs[amy_embed::COEF_CONST] = 5.0f * Normalize(engine.drumMaster, 0, 127);
   }
   else
@@ -2012,7 +2032,7 @@ float AmyVoiceToMixScale()
 {
   static constexpr float kOne = 8388608.0f;  // 1.0 in S8.23 (static: MSVC asks a lambda to capture a local)
   const auto toSample = [](float value) { return static_cast<std::int32_t>(value * kOne); };
-  const std::int32_t volume = ((toSample(0.1f) >> 10) * (toSample(amy_embed::amy_global.volume) >> 9)) >> 4;
+  const std::int32_t volume = ((toSample(0.1f) >> 10) * (toSample(amy_embed::amy_global.volume[0]) >> 9)) >> 4;
   const std::int32_t pan = toSample(amy_embed::dsps_sqrtf_f32_ansi(0.5f));
   return static_cast<float>(volume >> 12) / 2048.0f * static_cast<float>(pan >> 12) / 2048.0f / kOne;
 }
@@ -2276,7 +2296,8 @@ SAMPLE RenderVoiceRunNoLock(const VoiceRun& run, std::uint8_t core)
   {
     auto* voice = amy_embed::synth[osc];
     if (voice == nullptr || voice->status != SYNTH_AUDIBLE) continue;
-    SAMPLE* buffer = amy_embed::per_osc_fb[core];
+    const std::uint16_t bus = voice->bus;
+    SAMPLE* buffer = amy_embed::per_osc_fb[core][bus];
     std::memset(buffer, 0, AMY_BLOCK_SIZE * sizeof(SAMPLE));
     const SAMPLE peak = amy_embed::render_osc_wave(osc, core, buffer);
     if (fading)
@@ -2290,7 +2311,14 @@ SAMPLE RenderVoiceRunNoLock(const VoiceRun& run, std::uint8_t core)
     }
     const auto hook = amy_embed::amy_global.config.amy_external_render_hook;
     const std::uint8_t handled = hook != nullptr ? hook(osc, buffer, AMY_BLOCK_SIZE) : 0;
-    if (handled == 0) amy_embed::mix_with_pan(amy_embed::fbl[core], buffer, amy_embed::msynth[osc]->last_pan, amy_embed::msynth[osc]->pan);
+    if (handled == 0)
+    {
+      // The instrument's level (AMY's iV), on the audio only, as amy_render applies it.
+      constexpr std::uint16_t kNoVoice = UINT16_MAX;  // AMY_UNSET for a uint16_t (_Generic is C only)
+      const std::uint16_t owner = amy_embed::osc_to_voice != nullptr ? amy_embed::osc_to_voice[osc] : kNoVoice;
+      const float level = owner != kNoVoice ? amy_embed::instrument_level_for_voice(owner) : 1.0f;
+      amy_embed::mix_with_pan(amy_embed::fbl[core][bus], buffer, amy_embed::msynth[osc]->last_pan, amy_embed::msynth[osc]->pan, level);
+    }
     highest = (std::max)(highest, peak);
   }
   g_voicePeak[run.from] = static_cast<float>(highest < 0 ? -highest : highest);
@@ -2451,7 +2479,7 @@ void LearnVoiceCostsNoLock()
 // here (EnsureAmyInitialized).
 void RenderClaimedRunsNoLock(std::uint8_t core)
 {
-  std::fill_n(amy_embed::fbl[core], AMY_BLOCK_SIZE * AMY_NCHANS, 0);
+  for (int bus = 0; bus <= amy_embed::amy_global.highest_bus; ++bus) std::fill_n(amy_embed::fbl[core][bus], AMY_BLOCK_SIZE * AMY_NCHANS, 0);
   SAMPLE highest = 0;
   const std::int64_t started = VoiceClockMicros();
   for (;;)
@@ -3269,9 +3297,12 @@ void ReleaseOrphanVoicesNoLock()
     amy_add_event(&event);
     for (int voice = 0; voice < voiceCount; ++voice)
     {
-      if (!held(amy_embed::synth[amy_embed::voice_to_base_osc[voices[voice]]])) continue;
+      const std::uint16_t base = amy_embed::voice_to_base_osc[voices[voice]];
+      if (!held(amy_embed::synth[base])) continue;
+      // AMY's events no longer name a voice: a note-off to the voice's first oscillator is what a
+      // voice's note-off was (its filter and envelope live there).
       amy_event release = amy_default_event();
-      release.voices[0] = voices[voice];
+      release.osc = base;
       release.velocity = 0;
       amy_add_event(&release);
     }

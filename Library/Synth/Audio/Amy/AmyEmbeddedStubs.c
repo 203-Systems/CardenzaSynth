@@ -7,8 +7,8 @@
 #endif
 
 // Every oscillator's state (synthinfo, its modulation and breakpoints, about 530 bytes), allocated by
-// AMY's alloc_osc through this (a build-time patch, cmake/CardenzaSynthSourceLists.cmake) and given
-// back when its voice is released. It is read and written every block the oscillator sounds: in PSRAM,
+// AMY's alloc_osc through this (amy_config_t's amy_external_osc_alloc_hook, EnsureAmyInitialized) and
+// given back when its voice is released. It is read and written every block the oscillator sounds: in PSRAM,
 // whose bus the flash code shares, four DX7 tracks rendered about a sixth slower (the stress test,
 // 2026-11-04). So internal RAM while that leaves this much, PSRAM after: the rest needs internal RAM
 // more (a sample streamed from the card takes up to 16 KB of it above a 40 KB floor, its DMA cannot
@@ -28,6 +28,25 @@ void *cardenza_amy_osc_malloc(uint32_t size) {
 #endif
 }
 
+#if defined(ESP_PLATFORM)
+// AMY's own allocator, replaced (MALLOC_CAPS_DEFINED, Devices/Cardenza/CMakeLists.txt): AMY uses what it
+// gives without checking (instrument_init writes through it at once), and with internal RAM gone an
+// engine switch restarted the board (the stress test's worst, 2026-11-04). PSRAM rather than NULL.
+void *malloc_caps(uint32_t size, uint32_t flags) {
+    void *result = heap_caps_malloc(size, flags);
+    if (result == NULL && size != 0) result = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
+    return result;
+}
+
+// AMY's 16-byte-aligned blocks (the FM scratch its vector copies walk), the same way.
+void *malloc_caps_block(uint32_t size, uint32_t flags) {
+    const uint32_t rounded = (size + 15u) & ~15u;
+    void *result = heap_caps_aligned_alloc(16, rounded, flags);
+    if (result == NULL && size != 0) result = heap_caps_aligned_alloc(16, rounded, MALLOC_CAP_SPIRAM);
+    return result;
+}
+#endif
+
 void amy_platform_init(void) {}
 void amy_platform_deinit(void) {}
 void amy_update_tasks(void) {}
@@ -45,11 +64,12 @@ void midi_out(uint8_t *bytes, uint16_t len) { (void)bytes; (void)len; }
 void midi_local(uint8_t *bytes, uint16_t len) { (void)bytes; (void)len; }
 
 void delay_ms(uint32_t ms) { (void)ms; }
-// AMY's event pool: every note, preset and parameter goes to the oscillators as deltas, drawn from
-// blocks of 256 (4 KB) that are never given back, and a preset's load queues a few hundred for every
-// voice. Each note inserts its deltas into a time-sorted list, walked node by node: in PSRAM a note-on
-// cost some 180 us (the stress test's profile, 2026-11-04). So internal RAM while that leaves the same
-// floor as the oscillators' state, PSRAM after (the pool grows with every voice loaded).
+// AMY's event pool (amy_external_delta_alloc_hook): every note, preset and parameter goes to the
+// oscillators as deltas, drawn from blocks of 256 (4 KB) that are never given back, and a preset's
+// load queues a few hundred for every voice. Each note inserts its deltas into a time-sorted list,
+// walked node by node: in PSRAM a note-on cost some 180 us (the stress test's profile, 2026-11-04).
+// So internal RAM while that leaves the same floor as the oscillators' state, PSRAM after (the pool
+// grows with every voice loaded).
 void *cardenza_amy_pool_malloc(uint32_t size) {
 #if defined(ESP_PLATFORM)
     const uint32_t fast = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;

@@ -78,6 +78,11 @@ if(DEFINED COMPONENT_DIR)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
         AMY_WAVETABLE
         AMY_NO_MINIAUDIO
+        # Our hot path is placed by audio_hot.lf (code only, measured against the internal RAM
+        # budget): not AMY's IRAM_ATTR / DRAM_ATTR on top of it.
+        AMY_NO_IRAM_PLACEMENT
+        # AMY's malloc_caps / malloc_caps_block are ours (AmyEmbeddedStubs.c): PSRAM rather than NULL.
+        MALLOC_CAPS_DEFINED
     )
     if(CARDENZA_STRESS_TEST)
         target_compile_definitions(${COMPONENT_LIB} PRIVATE CARDENZA_STRESS_TEST=1)

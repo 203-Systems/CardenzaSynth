@@ -18,6 +18,13 @@ entries:
     amy:freq_of_logfreq (noflash_text)
     envelope (noflash_text)
     oscillators (noflash_text)
+    # Not per block, or not used by our engines (Juno, DX7, drums): flash, not IRAM.
+    oscillators:unison_note_on (default)
+    oscillators:ks_note_on (default)
+    oscillators:render_ks (default)
+    oscillators:render_wavetable (default)
+    oscillators:render_audio_in (default)
+    oscillators:render_external_audio_in (default)
     algorithms:render_algo (noflash_text)
     filters:filter_process (noflash_text)
     filters:dsps_biquad_gen_lpf_f32 (noflash_text)

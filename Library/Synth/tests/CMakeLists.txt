@@ -13,6 +13,14 @@ target_include_directories(RegressionAmy PUBLIC "${CARDENZA_ROOT}/Library/third_
 target_compile_definitions(RegressionAmy PUBLIC AMY_WAVETABLE AMY_NO_MINIAUDIO _CRT_SECURE_NO_WARNINGS)
 add_executable(SynthRegression synth_regression.cpp ${synth_sources} ${midi_sources} ${fx_sources})
 target_link_libraries(SynthRegression PRIVATE RegressionAmy)
+# The fork's own checks of AMY's control arithmetic (silent levels, DX7 envelopes that froze after
+# 5.8 s), against the AMY build the synth uses.
+add_executable(SynthAmyControlTests "${CARDENZA_ROOT}/Library/third_party/amy/tests/test_dsp_control.c")
+target_link_libraries(SynthAmyControlTests PRIVATE RegressionAmy)
+if(WIN32)
+  # windows.h's min / max macros break std::numeric_limits<...>::max() in the runtime.
+  target_compile_definitions(RegressionAmy PUBLIC NOMINMAX)
+endif()
 if(MSVC)
   target_compile_options(RegressionAmy PRIVATE $<$<COMPILE_LANGUAGE:C>:/std:c11>)
   target_compile_options(SynthRegression PRIVATE /UNDEBUG)
@@ -22,4 +30,5 @@ else()
 endif()
 enable_testing()
 add_test(NAME SynthRegression COMMAND SynthRegression)
-set_tests_properties(SynthRegression PROPERTIES TIMEOUT 15)
+add_test(NAME SynthAmyControlTests COMMAND SynthAmyControlTests)
+set_tests_properties(SynthRegression SynthAmyControlTests PROPERTIES TIMEOUT 15)
