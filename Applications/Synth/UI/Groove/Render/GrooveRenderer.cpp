@@ -509,8 +509,10 @@ void DrawHud(Gfx& g, const Controller& controller, Animator& animator)
   g.Fill(Rect{box.x, box.y, 3, box.height}, kFn);
   g.Stroke(box, kFn);
   g.TextFit(box.x + 8, box.y + 3, box.width - 16, hud.label, kFn);  // the meter sits on the value line
-  g.TextFit(box.x + 8, box.y + 11, box.width - 82, hud.value, kInk, Font::Large);
-  if (hud.fraction >= 0.0f || hud.bipolar)
+  // Without a meter the value has the whole line.
+  const bool meter = hud.fraction >= 0.0f || hud.bipolar;
+  g.TextFit(box.x + 8, box.y + 11, box.width - (meter ? 82 : 16), hud.value, kInk, Font::Large);
+  if (meter)
   {
     const Rect bar{box.x + box.width - 66, box.y + 15, 58, 6};
     if (hud.bipolar) widgets::BipolarBar(g, bar, std::max(-1.0f, std::min(1.0f, hud.fraction)), kInk, kFaint);
