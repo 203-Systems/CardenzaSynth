@@ -1184,6 +1184,22 @@ void TestRecording(Harness& h)
   h.Chord(kFn, Key{3, 4});
   assert(sequencer.StepNotes(0, notes) == 0 && h.State().record.cursor == 1 && h.State().toast.text == "STEP 1 CLEARED");
   assert(h.Seq().populatedStepCount == 0);  // nothing left in the pattern
+  // A step chosen on the GRID and tapped again is taken back (STEP n CLEARED). Only a tap chooses:
+  // the cursor brought there by a write or by ADD / SUB is not chosen yet.
+  h.Tap(g3);
+  assert(sequencer.StepNotes(1, notes) == 1 && h.State().record.cursor == 2);
+  h.Tap(Grid(1));
+  assert(h.State().record.cursor == 1 && sequencer.StepNotes(1, notes) == 1);  // chosen, kept
+  h.Tap(Grid(1));
+  assert(sequencer.StepNotes(1, notes) == 0 && h.State().record.cursor == 1 && h.State().toast.text == "STEP 2 CLEARED");
+  h.Tap(g3);  // written again where it was chosen; the cursor moves on
+  assert(sequencer.StepNotes(1, notes) == 1 && h.State().record.cursor == 2);
+  h.Tap(kSub);
+  assert(h.State().record.cursor == 1);
+  h.Tap(Grid(1));
+  assert(sequencer.StepNotes(1, notes) == 1);  // the first tap chooses
+  h.Tap(Grid(1));
+  assert(sequencer.StepNotes(1, notes) == 0 && h.Seq().populatedStepCount == 0);
   h.Render();
   h.Tap(kEnter);
   assert(app.Ui().View() == groove::SeqView::Roll);

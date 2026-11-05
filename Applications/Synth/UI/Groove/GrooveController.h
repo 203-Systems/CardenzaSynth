@@ -342,6 +342,10 @@ struct RecordState {
   std::uint8_t stepBeforeCount = 0;
   std::uint8_t stepBeforeAt = 0;
   bool stepBeforeKnown = false;
+  // STEP view: the cursor is where a GRID tap chose it on track cursorTappedTrack, nothing moved it or
+  // wrote since: that step tapped again loses its notes.
+  bool cursorTapped = false;
+  std::uint8_t cursorTappedTrack = 0;
   bool snap = true;               // placing a take snaps its notes to whole steps
   std::uint8_t focus = kRecordFirstTake;  // RECORD panel GRID focus
   std::uint8_t takeBar = 0;       // which bar of the focused take goes into a pattern
