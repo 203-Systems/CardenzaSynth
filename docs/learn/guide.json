@@ -5,7 +5,7 @@
     {"id": "music", "title": {"zh": "编曲基础", "en": "Making music"}, "lessons": ["music-box", "four-boxes", "boxes-in-a-row"]},
     {"id": "device", "title": {"zh": "认识机器", "en": "The device"}, "lessons": ["key-areas", "make-sound", "screens", "tracks", "scales", "chord-arp"]},
     {"id": "song", "title": {"zh": "做第一首歌", "en": "Your first song"}, "lessons": ["first-pattern", "second-pattern", "song-chords", "song-tune", "first-song"]},
-    {"id": "launcher", "title": {"zh": "启动器和固件", "en": "Launcher and firmware"}, "lessons": ["update-launcher", "install-firmware"]}
+    {"id": "launcher", "hidden": true, "title": {"zh": "启动器和固件", "en": "Launcher and firmware"}, "lessons": ["update-launcher", "install-firmware"]}
   ],
   "lessons": {
     "music-box": {

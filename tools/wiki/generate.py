@@ -139,10 +139,12 @@ REDIRECT = """<!doctype html>
 def guide_data(guide, index):
     """docs/learn/guide.json as the wiki's guide pages read it: keys as KeyIndex values, demos parsed,
     each lesson's place in the course and its step pictures. The words keep the inline markup
-    ({{key:..}}, [[#id]]) that the pages render (wiki/src/guide/text.tsx)."""
-    order = lessons.lesson_ids(guide)
-    out = {"title": guide["title"], "order": order, "parts": guide["parts"], "lessons": {}}
-    for part in guide["parts"]:
+    ({{key:..}}, [[#id]]) that the pages render (wiki/src/guide/text.tsx). A part marked "hidden" stays
+    out of the site (no pages, no cards); its lessons are still checked."""
+    parts = [part for part in guide["parts"] if not part.get("hidden")]
+    order = [lesson for part in parts for lesson in part["lessons"]]
+    out = {"title": guide["title"], "order": order, "parts": parts, "lessons": {}}
+    for part in parts:
         for number, lesson_id in enumerate(part["lessons"], start=1):
             lesson = guide["lessons"][lesson_id]
             more = lesson.get("more")
@@ -223,12 +225,13 @@ def generate(sim_build, skip_shots, lenient):
     if not (skip_shots and (WORK / "guide-leds.json").exists() and list(img.glob("guide-*.png"))):
         lessons.run(guide, sim, WORK, img)
     shutil.copyfile(WORK / "guide-leds.json", data / "guide-leds.json")
-    (data / "guide.json").write_text(json.dumps(guide_data(guide, index), ensure_ascii=False), encoding="utf-8")
+    guide_json = guide_data(guide, index)
+    (data / "guide.json").write_text(json.dumps(guide_json, ensure_ascii=False), encoding="utf-8")
     (static / "reference.html").write_text(REDIRECT.replace("__SECTIONS__", json.dumps(
         {sid: {"chapter": entry["chapter"]} for sid, entry in index.items()})), encoding="utf-8")
 
     print(f"wiki: {GEN.relative_to(ROOT)} v{manual['version']} ({commit()}), {len(leds)} screenshots, "
-          f"{len(index)} sections, {len(lessons.lesson_ids(guide))} guide lessons")
+          f"{len(index)} sections, {len(guide_json['order'])} guide lessons on the site ({len(lessons.lesson_ids(guide))} in all)")
     if failures:
         print("wiki: WARNING lesson steps that do not complete on this host build (stale firmware?):\n  "
               + "\n  ".join(failures), file=sys.stderr)

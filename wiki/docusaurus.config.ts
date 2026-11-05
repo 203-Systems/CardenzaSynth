@@ -6,7 +6,6 @@
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
-import manual from './generated/data/manual.json';
 
 // The product's name in Chinese is 鸣片 (the page titles' "| 鸣片"; the navbar's is in i18n/zh-Hans).
 const chinese = process.env.DOCUSAURUS_CURRENT_LOCALE === 'zh-Hans';
@@ -64,9 +63,6 @@ const config: Config = {
 
   plugins: ['./plugins/search-index.js', './plugins/guide-routes.js'],
 
-  customFields: {
-    manualVersion: manual.version,
-  },
 
   themeConfig: {
     // The device and the old Learn site are dark: follow the reader's system.
@@ -151,7 +147,7 @@ const config: Config = {
         href: 'https://203.io',
         style: {maxWidth: 300},
       },
-      copyright: `Copyright © ${new Date().getFullYear()} 203 Systems · Manual v${manual.version}`,
+      copyright: `Copyright © ${new Date().getFullYear()} 203 Systems`,
     },
     prism: {
       theme: prismThemes.github,

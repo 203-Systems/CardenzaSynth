@@ -1,6 +1,7 @@
 """The guide: the short, picture-first lessons the wiki opens on (docs/learn/guide.json, drawn by
 wiki/src/guide); the manual is the reference next to it.
 
+A part with "hidden": true stays off the site for now (its lessons are still loaded and checked).
 A lesson is a few steps. Concept lessons (an "anim") are animations the page plays; device lessons
 run on a Cardenza on USB that follows the page through the guide link
 (Applications/Synth/GrooveAppGuide.cpp): "start" puts the device where the lesson begins (GL fields:
