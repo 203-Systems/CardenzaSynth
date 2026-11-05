@@ -419,6 +419,8 @@ bool Init() {
   // What a computer lists the device, its MIDI ports and its audio as. Host tools and the guide page
   // find it by "Cardenza" in the name.
   usb.product = "203 Systems Cardenza";
+  // 0203:2040 (the HAL's default is 0x10C0). Host tools match the VID and the name, not this.
+  usb.productId = 0x2040;
   // No HID keyboard: this firmware types nothing, and with one macOS lets host tools open the HID
   // interface only with the Input Monitoring permission.
   usb.keyboard = false;
