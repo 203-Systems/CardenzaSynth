@@ -1,0 +1,180 @@
+---
+sidebar_position: 6
+---
+
+# 1 INSTR
+
+INSTR is the current track's sound: which engine, which sound (preset), every parameter of the engine and the track's effects. Each of the four tracks uses one engine and remembers which page it was on.
+
+| Engine | Default track | Pages (<Key k="CTRL" /> steps) |
+|---|---|---|
+| DRUMS drum machine | <Track n="1" /> | VOICE, KIT, FX |
+| JUNO analog synth | <Track n="2" /> | VOICE, CHORD, ARP, DCO, VCF, ENV, LFO, FX |
+| DX7 FM synth | <Track n="3" /> | VOICE, CHORD, ARP, ALGO, LEVELS, OP1–OP6, LFO, FX |
+| SAMPLER | <Track n="4" /> | VOICE, CHORD, ARP, SAMPLE, TONE, FX |
+
+The pages run in signal order: the sound (VOICE), the track's MIDI effects (CHORD, ARP: the keys go through them first), the engine's parameter pages, then the effects (FX). When the tabs do not fit, the bottom line shows the ones around the current page with `<` `>` and "page / total" on the right; hold <Key k="CTRL" /> for the map of every page.
+
+<Keywords k="instrument, synth, synthesizer, engine, sound, patch, 乐器, 音源" />
+
+## VOICE: engine and sound {#instr-voice}
+
+The first page of every engine: the sound's name in large type, a live keyboard below it (a drum track shows its eight pads).
+
+<Shot name="instr-voice">
+  <Mark at="cell:1,1">ENGINE: change engine</Mark>
+  <Mark at="cell:1,2">PRESET: browse</Mark>
+  <Mark at="8,40,200,26">Sound name</Mark>
+  <Mark at="8,66,120,8">Engine · layout · octave</Mark>
+  <Mark at="8,75,222,44">Live keyboard</Mark>
+  <KeyMark keys="ADD SUB">Previous / next sound in the list</KeyMark>
+  <KeyMark keys="OK">Sound browser</KeyMark>
+  <KeyMark keys="G1 G2">ENGINE PRESET</KeyMark>
+  <Caption>INSTR VOICE (T2 Juno).</Caption>
+</Shot>
+
+- <Key k="ADD" /> / <Key k="SUB" />: straight to the sound above / below in the list (ADD goes up, as in the browser), ready to hear. With <Key k="FN" /> held they jump 10 sounds.
+- <Key k="OK" />: opens the sound browser.
+- Saving lives in the FN menu: on every INSTR page it has PRESETS, SAVE, SAVE AS and ENGINE, so you can browse and save without going back to VOICE (see [The menu on each screen](./fn.mdx#fn-menus)).
+
+Changing the engine gives the track the new engine's default sound and goes back to VOICE; the track's sequence, chord and ARP are not touched.
+
+<Strip>
+  <Step keys="G1" shot="engine-picker" at="cells:2,1-2,4">ENGINE: the four engines, the current one marked NOW. Tap one on the GRID (or <Key k="ADD" /> / <Key k="SUB" /> and <Key k="OK" />) to switch; <Key k="ESC" /> keeps the engine.</Step>
+  <Step keys="ADD" shot="instr-voice" at="8,40,200,26"><Key k="ADD" /> / <Key k="SUB" /> change the sound right on the VOICE page.</Step>
+</Strip>
+
+<Keywords k="change sound, next sound, preset, engine, choose synth, voice, engine picker, 换音色" />
+
+## Browsing and saving sounds {#instr-presets}
+
+<Strip>
+  <Step keys="G2" shot="preset-browser" at="0,13,240,10">PRESET: the sound list, with "position / total" at the top right.</Step>
+  <Step keys="FN + F, B, A, S, S, OK" shot="preset-filtered" at="0,13,240,10"><Key k="FN+F" /> opens the search field: type (for example `BASS`) and press <Key k="OK" />; the list keeps only the matching sounds.</Step>
+  <Step keys="OK" shot="instr-voice" at="8,40,200,26"><Key k="ADD" /> / <Key k="SUB" /> move, <Key k="OK" /> loads.</Step>
+</Strip>
+
+- In the list the pads and the GRID do not type, so a stray key never starts a filter: searching is always <Key k="FN+F" />. An empty search shows everything again.
+- <Key k="ESC" /> clears the filter first, a second press closes.
+- <Key k="ADD" /> moves up, <Key k="SUB" /> down; <Key k="FN" /> + <Key k=";" /> <Key k="." /> too. <Key k="FN+ADD" /> / <Key k="FN+SUB" /> move 8 rows at a time.
+- **SAVE** (FN menu): your own sound is overwritten; a factory sound is stored as a new sound of yours with the next free number (for example `LEAD I 2`), without asking. **SAVE AS** asks for a name. Your sounds live in this app's Presets folder on the SD card (`Cardenza/Apps/Cardenza/Synth/Presets/<engine>/`).
+
+<Keywords k="presets, preset, preset library, browse, search, search sound, find, filter, fn f, save sound, save as, patch library, 音色库" />
+
+## Parameter pages {#instr-params}
+
+The engine's other pages (and CHORD and ARP) are parameter pages: **each GRID key picks one parameter**, <Key k="ADD" /> / <Key k="SUB" /> change it (held they repeat, with <Key k="FN" /> in big steps), <Key k="FN+OK" /> (or RESET in the FN menu) restores its default. Switches and choices step with a second press on the same key, or with <Key k="OK" />.
+
+<Shot name="instr-juno-vcf">
+  <Mark at="cell:1,1">Focused parameter: white</Mark>
+  <Mark at="cell:1,2">RESO</Mark>
+  <Mark at="cell:1,3">ENV</Mark>
+  <Mark at="cell:1,4">POL</Mark>
+  <Mark at="cells:3,1-4,4">The group's picture: filter curve</Mark>
+  <KeyMark keys="G1">Focus: fully lit</KeyMark>
+  <KeyMark keys="G2-G6">Parameters: half lit</KeyMark>
+  <KeyMark keys="G7-G16">Empty cells: off</KeyMark>
+  <KeyMark keys="ADD SUB">Change value</KeyMark>
+  <Caption>Juno VCF page: parameters on the top two rows, the filter curve below.</Caption>
+</Shot>
+
+Cells without a parameter draw the group's picture: envelopes, filter curves, algorithms, waveforms, a scope… Every parameter's range, default and options are in the engine references below.
+
+**Hold a parameter cell** for a moment and the pads become its values: one pad per value (or the range spread evenly over the pads), the current value fully lit. Press a pad to jump there; the value pops up at the bottom of the screen. Let go of the cell and the pads play again. A short tap still selects the cell as before.
+
+<Keywords k="parameter, parameters, edit sound, knob, tweak, default, reset, hold cell, pick value, 参数" />
+
+## CHORD and ARP pages {#instr-midifx}
+
+Right after VOICE, every melodic engine has the track's two MIDI effects: **CHORD** (one key plays a chord) and **ARP** (held keys play one after another). They belong to the track, not to the sound: changing sound or engine keeps them, and they are saved with the project. Drum tracks have neither. How they work: [Chords](./play.mdx#play-chords) and [Arpeggiator](./play.mdx#play-arp).
+
+<Strip>
+  <Step keys="hold CTRL + G2" shot="instr-chord" at="cells:1,1-1,2">CHORD: CHORD and VOICING, the notes the root key plays and the triads of the key.</Step>
+  <Step keys="hold CTRL + G3" shot="instr-arp" at="cells:1,1-2,1">ARP: mode, RATE, RANGE, GATE and HOLD, the playing order below.</Step>
+</Strip>
+
+<Keywords k="chord page, arp page, midi fx, midi effects, per track chord, per track arpeggiator, 和弦页, 琶音页" />
+
+## FX page: the track's effects {#instr-fx}
+
+The last page of every engine is FX:
+
+<Shot name="instr-juno-fx">
+  <Mark at="cell:1,1">DRIVE: saturation</Mark>
+  <Mark at="cell:1,2">CRUSH: bit reduction</Mark>
+  <Mark at="cell:1,3">FILTER: DJ filter</Mark>
+  <Mark at="cell:1,4">RESO</Mark>
+  <Mark at="cell:2,1">CHORUS</Mark>
+  <Mark at="cell:2,2">DELAY send</Mark>
+  <Mark at="cell:2,3">REVERB send</Mark>
+  <Mark at="cells:3,1-4,4">Signal chain: IN → … → OUT</Mark>
+  <Caption>The FX page and its signal chain.</Caption>
+</Shot>
+
+They are part of the sound and are saved with it and with the project. See [Effects](./effects.mdx).
+
+<Keywords k="fx, effects, drive, distortion, saturation, bitcrush, filter, chorus, delay, reverb, 效果" />
+
+## DRUMS {#engine-drums}
+
+Eight drums (kick, snare, closed hat, open hat, clap, tom, cowbell, maracas), one pad column each. The KIT page sets each drum's level and the kit's master level.
+
+<Shot name="instr-drums-kit">
+  <Mark at="cells:1,1-2,4">Eight drum levels</Mark>
+  <Mark at="cell:3,1">MASTER level</Mark>
+  <Mark at="cells:3,2-4,4">Pads (light up when hit)</Mark>
+  <Caption>DRUMS KIT page: the eight drums' levels, the pads drawn at the bottom right.</Caption>
+</Shot>
+
+<Ref engine="DRUMS" />
+
+<Keywords k="drums, drum machine, kit, 808, kick level, snare level, 鼓机" />
+
+## JUNO analog synth {#engine-juno}
+
+Classic subtractive synthesis: DCO oscillator → VCF filter → VCA envelope, plus an LFO and the Juno chorus.
+
+<Strip>
+  <Step keys="hold CTRL + G4" shot="instr-juno-dco" at="cells:3,1-4,4">**DCO**: RANGE, SAW, PULSE, PWM, PW SRC, SUB, NOISE, LFO, with a scope.</Step>
+  <Step keys="CTRL" shot="instr-juno-vcf" at="cells:3,1-4,4">**VCF**: CUTOFF, RESO, ENV, POL, LFO, KBD, with the filter curve.</Step>
+  <Step keys="CTRL" shot="instr-juno-env" at="cells:3,1-4,4">**ENV**: ADSR, VCA mode (ENV / GATE), LEVEL, with the envelope.</Step>
+  <Step keys="CTRL" shot="instr-juno-lfo" at="cells:3,1-4,4">**LFO**: RATE, DELAY (fade-in), with the waveform.</Step>
+</Strip>
+
+The Chorus I / II that Juno presets carry maps to CHORUS on the FX page.
+
+<Ref engine="JUNO" />
+
+<Keywords k="juno, analog, subtractive, oscillator, dco, vcf, filter, juno filter, envelope, adsr, lfo, pwm" />
+
+## DX7 FM synth {#engine-dx7}
+
+Six-operator FM synthesis, compatible with DX7 sounds:
+
+<Strip>
+  <Step keys="hold CTRL + G4" shot="instr-dx7-algo" at="cells:3,1-4,4">**ALGO**: 32 algorithms, feedback, transpose, with the algorithm diagram.</Step>
+  <Step keys="CTRL" shot="instr-dx7-levels" at="cells:3,1-4,4">**LEVELS**: the six operators' output levels. Solid bars are carriers you hear, dithered ones are modulators.</Step>
+  <Step keys="CTRL" shot="instr-dx7-op1" at="cell:2,3">**OP1–OP6**: OUT, CRS, FINE, DTN, MODE, AMOD, the R1–R4 / L1–L4 envelope and a CAR / MOD mark.</Step>
+  <Step keys="hold CTRL + G12" shot="instr-dx7-lfo" at="cells:3,1-4,4">**LFO**: SPEED, WAVE, PMD, AMD, P SENS, with the waveform.</Step>
+</Strip>
+
+<Ref engine="DX7" />
+
+<Keywords k="dx7, fm, frequency modulation, operator, algorithm, electric piano, epiano, yamaha" />
+
+## SAMPLER {#engine-sampler}
+
+Plays a WAV: the SAMPLE page picks the file, records, trims, sets the root note, loop and gain (with the waveform); TONE is filter, envelope and level. The full workflow is in [Sampling](./sampler.mdx).
+
+<Shot name="instr-sampler-sample">
+  <Mark at="cell:1,1">FILE: load</Mark>
+  <Mark at="cell:1,2">REC: record</Mark>
+  <Mark at="cell:1,3">START</Mark>
+  <Mark at="cell:1,4">END</Mark>
+  <Mark at="cells:2,1-2,4">ROOT · TUNE · LOOP · GAIN</Mark>
+  <Caption>SAMPLER SAMPLE page (no sample loaded yet).</Caption>
+</Shot>
+
+<Ref engine="SAMPLER" />
+
+<Keywords k="sampler, sample, wav, waveform, trim, loop, 采样器" />

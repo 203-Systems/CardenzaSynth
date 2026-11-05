@@ -22,7 +22,7 @@
     root.lang = lang === 'zh' ? 'zh-CN' : 'en';
     store.set('learn.lang', lang);
     $$('[data-set-lang]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.setLang === lang)));
-    document.title = lang === 'zh' ? 'Cardenza 学习 · 说明书' : 'Cardenza Learn · Manual';
+    document.title = lang === 'zh' ? '鸣片学习 · 说明书' : 'Cardenza Learn · Manual';
     $('#search').placeholder = lang === 'zh' ? '搜索说明书：音量、录音、BPM …  ( / )' : 'Search: volume, record, BPM …  ( / )';
     if (anchor) go(anchor, false);
     runSearch();
@@ -468,7 +468,7 @@
       usbText(text);
     };
     try { output.send([0xF0, 0x23, 0x43, 0x01, 0xF7]); } catch (error) { usbRelease(); return; }
-    toast('Cardenza 已连接：机器上的键会操作说明书里的设备', 'Your Cardenza is connected: its keys play the manual\'s device');
+    toast('鸣片已连接：机器上的键会操作说明书里的设备', 'Your Cardenza is connected: its keys play the manual\'s device');
   }
 
   if (hasMidi && navigator.permissions && navigator.permissions.query) {
@@ -479,7 +479,7 @@
         const port = event.port;
         if (usb.input && port.state === 'disconnected' && (port === usb.input || port === usb.output)) {
           usbRelease();
-          toast('Cardenza 断开了', 'Your Cardenza is gone');
+          toast('鸣片断开了', 'Your Cardenza is gone');
         } else if (!usb.input && isCardenza(port)) {
           // Plugged in: both of its ports appear, one after the other.
           setTimeout(usbAttach, 300);

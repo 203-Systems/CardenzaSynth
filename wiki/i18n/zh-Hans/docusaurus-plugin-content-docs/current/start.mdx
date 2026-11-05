@@ -1,0 +1,99 @@
+---
+sidebar_position: 1
+---
+
+# 入门
+
+:::tip
+
+第一次用？先跟着[入门教程](/)走一遍：几分钟一课，按一步、亮一步。这本说明书是字典，用来查。
+
+:::
+
+鸣片 Groovebox 是一台口袋音乐工作站：4 条轨道（鼓、Juno 合成器、DX7 FM 合成器、采样器），每条轨道有自己的音序器 Pattern，再加上编排、混音、效果器和工程存档。
+
+键盘分成四块，**颜色就是角色**：这本说明书里每个键都用它的颜色画出来，和机器屏幕上用的颜色一样。
+
+<Keymap>
+  <Group keys="ESC TAB FN CTRL">左侧四键：去哪儿</Group>
+  <Group keys="PADS">演奏区：弹当前轨</Group>
+  <Group keys="GRID">GRID：按屏幕上的格子</Group>
+  <Group keys="RIGHT">右侧四键：调值 · 播放</Group>
+  <Caption>四块键盘：左边导航，中间演奏，右边 GRID 对应屏幕格子，最右调值和播放</Caption>
+</Keymap>
+
+| 颜色 | 键 | 管什么 |
+|---|---|---|
+| <Key k="ESC" /> 红橙 | 场景 | 1 INSTR / 2 SEQ / 3 TAPE，还有 0 SETUP |
+| <Key k="TAB" /> 青 | 轨道 | <Track n="1" /> <Track n="2" /> <Track n="3" /> <Track n="4" /> |
+| <Key k="FN" /> 黄 | 第二功能 | 当前画面的菜单、快捷键 |
+| <Key k="CTRL" /> 紫 | 页面 | 屏幕最下面的页签，如 <Page name="ROLL" /> |
+| <Key k="PLAY" /> 绿 | 走带 | 播放 / 停止 |
+
+这本说明书怎么用：<Icon name="map" /> 右上角 **地图** 点按键或页面直接跳过去；<Icon name="search" /> 顶部搜索任何词（「音量」「volume」「声音太小」都能找到同一处）；<Icon name="play" /> 每张截图下面都能 **在这里跟着操作**，换成一台运行中的设备；<Icon name="usb" /> 用 USB 连上真机，用真机的键操作说明书里的设备（见 [在说明书里跟着操作](./web.mdx#web-live)、[连接真机（USB）](./web.mdx#web-usb)）。
+
+<Keywords k="介绍, 概览, 是什么, overview, introduction, 开始, 新手" />
+
+## 一分钟上手 {#quick-start}
+
+跟着这几格做一遍，就会了一大半：
+
+<Strip>
+  <Step shot="instr-boot" at="8,0,41,11 51,0,15,11 10,89,220,38">开机停在 <Scene name="INSTR" /> 的 VOICE 页，当前轨是 <Track n="1" /> 鼓（808 KIT）：演奏区每一列是一个鼓，最上面一行打得最重。</Step>
+  <Step keys="ESC" shot="seq-empty" at="scene">单击 <Key k="ESC" />：到 <Scene name="SEQ" />，在这里写这一轨的音符。还是 <Track n="1" />：鼓轨这一页是鼓机，左边是各个鼓，GRID 上是选中那个鼓的各步。</Step>
+  <Step keys="hold r3c1~底鼓 + G1, G5, G9, G13" shot="seq-drums" at="9,17,92,10">按住底鼓键，点 GRID 1、5、9、13：四拍底鼓写好了。军鼓、踩镲也这样写。</Step>
+  <Step keys="PLAY" shot="seq-drums-playing">播放！绿线走到哪一步，哪一步就响。再按一次停止。</Step>
+  <Step keys="TAB" shot="seq-keyboard" at="track">单击 <Key k="TAB" />：换到 <Track n="2" /> Juno。现在演奏区是钢琴：两个完整的八度，第 2、4 行白键，第 1、3 行黑键，缺口不亮；C3 在左下角。</Step>
+  <Step keys="hold r3c1~C3 + G1" shot="seq-hold-tap" at="28,57,15,10">按住一个音，点一步：音符写进去了。按住的键全亮。</Step>
+  <Step keys="hold OK" shot="record">刚才随便弹过的不会丢：按住 <Key k="OK" />，把它放进 Pattern。</Step>
+</Strip>
+
+再记住四件事：
+
+<Strip>
+  <Step keys="hold ESC" shot="map-esc" at="cells:1,1-4,4">单击 <Key k="ESC" /> 在三个音乐场景里循环：<Scene name="INSTR" /> 音色 → <Scene name="SEQ" /> 音符 → <Scene name="TAPE" /> 编排混音。按住它是这张地图：第 1 列是 <Scene name="SETUP" />，工程和设置都在那里。</Step>
+  <Step keys="hold FN" shot="fn-held" at="cells:1,1-4,4">按住 <Key k="FN" />：GRID 上是当前画面的菜单（复制、粘贴、保存、录音……），FN + GRID 键执行。</Step>
+  <Step keys="hold FN + 7" shot="fn-volume" at="14,94,212,28">按住 FN 时：<Key k="6" /> <Key k="Y" /> 调 BPM，<Key k="7" /> <Key k="U" /> 调音量，<Key k="8" /> <Key k="I" /> 调八度。</Step>
+  <Step keys="FN+S" shot="save-done" at="footer"><Key k="FN+S" /> 保存工程；还没起名的工程不问名字，直接用第一个空着的名字 SONG 01。</Step>
+</Strip>
+
+<Keywords k="快速开始, 上手, 第一次, 教程, 开机, 第一个节奏, quick start, tutorial, getting started, 入门教程" />
+
+## 屏幕上有什么 {#screen-layout}
+
+屏幕 240×135 像素，分成五块，和键盘的位置一一对应：
+
+<Shot name="seq-notes">
+  <Mark at="scene">场景</Mark>
+  <Mark at="track">轨道（轨道色）</Mark>
+  <Mark at="bpm">BPM · 播放状态</Mark>
+  <Mark at="strip:ESC">ESC</Mark>
+  <Mark at="strip:TAB">TAB</Mark>
+  <Mark at="strip:FN">FN</Mark>
+  <Mark at="strip:CTRL">CTRL</Mark>
+  <Mark at="content">内容区：16 步 = GRID</Mark>
+  <Mark at="strip:PLAY">PLAY</Mark>
+  <Mark at="footer">页签：CTRL 换页</Mark>
+  <KeyMark keys="PADS">能发声：半亮</KeyMark>
+  <KeyMark keys="G1">有音符：半亮</KeyMark>
+  <KeyMark keys="G2">空步：灭</KeyMark>
+  <Caption>SEQ 音符页（ROLL），T2 上的几个音。下面是同一时刻的按键灯。</Caption>
+</Shot>
+
+| 区域 | 在哪 | 内容 |
+|---|---|---|
+| 状态行 | 最上面 | 场景编号和名称、当前轨（轨道色）、音源和音色、REC、播放 / 停止、BPM、`*` 有未保存的改动 |
+| 左侧四个色块 | 左边缘 | 就是 <Key k="ESC" /> <Key k="TAB" /> <Key k="FN" /> <Key k="CTRL" /> 四个键，各带图标（返回、轨道、菜单、页面）；按住哪个键，它的色块就填满 |
+| 内容区 | 中间 | 4×4 格子 = 右边 GRID 4×4：按哪个键就是哪一格 |
+| 页签 | 最下面 | 当前场景的页面，当前页紫底 <Page name="ROLL" />；<Key k="CTRL" /> 换页 |
+| 右侧四个色块 | 右边缘 | <Key k="ADD" /> <Key k="SUB" /> <Key k="OK" /> <Key k="PLAY" />；ADD / SUB 的图标说明它们在这里做什么（+ −、列表里 ↑ ↓、横向 → ←），PLAY 播放时绿色、录音待命时红色 |
+
+:::tip
+
+屏幕上第 2 行第 3 格，就是 GRID 第 2 行第 3 个键（键帽 `[`）。所有页面都是这条规则：**屏幕格子在哪，键就在哪。**
+
+:::
+
+两侧色块显示这些键的状态：<Led state="off">灭</Led> 很淡，<Led state="half">半亮</Led> 是 30% 点阵，<Led state="full">全亮</Led> 是实色。边上这八个键自己的灯最多 <Led state="half">半亮</Led>，所以要看色块。详见 [屏幕两侧和按键灯同步](./lights.mdx#lights-edges)。
+
+<Keywords k="界面, 屏幕布局, 状态栏, 页签, 内容区, 未保存, 星号, 图标, screen, display, layout, status line, tabs, header, footer" />

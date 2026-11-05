@@ -1,0 +1,93 @@
+---
+sidebar_position: 7
+---
+
+# Sampling
+
+<Icon name="sample" /> The SAMPLER engine (<Track n="4" /> by default) plays a WAV recording. Load samples from the SD card or record one with the built-in microphone. All apps share the `Cardenza/Shared/Samples` folder on the card.
+
+Supported files: mono 16-bit PCM WAV, 8–96 kHz sample rate, up to 5 minutes. Short samples (up to about 186 ms, drum hits and the like) are kept in memory; longer ones play straight from the card.
+
+<Keywords k="sample, sampling, sampler, microphone, record audio, wav, field recording, vocals, 采样" />
+
+## Loading a sample {#sampler-load}
+
+<Strip>
+  <Step keys="hold TAB + G4, hold CTRL + G4" shot="instr-sampler-sample" at="cell:1,1">In <Scene name="INSTR" /> switch to <Track n="4" /> and go to the SAMPLE page (hold <Key k="CTRL" />, press G4).</Step>
+  <Step keys="G1" shot="sampler-files" at="0,13,240,10">FILE opens the sample list; <Key k="FN+F" /> searches it.</Step>
+  <Step keys="OK" shot="instr-sampler-sample" at="cells:1,3-1,4"><Key k="ADD" /> / <Key k="SUB" /> choose, <Key k="OK" /> loads, <Key k="ESC" /> goes back.</Step>
+</Strip>
+
+On every page of a SAMPLER track the FN menu also has SAMPLES (the list), RECORD and PREVIEW (plays the track's sample at its original pitch). Once loaded, the pads play the sample; ROOT decides which key plays it at its original pitch.
+
+:::tip
+
+In the web simulator "Load WAV…" puts a WAV from your computer into the shared sample folder (see [Storage and samples](./web.mdx#web-storage)).
+
+:::
+
+<Keywords k="load sample, import, open file, browse samples, search samples, wav file, 载入采样" />
+
+## Recording a sample {#sampler-record}
+
+<Strip>
+  <Step keys="G2" shot="sampler-rec" at="8,32,222,34">REC on the SAMPLE page (or RECORD in the FN menu) opens the recorder; READY means you can start. Up to 60 seconds.</Step>
+  <Step keys="OK" shot="sampler-rec" at="8,72,222,12"><Key k="OK" /> starts, <Key k="OK" /> again stops. The input level shows while recording.</Step>
+</Strip>
+
+- With a card the take goes straight to a file on it (`Session/take-<track>.wav` in this app's folder), safe on the card about once a second: a power cut loses at most the last second. A full card stops the recording and keeps what is there (CARD FULL). Without a card the take fits in free memory, only a few seconds.
+- The microphone shares a clock pin with the speaker: while recording the speaker is silent; the sequencer keeps running.
+- The microphone only runs while the recorder is on screen: leaving it (another scene or track) cancels the recording. <Key k="ESC" /> while recording cancels it too.
+- An unsaved take survives a power cut or a switch to another app: when the app starts again the recorder opens with it (UNSAVED TAKE IS BACK).
+
+:::warning
+
+An unsaved take is never lost by accident: REC asks RECORD AGAIN? before replacing it, and <Key k="ESC" /> in the trimmer asks DISCARD TAKE? (<Key k="OK" /> = yes, <Key k="ESC" /> = no).
+
+:::
+
+<Keywords k="record sample, microphone, mic, record audio, vocals, take, unsaved take, power cut, 录采样" />
+
+## Trimming and previewing {#sampler-trim}
+
+After recording you are in the trimmer:
+
+| Key | Does |
+|---|---|
+| <Key k="G1" /> / <Key k="G2" /> (or <Key k="OK" />) | pick the start / end marker (the chosen one fully lit); <Key k="ADD" /> / <Key k="SUB" /> move it (hold <Key k="FN" /> for bigger steps) |
+| <Key k="G3" /> or <Key k="PLAY" /> | preview |
+| <Key k="G4" /> | SAVE: saves the take at once as the next free `TAKE_nn` and loads it on the track |
+
+Later you can trim again at any time with START / END on the SAMPLE page:
+
+<Shot name="instr-sampler-sample">
+  <Mark at="cell:1,3">START point</Mark>
+  <Mark at="cell:1,4">END point</Mark>
+  <Mark at="cell:2,1">ROOT note</Mark>
+  <Mark at="cell:2,2">TUNE: fine tune</Mark>
+  <Mark at="cell:2,3">LOOP</Mark>
+  <Mark at="cell:2,4">GAIN</Mark>
+  <Caption>The SAMPLE page: markers and parameters.</Caption>
+</Shot>
+
+The TONE page has CUTOFF, RESO, ATTACK, RELEASE and LEVEL:
+
+<Shot name="instr-sampler-tone">
+  <Mark at="cell:1,1">CUTOFF</Mark>
+  <Mark at="cell:1,2">RESO</Mark>
+  <Mark at="cell:1,3">ATTACK</Mark>
+  <Mark at="cell:1,4">RELEASE</Mark>
+  <Mark at="cell:2,1">LEVEL</Mark>
+  <Caption>SAMPLER TONE page.</Caption>
+</Shot>
+
+<Keywords k="trim, cut, start, end, marker, loop, preview, 裁剪" />
+
+## Saving, renaming, deleting {#sampler-save}
+
+- Trimmer cell 4 (SAVE) saves the take as a WAV named `TAKE_01`, `TAKE_02`… (the first free number), without asking for a name.
+- In the sample list <Key k="FN+OK" /> opens RENAME / DELETE for the file under the cursor. DELETE asks first and removes the WAV from the card.
+- A sample another track is using cannot be deleted (FILE IN USE).
+- Sample files belong to the shared folder, not to a project; a project only remembers which file it uses.
+
+<Keywords k="save sample, name, rename, delete sample, take name, 保存采样" />

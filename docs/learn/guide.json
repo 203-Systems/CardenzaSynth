@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "title": {"zh": "Cardenza 入门", "en": "Cardenza guide"},
+  "title": {"zh": "鸣片入门", "en": "Cardenza guide"},
   "parts": [
     {"id": "music", "title": {"zh": "编曲基础", "en": "Making music"}, "lessons": ["music-box", "four-boxes", "boxes-in-a-row"]},
     {"id": "device", "title": {"zh": "认识机器", "en": "The device"}, "lessons": ["key-areas", "make-sound", "screens", "tracks", "scales", "chord-arp"]},
@@ -16,7 +16,7 @@
       "steps": [
         {"say": {"zh": "圆筒转动时，梳齿碰到凸起就发出声音。", "en": "As the drum turns, a tooth of the comb sounds whenever it meets a pin."}},
         {"say": {"zh": "把圆筒摊平：从左到右是时间，从下到上是音高，绿线是正在播放的位置。这就是音序器。", "en": "Unroll the drum: time runs left to right, pitch bottom to top, and the green line is what is playing now. That is a sequencer."}},
-        {"say": {"zh": "点一个空格子，加一个音（就像在圆筒上多装一个凸起），再点一下就去掉。在 Cardenza 上，这 16 个时间格就是机器右边 4×4 的 16 个键，音高用左边的琴键来选。", "en": "Tap an empty cell to add a note (a new pin on the drum); tap it again to take it away. On Cardenza these 16 steps are the 16 keys of the 4×4 block on the right; you pick the pitch on the keyboard to the left."}}
+        {"say": {"zh": "点一个空格子，加一个音（就像在圆筒上多装一个凸起），再点一下就去掉。在鸣片上，这 16 个时间格就是机器右边 4×4 的 16 个键，音高用左边的琴键来选。", "en": "Tap an empty cell to add a note (a new pin on the drum); tap it again to take it away. On Cardenza these 16 steps are the 16 keys of the 4×4 block on the right; you pick the pitch on the keyboard to the left."}}
       ]
     },
     "four-boxes": {
@@ -95,7 +95,7 @@
     "tracks": {
       "more": "nav-tracks",
       "title": {"zh": "换轨道", "en": "Tracks"},
-      "lead": {"zh": "轨道就像乐队里的乐手：一个打鼓，一个弹琴，一个弹贝斯……各弹各的，合起来就是一首歌。Cardenza 有 4 条轨道，就是 4 个乐手，每人一种颜色。", "en": "A track is like a player in a band: one on drums, one on keys, one on bass… each plays their own part, and together they make the song. Cardenza has 4 tracks: 4 players, a colour each."},
+      "lead": {"zh": "轨道就像乐队里的乐手：一个打鼓，一个弹琴，一个弹贝斯……各弹各的，合起来就是一首歌。鸣片有 4 条轨道，就是 4 个乐手，每人一种颜色。", "en": "A track is like a player in a band: one on drums, one on keys, one on bass… each plays their own part, and together they make the song. Cardenza has 4 tracks: 4 players, a colour each."},
       "start": "s2p0t1",
       "steps": [
         {"say": {"zh": "单击 {{key:TAB}}：下一条轨道。屏幕最上面的颜色跟着变。", "en": "Tap {{key:TAB}}: the next track. The colour at the top of the screen follows."},
@@ -298,7 +298,7 @@
       "lead": {"zh": "启动器是一插电先出来的那个系统：装固件、换固件都靠它。它自己也会出新版本。", "en": "The Launcher is the system that comes up first when you plug in: it installs and switches firmware. It gets new versions too."},
       "anim": "update-launcher",
       "steps": [
-        {"say": {"zh": "拔掉 USB 线再插上：Cardenza 没有电池，一插电就开机，先是 203 标志，然后是启动器的首页。", "en": "Unplug the USB cable and plug it back in: Cardenza has no battery, so it starts at once, shows the 203 logo, then the Launcher's home."}},
+        {"say": {"zh": "拔掉 USB 线再插上：鸣片没有电池，一插电就开机，先是 203 标志，然后是启动器的首页。", "en": "Unplug the USB cable and plug it back in: Cardenza has no battery, so it starts at once, shows the 203 logo, then the Launcher's home."}},
         {"say": {"zh": "开了 Boot last app（开机直接进上次的固件）的话，屏幕写着 Press Func to enter Launcher 时按任意键。插线时别按着侧面的 HOME 键：那是下载模式，屏幕不亮，再拔插一次就好。", "en": "With Boot last app on (straight into the last firmware), press any key while it says Press Func to enter Launcher. Don't hold the HOME key on the side while plugging in: that is download mode, a dark screen; just plug in again."}},
         {"say": {"zh": "启动器看键帽上印的字：GRID 右下角印着黄色箭头的 {{key:,}} {{key:/}} {{key:;}} {{key:.}} 是方向键，{{key:OK}} 确认，{{key:ESC}} 返回。首页有 6 张卡片，左右翻。", "en": "The Launcher goes by the prints on the caps: the yellow arrows on {{key:,}} {{key:/}} {{key:;}} {{key:.}} at the GRID's bottom right move, {{key:OK}} confirms, {{key:ESC}} goes back. The home has 6 cards, side by side."}},
         {"say": {"zh": "按 {{key:/}} 翻到 Download Softwares（在线下载），按 {{key:OK}}。第一次会先列出附近的 Wi-Fi：选你的网络，用键盘输入密码，按 {{key:OK}}。", "en": "{{key:/}} to Download Softwares, then {{key:OK}}. The first time it lists the Wi-Fi networks nearby: pick yours, type the password, {{key:OK}}."}},

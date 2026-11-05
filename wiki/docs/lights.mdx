@@ -1,0 +1,160 @@
+---
+sidebar_position: 12
+---
+
+# Key lights
+
+Every key has a single-colour light that tells you what the key can do right now. There are only three states, plus blinking:
+
+|  |  |  |
+|---|---|---|
+| <Led state="off" /> | **off** | nothing there |
+| <Led state="half" /> | **half lit** | something there, not chosen |
+| <Led state="full" /> | **fully lit** | chosen, or happening |
+| <Led state="blink" /> | **blinking** | waiting |
+
+<Keywords k="lights, key lights, led, leds, backlight, 灯" />
+
+## Off, half lit, fully lit, blinking {#lights-states}
+
+<Shot name="seq-selected">
+  <Mark at="76,15,14,96">Selected step</Mark>
+  <KeyMark keys="G2 G4">Empty step: off</KeyMark>
+  <KeyMark keys="G1 G3">Has notes: half lit</KeyMark>
+  <KeyMark keys="G5">Selected: fully lit</KeyMark>
+  <KeyMark keys="r2c1">This step's note: fully lit</KeyMark>
+  <KeyMark keys="PADS">Can sound: half lit</KeyMark>
+  <Caption>SEQ note page on step 5: off, half lit and fully lit in one picture.</Caption>
+</Shot>
+
+| State | Means | Examples |
+|---|---|---|
+| <Led state="off">off</Led> | nothing there | an empty step, a key that cannot sound (a piano gap, a locked note outside the scale), a function this screen does not have, a send that is off |
+| <Led state="half">half lit</Led> | something there, not chosen | a step with notes, a key that sounds, an option, a parameter, an action you can run, an existing pattern |
+| <Led state="full">fully lit</Led> | chosen, or happening | the selected step, the focused parameter, the current page / scene / track / pattern, a held or sounding key, the playhead, a switch that is on (mute, solo, sequencer on) |
+| <Led state="blink">blinking</Led> | waiting | a queued pattern, a cued song row, OK in a confirmation, PLAY while recording is armed, the STEP view's write cursor |
+
+<Strip>
+  <Step shot="seq-step" at="cell:1,4"><Led state="blink" /> STEP view: the write cursor blinks.</Step>
+  <Step shot="tape-session-queued" at="cell:2,2"><Led state="blink" /> A queued pattern: waits for the loop to finish.</Step>
+  <Step shot="seq-recording" at="strip:PLAY"><Led state="blink" /> Record armed: PLAY blinks.</Step>
+</Strip>
+
+:::note
+
+Each key has 16 real brightness levels (driven by the device's hardware layer, CardenzaHAL). The eye does not see brightness linearly, so the firmware gamma-corrects every level first; the KEY LED setting dims them all together. The interface uses three: "half lit" is the dimmest glow a key has (1/15 of the time), "fully lit" is 100 %. No in-between levels, and no animation ever lights a key that should be off. The 8 edge keys never glow brighter than half lit: their full state shows on the screen's edge strips (see [Screen edges follow the key lights](#lights-edges)).
+
+:::
+
+<Keywords k="light meaning, half lit, fully lit, blinking, dim, bright, what do the lights mean, 灯的意思" />
+
+## Lights on each screen {#lights-screens}
+
+<Strip>
+  <Step shot="seq-notes">**SEQ note page**: empty steps off, steps with notes half lit, selected ones fully lit, the playhead runs across fully lit.</Step>
+  <Step shot="seq-pattern">**PATTERN**: existing patterns half lit, the one in use fully lit, a queued one blinking.</Step>
+  <Step shot="instr-juno-vcf" at="cell:1,1">**INSTR parameter pages**: parameters half lit, the focused parameter fully lit, empty cells off.</Step>
+  <Step shot="tape-session">**SESSION**: each track's current pattern fully lit, the others half lit, queued ones blinking.</Step>
+  <Step shot="tape-mix">**MIX**: the selected track fully lit; mute / solo / sequencer fully lit when on, half lit when off.</Step>
+  <Step shot="map-esc">**Holding ESC / TAB / CTRL**: the current item fully lit, the others half lit; the pads all off.</Step>
+  <Step shot="fn-held">**Holding FN**: the menu items on the GRID, the letters of the items and the quick controls half lit; everything else off.</Step>
+  <Step shot="setup-keys" at="cell:1,1">**SETUP settings pages**: settings half lit, the focused one fully lit.</Step>
+</Strip>
+
+| Screen | GRID lights |
+|---|---|
+| SEQ note page | the page on screen: empty steps off, steps with notes half lit, selected ones fully lit, the playhead runs across fully lit, steps beyond the pattern's length off; in the STEP view the write cursor blinks |
+| SEQ DRUMS | the chosen drum's hits fully lit, steps with only other drums half lit, empty steps off |
+| SEQ PATTERN | existing patterns half lit, the one in use fully lit, a queued one blinks; NEW and empty slots off |
+| SEQ TRACK | the four settings half lit, the focused one fully lit |
+| RECORD panel | settings half lit, REC and SNAP fully lit when on, the focus fully lit; takes half lit |
+| INSTR parameter pages (CHORD and ARP too) | parameters and actions half lit, the focused parameter fully lit (HOLD fully lit while on), empty cells off |
+| TAPE SESSION | each track's current pattern fully lit, the others half lit, queued ones blink |
+| TAPE SONG | cells with a pattern half lit, `--` off, the selected cell and the playing row fully lit, a cued row blinks |
+| TAPE MIX | the selected track fully lit; mute / solo / sequencer fully lit when on, half lit when off |
+| TAPE SENDS · FX | sends that are on half lit, off ones off, the focus fully lit; FX: parameters half lit, the focus fully lit |
+| SETUP PROJECT | actions half lit, the focused BPM / SWING fully lit, PLAY fully lit in SONG |
+| SETUP FILES | off (choose with ADD / SUB) |
+| SETUP KEYS · SYSTEM | settings half lit, the focus fully lit (with KEY LED focused the pads are the brightness ramp) |
+| holding ESC | four columns, one per scene: the current scene fully lit, the other three half lit (column 1 is SETUP); the pads all off |
+| holding TAB / CTRL | the keys the map accepts: the current one fully lit, the others half lit; the pads all off |
+| holding FN / the FN menu | menu items half lit, a switch that is on fully lit, unavailable items and empty cells off |
+| a parameter cell held | the pads are its values: one key per value half lit, the current value fully lit |
+| text entry | character keys half lit; erase, OK and space half lit |
+
+- **The pads** are always the current track's keyboard: keys that sound half lit, held and sounding keys fully lit (with the other notes of a chord, the arpeggiator's note and the notes the sequencer plays on this track), keys that cannot sound off (see [Keyboard layouts](./play.mdx#play-keyboard)). In SEQ the notes of the selected step, or while playing those of the playing step, are fully lit.
+- **Drum tracks** are the one exception to the three levels: at rest the pad columns glow a little brighter towards the top row (harder), and a hit lights its column from the bottom up to its row.
+- **The four left keys**: ESC, TAB and FN half lit, CTRL half lit when the screen has pages; a held key fully lit; FN fully lit while its menu is kept open (TAB and CTRL are off then, as in every pop-up). Just after a track change only the key of that track's row lights for a moment (T1 = ESC row … T4 = CTRL row).
+- **Right side**: ADD / SUB half lit when there is something to change, OK half lit when it has an action (fully lit in the SEQ STEP view), PLAY half lit when stopped, fully lit when playing, blinking while recording is armed.
+
+While <Key k="FN" /> is held the whole keyboard shows what FN can do on this screen:
+
+| Keys | While FN is held |
+|---|---|
+| GRID | the menu: available items <Led state="half">half lit</Led>, a switch that is on <Led state="full">fully lit</Led>, unavailable items and empty cells <Led state="off">off</Led> |
+| PADS | the letters of the available items (<Key k="C" /> <Key k="V" /> <Key k="X" /> <Key k="Q" /> <Key k="D" />, <Key k="S" /> <Key k="T" />) and the quick controls <Key k="6" /> <Key k="7" /> <Key k="8" /> <Key k="Y" /> <Key k="U" /> <Key k="I" /> half lit; every other pad off |
+| <Key k="ESC" /> <Key k="TAB" /> <Key k="CTRL" /> | ESC and TAB half lit; CTRL half lit when the scene has more than one page |
+| <Key k="ADD" /> <Key k="SUB" /> <Key k="OK" /> <Key k="PLAY" /> | ADD / SUB half lit; OK half lit where the screen has an <Key k="FN+OK" />; PLAY half lit, fully lit while recording is armed |
+
+<Keywords k="light rules, which keys light, why is it lit, why is it dark, fn lights, 灯光规则" />
+
+## Screen edges follow the key lights {#lights-edges}
+
+The 4 + 4 strips on the screen's left and right edges **are the lights of the 8 edge keys**: each strip reads its key's light at that moment. The edge keys themselves glow at most half lit, so fully lit shows only on the strip.
+
+<Shot name="tab-hint">
+  <Mark at="strip:ESC">ESC strip</Mark>
+  <Mark at="strip:TAB">T2 row: fully lit = solid</Mark>
+  <Mark at="strip:FN">FN strip</Mark>
+  <Mark at="strip:CTRL">CTRL strip</Mark>
+  <Mark at="strip:ADD">ADD</Mark>
+  <Mark at="strip:PLAY">PLAY</Mark>
+  <KeyMark keys="TAB">The new track's row</KeyMark>
+  <KeyMark keys="ESC FN CTRL">Off</KeyMark>
+  <Caption>Just after TAB to T2: for a moment only the second left key lights, and its strip on screen turns solid.</Caption>
+</Shot>
+
+| Key light | Screen strip |
+|---|---|
+| <Led state="off">off</Led> | very faint |
+| <Led state="half">half lit</Led> | 30 % dither |
+| <Led state="full">fully lit</Led> | solid (the right-hand glyph turns black) |
+
+Holds, the track hint, maps and blinking always match between screen and keys. The right strips also say more: the ADD / SUB glyphs show what they do here (+ −, arrows, erase), and the PLAY strip is green while playing and red while recording is armed.
+
+:::tip
+
+When nobody plays (no key for 4 seconds), every 10 seconds a light runs down both edges: each row's left and right key lights and screen strips rise and fall together, so you see at a glance that the screen's edge strips are the keys beside them.
+
+:::
+
+<Keywords k="edge, strips, sync, sweep, screen edges, 侧边, 色块" />
+
+## Brightness and the light test {#lights-ramp}
+
+**KEY LED** (0–15) on SETUP's SYSTEM page is the overall brightness of all key lights.
+
+<Shot name="setup-keyled">
+  <Mark at="cell:1,2">KEY LED brightness</Mark>
+  <Mark at="cell:1,1">Master volume</Mark>
+  <Mark at="cell:1,3">Screen brightness</Mark>
+  <KeyMark keys="r0c1-r3c1">Off</KeyMark>
+  <KeyMark keys="r0c2-r3c2">Half lit: the dimmest glow</KeyMark>
+  <KeyMark keys="r0c3-r3c7">Each brighter than the last</KeyMark>
+  <KeyMark keys="r0c8-r3c8">Fully lit</KeyMark>
+  <Caption>KEY LED focused: from left to right the pads are a brightness ramp, dark to bright.</Caption>
+</Shot>
+
+<Strip>
+  <Step keys="hold ESC + G1" shot="setup-project" at="8,0,41,11">Hold <Key k="ESC" /> and press a key of GRID column 1: <Scene name="SETUP" />.</Step>
+  <Step keys="hold CTRL + G4" shot="setup-system" at="footer">Hold <Key k="CTRL" /> and press G4: the SYSTEM page.</Step>
+  <Step keys="G2" shot="setup-keyled" at="cell:1,2">Tap KEY LED: the pads become a brightness ramp. <Key k="ADD" /> / <Key k="SUB" /> set the overall brightness.</Step>
+</Strip>
+
+:::warning
+
+If every column of the ramp looks equally bright, the light dimming is not working.
+
+:::
+
+<Keywords k="led brightness, dim lights, brighter, light test, test, ramp, 灯亮度" />

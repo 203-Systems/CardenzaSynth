@@ -1,0 +1,22 @@
+{
+  "title": {
+    "message": "鸣片",
+    "description": "The title in the navbar"
+  },
+  "logo.alt": {
+    "message": "203 Systems",
+    "description": "The alt text of navbar logo"
+  },
+  "item.label.Guide": {
+    "message": "教程",
+    "description": "Navbar item with label Guide"
+  },
+  "item.label.Manual": {
+    "message": "说明书",
+    "description": "Navbar item with label Manual"
+  },
+  "item.label.Simulator": {
+    "message": "模拟器",
+    "description": "Navbar item with label Simulator"
+  }
+}

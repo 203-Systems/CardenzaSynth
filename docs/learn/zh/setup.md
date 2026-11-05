@@ -142,7 +142,7 @@ key G2 G3 = 设置：半亮
 | KEY LED | 0–15（默认 15） | 所有按键灯的总亮度；选中它时演奏区显示亮度梯（[[#lights-ramp]]） |
 | SCREEN | 4–100 %（默认 70 %） | 屏幕亮度 |
 
-这些是设备设置：Cardenza 上所有应用共用，存在 `System/settings.cfg`，不会进任何工程。
+这些是设备设置：鸣片上所有应用共用，存在 `System/settings.cfg`，不会进任何工程。
 
 下面的状态每次进来逐行打出：设备、音频后端、SD 卡（READY 或 NOT FOUND，见 [[#storage-card]]）、剩余内存、固件构建日期。
 

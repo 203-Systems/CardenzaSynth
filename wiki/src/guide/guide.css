@@ -1,0 +1,175 @@
+/* The guide inside the wiki (tools/learn/guide.css): the rail of lessons beside the lesson, cards on
+   the home page. The frame follows the wiki's light and dark theme; the stage stays the device's black. */
+.cz-guide {
+  --g-step: #33b1ff;      /* the lessons' step bar: a sky blue that is no key's role nor T2's blue */
+  --g-line: var(--ifm-color-emphasis-300);
+  --g-dim: var(--ifm-color-emphasis-700);
+  --g-faint: var(--ifm-color-emphasis-600);
+  --g-panel: var(--ifm-color-emphasis-100);
+  --g-play: #1fbf55;
+  --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 8.5l4 4 8-9' fill='none' stroke='%23000' stroke-width='2.6'/%3E%3C/svg%3E");
+}
+[data-theme='dark'] .cz-guide { --g-play: var(--cz-play); }
+/* The animations draw both languages; the page shows the reader's. */
+.cz-guide[data-lang='zh'] [data-l='en'], .cz-guide[data-lang='en'] [data-l='zh'] { display: none; }
+
+.g-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); max-width: 1440px; margin: 0 auto; }
+.g-main { min-width: 0; padding: 22px clamp(16px, 4vw, 48px) 60px; }
+.g-menu { display: none; }
+
+/* Rail: parts and lessons, numbered, a tick for each lesson done. */
+.g-rail {
+  position: sticky; top: var(--ifm-navbar-height); height: calc(100vh - var(--ifm-navbar-height)); overflow: auto;
+  padding: 18px 10px 24px 14px; border-right: 1px solid var(--g-line); font-size: 13.5px; line-height: 1.45;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.g-rail a { text-decoration: none; }
+.g-home-link { color: var(--g-dim); padding: 4px 8px; border-radius: 4px; }
+.g-home-link:hover, .g-home-link.active { color: var(--ifm-font-color-base); background: var(--g-panel); }
+.g-part h3 { font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--g-faint); margin: 0 0 6px 8px; }
+.g-part ol { list-style: none; margin: 0; padding: 0; }
+.g-part li { margin: 0; }
+.g-part a { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 4px; color: var(--g-dim); }
+.g-part a:hover { background: var(--g-panel); color: var(--ifm-font-color-base); }
+.g-part a.active { background: var(--cz-ctrl); color: #000; }
+.g-part .n { width: 20px; height: 20px; flex: none; display: grid; place-items: center; border: 1px solid var(--g-line); border-radius: 3px;
+  font: 11px var(--cz-mono); }
+.g-part a.active .n { border-color: #000; }
+.g-part .t { flex: 1; min-width: 0; }
+.cz-guide .ok { width: 14px; height: 14px; flex: none; }
+.cz-guide .done .ok { background: var(--g-play); -webkit-mask: var(--tick) center / contain no-repeat; mask: var(--tick) center / contain no-repeat; }
+.g-part a.active.done .ok { background: #000; }
+.g-progress { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 8px; color: var(--g-faint); font-size: 12px; }
+.g-progress .bar { height: 6px; border: 1px solid var(--g-line); border-radius: 2px; overflow: hidden; }
+.g-progress .bar i { display: block; height: 100%; width: 0; background: var(--g-play); transition: width .4s ease; }
+.redo-all { align-self: flex-start; border: 0; background: none; padding: 2px 0; color: var(--g-faint); font: 12px var(--cz-mono); cursor: pointer; }
+.redo-all:hover { color: var(--ifm-font-color-base); text-decoration: underline; }
+
+/* Home: a hero, the lessons as cards, the device (g- names: Infima has its own .hero and .card). */
+.g-home { max-width: 1040px; }
+.g-hero { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 32px; align-items: center; padding: 12px 0 30px;
+  border-bottom: 2px dotted var(--g-line); background: none; }
+.g-hero h1 { font-size: clamp(30px, 4.4vw, 48px); line-height: 1.12; margin: 0 0 16px; }
+.g-hero p { color: var(--g-dim); font-size: 17px; max-width: 34em; }
+.cta { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; padding: 12px 20px; border-radius: 8px; background: var(--cz-fn);
+  color: #000 !important; font: 700 15px var(--cz-mono); text-decoration: none !important; }
+.cta:hover { filter: brightness(1.06); }
+.hero-art { aspect-ratio: 16 / 10; min-height: 200px; border-radius: 12px; overflow: hidden; background: #000; }
+.cards-part h2 { font-size: 15px; letter-spacing: .06em; text-transform: uppercase; color: var(--g-dim); margin: 32px 0 14px; }
+.g-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.g-card { position: relative; display: flex; flex-direction: column; text-decoration: none !important; color: inherit !important;
+  background: var(--ifm-card-background-color); border: 1px solid var(--g-line); border-radius: 10px; overflow: hidden; }
+.g-card:hover { border-color: var(--cz-fn); border-style: dashed; }
+.c-art { aspect-ratio: 16 / 9; background: #000; display: grid; place-items: center; overflow: hidden; }
+.c-art img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
+.c-text { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 2px; }
+.c-text b { font-size: 15px; }
+.c-text small { color: var(--g-dim); font-size: 13px; line-height: 1.45; }
+.c-num { font: 700 11px var(--cz-mono); color: var(--g-faint); }
+.g-card .ok { position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; }
+.device-card { margin-top: 34px; padding: 18px 20px; border: 1px dashed var(--g-line); border-radius: 12px; background: var(--g-panel); }
+.device-card h2 { margin: 0 0 6px; font-size: 18px; }
+.device-card p { margin: 0; }
+.dc-small { color: var(--g-faint); font-size: 13.5px; margin-top: 6px !important; }
+.g-ref { margin-top: 24px; font-size: 14px; }
+.anim-stage svg, .hero-art svg, .c-art svg { display: block; width: 100%; height: 100%; }
+
+/* A lesson. */
+.lesson { max-width: 820px; }
+.l-head h1 { font-size: clamp(26px, 3.2vw, 36px); margin: 4px 0 6px; }
+.l-kicker { font: 600 12px var(--cz-mono); color: var(--g-faint); letter-spacing: .04em; }
+.l-lead { color: var(--g-dim); font-size: 17px; margin: 0 0 22px; }
+/* One line under a device lesson's lead: whether a Cardenza follows it. */
+.l-device { display: flex; gap: 9px; align-items: baseline; margin: -12px 0 20px; font-size: 13.5px; color: var(--g-faint); }
+.l-device::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--g-line); flex: none; transform: translateY(-1px); }
+.l-device.wait::before { background: var(--cz-fn); }
+.l-device.on { color: var(--g-dim); }
+.l-device.on::before { background: var(--g-play); box-shadow: 0 0 6px var(--g-play); }
+.l-device.warn { color: var(--ifm-font-color-base); }
+.l-device.warn::before { background: var(--cz-rec); }
+.l-device.retry { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+
+/* The stage: the animation, or the device (its screen above its keys), one step at a time. */
+.anim-wrap { position: relative; }
+.anim-stage { position: relative; aspect-ratio: 16 / 9; background: #000; border: 1px solid #1d1d1b; border-radius: 12px; overflow: hidden; color: var(--cz-ink); }
+.st-stage { aspect-ratio: auto; min-height: 380px; display: grid; place-items: center; padding: 26px 22px 22px; }
+.st-page { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.st-screen { width: min(400px, 62%); }
+.st-screen .cz-bezel { padding: 6px; border-radius: 8px; box-shadow: 0 0 0 3px #0a0a09; }
+.st-keys { width: min(720px, 100%); }
+.st-keys .cz-marks-cols { margin: 12px 0 0; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 2), auto);
+  grid-auto-flow: column; max-width: none; }
+/* The demo on the key picture: a key pressed goes down and lights, as on the device. */
+.st-keys .k .cap { transition: transform .08s; transform-box: fill-box; }
+.st-keys .k.press { --b: 1 !important; opacity: 1 !important; }
+.st-keys .k.press .cap { transform: translateY(1.5px); }
+.a-show, .a-sound { position: absolute; top: 10px; right: 10px; border: 1px solid #34342f; background: rgba(14, 14, 13, .85); color: #a2a29a;
+  font: 600 12px var(--cz-mono); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+.a-show:hover { color: #e8e8e0; border-color: #a2a29a; }
+.a-show:disabled { opacity: .6; cursor: default; }
+.a-sound[aria-pressed="true"] { border-color: var(--cz-play); color: var(--cz-play); }
+
+/* The step's words under the picture, the steps as dots, Back and Next. */
+.anim-bar { display: flex; gap: 14px; align-items: center; margin: 12px 0 18px; }
+.anim-bar button { font: 600 14px var(--cz-mono); border-radius: 8px; border: 1px solid var(--g-line); cursor: pointer; }
+.anim-bar .a-back { width: 42px; height: 42px; padding: 0; font-size: 16px; flex: none; color: var(--g-step); background: none;
+  border-color: color-mix(in srgb, var(--g-step) 55%, var(--g-line)); }
+.anim-bar .a-back:not(:disabled):hover { border-color: var(--g-step); }
+.anim-bar .a-back:disabled { opacity: .3; cursor: default; }
+.anim-bar .a-next { flex: none; background: var(--g-step); color: #000; border-color: var(--g-step); padding: 11px 16px; }
+.anim-bar .a-next:hover { filter: brightness(1.08); }
+/* With a Cardenza following: Next is grey until the step is learned on it. */
+.anim-bar .a-next.idle { background: var(--g-panel); color: var(--g-faint); border-color: var(--g-line); }
+.anim-bar .a-next.pop { animation: g-next-ready 1.3s ease-out 3; }
+@keyframes g-next-ready { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--g-step) 75%, transparent); } 100% { box-shadow: 0 0 0 16px transparent; } }
+.anim-say { flex: 1; min-width: 0; }
+.anim-text { margin: 4px 0 0; font-size: 18px; line-height: 1.55; min-height: 2.6em; }
+.anim-dots { display: flex; gap: 6px; }
+.anim-dots .a-dot { width: 22px; height: 6px; border: 0; border-radius: 2px; background: var(--g-line); padding: 0; }
+.anim-dots .a-dot.on { background: var(--g-step); }
+.anim-dots .a-dot.seen { background: var(--g-dim); }
+.anim-dots .a-dot.done, .anim-dots .a-dot.on.done { background: var(--g-play); }
+.anim-pass { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; color: var(--g-play); font-weight: 700; font-size: 15px; line-height: 1.4; }
+.pass-badge { position: relative; width: 26px; height: 26px; flex: none; border-radius: 50%; background: var(--g-play); }
+.pass-badge::before { content: ""; position: absolute; inset: 6px; background: #000; -webkit-mask: var(--tick) center / contain no-repeat; mask: var(--tick) center / contain no-repeat; }
+.pass-badge::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--g-play); opacity: 0; }
+.anim-pass.pop { animation: g-pass-in .45s cubic-bezier(.2, 1.5, .4, 1); }
+.anim-pass.pop .pass-badge::after { animation: g-pass-ring .9s ease-out .1s 2; }
+@keyframes g-pass-in { 0% { opacity: 0; transform: translateY(6px) scale(.92); } 100% { opacity: 1; transform: none; } }
+@keyframes g-pass-ring { 0% { opacity: .9; transform: scale(.8); } 100% { opacity: 0; transform: scale(1.9); } }
+
+.l-done { margin-top: 18px; padding: 16px 18px; border-radius: 10px; border: 1px solid var(--g-play);
+  background: color-mix(in srgb, var(--g-play) 12%, transparent); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.l-done b { font: 800 20px var(--cz-mono); color: var(--g-play); }
+.l-pager { display: flex; justify-content: flex-end; gap: 12px; margin-top: 18px; }
+.l-pager .redo { border: 1px solid var(--g-line); padding: 9px 13px; border-radius: 7px; background: none; color: var(--g-dim);
+  font: 13px var(--cz-mono); cursor: pointer; }
+.l-pager .redo:hover { border-color: var(--g-dim); color: var(--ifm-font-color-base); }
+.l-more { font-size: 14px; margin-top: 18px; }
+
+.g-toast {
+  position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 300;
+  background: #000; color: #e8e8e0; border: 1px solid var(--cz-fn); padding: 9px 14px; border-radius: 4px;
+  font: 13px var(--cz-mono); max-width: calc(100vw - 32px);
+}
+
+@media (max-width: 996px) {
+  .g-layout { grid-template-columns: minmax(0, 1fr); }
+  .g-menu { display: inline-flex; margin-bottom: 12px; border: 1px solid var(--g-line); background: none; border-radius: 6px;
+    padding: 6px 10px; color: var(--g-dim); font: 13px var(--cz-mono); cursor: pointer; }
+  .g-rail { position: fixed; z-index: 250; left: 0; top: var(--ifm-navbar-height); bottom: 0; width: min(300px, 86vw); height: auto;
+    background: var(--ifm-background-color); transform: translateX(-102%); transition: transform .2s ease; }
+  .g-rail.open { transform: none; box-shadow: var(--ifm-global-shadow-md); }
+}
+@media (max-width: 860px) {
+  .g-hero { grid-template-columns: minmax(0, 1fr); }
+  .st-stage { min-height: 0; padding: 46px 10px 12px; }  /* Show me sits above the screen */
+  .st-screen { width: min(360px, 86%); }
+  .anim-text { font-size: 16px; }
+}
+@media (max-width: 520px) {
+  .anim-bar { flex-wrap: wrap; }
+  .anim-say { order: -1; flex-basis: 100%; }
+  .anim-bar .a-next { margin-left: auto; }
+}
+@media (prefers-reduced-motion: reduce) { .anim-bar .a-next.pop, .anim-pass.pop, .anim-pass.pop .pass-badge::after { animation: none; } }

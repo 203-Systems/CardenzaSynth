@@ -1,0 +1,99 @@
+---
+sidebar_position: 1
+---
+
+# Getting started
+
+:::tip
+
+New to it? Take the [guide](/) first: a few minutes a lesson, one step at a time. This manual is the reference, for looking things up.
+
+:::
+
+Cardenza Groovebox is a pocket music workstation: four tracks (drums, a Juno synth, a DX7 FM synth and a sampler), each with its own sequencer patterns, plus arrangement, mixing, effects and project files.
+
+The keyboard is split into four blocks, and **colour means role**: every key in this manual is drawn in its own colour, the same colours the device uses on its screen.
+
+<Keymap>
+  <Group keys="ESC TAB FN CTRL">Left four keys: where to go</Group>
+  <Group keys="PADS">Pads: play the current track</Group>
+  <Group keys="GRID">GRID: press the cells on screen</Group>
+  <Group keys="RIGHT">Right four keys: values · play</Group>
+  <Caption>Four blocks: navigation on the left, playing in the middle, the GRID on the right matches the screen's cells, values and transport on the far right</Caption>
+</Keymap>
+
+| Colour | Key | Looks after |
+|---|---|---|
+| <Key k="ESC" /> red-orange | scenes | 1 INSTR / 2 SEQ / 3 TAPE, and 0 SETUP |
+| <Key k="TAB" /> cyan | tracks | <Track n="1" /> <Track n="2" /> <Track n="3" /> <Track n="4" /> |
+| <Key k="FN" /> yellow | second functions | the menu of this screen, shortcuts |
+| <Key k="CTRL" /> violet | pages | the tabs at the bottom of the screen, like <Page name="ROLL" /> |
+| <Key k="PLAY" /> green | transport | play / stop |
+
+How to use this manual: <Icon name="map" /> the **Map** (top right) jumps straight to any key or page you click; <Icon name="search" /> search for any word at the top ("音量", "volume" and "too quiet" all find the same place); <Icon name="play" /> under every screenshot, **Try it live here** swaps in a running device; <Icon name="usb" /> connect your Cardenza over USB and play the manual's device with its real keys (see [Follow along in the manual](./web.mdx#web-live), [Connect your Cardenza (USB)](./web.mdx#web-usb)).
+
+<Keywords k="overview, introduction, about, what is, beginner, colours, 介绍, 概览" />
+
+## One-minute start {#quick-start}
+
+Follow these steps once and you know most of it:
+
+<Strip>
+  <Step shot="instr-boot" at="8,0,41,11 51,0,15,11 10,89,220,38">After power-on you are in <Scene name="INSTR" /> on the VOICE page, on track <Track n="1" />, the drums (808 KIT): each column of pads is one drum, the top row hits hardest.</Step>
+  <Step keys="ESC" shot="seq-empty" at="scene">Tap <Key k="ESC" />: <Scene name="SEQ" />, where the track's notes are written. Still <Track n="1" />: on a drum track this is the drum page, the drums on the left, the steps of the chosen drum on the GRID.</Step>
+  <Step keys="hold r3c1~Kick + G1, G5, G9, G13" shot="seq-drums" at="9,17,92,10">Hold the kick key and tap GRID 1, 5, 9 and 13: a kick on all four beats is written. Snare and hats go in the same way.</Step>
+  <Step keys="PLAY" shot="seq-drums-playing">Play! Each step sounds when the green line reaches it. Press again to stop.</Step>
+  <Step keys="TAB" shot="seq-keyboard" at="track">Tap <Key k="TAB" />: <Track n="2" />, the Juno. Now the pads are a piano: two whole octaves, rows 2 and 4 white keys, rows 1 and 3 black keys, the gaps dark; C3 at the bottom left.</Step>
+  <Step keys="hold r3c1~C3 + G1" shot="seq-hold-tap" at="28,57,15,10">Hold a note and tap a step: the note is written. The held key is fully lit.</Step>
+  <Step keys="hold OK" shot="record">Whatever you just played is not lost: hold <Key k="OK" /> to put it into a pattern.</Step>
+</Strip>
+
+Four more things to remember:
+
+<Strip>
+  <Step keys="hold ESC" shot="map-esc" at="cells:1,1-4,4">Tap <Key k="ESC" /> to walk the three music scenes: <Scene name="INSTR" /> sounds → <Scene name="SEQ" /> notes → <Scene name="TAPE" /> arrange and mix. Hold it for this map: column 1 is <Scene name="SETUP" />, the project and the settings.</Step>
+  <Step keys="hold FN" shot="fn-held" at="cells:1,1-4,4">Hold <Key k="FN" />: the menu of this screen on the GRID (copy, paste, save, record…); FN + a GRID key runs an item.</Step>
+  <Step keys="hold FN + 7" shot="fn-volume" at="14,94,212,28">With FN held: <Key k="6" /> <Key k="Y" /> set the BPM, <Key k="7" /> <Key k="U" /> the volume, <Key k="8" /> <Key k="I" /> the octave.</Step>
+  <Step keys="FN+S" shot="save-done" at="footer"><Key k="FN+S" /> saves the project; an untitled one gets the first free name, SONG 01, without asking.</Step>
+</Strip>
+
+<Keywords k="quick start, tutorial, first steps, how to begin, getting started, first beat, power on, 快速开始, 上手" />
+
+## What is on the screen {#screen-layout}
+
+The screen is 240×135 pixels in five areas, each placed where its keys are:
+
+<Shot name="seq-notes">
+  <Mark at="scene">Scene</Mark>
+  <Mark at="track">Track (in its colour)</Mark>
+  <Mark at="bpm">BPM · play state</Mark>
+  <Mark at="strip:ESC">ESC</Mark>
+  <Mark at="strip:TAB">TAB</Mark>
+  <Mark at="strip:FN">FN</Mark>
+  <Mark at="strip:CTRL">CTRL</Mark>
+  <Mark at="content">Content: its 16 steps = the GRID</Mark>
+  <Mark at="strip:PLAY">PLAY</Mark>
+  <Mark at="footer">Page tabs: CTRL changes page</Mark>
+  <KeyMark keys="PADS">Can sound: half lit</KeyMark>
+  <KeyMark keys="G1">Has a note: half lit</KeyMark>
+  <KeyMark keys="G2">Empty step: off</KeyMark>
+  <Caption>The SEQ note page (ROLL) with a few notes on T2. Below it the key lights of the same moment.</Caption>
+</Shot>
+
+| Area | Where | Shows |
+|---|---|---|
+| Status line | top | scene number and name, current track (in its colour), engine and sound, REC, play / stop, BPM, `*` unsaved changes |
+| Four left strips | left edge | the <Key k="ESC" /> <Key k="TAB" /> <Key k="FN" /> <Key k="CTRL" /> keys with their icons (back, tracks, menu, pages); a held key fills its strip |
+| Content | middle | a 4×4 of cells = the 4×4 GRID on the right: the key you press is that cell |
+| Page tabs | bottom | the pages of the current scene, the current one on violet <Page name="ROLL" />; <Key k="CTRL" /> changes page |
+| Four right strips | right edge | <Key k="ADD" /> <Key k="SUB" /> <Key k="OK" /> <Key k="PLAY" />; the ADD / SUB icons say what they do here (+ −, ↑ ↓ in a list, → ← sideways), PLAY is green while playing, red with recording armed |
+
+:::tip
+
+The cell in row 2, column 3 on screen is GRID row 2, key 3 (the `[` cap). Every page follows this rule: **wherever a cell is on the screen, its key is in the same place.**
+
+:::
+
+The edge strips show the state of their keys: <Led state="off">off</Led> faint, <Led state="half">half lit</Led> a 30% dither, <Led state="full">fully lit</Led> a solid block. The eight edge keys themselves glow at most <Led state="half">half lit</Led>, so the strip is where you read them. See [Screen edges follow the key lights](./lights.mdx#lights-edges).
+
+<Keywords k="screen, display, layout, status line, header, page tabs, tabs, footer, content area, unsaved, asterisk, icons, 屏幕, 界面" />

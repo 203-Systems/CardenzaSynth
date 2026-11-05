@@ -1,0 +1,191 @@
+---
+sidebar_position: 5
+---
+
+# FN menu and shortcuts
+
+<Key k="FN" /> is **the menu of the current screen**: hold it and the GRID becomes a menu of what this screen can do, with the second functions of the keys around it; tap it and the same menu stays open.
+
+<Keywords k="fn, function, second function, menu, shift" />
+
+## The FN menu {#fn-menu}
+
+<Shot name="fn-held">
+  <Mark at="header">FN MENU and whose menu it is: SEQ ROLL</Mark>
+  <Mark at="cells:1,1-3,4">Rows 1–3: this page's items</Mark>
+  <Mark at="cells:4,1-4,4">Row 4: the same on every screen</Mark>
+  <Mark at="footer">Quick controls: BPM, volume, octave</Mark>
+  <KeyMark keys="FN">Hold</KeyMark>
+  <KeyMark keys="GRID">Menu items: FN + a GRID key runs it</KeyMark>
+  <KeyMark keys="C X Q D S T">Letters of the items</KeyMark>
+  <KeyMark keys="6 7 8 Y U I">Quick controls</KeyMark>
+  <KeyMark keys="PLAY">REC</KeyMark>
+  <Caption>Holding FN on SEQ ROLL: this page's menu on the GRID. Only keys with an FN function are lit.</Caption>
+</Shot>
+
+|  | <Key k="hold FN" /> Hold FN | <Icon name="tap" /> Tap FN: the menu stays open |
+|---|---|---|
+| run an item | <Key k="FN" /> + its GRID key, or <Key k="FN" /> + its letter | its GRID key; the menu closes |
+| close | let go of FN | <Key k="FN" /> or <Key k="ESC" /> |
+| pads | silent; only the letters and quick controls work | keep playing |
+| <Key k="ADD" /> <Key k="SUB" /> <Key k="OK" /> | big steps (SEQ note page: the GRID's page) and the second OK (see [Second functions (letters and the keys around)](#fn-shortcuts)) | ADD / SUB do nothing; <Key k="FN+OK" /> still runs the second OK |
+
+- A hold is 250 ms; release sooner and FN counts as a tap.
+- Rows 1–3 belong to the page you are on; row 4 is the same on every screen: **SAVE** the project, **TAP** tempo, **REC** arm, **SETUP** (in SETUP: **BACK**).
+- The FN panel and its pages are gone: settings live in [0 SETUP](./setup.mdx), and <Key k="FN" /> + <Key k="1" />…<Key k="5" /> do nothing.
+
+<Shot name="fn-menu-open">
+  <Mark at="cell:1,1">Name · what it acts on · FN letter</Mark>
+  <Mark at="cell:1,2">Not available: dotted</Mark>
+  <Mark at="cell:2,2">A switch: VIEW (ROLL / STEP)</Mark>
+  <Mark at="8,123,56,12">Whose menu: SEQ ROLL</Mark>
+  <Mark at="141,123,90,12">FN / ESC close</Mark>
+  <KeyMark keys="GRID">Run an item</KeyMark>
+  <KeyMark keys="PADS">Keep playing</KeyMark>
+  <Caption>A tap on FN: the same menu, kept open. The bottom line says whose menu it is and how to close it.</Caption>
+</Shot>
+
+Each tile has:
+
+- the **name** on top and, top right in yellow, its FN letter: <Key k="FN+C" /> runs COPY; `OK` means <Key k="FN+OK" />, `PLAY` <Key k="FN+PLAY" />;
+- a **second line**: what it acts on (PATTERN or STEPS, ROW 2, the engine) or its state (ROLL, 120 BPM, OFF);
+- its **light**: <Led state="half">half lit</Led> available, <Led state="full">fully lit</Led> a switch that is on (shown inverse: VIEW STEP, REC ARMED, PLAY SONG), <Led state="off">off</Led> and dotted when it cannot run now (PASTE with nothing copied, SCOPE without selected steps).
+
+<Keywords k="fn menu, menu, fn panel, 面板, context menu, menu of this screen, hold fn, tap fn, items, 菜单" />
+
+## The menu on each screen {#fn-menus}
+
+| Screen | Rows 1–3 |
+|---|---|
+| INSTR (every page) | **PRESETS** browse · **SAVE** / **SAVE AS** the preset · **ENGINE** picker · **RESET** `OK`: the focused parameter back to default (parameter pages, CHORD and ARP included); SAMPLER also **SAMPLES** (files), **RECORD** (a sample), **PREVIEW** |
+| SEQ (every page) | **COPY** `C` · **PASTE** `V` · **CLEAR** `X` · **QUANT** `Q`: the selected steps, otherwise the whole pattern · **DUP** `D`: the pattern into the next free slot (16 at most) · **VIEW**: ROLL / STEP (dotted on a drum track) · **RECORD**: the RECORD panel and its takes · **SCOPE** `OK`: which chord note the step editor edits (with steps selected) · **PAGE −** / **PAGE +**: which page of a long pattern the GRID shows (note page, more than 16 steps) · **LEN −** / **LEN +**: the pattern's length, 1 to 256 steps (1, 2, 4, 8, 16, then 16 at a time) |
+| TAPE SESSION | **LAUNCH**: the cursor's row · **ADD** TO SONG `OK`: the patterns playing become a new SONG part |
+| TAPE SONG | **COPY** `C` · **PASTE** `V` (after the cursor) · **DELETE** `X` · **DUP** `D`: the part under the cursor (ROW n) · **PLAY** `OK`: SONG / LOOP |
+| TAPE MIX | **UNMUTE** ALL · **UNSOLO** ALL |
+| TAPE SENDS · FX | **RESET** `OK` |
+| SETUP PROJECT · FILES | **NEW** · **LOAD** · **SAVE AS** (the project) |
+| SETUP KEYS · SYSTEM | **RESET** `OK`: the focused setting back to default |
+| **row 4, every screen** | **SAVE** `S`: the project (UNSAVED when there are changes) · **TAP** `T`: tap tempo, shows the BPM · **REC** `PLAY`: record arm, fully lit when armed · **SETUP**: to 0 SETUP; in SETUP **BACK** to the scene you came from |
+
+<Shot name="fn-menu-instr">
+  <Mark at="cells:1,1-1,4">PRESETS · SAVE · SAVE AS · ENGINE</Mark>
+  <Mark at="cell:2,1">RESET: parameter pages only</Mark>
+  <Mark at="cells:4,1-4,4">Row 4: SAVE · TAP · REC · SETUP</Mark>
+  <KeyMark keys="G1-G4">Available: half lit</KeyMark>
+  <KeyMark keys="G5">Not available: off</KeyMark>
+  <Caption>Holding FN on INSTR VOICE (T2 Juno): the sound's items; RESET is dotted because VOICE has no parameter to reset.</Caption>
+</Shot>
+
+<Keywords k="menu items, menus, per screen, copy, paste, launch, unmute all, unsolo all, reset, new, load, save as, back, page, length, pattern length, long pattern, 256 steps, 菜单项" />
+
+## Quick controls: BPM, volume, octave {#fn-quick}
+
+The three most used settings need no page. Hold <Key k="FN" />: the 2×3 block at the right end of the pads, next to the GRID, is three plus/minus pairs, **upper row up, lower row down** (like ADD above SUB):
+
+<Keymap>
+  <Group keys="FN">Hold</Group>
+  <Group keys="6 Y">BPM + / −</Group>
+  <Group keys="7 U">Volume + / −</Group>
+  <Group keys="8 I">Octave + / −</Group>
+  <Caption>Hold FN: 6 7 8 up, Y U I down</Caption>
+</Keymap>
+
+<Strip>
+  <Step keys="hold FN + 6" shot="fn-quick" at="14,94,212,28">BPM +1 (<Key k="Y" /> is −1). Hold to keep changing.</Step>
+  <Step keys="hold FN + 7" shot="fn-volume" at="14,94,212,28">Volume: too quiet, press <Key k="7" /> (louder); too loud, press <Key k="U" />.</Step>
+  <Step keys="hold FN + 8" shot="fn-octave" at="14,94,212,28">Octave: <Key k="8" /> up, <Key k="I" /> down.</Step>
+</Strip>
+
+<Ref kind="fn-quick" />
+
+They work on every screen while FN is held, repeat while held, and pop the new value up at the bottom of the screen, over the menu. While FN is held these six keys are <Led state="half">half lit</Led>, <Led state="full">fully lit</Led> while pressed.
+
+<Keywords k="volume, bpm, octave, quick, shortcut, tempo, faster, slower, volume, louder, quieter, octave, turn up, turn down, 快捷, 音量" />
+
+## Second functions (letters and the keys around) {#fn-shortcuts}
+
+<Keymap>
+  <Group keys="FN">Hold</Group>
+  <Group keys="ESC">Stop all</Group>
+  <Group keys="TAB">Previous track</Group>
+  <Group keys="CTRL">Previous page</Group>
+  <Group keys="ADD SUB">Big steps</Group>
+  <Group keys="OK">Second OK</Group>
+  <Group keys="PLAY">Record arm</Group>
+  <Group keys="C V">Copy, paste</Group>
+  <Group keys="X">Clear</Group>
+  <Group keys="Q">Quantize</Group>
+  <Group keys="D">Duplicate</Group>
+  <Group keys="T">Tap tempo</Group>
+  <Group keys="S">Save</Group>
+  <Caption>Keys with a second function while FN is held</Caption>
+</Keymap>
+
+| FN + | Does |
+|---|---|
+| GRID | run that menu item |
+| <Key k="ESC" /> | stop all: the sequencer, every sounding note and every ARP (ALL STOP) |
+| <Key k="TAB" /> | previous track |
+| <Key k="CTRL" /> | previous page (<Key k="CTRL" /> alone: next page) |
+| <Key k="ADD" /> / <Key k="SUB" /> | big steps: ×10 on wide parameters (BPM ±10), ×3 on narrow ones, ×5 on the SETUP settings, 10 sounds on VOICE, 8 rows in lists; SEQ note page: the GRID's page of a long pattern (with steps selected: their values in big steps) |
+| <Key k="OK" /> | the screen's second OK: INSTR, SENDS, master FX and the SETUP settings pages: the focused value back to its default; SEQ note page: which chord note to edit (all / one); SESSION: ADD TO SONG; SONG: SONG / LOOP; RECORD panel: merge a take into the current pattern; sample list: rename / delete |
+| <Key k="PLAY" /> | record arm (REC) |
+| <Key k="C" /> / <Key k="V" /> | copy / paste (selected steps or the current pattern; a part in SONG) |
+| <Key k="X" /> | clear (selected steps, or the current pattern after confirming; deletes the part in SONG) |
+| <Key k="Q" /> | quantize (selected steps or the current pattern) |
+| <Key k="D" /> | duplicate the current pattern into the next free slot; the part in SONG |
+| <Key k="T" /> | tap tempo: tap two or more times, the interval sets the BPM |
+| <Key k="S" /> | save the project (an untitled one gets the first free name, SONG 01, SONG 02…, without asking) |
+| <Key k="F" /> | in the preset and sample lists: search, see [FN in input screens: the yellow legends](#fn-yellow) |
+| <Key k="1" />–<Key k="5" /> | nothing |
+
+:::note
+
+A letter works where the menu has its item (the pad is half lit then); <Key k="S" /> and <Key k="T" /> work everywhere. Each shows its name and result at the bottom of the screen. In the menu kept open (FN not held) the pads play notes, not letters.
+
+:::
+
+<Keywords k="shortcut, shortcuts, hotkeys, copy, paste, clear, delete, quantize, duplicate, tap tempo, save, previous page, big step, 快捷键" />
+
+## FN in input screens: the yellow legends {#fn-yellow}
+
+In every pop-up (text entry, the preset and sample lists, the engine picker, the RECORD panel, confirmations) holding FN shows no menu; it uses the **yellow legends** printed on the key caps instead:
+
+<Keymap>
+  <Group keys="FN">Hold</Group>
+  <Group keys=";">Up</Group>
+  <Group keys=".">Down</Group>
+  <Group keys=",">Left</Group>
+  <Group keys="/">Right</Group>
+  <Group keys="ADD SUB">Page up / down</Group>
+  <Group keys="F">Search (lists)</Group>
+  <Caption>Hold FN: the four keys at the lower right of the GRID are arrows</Caption>
+</Keymap>
+
+- In the preset and sample lists the pads do not type: <Key k="FN" /> + <Key k="F" /> opens a search field (up to 16 characters), <Key k="OK" /> filters the list by it. <Key k="ESC" /> clears the search first, a second <Key k="ESC" /> closes the list.
+- <Key k="FN+ESC" /> stops all here too, except in text entry, where ESC cancels.
+
+<Keywords k="arrows, arrow keys, cursor keys, up down left right, yellow legend, list, search, find, filter, fn f, 方向键" />
+
+## Typing text {#fn-text}
+
+When naming something (a project, a sound, a sample) the whole keyboard types its caps:
+
+<Shot name="text-entry">
+  <Mark at="0,13,240,10">What you are naming</Mark>
+  <Mark at="8,40,222,30">Name and cursor</Mark>
+  <Mark at="203,13,28,10">Characters / 24</Mark>
+  <Mark at="footer">OK accept · DEL erase · ESC cancel</Mark>
+  <KeyMark keys="ADD">Erase (del)</KeyMark>
+  <KeyMark keys="OK">Accept</KeyMark>
+  <KeyMark keys="ESC">Cancel</KeyMark>
+  <KeyMark keys="PLAY">Space</KeyMark>
+  <Caption>Typing a name: SAVE PROJECT AS.</Caption>
+</Shot>
+
+- Letters, digits, space (the PLAY key, not as the first character) and `-`; up to 24 characters (a search: 16). SAVE AS starts from the current name, or SONG.
+- The top-right key (the del cap) erases before the cursor; <Key k="OK" /> accepts; <Key k="ESC" /> cancels.
+- <Key k="FN" /> + <Key k="," /> / <Key k="/" /> move the cursor, <Key k="FN" /> + <Key k=";" /> / <Key k="." /> jump to the start / end, <Key k="FN" /> + del deletes after the cursor.
+- The cursor is a bar between characters, a block at the end.
+
+<Keywords k="type, typing, name, rename, text entry, cursor, backspace, delete character, 打字, 起名" />

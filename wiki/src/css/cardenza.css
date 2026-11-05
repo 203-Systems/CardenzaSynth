@@ -1,0 +1,181 @@
+/* Cardenza's own look inside the wiki (tools/learn/learn.css): key caps as the web simulator draws
+   them, the screen's chips, and figures as the device panel (the screen in its bezel, the lit keys,
+   the numbered legend). Prefixed cz- so Infima's classes (badge, panel, ...) stay out of it. The
+   figures keep the device's dark panel in both themes; chips sit in the text of either. */
+:root {
+  --cz-bg: #050505;
+  --cz-panel: #0e0e0d;
+  --cz-panel-2: #151514;
+  --cz-line: #262624;
+  --cz-line-2: #34342f;
+  --cz-ink: #e8e8e0;
+  --cz-dim: #a2a29a;
+  --cz-faint: #6a6a63;
+  --cz-esc: #ff5a36;
+  --cz-tab: #36d6e6;
+  --cz-fn: #ffd030;
+  --cz-ctrl: #a070ff;
+  --cz-play: #48ff78;
+  --cz-rec: #ff3444;
+  --cz-t1: #ff5cb0; --cz-t2: #4898ff; --cz-t3: #b0ec38; --cz-t4: #ffa428;
+  --cz-led: 255, 246, 226;
+  --cz-mark: var(--cz-fn);
+  --cz-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+}
+
+/* Infima leaves the light page transparent: a browser with a dark canvas would show dark text on it. */
+html[data-theme='light'] { --ifm-background-color: #ffffff; }
+html { background-color: var(--ifm-background-color); }
+
+.cz-ico { width: 1.1em; height: 1.1em; vertical-align: -.18em; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Key caps */
+.cz-kc {
+  display: inline-flex; align-items: baseline; gap: 4px; min-width: 1.9em; justify-content: center;
+  font: 700 12px/1.6 var(--cz-mono); padding: 0 .5em; margin: 0 1px; border-radius: 5px; vertical-align: 1px; white-space: nowrap;
+  color: var(--cz-ink); border: 1px solid #3a3a35; background: linear-gradient(180deg, #232320, #141413);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .5);
+}
+.cz-kc b { font-weight: 700; }
+.cz-kc small { font: 600 9px var(--cz-mono); color: var(--cz-faint); letter-spacing: .03em; }
+.cz-kc.k-grid { border-style: dashed; border-color: #4a4a43; }
+.cz-kc.k-esc { border-color: color-mix(in srgb, var(--cz-esc) 60%, #000); color: var(--cz-esc); }
+.cz-kc.k-tab { border-color: color-mix(in srgb, var(--cz-tab) 60%, #000); color: var(--cz-tab); }
+.cz-kc.k-fn { border-color: color-mix(in srgb, var(--cz-fn) 60%, #000); color: var(--cz-fn); }
+.cz-kc.k-ctrl { border-color: color-mix(in srgb, var(--cz-ctrl) 60%, #000); color: var(--cz-ctrl); }
+.cz-kc.k-play b { color: var(--cz-play); }
+.cz-kc .held { font: 600 9.5px var(--cz-mono); font-style: normal; color: #000; background: var(--cz-dim); padding: 0 3px; border-radius: 2px; align-self: center; line-height: 1.45; }
+.cz-combo { white-space: nowrap; }
+.cz-plus { margin: 0 2px; color: var(--ifm-color-emphasis-600); font: 700 12px var(--cz-mono); }
+.cz-then { margin: 0 4px; color: var(--ifm-color-emphasis-600); font: 700 13px var(--cz-mono); }
+
+/* Chips the screen draws: scene (status line), track (track colour), page (purple tab), key light. */
+.cz-chip { display: inline-flex; align-items: baseline; gap: 4px; font: 700 12px/1.6 var(--cz-mono); padding: 0 .45em; border-radius: 3px; white-space: nowrap; vertical-align: 1px; }
+.cz-chip.scene { background: #000; border: 1px solid var(--cz-line-2); color: var(--cz-ink); }
+.cz-chip.scene b { color: var(--cz-esc); }
+.cz-chip.scene.fn b { color: var(--cz-fn); }
+.cz-chip.page { background: var(--cz-ctrl); color: #000; }
+.cz-chip.trk { background: #000; border: 1px solid var(--cz-line-2); color: var(--cz-ink); padding-left: 0; overflow: hidden; }
+.cz-chip.trk b { color: #000; padding: 0 4px; }
+.cz-chip.t1 b { background: var(--cz-t1); } .cz-chip.t2 b { background: var(--cz-t2); }
+.cz-chip.t3 b { background: var(--cz-t3); } .cz-chip.t4 b { background: var(--cz-t4); }
+.cz-ledc { white-space: nowrap; }
+.cz-led { display: inline-block; width: 1.35em; height: 1em; border-radius: 3px; vertical-align: -.14em; margin: 0 4px 0 1px; border: 1px solid #3a3a35; background: linear-gradient(180deg, #232320, #141413); }
+.cz-led.half { background: radial-gradient(120% 90% at 50% 45%, rgba(var(--cz-led), .26), rgba(var(--cz-led), .08)), linear-gradient(180deg, #232320, #141413); }
+.cz-led.full, .cz-led.blink { background: radial-gradient(120% 90% at 50% 45%, rgba(var(--cz-led), .95), rgba(var(--cz-led), .45)); box-shadow: 0 0 8px rgba(var(--cz-led), .6); border-color: rgba(var(--cz-led), .7); }
+.cz-led.blink { animation: cz-led-blink .5s steps(1) infinite; }
+@keyframes cz-led-blink { 50% { background: linear-gradient(180deg, #232320, #141413); box-shadow: none; border-color: #3a3a35; } }
+
+/* Figures: the simulator's device panel. */
+.cz-figure {
+  margin: 22px 0 30px; padding: 16px; max-width: 720px; color: var(--cz-ink);
+  background: var(--cz-panel); border: 1px solid var(--cz-line); border-radius: 14px;
+}
+.cz-figure figcaption { color: var(--cz-dim); font-size: 13.5px; margin-top: 12px; max-width: 640px; padding-top: 10px; border-top: 1px dotted var(--cz-line-2); }
+.cz-figure a { color: var(--cz-tab); }
+.cz-figure strong { color: #fff; }
+.cz-bezel { background: #000; padding: 8px; border-radius: 8px; border: 1px solid #1d1d1b; box-shadow: 0 0 0 4px #0a0a09; line-height: 0; max-width: 576px; }
+.cz-screen { display: block; width: 100%; height: auto; }
+.cz-screen image { image-rendering: pixelated; }
+.cz-scrim { fill: rgba(0, 0, 0, .58); }
+.cz-scrim.light { fill: rgba(0, 0, 0, .4); }
+.cz-hl { fill: none; stroke: var(--cz-mark); stroke-width: 1; stroke-dasharray: 2 1.5; animation: cz-ants 1.2s linear infinite; }
+.cz-keys .cz-hl { stroke-width: 2.5; stroke-dasharray: 5 3.5; }
+@keyframes cz-ants { to { stroke-dashoffset: -7; } }
+.cz-badge rect { fill: var(--cz-mark); }
+.cz-badge text { fill: #000; font-family: var(--cz-mono); font-weight: 800; text-anchor: middle; }
+.cz-keys-wrap { margin-top: 18px; position: relative; max-width: 640px; }
+.cz-keys-label { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; font: 600 11.5px var(--cz-mono); color: var(--cz-dim); }
+.cz-keys { width: 100%; height: auto; display: block; max-width: 640px; }
+.cz-keys .kb-body { fill: #0a0a09; }
+.cz-keys .k { --b: 0; }
+.cz-keys .k .cap { fill: #171715; stroke: #2c2c29; stroke-width: 1; }
+.cz-keys .k.grid .cap { stroke: #3e3e38; stroke-dasharray: 4 2.5; }
+.cz-keys .k.esc .cap { stroke: color-mix(in srgb, var(--cz-esc) 55%, #000); }
+.cz-keys .k.tab .cap { stroke: color-mix(in srgb, var(--cz-tab) 55%, #000); }
+.cz-keys .k.fn .cap { stroke: color-mix(in srgb, var(--cz-fn) 55%, #000); }
+.cz-keys .k.ctrl .cap { stroke: color-mix(in srgb, var(--cz-ctrl) 55%, #000); }
+.cz-keys .k .lamp { fill: rgb(var(--cz-led)); opacity: calc(var(--b) * .88); }
+.cz-keys .k .glow { fill: rgb(var(--cz-led)); opacity: calc(var(--b) * .35); filter: blur(4px); }
+.cz-keys .k .lg { font: 700 11px var(--cz-mono); fill: var(--cz-ink); }
+.cz-keys .k .lg.small { font-size: 8px; font-weight: 400; fill: var(--cz-dim); }
+.cz-keys .k .tg { font: 600 7px var(--cz-mono); fill: var(--cz-faint); text-anchor: end; }
+.cz-keys .k.esc .lg { fill: var(--cz-esc); } .cz-keys .k.tab .lg { fill: var(--cz-tab); }
+.cz-keys .k.fn .lg { fill: var(--cz-fn); } .cz-keys .k.ctrl .lg { fill: var(--cz-ctrl); }
+.cz-keys .k.right .lg, .cz-keys .k.play .lg { font-size: 15px; }
+.cz-keys .k.play .lg { fill: var(--cz-play); }
+.cz-keys .k.lit .lg, .cz-keys .k.lit .tg { paint-order: stroke; stroke: rgba(0, 0, 0, .75); stroke-width: 2.5px; }
+.cz-keys .k.dim { opacity: .28; }
+
+/* The numbered legend under a picture. */
+.cz-marks { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 18px; max-width: 690px; }
+.cz-marks li { display: flex; gap: 9px; align-items: baseline; font-size: 14px; line-height: 1.5; min-width: 0; margin: 0; }
+.cz-mk { flex: none; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 4px; background: var(--cz-mark); color: #000; font: 800 12px/1 var(--cz-mono); border-radius: 2px; transform: translateY(1px); }
+.cz-mk-text { min-width: 0; }
+
+/* Steps: numbered panels in reading order. */
+.cz-strip { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 16px 26px; margin: 22px 0 30px; max-width: 900px; }
+.cz-panel { position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 10px 10px 12px; color: var(--cz-ink); background: var(--cz-panel); border: 1px solid var(--cz-line); border-radius: 10px; }
+.cz-panel a { color: var(--cz-tab); }
+.cz-panel strong { color: #fff; }
+.cz-panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 22px; }
+.cz-num { font: 800 12px/1 var(--cz-mono); background: var(--cz-ink); color: #000; padding: 4px 5px; border-radius: 2px; }
+.cz-do { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.cz-panel .cz-bezel { padding: 5px; border-radius: 6px; box-shadow: none; }
+.cz-say { margin: 0; font-size: 14px; line-height: 1.55; }
+.cz-panel:not(:last-child)::after { content: "▶"; position: absolute; right: -20px; top: calc(50% - 10px); color: var(--ifm-color-emphasis-500); font: 12px var(--cz-mono); }
+.cz-strip[data-cols="2"] .cz-panel:nth-child(2n)::after, .cz-strip[data-cols="3"] .cz-panel:nth-child(3n)::after { display: none; }
+@media (max-width: 760px) {
+  .cz-strip { grid-template-columns: minmax(0, 1fr); gap: 26px; }
+  .cz-strip .cz-panel:not(:last-child)::after { display: block; right: auto; left: calc(50% - 5px); top: auto; bottom: -22px; transform: rotate(90deg); }
+}
+
+/* Reference tables: Infima's tables, with the GRID key and the slot id small. */
+table.cz-ref td small { color: var(--ifm-color-emphasis-600); font-size: 11px; white-space: nowrap; }
+table.cz-ref td code { font-size: 11px; }
+table.cz-lists th { width: 140px; }
+.cz-ref-meta { color: var(--ifm-color-emphasis-700); font-size: 14px; }
+.cz-ref-page { font-family: var(--cz-mono); }
+.cz-ref-page small { color: var(--ifm-color-emphasis-600); font-weight: 400; font-size: 12px; margin-left: 6px; }
+
+/* Device map */
+.cz-device { margin: 14px 0; padding: 12px; background: var(--cz-bg); border-radius: 14px; }
+.cz-device-map { width: 100%; max-width: 760px; height: auto; display: block; margin: 0 auto; }
+.cz-device-map .body { fill: var(--cz-panel); stroke: var(--cz-line); }
+.cz-device-map .screen { fill: #000; stroke: #1d1d1b; }
+.cz-device-map .map-link rect { fill: rgba(255, 255, 255, .04); stroke: rgba(255, 255, 255, .22); stroke-dasharray: 3 3; }
+.cz-device-map .map-link:hover rect, .cz-device-map .map-link:focus rect { fill: rgba(255, 208, 48, .18); stroke: var(--cz-fn); }
+.cz-device-map .map-link.strip.esc rect { fill: #ff5a3666; } .cz-device-map .map-link.strip.tab rect { fill: #36d6e666; }
+.cz-device-map .map-link.strip.fn rect { fill: #ffd03066; } .cz-device-map .map-link.strip.ctrl rect { fill: #a070ff66; }
+.cz-device-map .map-label { fill: #55554f; font: 13px var(--cz-mono); text-anchor: middle; pointer-events: none; }
+.cz-device-map .map-key rect { fill: #171715; stroke: #2c2c29; }
+.cz-device-map .map-key text { fill: var(--cz-ink); font: 700 10px var(--cz-mono); text-anchor: middle; pointer-events: none; }
+.cz-device-map .map-key.esc rect { stroke: #8c3b28; } .cz-device-map .map-key.esc text { fill: var(--cz-esc); }
+.cz-device-map .map-key.tab rect { stroke: #24808a; } .cz-device-map .map-key.tab text { fill: var(--cz-tab); }
+.cz-device-map .map-key.fn rect { stroke: #8f7720; } .cz-device-map .map-key.fn text { fill: var(--cz-fn); }
+.cz-device-map .map-key.ctrl rect { stroke: #5f4497; } .cz-device-map .map-key.ctrl text { fill: var(--cz-ctrl); }
+.cz-device-map .map-key.grid rect { stroke: #3e3e38; stroke-dasharray: 4 2; }
+.cz-device-map .map-key.quick rect { fill: #24221a; }
+.cz-device-map .map-key:hover rect, .cz-device-map .map-key:focus rect { fill: rgb(var(--cz-led)); }
+.cz-device-map .map-key:hover text, .cz-device-map .map-key:focus text { fill: #111; }
+.cz-device-map .home rect { fill: #2c2c29; }
+.cz-map-legend { list-style: none; padding: 0; margin: 10px auto 0; max-width: 760px; display: flex; flex-wrap: wrap; gap: 6px 16px; font: 12.5px var(--cz-mono); color: var(--cz-dim); }
+.cz-map-legend li { margin: 0; }
+.cz-map-legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 2px solid; }
+.cz-map-legend .sw.esc { border-color: var(--cz-esc); } .cz-map-legend .sw.tab { border-color: var(--cz-tab); }
+.cz-map-legend .sw.fn { border-color: var(--cz-fn); } .cz-map-legend .sw.ctrl { border-color: var(--cz-ctrl); }
+.cz-map-legend .sw.pad { border-color: #2c2c29; background: #171715; } .cz-map-legend .sw.grid { border-color: #3e3e38; border-style: dashed; }
+.cz-map-legend .sw.quick { border-color: #2c2c29; background: #24221a; } .cz-map-legend .sw.right { border-color: #6a6a63; }
+
+/* Scene map */
+.cz-scene-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin: 18px 0; }
+.cz-scene-map .scene-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cz-scene-map .scene-title { font: 700 14px var(--cz-mono); padding: 4px 0; border-bottom: 2px dotted var(--ifm-color-emphasis-300); }
+.cz-scene-map .scene-card { display: flex; flex-direction: column; gap: 4px; font: 12px var(--cz-mono); color: var(--ifm-color-emphasis-700); }
+.cz-scene-map .scene-card img { border-radius: 4px; background: #000; image-rendering: pixelated; border: 1px solid var(--ifm-color-emphasis-300); }
+.cz-scene-map .scene-card:hover img { border-color: var(--cz-fn); border-style: dashed; }
+
+@media (max-width: 640px) {
+  .cz-figure { padding: 10px; border-radius: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .cz-hl, .cz-led.blink { animation: none; } }

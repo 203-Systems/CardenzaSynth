@@ -27,7 +27,7 @@
     root.lang = lang === 'zh' ? 'zh-CN' : 'en';
     store.set('learn.lang', lang);
     $$('[data-set-lang]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.setLang === lang)));
-    document.title = say('Cardenza 入门', 'Cardenza guide');
+    document.title = say('鸣片入门', 'Cardenza guide');
     $('#search').placeholder = say('查字典：音量、录音、BPM …  ( / )', 'Look up: volume, record, BPM …  ( / )');
     paintProgress();
     paintDevice();
@@ -215,7 +215,7 @@
     device.state = null;
     device.reason = null;
     setStatus('waiting');
-    if (was) toast(say('Cardenza 断开了：接着看图学，插回去会自动连上。', 'Your Cardenza is gone: go on with the pictures; plug it back in and it reconnects.'));
+    if (was) toast(say('鸣片断开了：接着看图学，插回去会自动连上。', 'Your Cardenza is gone: go on with the pictures; plug it back in and it reconnects.'));
   }
 
   function onMidi(event) {
@@ -227,7 +227,7 @@
       clearTimeout(usb.hello);
       if (connected()) return;
       setStatus('on');
-      toast(say('Cardenza 已连接：它会跟着课程走。', 'Your Cardenza is connected: it follows the lessons.'));
+      toast(say('鸣片已连接：它会跟着课程走。', 'Your Cardenza is connected: it follows the lessons.'));
       if (device.want) beginGuide();
       return;
     }
@@ -282,13 +282,13 @@
     other: ['机器没能开始教程：点这里重试。', 'The device could not start the guide: click here to try again.'],
   };
   const STATUS = {
-    nomidi: ['用电脑上的 Chrome 或 Edge 打开这一页，再接上 Cardenza：机器会跟着课程走。', 'Open this page in Chrome or Edge on a computer and plug in your Cardenza: it follows the lessons.'],
-    denied: ['要让 Cardenza 跟着课程走：在地址栏左边的网站设置里允许 MIDI 设备，再刷新这一页。', 'To have your Cardenza follow the lessons, allow MIDI devices in the site settings (left of the address bar) and reload.'],
-    waiting: ['用 USB 线接上 Cardenza，它会跟着这一课走；没有机器也可以看图跟着学。', 'Plug in your Cardenza with a USB cable and it follows this lesson; no device, follow the pictures.'],
-    hello: ['正在连接 Cardenza…', 'Connecting to your Cardenza…'],
-    old: ['这台 Cardenza 的固件还不支持教程：更新到最新固件，再接上。', 'This Cardenza\'s firmware has no guide yet: update it, then plug it in again.'],
+    nomidi: ['用电脑上的 Chrome 或 Edge 打开这一页，再接上鸣片：机器会跟着课程走。', 'Open this page in Chrome or Edge on a computer and plug in your Cardenza: it follows the lessons.'],
+    denied: ['要让鸣片跟着课程走：在地址栏左边的网站设置里允许 MIDI 设备，再刷新这一页。', 'To have your Cardenza follow the lessons, allow MIDI devices in the site settings (left of the address bar) and reload.'],
+    waiting: ['用 USB 线接上鸣片，它会跟着这一课走；没有机器也可以看图跟着学。', 'Plug in your Cardenza with a USB cable and it follows this lesson; no device, follow the pictures.'],
+    hello: ['正在连接鸣片…', 'Connecting to your Cardenza…'],
+    old: ['这台鸣片的固件还不支持教程：更新到最新固件，再接上。', 'This Cardenza\'s firmware has no guide yet: update it, then plug it in again.'],
     song: ['这一课要新固件：机器上的固件还不能接着做这首歌，先看图跟着学；更新方法见「启动器和固件」。', 'This lesson needs newer firmware: the one on your Cardenza cannot pick up the song here yet. Follow the pictures; updating is in "Launcher and firmware".'],
-    on: ['Cardenza 已连接：照着机器上闪的键按，学会了再点「下一步」。', 'Your Cardenza is connected: press the keys blinking on it; when you have got it, press Next.'],
+    on: ['鸣片已连接：照着机器上闪的键按，学会了再点「下一步」。', 'Your Cardenza is connected: press the keys blinking on it; when you have got it, press Next.'],
   };
   $$('.l-device').forEach((line) => line.addEventListener('click', () => {
     if (!device.reason) return;

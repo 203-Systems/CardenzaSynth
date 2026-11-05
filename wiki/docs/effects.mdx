@@ -1,0 +1,100 @@
+---
+sidebar_position: 11
+---
+
+# Effects
+
+Every track has its own insert effects and two sends; the sends feed two buses (delay and reverb), and everything leaves through the master EQ, compressor and tape saturation.
+
+```text
+engine → DRIVE → CRUSH → FILTER → CHORUS → track fader ─┬─→ out
+                                                       ├─ DELAY send ─→ master delay ─┐
+                                                       └─ REVERB send → master reverb ┴→ EQ → COMP → TAPE → out
+```
+
+Three places to set effects:
+
+<Strip>
+  <Step shot="instr-juno-fx" at="cells:1,1-2,4"><Scene name="INSTR" /> <Page name="FX" />: the track's inserts and its two sends.</Step>
+  <Step shot="tape-sends" at="cells:1,1-4,4"><Scene name="TAPE" /> <Page name="SENDS" />: all four tracks' FILTER, CHORUS and two sends on one screen.</Step>
+  <Step shot="tape-fx" at="cells:1,1-3,4"><Scene name="TAPE" /> <Page name="FX" />: master delay, reverb, EQ, compressor, tape.</Step>
+</Strip>
+
+<Keywords k="effects, fx, signal chain, routing, 效果器" />
+
+## Track effects (inserts) {#fx-inserts}
+
+On each engine's FX page (see [FX page: the track's effects](./instr.mdx#instr-fx)); FILTER and CHORUS of all four tracks are also on TAPE's SENDS page:
+
+<Shot name="instr-juno-fx">
+  <Mark at="cell:1,1">DRIVE: soft saturation, higher is dirtier</Mark>
+  <Mark at="cell:1,2">CRUSH: sample-rate and bit reduction</Mark>
+  <Mark at="cell:1,3">FILTER: 64 is off, low-pass below, high-pass above</Mark>
+  <Mark at="cell:1,4">RESO: filter resonance</Mark>
+  <Mark at="cell:2,1">CHORUS: Juno-style I / II / I+II</Mark>
+  <Mark at="cells:2,2-2,3">DELAY / REVERB sends</Mark>
+  <Mark at="cells:3,1-4,4">Signal chain: active effects light up</Mark>
+  <Caption>The FX page: effect parameters on top, the track's signal chain below.</Caption>
+</Shot>
+
+They are sound parameters (`fx.*`), saved with the sound and the project; changing engine or sound resets them (Juno sounds bring their own chorus).
+
+<Keywords k="drive, distortion, saturation, bitcrush, lofi, filter, resonance, chorus, 失真" />
+
+## Sends: delay and reverb {#fx-sends}
+
+Each track has two send amounts, DELAY and REVERB. Once sent to the buses, their RETURN levels set how much comes back overall.
+
+<Shot name="tape-sends">
+  <Mark at="cells:1,1-1,4">FILTER (FLT)</Mark>
+  <Mark at="cells:2,1-2,4">CHORUS (CHO)</Mark>
+  <Mark at="cells:3,1-3,4">DELAY send (DLY)</Mark>
+  <Mark at="cells:4,1-4,4">REVERB send (REV)</Mark>
+  <KeyMark keys="G1-G16">Focus: fully lit · on: half lit · off: off</KeyMark>
+  <Caption>SENDS: one column per track. While a track sounds with a send on, that cell's right edge glows.</Caption>
+</Shot>
+
+<Keywords k="send, sends, delay, echo, reverb, space, ambience, 发送" />
+
+## Master effects {#fx-master}
+
+TAPE's FX page, part of the project (saved since project format v4):
+
+<Shot name="tape-fx">
+  <Mark at="cells:1,1-1,4">DELAY: tempo-synced tape delay</Mark>
+  <Mark at="cells:2,1-2,4">REVERB: 4-line FDN, on the dark side</Mark>
+  <Mark at="cell:3,1">COMP: bus compressor</Mark>
+  <Mark at="cells:3,2-3,3">EQ: low / high shelf ±12 dB</Mark>
+  <Mark at="cell:3,4">TAPE: tape saturation</Mark>
+  <Mark at="cells:4,1-4,4">Echoes at the current tempo, reverb decay</Mark>
+  <Caption>Master FX.</Caption>
+</Shot>
+
+- **DELAY**: TIME is a note value from 1/32 to 1/2 (default 1/8D), synced to the BPM. Its feedback loop has a TONE low-pass and an 80 Hz high-pass; changing the note value glides like tape. Echoes up to 743 ms use a 16 KB line; a longer time takes a 32 KB line (up to 1.49 s), and if that does not fit the time is halved until it does.
+- **REVERB**: about 4.5 kHz wide, on the dark side.
+- Both sends are decimated to 11.025 kHz before processing, so delay and reverb sound warm and a little lo-fi.
+
+<Keywords k="master, bus, tape delay, reverb, eq, compressor, saturation, 总线" />
+
+## Memory and CPU {#fx-cpu}
+
+The board has no PSRAM; effect buffers are allocated the first time they are used:
+
+| Part | Memory |
+|---|---|
+| Effect core | about 4.6 KB |
+| Each track with effects / each chorus | 1 KB / 1 KB |
+| Delay | 16 KB (32 KB for echoes longer than 743 ms) |
+| Reverb | about 8.8 KB |
+| Everything on | about 35 KB |
+
+- If the delay or reverb cannot get memory, that bus is silent and the FX page and the signal chain show NO MEM. With every effect off, the output is bit-identical to having no effects.
+- Audio has a budget of 5.8 ms per 256 frames. Many DX7 notes with effects come close to it. When it runs out, a voice is dropped (released notes first, the oldest next, drums last); the beat never stops.
+
+:::warning
+
+Very dense chords with many effects can crackle: play fewer notes at once, or turn an effect or two off.
+
+:::
+
+<Keywords k="memory, cpu, performance, crackle, glitch, dropout, no mem, 内存" />

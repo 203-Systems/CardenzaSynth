@@ -1,0 +1,30 @@
+{
+  "link.title.Cardenza": {
+    "message": "鸣片",
+    "description": "The title of the footer links column with title=Cardenza in the footer"
+  },
+  "link.title.Community": {
+    "message": "社区",
+    "description": "The title of the footer links column with title=Community in the footer"
+  },
+  "link.title.More": {
+    "message": "更多",
+    "description": "The title of the footer links column with title=More in the footer"
+  },
+  "link.item.label.Guide": {
+    "message": "教程",
+    "description": "The label of footer link with label=Guide linking to pathname:///learn/"
+  },
+  "link.item.label.Manual": {
+    "message": "说明书",
+    "description": "The label of footer link with label=Manual linking to /manual/start"
+  },
+  "link.item.label.Simulator": {
+    "message": "模拟器",
+    "description": "The label of footer link with label=Simulator linking to pathname:///"
+  },
+  "link.item.label.Matrix wiki": {
+    "message": "Matrix 维基",
+    "description": "The label of footer link with label=Matrix wiki linking to https://matrix.203.io"
+  }
+}

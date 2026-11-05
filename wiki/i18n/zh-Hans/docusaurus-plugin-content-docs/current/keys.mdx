@@ -1,0 +1,140 @@
+---
+sidebar_position: 2
+---
+
+# 按键
+
+键盘 4 行 × 14 列，四块各有颜色和角色；每个键一颗单色灯，告诉你它**现在**能做什么。机身侧面还有一个 HOME 键，Groovebox 不用它。
+
+<Keymap>
+  <Group keys="ESC">ESC 场景</Group>
+  <Group keys="TAB">TAB 轨道</Group>
+  <Group keys="FN">FN 当前画面的菜单</Group>
+  <Group keys="CTRL">CTRL 页面</Group>
+  <Group keys="PADS">演奏区 PADS</Group>
+  <Group keys="GRID">GRID 4×4</Group>
+  <Group keys="ADD SUB OK">加 减 确认</Group>
+  <Group keys="PLAY">播放</Group>
+  <Caption>最左列是导航，中间 4×8 弹琴，右边 4×4 是屏幕格子，最右列调值和播放</Caption>
+</Keymap>
+
+<Keywords k="键盘, 按键布局, keyboard, layout, keys, 键位" />
+
+## 按键地图 {#keys-map}
+
+<Icon name="map" /> 点下图任意一个键，跳到它的说明。
+
+<DeviceMap />
+
+<Keywords k="地图, 键位图, 示意图, map, diagram" />
+
+## 左侧四个键：ESC TAB FN CTRL {#keys-left}
+
+四个键都是 **单击一个动作，按住一张地图**：
+
+| 键 | <Icon name="tap" /> 单击 | <Icon name="hold" /> 按住 |
+|---|---|---|
+| <Key k="ESC" /> | 循环场景 <Scene name="INSTR" /> → <Scene name="SEQ" /> → <Scene name="TAPE" />；在 <Scene name="SETUP" /> 里是返回；弹窗里是取消 | 场景地图：GRID 四列 = 四个场景，第 1 列 = 0 SETUP |
+| <Key k="TAB" /> | 下一条轨道 <Track n="1" /> → <Track n="2" /> → <Track n="3" /> → <Track n="4" /> | 轨道地图：选轨、静音、独奏、音序开关 |
+| <Key k="FN" /> | 打开 / 关闭当前画面的菜单 | FN 菜单 + 第二功能，见 [FN 菜单](./fn.mdx#fn-menu)；输入画面里是黄色丝印，见 [输入画面里的 FN：黄色丝印](./fn.mdx#fn-yellow) |
+| <Key k="CTRL" /> | 下一页 | 页面地图：当前场景的所有页面 |
+
+<Shot name="map-esc">
+  <Mark at="cells:1,1-4,1">0 SETUP：只能从这里进</Mark>
+  <Mark at="cells:1,2-4,2">1 INSTR</Mark>
+  <Mark at="cells:1,3-4,3">2 SEQ（当前）</Mark>
+  <Mark at="cells:1,4-4,4">3 TAPE</Mark>
+  <Mark at="strip:ESC">按住的 ESC</Mark>
+  <KeyMark keys="ESC">按住</KeyMark>
+  <KeyMark keys="GRID">场景：当前全亮、其它半亮</KeyMark>
+  <Caption>按住 ESC：屏幕变成场景地图，GRID 的列就是场景。</Caption>
+</Shot>
+
+屏幕左边缘的四个色块就是这四个键（从上到下 ESC 红橙、TAB 青、FN 黄、CTRL 紫），各带一个图标。你在哪里看状态行和页签，不看色块：
+
+| 色块 | 图标 | 显示 |
+|---|---|---|
+| <Key k="ESC" /> | 返回箭头 | 半亮：随时可用（场景、返回、取消） |
+| <Key k="TAB" /> | Tab 箭头 | 弹窗里灭；切轨后片刻只有新轨对应那一行的色块亮（T1 = ESC … T4 = CTRL） |
+| <Key k="FN" /> | 菜单 | 菜单常驻打开时全亮 |
+| <Key k="CTRL" /> | 页面 | 画面只有一页或弹窗打开时灭 |
+
+按住哪个键，它的色块从下往上填满。
+
+<Keywords k="左键, 功能键, 修饰键, escape, tab, fn, ctrl, function keys, modifier" />
+
+## 右侧四个键：ADD SUB OK PLAY {#keys-right}
+
+<Keymap>
+  <Group keys="ADD SUB">加 / 减（按住连发）</Group>
+  <Group keys="OK">确认 · 录音键</Group>
+  <Group keys="PLAY">播放 / 停止</Group>
+  <Caption>右列：上面两个调值，下面两个执行</Caption>
+</Keymap>
+
+| 键 | 键帽 | 作用 |
+|---|---|---|
+| <Key k="ADD" /> | del | 加；列表里往上；按住连续加，越按越快 |
+| <Key k="SUB" /> | `\` | 减；列表里往下 |
+| <Key k="OK" /> | ↵ Enter | 确认、执行、开关；在 SEQ 音符页是 <Icon name="rec" /> **录音键**：单击切换 ROLL / STEP，按住（0.45 秒）打开 RECORD 面板 |
+| <Key k="PLAY" /> | 空格 | 播放 / 停止；<Key k="FN+PLAY" /> 开关实时录音 |
+
+- 按住 <Key k="TAB" /> 时 <Key k="ADD" /> / <Key k="SUB" /> 是下一条 / 上一条轨道；按住 <Key k="CTRL" /> 时是下一页 / 上一页。
+- 右侧色块上的图标说明 ADD、SUB 在这个画面做什么：+ −、列表里 ↑ ↓、横向 → ←（步、音源选择）。
+
+:::note
+
+文本输入时，最上面那个键（键帽印 del）是删除。
+
+:::
+
+<Keywords k="加, 减, 确认, 回车, 播放, 停止, add, sub, enter, ok, play, stop, plus, minus, increase, decrease" />
+
+## 演奏区 PADS {#keys-pads}
+
+中间 4×8 的键永远在弹**当前轨**，不管你在哪个场景、哪一页。例外：按住 ESC / TAB / CTRL 看地图时（不发声），按住 FN 时（字母键和快捷调节，见 [第二功能（字母键与四周的键）](./fn.mdx#fn-shortcuts)），按住一个参数格时（演奏区是它的档位），以及在音色和采样列表里（不发声；搜索用 <Key k="FN" /> + <Key k="F" />）。
+
+<Strip>
+  <Step keys="hold r3c1~底鼓" shot="seq-drum-held">鼓轨 <Track n="1" />：每一**列**是一个鼓：底鼓、军鼓、闭镲、开镲、拍手、通鼓、牛铃、沙锤。行表示力度：最上面一行最重，最下面一行最轻。</Step>
+  <Step keys="hold r3c1~C3" shot="seq-hold-pad">旋律轨（PIANO 排列）：两个完整的八度，第 2、4 行白键，第 1、3 行黑键；C3 在左下角，上面两行高一个八度。详见 [键盘排列](./play.mdx#play-keyboard)。</Step>
+  <Step shot="text-entry">输入文字时，整个键盘按键帽上的字符打字。</Step>
+</Strip>
+
+<Keywords k="演奏键, 打击垫, 键盘, 弹奏, pads, keyboard, play notes" />
+
+## GRID 4×4 {#keys-grid}
+
+右边 4×4 的 16 个键 = 屏幕中间的 4×4 格子。**屏幕上画的是什么，按下去就是什么：**
+
+<Strip>
+  <Step keys="G1" shot="seq-step" at="cell:1,1">音序器：16 格 = 16 步。Pattern 最长 256 步，GRID 一次显示其中一页 16 步。</Step>
+  <Step keys="G1" shot="instr-juno-vcf" at="cell:1,1">乐器页：16 格 = 16 个参数，点一个就选中它。</Step>
+  <Step keys="G6" shot="tape-mix" at="cells:1,2-4,2">MIX：每一列是一条轨道的选中、静音、独奏、音序开关。</Step>
+</Strip>
+
+按住左侧任一键时，GRID 变成那个键的「地图」，见 [按住左侧键 = 地图](./navigate.mdx#nav-maps)。
+
+<Keywords k="网格, 方阵, 4x4, grid, matrix, 直达键" />
+
+## HOME 侧键 {#keys-home}
+
+机身侧面的 HOME 键在 Groovebox 里没有功能。<Icon name="stop" /> **全部停止** 是 <Key k="FN+ESC" />：停止音序器、关掉所有正在发的声音（包括卡住的音和所有 ARP），屏幕显示 ALL STOP。
+
+:::note
+
+切换应用由设备自带的启动器负责。
+
+:::
+
+<Keywords k="全部停止, 急停, 卡音, HOME 键, fn esc, panic, stop all, home, all notes off" />
+
+## 一条总规则 {#keys-rules}
+
+|  | 规则 |
+|---|---|
+| <Key k="hold ESC" /> <Key k="hold TAB" /> <Key k="hold CTRL" /> | **按住左侧任一键时，用右侧 GRID 选择**。地图上的每一格就在它对应的那个键的位置 |
+| <Key k="hold FN" /> | 按住 FN 时，**任何键都不做平时的事**：GRID 是菜单，有 FN 功能的键只做 FN 功能（灯亮），没有的什么也不做（灯灭） |
+| <Icon name="tap" /> | 修饰键按住期间被组合用过，松开时就不再触发它的单击动作 |
+| <Icon name="hold" /> | 按住的判定是 250 毫秒（SEQ 音符页的 OK 是 0.45 秒）；<Key k="ADD" /> / <Key k="SUB" /> 按住 0.4 秒后开始连发，连发 12 次后步长 ×5 |
+
+<Keywords k="规则, 组合键, 按住, 长按, 连发, rules, hold, long press, repeat, combination" />
