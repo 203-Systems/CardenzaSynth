@@ -177,10 +177,13 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
   const auto* engine = host.Engine(state.track);
   const std::string name = engine != nullptr ? engine->CurrentPresetName() : std::string("NO ENGINE");
   const Font font = Gfx::Measure(name, Font::Huge) <= area.width ? Font::Huge : Font::Large;
-  // The preset name decodes whenever it changes (SUB / ADD, browser, track switch).
+  const bool huge = font == Font::Huge;
+  // The preset name decodes whenever it changes (SUB / ADD, browser, track switch). A name in the
+  // huge font sits higher and closer to the info line, so the keyboard or the drum pads below keep
+  // one height whatever the name.
   const std::uint32_t changed = std::max(animator.PresetChangedAt(state.track), animator.TrackChangedAt());
-  fx::DecodeText(g, area.x, area.y + 2, name, kInk, font, fx::Progress(now, changed, 420), changed / 7 + now / 60, area.width);
-  const int infoY = area.y + (font == Font::Huge ? 27 : 21);
+  fx::DecodeText(g, area.x, area.y + (huge ? -1 : 2), name, kInk, font, fx::Progress(now, changed, 420), changed / 7 + now / 60, area.width);
+  const int infoY = area.y + (huge ? 23 : 21);
   int x = g.Text(area.x, infoY, EngineShortName(host.EngineKind(state.track)), TrackColor(state.track));
   if (engine != nullptr && engine->CurrentPresetId().rfind("user.", 0) == 0) x = g.Text(x + 6, infoY, "USER", kFn);
   if (host.EngineKind(state.track) != synth::SynthEngineKind::Drums)
@@ -192,7 +195,7 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
     detail += "  OCT " + std::string(keys.octave > 0 ? "+" : "") + std::to_string(keys.octave);
     g.Text(x + 8, infoY, detail, kDim);
   }
-  const int pianoTop = infoY + 12;
+  const int pianoTop = area.y + 33;
   const Rect lower{area.x, pianoTop, area.width, area.y + area.height - pianoTop};
   if (host.EngineKind(state.track) == synth::SynthEngineKind::Drums)
   {

@@ -277,16 +277,24 @@ void DrawTabs(Gfx& g, const Controller& controller, Animator& animator)
     char counter[24];
     std::snprintf(counter, sizeof(counter), "%02u/%02u", static_cast<unsigned>(current + 1), static_cast<unsigned>(count));
     g.Text(right - Gfx::Measure(counter), kFooterY, counter, kFaint);
-    left = kFooterX + 7;
     right -= Gfx::Measure(counter) + 9;
-    // Grow the window from the current tab, alternating right and left, while it fits.
-    first = last = current;
-    int used = widths[current];
-    for (bool grew = true; grew;)
+    // Grow the window from the current tab, alternating right and left, while it fits. Room for
+    // the "<" is kept only when tabs are hidden on the left: the first tab stays flush left.
+    auto grow = [&]() {
+      first = last = current;
+      int used = widths[current];
+      for (bool grew = true; grew;)
+      {
+        grew = false;
+        if (last + 1 < count && used + widths[last + 1] <= right - left) { used += widths[++last]; grew = true; }
+        if (first > 0 && used + widths[first - 1] <= right - left) { used += widths[--first]; grew = true; }
+      }
+    };
+    grow();
+    if (first > 0)
     {
-      grew = false;
-      if (last + 1 < count && used + widths[last + 1] <= right - left) { used += widths[++last]; grew = true; }
-      if (first > 0 && used + widths[first - 1] <= right - left) { used += widths[--first]; grew = true; }
+      left = kFooterX + 7;
+      grow();
     }
     if (first > 0) g.Text(kFooterX, kFooterY, "<", kCtrl);
     if (last + 1 < count) g.Text(right + 2, kFooterY, ">", kCtrl);
