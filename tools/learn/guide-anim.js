@@ -1,6 +1,7 @@
 // The guide's concept animations (tools/learn/guide.js plays them): a music box that becomes a
 // sequencer, four boxes that make a part, parts in a row that make a song. Drawn in the product's
-// look: black, the screen's colours and track colours, 4x4 Bayer dither, a green playhead.
+// look: black, the screen's colours and track colours, 4x4 Bayer dither, a green playhead. And the
+// Launcher's lessons (updating it, installing firmware): its screens as it draws them, over the keys.
 // GuideAnim.create(container, name) -> { setStep(i), destroy() }; GuideAnim.thumb(el, name) loops a
 // small one without sound; GuideAnim.setSound(on) (from a click: browsers start audio on a gesture).
 (function () {
@@ -524,6 +525,329 @@
     return frame;
   };
 
+  // ---- The Launcher -------------------------------------------------------------------------------
+  // The 203 Launcher (github.com/203-Systems/203-launcher), the system that comes up first and installs
+  // firmware, drawn as Cardenza's 240 x 135 screen shows it (its src/display.cpp): a black 24-pixel
+  // rail (203 Systems on the home cards; inside, the page's name over a back arrow), white pages, the
+  // chosen row black, the next home cards waiting at the right edge in greys, its 5 x 7 font at 1 to 4
+  // times. Under the screen, the keys as the Launcher reads them, by their prints (the yellow arrows of
+  // ; , . / move, OK is Enter, ESC goes back): a step's keys framed, the one pressed now lit. The words
+  // on the screen are the Launcher's own. Keep this in step with the Launcher when its flow changes.
+  const LS = 1.6, LX = 128, LY = 14;  // the screen in the stage: 384 x 216 at (128, 14)
+  const grey = (v) => `rgb(${v},${v},${v})`;
+  const HOME = [
+    ['Software', 'Launcher', 'Launch installed software'],
+    ['Download', 'Softwares', 'Get software online'],
+    ['File', 'Browser', 'Browse files on SD'],
+    ['Remote', 'Access', 'Manage from browser'],
+    ['USB', 'Mode', 'SD card over USB'],
+    ['System', 'Settings', 'Display, Wi-Fi, power'],
+  ];
+  // The caps as the web simulator prints them; the Launcher's direction keys carry yellow arrows.
+  const CAPS = [
+    ['ESC', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '↑'],
+    ['TAB', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '[', ']', '↓'],
+    ['FN', '', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ';', "'", '↵'],
+    ['CTRL', '', '', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', ',', '.', '/', '▶'],
+  ];
+  const ARROWS = { '2,11': '↑', '3,10': '←', '3,11': '↓', '3,12': '→' };
+  const ROLE = { 0: '#ff5a36', 1: '#36d6e6', 2: C.fn, 3: '#a070ff' };
+  const KEY_AT = { ESC: [0, 0], OK: [2, 13], ';': [2, 11], ',': [3, 10], '.': [3, 11], '/': [3, 12] };
+  CAPS.forEach((row, r) => row.forEach((cap, c) => { if (/^[A-Z0-9]$/.test(cap)) KEY_AT[cap] = [r, c]; }));
+
+  function launcher(svg) {
+    const root = el(svg, 'g', {});
+    el(root, 'rect', { x: 96, y: 4, width: 448, height: 342, rx: 14, fill: '#0e0e0d', stroke: C.line2 });
+    el(root, 'rect', { x: LX - 6, y: LY - 6, width: 240 * LS + 12, height: 135 * LS + 12, rx: 6, fill: '#000', stroke: C.line });
+    const clip = 'lc' + (++uid);
+    el(el(svg.querySelector('defs'), 'clipPath', { id: clip }), 'rect', { width: 240, height: 135 });
+    const screen = el(root, 'g', { transform: `translate(${LX} ${LY}) scale(${LS})`, 'clip-path': `url(#${clip})` });
+    const pages = [];
+    const page = (background) => {
+      const g = el(screen, 'g', { display: 'none' });
+      el(g, 'rect', { width: 240, height: 135, fill: background || '#fff' });
+      pages.push(g);
+      return g;
+    };
+    // Text with its top at y, as the Launcher's text() places its 5 x 7 glyphs (6 pixels apart).
+    const text = (g, x, y, words, scale, v, extra) => el(g, 'text', Object.assign({ x, y: y + 7 * scale, fill: grey(v),
+      'font-size': 9.6 * scale, 'letter-spacing': 0.24 * scale, 'font-weight': scale > 1 ? 700 : 500 }, extra || {}), words);
+    const vertical = (g, words) => el(g, 'text', { transform: 'translate(8 8) rotate(90)', fill: grey(240), 'font-size': 9.6, 'letter-spacing': 0.24 }, words);
+    const homeRail = (g) => {
+      el(g, 'rect', { width: 24, height: 135, fill: '#000' });
+      vertical(g, '203 Systems');
+      for (let bar = 0; bar < 4; bar++) el(g, 'rect', { x: 5 + bar * 4, y: 127 - bar * 3, width: 2, height: 3 + bar * 3, fill: grey(235) });
+    };
+    const rail = (g, title) => {
+      el(g, 'rect', { width: 24, height: 135, fill: '#000' });
+      vertical(g, title.length > 16 ? title.slice(0, 15) + '.' : title);
+      el(g, 'path', { d: 'M5 122.5h14M5 122.5l5.5-5.5M5 122.5l5.5 5.5', stroke: grey(235), fill: 'none' });
+    };
+    const button = (g, x, width, words, chosen) => {
+      el(g, 'rect', { x, y: 96, width, height: 31, fill: grey(chosen ? 0 : 232) });
+      text(g, x + width / 2, 103.5, words, 2, chosen ? 255 : 0, { 'text-anchor': 'middle' });
+    };
+    const L = {
+      root,
+      // Unplugged: a dark screen.
+      off() {
+        const g = page('#000');
+        el(g, 'path', { d: 'M12 2v14M8.5 5.5L12 2l3.5 3.5M12 12l-5-3V7M12 14l5-3V9', transform: 'translate(108 50)', stroke: grey(60), fill: 'none', 'stroke-width': 1.5 });
+        el(g, 'circle', { cx: 120, cy: 69, r: 2.5, stroke: grey(60), fill: 'none', 'stroke-width': 1.5 });
+        return g;
+      },
+      // The start: the 203 logo, and a line under it (or none).
+      splash(line) {
+        const g = page('#000');
+        text(g, 120, 34, '203', 6, 255, { 'text-anchor': 'middle', 'font-weight': 800 });
+        if (line) text(g, 120, 104, line, 1, 180, { 'text-anchor': 'middle' });
+        return g;
+      },
+      // Home card i: the first is black, the others white; the cards after it wait at the right edge.
+      home(i) {
+        const g = page(grey(i === 0 ? 0 : 255));
+        [189, 202, 209.5].forEach((edge, n) => {
+          if (i + n + 1 < HOME.length) el(g, 'rect', { x: 24 + edge, width: 216 - edge, height: 135, fill: grey(255 - (n + 1) * 42) });
+        });
+        const ink = i === 0 ? 255 : 0;
+        text(g, 36, 59, HOME[i][0], 3, ink);
+        text(g, 36, 83, HOME[i][1], 3, ink);
+        text(g, 36, 118, HOME[i][2], 1, i === 0 ? 145 : 120);
+        homeRail(g);
+        return g;
+      },
+      // A menu: rows [label, value, bars] four at a time from `first`, the chosen one black.
+      list(title, rows, chosen, first) {
+        const g = page();
+        first = first || 0;
+        el(g, 'rect', { x: 30, y: 4 + (chosen - first) * 32, width: 200, height: 32, fill: grey(20) });
+        rows.slice(first, first + 4).forEach(([label, value, bars], n) => {
+          const y = 4 + n * 32, on = first + n === chosen;
+          text(g, 36, y + 12, label, 1, on ? 255 : 0);
+          if (value) text(g, 228, y + 12.5, value, 1, on ? 205 : 115, { 'text-anchor': 'end' });
+          if (bars !== undefined) {
+            for (let bar = 0; bar < 4; bar++) {
+              el(g, 'rect', { x: 205 + bar * 5, y: y + 21 - bar * 3, width: 3, height: 3 + bar * 3,
+                fill: grey(bar < bars ? (on ? 235 : 35) : (on ? 85 : 180)) });
+            }
+          }
+        });
+        rail(g, title);
+        return g;
+      },
+      // Installed software: the chosen one opens into a light panel with Launch and Modify.
+      software(rows, chosen) {
+        const g = page();
+        let y = 4;
+        rows.forEach(([name, version], i) => {
+          if (i === chosen) {
+            el(g, 'rect', { x: 30, y, width: 200, height: 80, fill: grey(230) });
+            text(g, 36, y + 9, name, 1, 0);
+            text(g, 36, y + 21, version, 1, 95);
+            el(g, 'rect', { x: 36, y: y + 40, width: 90, height: 30, fill: grey(0) });
+            text(g, 81, y + 48, 'Launch', 2, 255, { 'text-anchor': 'middle' });
+            el(g, 'rect', { x: 132, y: y + 40, width: 90, height: 30, fill: grey(255) });
+            text(g, 177, y + 48, 'Modify', 2, 0, { 'text-anchor': 'middle' });
+            y += 80;
+          } else {
+            text(g, 36, y + 9, name, 1, 0);
+            text(g, 36, y + 19, version, 1, 110);
+            y += 32;
+          }
+        });
+        rail(g, 'Software Launcher');
+        return g;
+      },
+      // A question with two buttons, `chosen` black (the Launcher starts on Back).
+      confirm(title, heading, left, right, chosen) {
+        const g = page();
+        text(g, 36, 12, heading, 2, 0);
+        button(g, 36, 92, left, chosen === 0);
+        button(g, 136, 92, right, chosen === 1);
+        rail(g, title);
+        return g;
+      },
+      // Work going on: its name, and with a fraction how far it is.
+      busy(title, words, fraction) {
+        const g = page();
+        el(g, 'path', { d: 'M40 8v8M36.5 12.5L40 16l3.5-3.5M35 19.5h10', stroke: grey(0), fill: 'none' });
+        text(g, 36, 30, words, 2, 0);
+        if (fraction !== undefined) {
+          text(g, 36, 66, `${Math.round(fraction * 100)}%`, 3, 0);
+          el(g, 'rect', { x: 36, y: 116, width: 192, height: 5, fill: grey(222) });
+          el(g, 'rect', { x: 36, y: 116, width: 192 * fraction, height: 5, fill: grey(0) });
+        }
+        rail(g, title);
+        return g;
+      },
+      notice(title, heading, detail) {
+        const g = page();
+        text(g, 36, 14, heading, 2, 0);
+        if (detail) text(g, 36, 40, detail, 1, 95);
+        rail(g, title);
+        return g;
+      },
+      // Where to install: the flash as a bar (regions [size, free]), the chosen place black under its name.
+      target(name, needs, regions, chosen, label, detail, action) {
+        const g = page();
+        text(g, 36, 8, name, 2, 0);
+        text(g, 36, 27, `Needs ${needs}`, 1, 110);
+        const total = regions.reduce((sum, region) => sum + region[0], 0);
+        let x = 36;
+        regions.forEach(([size, free], i) => {
+          const width = 192 * size / total;
+          el(g, 'rect', { x, y: 41, width: width - 1, height: 18, fill: grey(i === chosen ? 0 : free ? 248 : 195) });
+          if (free && i !== chosen) {
+            for (let y = 42; y < 59; y += 4) for (let px = x + 1; px < x + width - 1; px += 4) el(g, 'rect', { x: px, y, width: 1, height: 1, fill: grey(155) });
+          }
+          x += width;
+        });
+        text(g, 36, 66, label, 2, 0);
+        text(g, 36, 85, detail, 1, 110);
+        button(g, 36, 192, action, true);
+        rail(g, 'Install');
+        return g;
+      },
+      usb(connected) {
+        const g = page();
+        text(g, 36, 29, 'USB', 4, 0);
+        text(g, 36, 75, connected ? 'CONNECTED' : 'WAITING', 2, 0);
+        text(g, 36, 115, connected ? 'EJECT BEFORE EXIT' : 'CONNECT TO COMPUTER', 1, 110);
+        rail(g, 'USB Mode');
+        return g;
+      },
+      password(typed) {
+        const g = page();
+        text(g, 36, 10, 'Wi-Fi password', 2, 0);
+        text(g, 36, 30, 'Home-WiFi', 1, 110);
+        el(g, 'rect', { x: 36.5, y: 46.5, width: 191, height: 26, fill: 'none', stroke: grey(0) });
+        text(g, 42, 52, '*'.repeat(typed), 2, 0);
+        el(g, 'rect', { x: 42 + typed * 12, y: 51, width: 2, height: 16, fill: grey(0) });
+        text(g, 228, 115, 'TAB SHOW', 1, 110, { 'text-anchor': 'end' });
+        rail(g, 'Wi-Fi');
+        return g;
+      },
+      // The Groovebox once started: its first screen (the manual's picture of it).
+      groovebox() {
+        const g = page('#000');
+        el(g, 'image', { href: 'img/instr-boot.png', width: 240, height: 135 });
+        return g;
+      },
+      show(node) { pages.forEach((g) => g.setAttribute('display', g === node ? 'inline' : 'none')); },
+    };
+    // The keys: the edge columns and the GRID set apart as on the device.
+    const keyX = (c) => 109.5 + c * 29 + (c >= 1 ? 6 : 0) + (c >= 9 ? 6 : 0) + (c >= 13 ? 6 : 0);
+    const keyY = (r) => 248 + r * 24;
+    const keys = {};
+    CAPS.forEach((row, r) => row.forEach((cap, c) => {
+      const x = keyX(c), y = keyY(r), grid = c >= 9 && c <= 12;
+      el(root, 'rect', { x, y, width: 26, height: 20, rx: 3, fill: '#171715', stroke: '#3e3e38', 'stroke-dasharray': grid ? '4 2.5' : 'none' });
+      const lit = el(root, 'rect', { x: x + 1.5, y: y + 1.5, width: 23, height: 17, rx: 2, fill: 'rgb(255,246,226)', opacity: 0 });
+      el(root, 'text', { x: x + 13, y: y + 14, fill: c === 0 ? ROLE[r] : C.dim, 'font-size': c === 0 ? 7.5 : 9, 'text-anchor': 'middle', 'font-weight': 600 }, cap);
+      const arrow = ARROWS[`${r},${c}`];
+      if (arrow) el(root, 'text', { x: x + 21, y: y + 8.5, fill: C.fn, 'font-size': 7.5, 'text-anchor': 'middle' }, arrow);
+      const frame = el(root, 'rect', { x: x - 2.5, y: y - 2.5, width: 31, height: 25, rx: 4, fill: 'none', stroke: C.fn, 'stroke-width': 1.5, 'stroke-dasharray': '4 2.5', opacity: 0 });
+      keys[`${r},${c}`] = { lit, frame };
+    }));
+    const at = (name) => keys[(KEY_AT[name] || [-1, -1]).join(',')];
+    L.keys = (framed, pressed) => {
+      Object.values(keys).forEach((key) => { key.frame.setAttribute('opacity', 0); key.lit.setAttribute('opacity', 0); });
+      framed.forEach((name) => { const key = at(name); if (key) key.frame.setAttribute('opacity', 1); });
+      const key = pressed && at(pressed);
+      if (key) key.lit.setAttribute('opacity', 0.9);
+    };
+    return L;
+  }
+
+  // A Launcher lesson: per step, frames [screen, the key pressed as it ends (a word: its letters typed
+  // one by one through it), seconds], played in a loop; the step's keys stay framed.
+  function launcherScene(build) {
+    const scene = (svg) => {
+      const L = launcher(svg);
+      const steps = build(L);
+      return (t, step, from, to, k) => {
+        const s = steps[Math.min(to, steps.length - 1)];
+        const framed = s.keys || [...new Set(s.frames.map((f) => f[1]).filter((key) => key && key.length < 4))];
+        const total = s.frames.reduce((sum, f) => sum + f[2], 0) + 1.4;
+        let left = t % total, i = 0;
+        while (i < s.frames.length - 1 && left >= s.frames[i][2]) { left -= s.frames[i][2]; i++; }
+        const [screen, key, seconds] = s.frames[i];
+        let pressed = null;
+        if (key && key.length > 3) pressed = left < seconds - 0.2 && left % 0.2 < 0.12 ? key[Math.floor(left / 0.2) % key.length] : null;
+        else if (key && left > seconds - 0.35 && left < seconds) pressed = key;
+        L.show(screen);
+        L.keys(framed, pressed);
+        L.root.setAttribute('opacity', 0.35 + 0.65 * k);
+      };
+    };
+    scene.silent = true;
+    return scene;
+  }
+
+  // What the Launcher's lists hold (its catalog for Cardenza as of 2026-11).
+  const CATALOG = [['Cardenza Synth'], ['203-Launcher'], ['GLIDE'], ['MiniAcid'], ['Microgroove'], ['MicroHydra'], ['M5Tuna'],
+    ['M5Porkchop'], ['Guitar Audio Tools'], ['Game Station'], ['Next Page'], ['Refine Search'], ['Check for Updates']];
+  const NETWORKS = [['Studio-5G', '', 3], ['Home-WiFi', '', 4], ['Cafe', '', 2]];
+  const ACTIONS = [['Install'], ['Download to SD'], ['Add to favorites']];
+  const FILE_ACTIONS = [['Install'], ['Bind to key'], ['New Folder'], ['Edit name']];
+  const replug = (L) => ({ frames: [[L.off(), null, 1.2], [L.splash(), null, 1.6], [L.home(0), null, 1.8]] });
+
+  SCENES['update-launcher'] = launcherScene((L) => {
+    const home = HOME.map((_, i) => L.home(i));
+    const catalog = (chosen) => L.list('Downloads', CATALOG, chosen);
+    const [cat0, cat1] = [catalog(0), catalog(1)];
+    const ask = (chosen) => L.confirm('Downloads', 'Update Launcher?', 'Update', 'Back', chosen);
+    const [askBack, askUpdate] = [ask(1), ask(0)];
+    const updating = (fraction) => L.busy('Downloads', 'Update Launcher', fraction);
+    return [
+      replug(L),
+      { frames: [[L.off(), null, 0.8], [L.splash('Press Func to enter Launcher'), 'OK', 1.8], [home[0], null, 1.8]] },
+      { keys: ['/', ',', ';', '.', 'OK', 'ESC'],
+        frames: [[home[0], '/', 1.0], [home[1], '/', 1.0], [home[2], ',', 1.0], [home[1], 'OK', 1.1], [cat0, 'ESC', 1.5], [home[1], null, 1.0]] },
+      { frames: [[home[0], '/', 1.0], [home[1], 'OK', 1.0], [L.list('Download Softwares', NETWORKS, 0), '.', 1.0],
+        [L.list('Download Softwares', NETWORKS, 1), 'OK', 1.0], [L.password(0), 'HOMEWIFI', 1.8], [L.password(8), 'OK', 0.8],
+        [L.busy('Download Softwares', 'Connecting'), null, 1.0], [cat0, null, 1.2]] },
+      { frames: [[cat0, '.', 1.0], [cat1, 'OK', 1.0], [L.list('Downloads', [['0.1.1', 'Release']], 0), 'OK', 1.1],
+        [L.list('Downloads', ACTIONS, 0), 'OK', 1.1], [askBack, null, 1.2]] },
+      { frames: [[askBack, ',', 1.4], [askUpdate, 'OK', 1.1], [updating(0.04), null, 0.9]] },
+      // Restarted twice: into the temporary copy, which moves itself in place, then into the new one.
+      { frames: [[updating(0.15), null, 0.6], [updating(0.5), null, 0.6], [updating(0.85), null, 0.6], [updating(1), null, 0.4],
+        [L.notice('Downloads', 'Restarting'), null, 0.9], [L.off(), null, 0.4], [L.splash(), null, 0.9], [L.off(), null, 0.4],
+        [L.splash(), null, 0.9], [home[0], null, 1.8]] },
+      { frames: [[home[1], '/', 0.8], [home[2], 'OK', 1.0], [L.list('File Browser', [['downloads'], ['Cardenza'], ['bkp']], 0), 'OK', 1.0],
+        [L.list('File Browser', [['203-Launcher.0.1.1.bin']], 0), 'OK', 1.0], [L.list('File Browser', FILE_ACTIONS, 0), 'OK', 1.1], [askBack, null, 1.4]] },
+    ];
+  });
+
+  SCENES['install-firmware'] = launcherScene((L) => {
+    const home = HOME.map((_, i) => L.home(i));
+    const regions = [[1.0, false], [1.8, false], [3.4, true]];
+    const target = (old) => L.target('Cardenza Synth', '1.7 MB', regions, old ? 1 : 2, old ? 'Cardenza Synth' : 'Free space',
+      old ? '1.8 MB / Will be replaced' : '3.4 MB / Available', old ? 'Replace' : 'Install');
+    const [free, old] = [target(false), target(true)];
+    const replace = (chosen) => L.confirm('Install', 'Replace?', 'Replace', 'Back', chosen);
+    const actions = L.list('Downloads', ACTIONS, 0);
+    const busy = (fraction) => L.busy('Downloads', 'Install Software', fraction);
+    const files = (chosen) => L.list('File Browser', [['downloads'], ['CardenzaSynth-0.1.1.bin'], ['Cardenza']], chosen);
+    return [
+      replug(L),
+      { frames: [[home[0], '/', 0.9], [home[1], 'OK', 1.0], [L.list('Downloads', CATALOG, 0), 'OK', 1.0],
+        [L.list('Downloads', [['0.1.0', 'Release']], 0), 'OK', 1.0], [actions, 'OK', 1.0], [free, null, 1.4]] },
+      { frames: [[free, '/', 1.5], [old, ',', 1.5], [free, '/', 1.2], [old, null, 1.5]] },
+      { frames: [[old, 'OK', 1.0], [replace(1), ',', 1.3], [replace(0), 'OK', 1.0], [busy(0.04), null, 0.8]] },
+      { frames: [[busy(0.15), null, 0.6], [busy(0.5), null, 0.6], [busy(0.85), null, 0.6], [busy(1), null, 0.3],
+        [L.busy('Downloads', 'Checking download'), null, 0.8], [L.notice('Downloads', 'Restarting'), null, 0.8], [L.off(), null, 0.4],
+        [L.splash(), null, 1.0], [home[0], null, 1.6]] },
+      { frames: [[home[0], 'OK', 1.1], [L.software([['Cardenza Synth', '0.1.0'], ['GLIDE', '3.8']], 0), 'OK', 1.3],
+        [L.splash('Starting Cardenza Synth'), null, 1.2], [L.groovebox(), null, 2.2]] },
+      { frames: [[home[4], 'OK', 1.0], [L.usb(false), null, 1.2], [L.usb(true), 'ESC', 1.8], [home[4], ',', 0.7], [home[3], ',', 0.7],
+        [home[2], 'OK', 1.0], [files(0), '.', 0.9], [files(1), 'OK', 1.0], [L.list('File Browser', FILE_ACTIONS, 0), 'OK', 1.0], [free, null, 1.5]] },
+      { frames: [[L.list('Downloads', CATALOG, CATALOG.length - 1, CATALOG.length - 4), 'OK', 1.2],
+        [L.list('Downloads', [['Update all'], ['Cardenza Synth']], 1), 'OK', 1.2], [L.list('Downloads', [['0.1.1', 'Release']], 0), 'OK', 1.0],
+        [actions, null, 1.4]] },
+    ];
+  });
+
   // ---- Players ----------------------------------------------------------------------------------
   // A lesson's player loops the step it shows, from the top each time a step is shown; it plays only
   // while its lesson is on screen (hidden, or destroyed with the lesson, it draws and sounds nothing).
@@ -534,6 +858,9 @@
     const svg = makeSvg(container);
     const scene = SCENES[name];
     if (!scene) return { setStep() {}, destroy() {} };
+    // A scene without sound (the Launcher's) has no sound button.
+    const soundButton = scene.silent && container.closest('.anim-wrap') ? container.closest('.anim-wrap').querySelector('.a-sound') : null;
+    if (soundButton) soundButton.style.display = 'none';
     const frame = scene(svg, thumb);
     let from = 0, to = options.step || 0, changed = -10, raf = 0, alive = true;
     const t0 = performance.now();
@@ -563,7 +890,7 @@
     };
   }
 
-  const THUMB_STEP = { 'music-box': 1, 'four-boxes': 2, 'boxes-in-a-row': 2 };
+  const THUMB_STEP = { 'music-box': 1, 'four-boxes': 2, 'boxes-in-a-row': 2, 'update-launcher': 5, 'install-firmware': 2 };
   window.GuideAnim = {
     create: (container, name) => create(container, name, {}),
     thumb: (container, name) => create(container, name, { thumb: true, step: container.classList.contains('hero-art') ? 0 : THUMB_STEP[name] || 0 }),
