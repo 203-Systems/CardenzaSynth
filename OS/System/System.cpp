@@ -19,7 +19,8 @@ namespace {
 
 constexpr const char* kBootAppKey = "boot.app";
 constexpr const char* kProtocolKey = "protocol";
-// While the newest settings wait in internal flash, the card is tried this often.
+// While settings wait for the card (changes in RAM, or an old internal-flash record), it is tried this
+// often: looking for a card that is not there holds the system loop for a moment.
 constexpr std::uint32_t kCardSyncRetryMs = 10000;
 
 struct SystemState {
@@ -38,6 +39,7 @@ struct SystemState {
   std::uint32_t settingsRevision = 0;
   std::uint32_t settingsChangedAt = 0;
   std::uint32_t cardSyncTriedAt = 0;
+  bool settingsWaitForCard = false;  // the last write found no card
 };
 
 SystemState& State() {
@@ -188,11 +190,13 @@ void WriteBehindSettings() {
   }
   if (os::storage::AnySettingsDirty())
   {
-    if (now - state.settingsChangedAt < kSettingsWriteDelayMs) return;
-    // On failure try again after another delay instead of every frame.
-    if (!os::storage::FlushAllSettings()) state.settingsChangedAt = now;
+    // Without a card the changes wait in RAM; the card is tried again now and then, not every frame.
+    if (now - state.settingsChangedAt < (state.settingsWaitForCard ? kCardSyncRetryMs : kSettingsWriteDelayMs)) return;
+    state.settingsWaitForCard = !os::storage::FlushAllSettings();
+    if (state.settingsWaitForCard) state.settingsChangedAt = now;
     return;
   }
+  state.settingsWaitForCard = false;
   if (os::storage::AnySettingsPendingCardSync() && now - state.cardSyncTriedAt >= kCardSyncRetryMs)
   {
     state.cardSyncTriedAt = now;

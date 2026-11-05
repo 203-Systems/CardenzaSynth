@@ -23,12 +23,14 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <new>
 #include <string>
 #include <utility>
 
 #include "Library/Memory/Memory.h"
 
 #include "Devices/Device.h"
+#include "OS/Storage/Storage.h"
 
 namespace apps {
 
@@ -39,7 +41,7 @@ constexpr std::uint32_t kGuideSilenceMs = 30000;
 // The state goes out when it changed, at most this often.
 constexpr std::uint32_t kGuideStateMs = 50;
 #if defined(ESP_PLATFORM)
-// Saving the working state and a fresh project need room (as for the autosave).
+// Keeping the working state and a fresh project need room (as for the autosave).
 constexpr std::size_t kGuideHeapBytes = 16 * 1024;
 #endif
 
@@ -191,14 +193,20 @@ bool GrooveApp::EnterGuide(std::string& reason)
     return false;
   }
 #endif
-  // The working state goes to internal flash first: the guide brings it back from there.
-  if (SaveSessionState() != synth::SessionStore::SaveResult::Ok)
+  // The working state stays in RAM meanwhile and comes back from there; the card gets it too (the
+  // autosave), for a power cut during the lesson. Internal flash is never written.
+  std::unique_ptr<synth::ProjectData> working(new (std::nothrow) synth::ProjectData);
+  std::string message;
+  if (!working || !CaptureProject(controller_.Settings(), *working, message, true))
   {
-    reason = "save";
+    reason = "mem";
     return false;
   }
-  sessionChanged_ = false;
+  if (sessionChanged_ && SaveSessionToCard()) sessionChanged_ = false;
   const auto& view = controller_.State();
+  guideReturnInfo_.name = view.projectName;
+  guideReturnInfo_.dirty = view.dirty;
+  guideSessionChanged_ = sessionChanged_;
   guideScene_ = view.scene;
   guidePage_ = controller_.CurrentPage();
   guideSongMode_ = sequencer_.SongMode();
@@ -208,6 +216,7 @@ bool GrooveApp::EnterGuide(std::string& reason)
     reason = "mem";
     return false;
   }
+  guideReturn_ = std::move(working);
   guide_ = true;
   guideOverUsb_ = Device::USB::Connected();
   guideState_.clear();
@@ -247,20 +256,24 @@ void GrooveApp::ExitGuide()
   sequencer_.Stop();
   ReleaseComputerNotes();
   Panic();
-  if (RestoreSessionState())
+  std::string message;
+  const bool back = guideReturn_ && ApplySession(guideReturnInfo_, *guideReturn_, message);
+  guideReturn_.reset();
+  if (back)
   {
     sequencer_.SetSongMode(guideSongMode_);
     controller_.GuideGoTo(guideScene_, guidePage_, controller_.State().track);
   }
   else
   {
-    // No working state came back (it was saved when the guide started, so this is a failed read).
+    // No working state came back (it was kept when the guide started: the room to build it is missing).
     groove::ProjectUiSettings ui;
-    std::string message;
     if (NewProject(ui, message)) controller_.Restore(ui, "");
-    std::printf("Groove: guide ended, the working state did not come back\n");
+    std::printf("Groove: guide ended, the working state did not come back: %s\n", message.c_str());
   }
-  sessionChanged_ = false;
+  // What the card did not have before the lesson it still needs.
+  sessionChanged_ = guideSessionChanged_;
+  sessionChangedAt_ = NowMs();
   std::printf("Groove: guide ended\n");
 }
 

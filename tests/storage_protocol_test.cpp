@@ -1,5 +1,5 @@
 // The app storage protocol (docs/app-storage-protocol.md): OS/Storage on the simulator's card and
-// internal-flash store (Devices/CardenzaSim/Storage.cpp), with the SD card taken out and put back.
+// internal-flash records older firmware left (Devices/CardenzaSim/Storage.cpp), with the SD card taken out and put back.
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -210,41 +210,55 @@ void TestMissingCardFallback()
   assert(system.SetInt("sys.volume", 50) && FlushAllSettings());
   const std::string settingsPath = SystemSettingsPath();
   assert(ReadText(settingsPath).find("sys.volume=50\n") != std::string::npos);
+  const auto internalEmpty = [] { return !fs::exists(Internal()) || fs::is_empty(Internal()); };
 
-  // Card out: changes stay in RAM, then go to internal flash, not to the card.
+  // Card out: the changes wait in RAM. Internal flash is never written.
   CardenzaSim::Input::SetCardInserted(false);
   assert(!CardPresent() && CardFreeBytes() == 0 && !EnsureSystemLayout());
   assert(system.SetInt("sys.volume", 70) && system.SetString("boot.app", "Cardenza/Synth"));
-  assert(AnySettingsDirty() && FlushAllSettings());
-  assert(!AnySettingsDirty() && AnySettingsPendingCardSync() && system.PendingCardSync());
-  assert(fs::is_regular_file(Internal() / "sys.rec"));
+  assert(AnySettingsDirty() && !FlushAllSettings());
+  assert(AnySettingsDirty() && !AnySettingsPendingCardSync() && system.GetInt("sys.volume", 0) == 70);
+  assert(internalEmpty());
   assert(ReadText(settingsPath).find("sys.volume=50\n") != std::string::npos);  // card untouched
-  // A restart without the card reads the values back from internal flash.
-  ReloadAllSettings();
-  assert(system.GetInt("sys.volume", 0) == 70 && system.GetString("boot.app") == "Cardenza/Synth" && system.PendingCardSync());
-  // Nothing new to write while the card is still missing: the flush succeeds without rewriting.
-  assert(FlushAllSettings() && system.PendingCardSync());
-  // An app's settings fall back the same way, under their own internal key.
   Settings& app = AppSettings("Test/Fallback");
-  assert(app.SetInt("keys.octave", 2) && app.Flush() && app.PendingCardSync());
+  assert(app.SetInt("keys.octave", 2) && !app.Flush() && app.Dirty());
 
-  // Card back: the next flush copies the internal state to the card and drops the internal copy.
+  // Card back: the next flush writes what waited.
   CardenzaSim::Input::SetCardInserted(true);
-  ReloadAllSettings();  // as at boot: card file + newer internal record
-  assert(system.GetInt("sys.volume", 0) == 70 && system.PendingCardSync() && !system.Dirty());
-  assert(FlushAllSettings());
-  assert(!AnySettingsPendingCardSync() && !fs::exists(Internal() / "sys.rec"));
+  assert(FlushAllSettings() && !AnySettingsDirty());
   const std::string synced = ReadText(settingsPath);
   assert(synced.find("sys.volume=70\n") != std::string::npos && synced.find("boot.app=Cardenza/Synth\n") != std::string::npos);
   assert(ReadText(AppFolder("Test/Fallback").SettingsPath()).find("keys.octave=2\n") != std::string::npos);
-  assert(fs::is_empty(Internal()));
+  assert(internalEmpty());
+
+  // Older firmware kept settings in internal flash while the card was out: such a record wins over the
+  // card file once, goes to the card at the next flush and is erased. Without a card it waits.
+  WriteText(Internal() / "sys.rec", "#! system\nsys.volume=12\n");
+  CardenzaSim::Input::SetCardInserted(false);
+  ReloadAllSettings();
+  assert(system.GetInt("sys.volume", 0) == 12 && system.PendingCardSync() && !system.Dirty());
+  assert(FlushAllSettings() && system.PendingCardSync() && fs::exists(Internal() / "sys.rec"));
+  CardenzaSim::Input::SetCardInserted(true);
+  assert(FlushAllSettings() && !AnySettingsPendingCardSync() && !fs::exists(Internal() / "sys.rec"));
+  // Loaded without the card, written with it: what only the card's file had stays.
+  const std::string moved = ReadText(settingsPath);
+  assert(moved.find("sys.volume=12\n") != std::string::npos && moved.find("boot.app=Cardenza/Synth\n") != std::string::npos);
+  // The same for a change made while the card was out since the start.
+  CardenzaSim::Input::SetCardInserted(false);
+  ReloadAllSettings();
+  assert(system.SetInt("sys.led", 4) && !FlushAllSettings());
+  CardenzaSim::Input::SetCardInserted(true);
+  assert(FlushAllSettings());
+  const std::string merged = ReadText(settingsPath);
+  assert(merged.find("sys.led=4\n") != std::string::npos && merged.find("sys.volume=12\n") != std::string::npos &&
+         merged.find("boot.app=Cardenza/Synth\n") != std::string::npos);
   // A record for another store (same key, other scope) is ignored.
   WriteText(Internal() / "sys.rec", "#! someone-else\nsys.volume=1\n");
   ReloadAllSettings();
-  assert(system.GetInt("sys.volume", 0) == 70 && !system.PendingCardSync());
+  assert(system.GetInt("sys.volume", 0) == 12 && !system.PendingCardSync());
   fs::remove(Internal() / "sys.rec");
   ReleaseAppSettings("Test/Fallback");
-  std::cout << "missing card fallback and sync passed\n";
+  std::cout << "missing card: settings wait in RAM, an old internal record moves to the card\n";
 }
 
 void TestDeviceSettings()

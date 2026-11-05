@@ -425,20 +425,6 @@ bool ReadInternal(std::string_view key, std::string& value) {
   return ok;
 }
 
-bool WriteInternal(std::string_view key, std::string_view value) {
-  if (!nvsReady || !ValidInternalKey(key) || value.size() > kInternalValueMax) {
-    return false;
-  }
-  nvs_handle_t handle = 0;
-  if (nvs_open(kNvsNamespace, NVS_READWRITE, &handle) != ESP_OK) {
-    return false;
-  }
-  const std::string name(key);
-  const bool ok = nvs_set_blob(handle, name.c_str(), value.data(), value.size()) == ESP_OK && nvs_commit(handle) == ESP_OK;
-  nvs_close(handle);
-  return ok;
-}
-
 bool EraseInternal(std::string_view key) {
   if (!nvsReady || !ValidInternalKey(key)) {
     return false;

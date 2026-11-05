@@ -71,12 +71,10 @@ bool CardMounted();
 // seconds at a time, and the reader waiting for it starved the UI (the stress test, 2026-11-04).
 void SetCardStreaming(bool streaming);
 bool CardStreaming();
-// Small records in internal flash, there with or without a card. A record is replaced as a whole, so a
-// power cut leaves the old one or the new one. Keys are 1..15 characters of [a-z0-9_]. Writing can stall
-// both cores for a moment now and then: not for use while sound is playing.
-inline constexpr std::size_t kInternalRecordMaxBytes = Device::Storage::kInternalValueMax;
+// Small records an older firmware kept in internal flash (Device::Storage). Nothing writes there any more:
+// what is found is moved to the card, then erased (an erase stalls both cores for a moment: not while
+// sound is playing). Keys are 1..15 characters of [a-z0-9_].
 bool ReadInternalRecord(std::string_view key, std::string& value);
-bool WriteInternalRecord(std::string_view key, std::string_view value);
 bool EraseInternalRecord(std::string_view key);
 std::vector<std::string> ListInternalRecords();
 // After a file operation failed (file closed): lets the device notice a card that stopped responding.

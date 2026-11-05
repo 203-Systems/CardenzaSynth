@@ -15,7 +15,7 @@ namespace os::storage {
 namespace {
 
 constexpr std::string_view kSystemScope = "system";
-// First line of an internal-flash record: names the store it belongs to.
+// First line of an internal-flash record (older firmware wrote them): names the store it belongs to.
 constexpr std::string_view kInternalMarker = "#! ";
 
 bool IsKeyCharacter(char c)
@@ -151,9 +151,14 @@ void Settings::Load()
   dirty_ = false;
   internalOnly_ = false;
   loaded_ = true;
+  cardRead_ = false;
   if (path_.empty()) return;
   std::string text;
-  if (CardPresent() && ReadFileWithBackup(path_, text, kMaxSettingsFileBytes)) entries_ = ParseSettings(text);
+  if (CardPresent())
+  {
+    cardRead_ = true;
+    if (ReadFileWithBackup(path_, text, kMaxSettingsFileBytes)) entries_ = ParseSettings(text);
+  }
   std::string record;
   const std::string marker = std::string(kInternalMarker) + scope_ + "\n";
   if (Device::Storage::ReadInternal(InternalKey(), record) && record.compare(0, marker.size(), marker) == 0)
@@ -235,10 +240,23 @@ bool Settings::Remove(std::string_view key)
   return true;
 }
 
+// Loaded without the card: its file comes in under what changed meanwhile, so the first write after
+// the card is back does not drop the values only the file had.
+void Settings::MergeCardFile()
+{
+  cardRead_ = true;
+  std::string text;
+  if (!ReadFileWithBackup(path_, text, kMaxSettingsFileBytes)) return;
+  std::vector<SettingsEntry> changed = std::move(entries_);
+  entries_ = ParseSettings(text);
+  for (const auto& entry : changed) Put(entry.first, entry.second);
+}
+
 bool Settings::Flush()
 {
   if (!loaded_ || path_.empty()) return !dirty_;
   if (!dirty_ && !internalOnly_) return true;
+  if (!cardRead_ && CardPresent()) MergeCardFile();
   const std::string text = FormatSettings(entries_, FileHeader());
   if (CardPresent() && CreateDirectories(ParentPath(path_)) && WriteFileAtomic(path_, text))
   {
@@ -247,15 +265,8 @@ bool Settings::Flush()
     internalOnly_ = false;
     return true;
   }
-  if (!dirty_) return true;  // Still safe in internal flash; the card is not back yet.
-  // No card (or it cannot be written): keep the values on the device until it is back.
-  if (Device::Storage::WriteInternal(InternalKey(), std::string(kInternalMarker) + scope_ + "\n" + text))
-  {
-    dirty_ = false;
-    internalOnly_ = true;
-    return true;
-  }
-  return false;
+  // No card (or it cannot be written): the changes wait in RAM, the old record (if any) where it is.
+  return !dirty_;
 }
 
 namespace {

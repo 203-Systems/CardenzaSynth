@@ -195,12 +195,15 @@ void CheckAfterIoError();
 std::uint64_t CapacityBytes();
 std::uint64_t FreeBytes();
 
-// Small records in internal flash that work without a card: NVS on the device, files in
-// "<working directory>/internal" in the simulator. Keys are 1..15 characters of [a-z0-9_].
+// Small records an older firmware left in internal flash: NVS on the device, files in
+// "<working directory>/internal" in the simulator. Keys are 1..15 characters of [a-z0-9_]. This
+// firmware writes nothing there (the user's decision, 2026-11-05): the partition is shared with the
+// Launcher and every other firmware, and a write stops both cores for some 45 ms, which the sound and
+// the key-light scan show (a click, a row of keys flashing). What it finds there it moves to the card
+// and erases, once.
 inline constexpr std::size_t kInternalKeyMax = 15;
 inline constexpr std::size_t kInternalValueMax = 4000;
 bool ReadInternal(std::string_view key, std::string& value);
-bool WriteInternal(std::string_view key, std::string_view value);
 bool EraseInternal(std::string_view key);
 // Every key there is. They outlive firmware updates, so what no firmware reads any more stays until
 // someone erases it.

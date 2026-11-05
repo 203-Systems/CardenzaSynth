@@ -172,11 +172,6 @@ bool ReadInternalRecord(std::string_view key, std::string& value)
   return Device::Storage::ReadInternal(key, value);
 }
 
-bool WriteInternalRecord(std::string_view key, std::string_view value)
-{
-  return Device::Storage::WriteInternal(key, value);
-}
-
 bool EraseInternalRecord(std::string_view key)
 {
   return Device::Storage::EraseInternal(key);

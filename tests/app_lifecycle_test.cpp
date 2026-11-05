@@ -1,6 +1,7 @@
 // App lifecycle on the real system: boot on a card from before the storage protocol, change device
 // settings, play settings and the session in the groovebox, switch to another app and back, and
-// check that nothing was lost and where everything was stored.
+// check that nothing was lost and where everything was stored: on the card, never in internal flash
+// (an older firmware's autosave there is moved to the card).
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -15,6 +16,7 @@
 
 #include "Applications/Application.h"
 #include "Applications/Synth/GrooveApp.h"
+#include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
 #include "Devices/Device.h"
@@ -49,25 +51,182 @@ bool Contains(const std::string& text, const std::string& part) { return text.fi
 void CopyFolder(const fs::path& from, const fs::path& to)
 {
   fs::remove_all(to);
+  if (!fs::exists(from)) return;
   fs::create_directories(to.parent_path());
   fs::copy(from, to, fs::copy_options::recursive);
 }
 
-// When each record in a folder was last written.
-std::map<std::string, fs::file_time_type> WriteTimes(const fs::path& folder)
+// Records of an autosave in internal flash (older firmware wrote them, this one only erases them).
+std::size_t FlashRecords(const fs::path& folder)
 {
-  std::map<std::string, fs::file_time_type> times;
-  for (const auto& entry : fs::directory_iterator(folder)) times[entry.path().filename().string()] = entry.last_write_time();
-  return times;
+  std::size_t records = 0;
+  if (!fs::exists(folder)) return 0;
+  for (const auto& entry : fs::directory_iterator(folder))
+    if (entry.path().filename().string().rfind("as_", 0) == 0) ++records;
+  return records;
 }
 
-std::uintmax_t AutosaveBytes(const fs::path& folder)
+// What older firmware wrote to internal flash for the autosave (its SessionStore, until 2026-11-05):
+// a record per part of the project, in the simulator a file per record.
+namespace older {
+
+class Writer {
+public:
+  void Reserve(std::size_t bytes) { bytes_.reserve(bytes); }
+  void Byte(int value) { bytes_.push_back(static_cast<char>(value)); }
+  void Number(std::uint32_t value)
+  {
+    while (value >= 0x80)
+    {
+      Byte(static_cast<int>(value & 0x7F) | 0x80);
+      value >>= 7;
+    }
+    Byte(static_cast<int>(value));
+  }
+  void Signed(int value) { Number((static_cast<std::uint32_t>(value) << 1) ^ static_cast<std::uint32_t>(value >> 31)); }
+  void Text(const std::string& text)
+  {
+    Number(static_cast<std::uint32_t>(text.size()));
+    bytes_ += text;
+  }
+  std::string Take() { return std::move(bytes_); }
+
+private:
+  std::string bytes_;
+};
+
+std::string EncodeGeneral(const synth::SessionInfo& info, const synth::ProjectData& project)
 {
-  std::uintmax_t bytes = 0;
-  for (const auto& entry : fs::directory_iterator(folder))
-    if (entry.path().filename().string().rfind("as_", 0) == 0) bytes += entry.file_size();
-  return bytes;
+  const auto& sequence = *project.sequence;
+  Writer out;
+  out.Byte(1);
+  out.Byte(info.dirty ? 1 : 0);
+  out.Text(info.name);
+  out.Byte(static_cast<int>(project.activeTrack));
+  out.Signed(project.octave);
+  out.Byte(project.root);
+  out.Byte(static_cast<int>(project.scale));
+  out.Byte(project.layout);
+  out.Byte(project.lock);
+  out.Byte(project.velocity);
+  out.Number(sequence.bpm);
+  out.Byte(sequence.swing);
+  int muted = 0;
+  int soloed = 0;
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    out.Byte(project.mixer.level[track]);
+    muted |= project.mixer.muted[track] ? 1 << track : 0;
+    soloed |= project.mixer.soloed[track] ? 1 << track : 0;
+  }
+  out.Byte(muted);
+  out.Byte(soloed);
+  out.Number(static_cast<std::uint32_t>(project.masterFx.size()));
+  for (const std::uint8_t value : project.masterFx) out.Byte(value);
+  for (const auto& play : project.play)
+  {
+    out.Byte(play.chord);
+    out.Byte(play.voicing);
+    out.Byte(static_cast<int>(play.arp.mode));
+    out.Byte(play.arp.rate);
+    out.Byte(play.arp.octaves);
+    out.Byte(play.arp.gate);
+    out.Byte(play.arp.latch ? 1 : 0);
+  }
+  // Last, so a record from before it reads as generation 0.
+  out.Number(info.generation);
+  return out.Take();
 }
+
+std::string EncodeSong(const synth::SynthSequencer::ProjectState& sequence)
+{
+  // A song is rare: no record at all until there is one.
+  if (sequence.songLength == 0 && sequence.songLoop) return {};
+  Writer out;
+  out.Number(static_cast<std::uint32_t>(sequence.songLength));
+  out.Byte(sequence.songLoop ? 1 : 0);
+  for (std::size_t row = 0; row < sequence.songLength; ++row)
+  {
+    for (const std::int8_t pattern : sequence.song[row].patterns) out.Byte(pattern + 1);
+    out.Byte(sequence.song[row].repeats);
+  }
+  return out.Take();
+}
+
+std::string EncodeEngine(synth::SynthEngineKind kind, const synth::SynthEngineState& state, const std::string& sample)
+{
+  Writer out;
+  out.Byte(static_cast<int>(kind));
+  out.Text(state.basePresetId);
+  out.Text(state.presetId == state.basePresetId ? std::string() : state.presetId);
+  out.Text(state.presetName);
+  out.Text(sample);
+  out.Number(static_cast<std::uint32_t>(state.values.size()));
+  for (const auto& entry : state.values)
+  {
+    out.Text(entry.first);
+    out.Signed(entry.second);
+  }
+  return out.Take();
+}
+
+std::string EncodeTrack(const synth::SynthSequencer::TrackData& track)
+{
+  Writer out;
+  out.Number(static_cast<std::uint32_t>(track.patternCount));
+  out.Number(static_cast<std::uint32_t>(track.activePattern));
+  out.Byte(track.defaultVelocity);
+  out.Number(track.defaultLengthPulses);
+  out.Byte((track.enabled ? 1 : 0) | (track.muted ? 2 : 0));
+  for (std::size_t pattern = 0; pattern < track.patternCount; ++pattern) out.Number(track.patternSteps[pattern]);
+  return out.Take();
+}
+
+std::string EncodePattern(const synth::SynthSequencer::PatternData& pattern, std::size_t notes)
+{
+  Writer out;
+  // One block of about the right size: growing doubles, and needs both blocks for a moment.
+  out.Reserve(notes * 7);
+  std::size_t previous = 0;
+  for (std::size_t step = pattern.steps.NextInUse(0); step < pattern.steps.size(); step = pattern.steps.NextInUse(step + 1))
+  {
+    const auto& notes = pattern.steps[step].notes;
+    const auto count = static_cast<std::uint32_t>(std::count_if(notes.begin(), notes.end(), [](const auto& note) { return note.active; }));
+    if (count == 0) continue;
+    out.Number(static_cast<std::uint32_t>(step - previous));
+    out.Byte(static_cast<int>(count));
+    previous = step;
+    for (const auto& note : notes)
+    {
+      if (!note.active) continue;
+      out.Byte(note.note);
+      out.Byte(note.velocity);
+      out.Number(note.lengthPulses);
+      out.Byte(note.microstep);
+    }
+  }
+  return out.Take();
+}
+
+void WriteFlashAutosave(const fs::path& folder, const synth::SessionInfo& info, const synth::ProjectData& project)
+{
+  const auto& sequence = *project.sequence;
+  const auto put = [&](const std::string& key, const std::string& bytes) {
+    if (!bytes.empty()) WriteText(folder / (key + ".rec"), bytes);
+  };
+  put("as_g", EncodeGeneral(info, project));
+  put("as_s", EncodeSong(sequence));
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    put("as_e" + std::to_string(track), EncodeEngine(project.kinds[track], project.engines[track], project.samples[track]));
+    put("as_t" + std::to_string(track), EncodeTrack(sequence.tracks[track]));
+    for (std::size_t pattern = 0; pattern < sequence.tracks[track].patternCount; ++pattern)
+      if (sequence.tracks[track].patterns.Allocated(pattern))
+        put("as_p" + std::to_string(track) + "_" + std::to_string(pattern), EncodePattern(sequence.tracks[track].patterns[pattern], 64));
+  }
+}
+
+}  // namespace older
 
 void Frames(int count = 1)
 {
@@ -153,6 +312,8 @@ int main()
   // The clock jumps minutes at a time here: standby would take the next key for waking up.
   assert(groove->StandbyMinutes() == os::storage::kDefaultStandbyMinutes);
   groove->SetStandbyMinutes(0);
+  // An older firmware's autosave records go at the first quiet moment; another firmware's stay.
+  Frames(140);
   assert(!fs::exists(root / "internal" / "as_p0_99.rec") && !fs::exists(root / "internal" / "as_old.rec"));
   assert(ReadText(root / "internal" / "launcher.rec") == "theirs");
 
@@ -269,8 +430,8 @@ int main()
   SwitchTo(kBlankId);
   const fs::path sessionFolder = synthFolder / "Session";
   const fs::path internal = root / "internal";
-  // The working state is in internal flash, whatever the card.
-  assert(Contains(ReadText(internal / "as_g.rec"), "SONG 01"));
+  // The working state is on the card; internal flash is never written.
+  assert(Contains(ReadText(sessionFolder / "autosave.txt"), "name=SONG 01\n") && FlashRecords(internal) == 0);
   // A system app does not change the boot app.
   assert(Contains(ReadText(systemSettings), "boot.app=Cardenza/Synth\n"));
 
@@ -282,16 +443,16 @@ int main()
   assert(groove->MasterVolume() == 60 && groove->LedBrightness() == 7 && groove->Backlight() == 150);
   assert(groove->Ui().State().keyboard.octave == 1 && groove->Sequencer().GetArpSettings(synth::kDefaultActiveTrack) == arp);
   assert(groove->Sequencer().GetArpSettings(1) == synth::ArpSettings{});
-  assert(!fs::exists(internal / "as_boot.rec"));
+  assert(ReadText(sessionFolder / "restore.txt") == "0\n");  // the start that restored it finished
 
-  // The power can go at any moment. Nothing tells the app: what counts is what is in flash then.
+  // The power can go at any moment. Nothing tells the app: what counts is what is on the card then.
   const fs::path cut = root / "power-cut";
   const auto powerCut = [&]() {
     CopyFolder(internal, cut / "internal");
     CopyFolder(sessionFolder, cut / "session");
   };
   const auto restart = [&]() {
-    // The switch stands in for the restart; flash and card are put back to what the cut left.
+    // The switch stands in for the restart; the card (and the flash) are put back to what the cut left.
     SwitchTo(kBlankId);
     CopyFolder(cut / "internal", internal);
     CopyFolder(cut / "session", sessionFolder);
@@ -327,42 +488,16 @@ int main()
   keepWorking(141);
   groove->FlushSession();
 
-  // It is small: a default project with a few changes is a few hundred bytes.
-  const std::uintmax_t autosaveBytes = AutosaveBytes(internal);
-  std::cout << "Autosave: " << autosaveBytes << " bytes" << std::endl;
-  assert(autosaveBytes < 1500);
+  assert(fs::is_regular_file(sessionFolder / "autosave.ccproj") && FlashRecords(internal) == 0);
 
-  // A key that changes nothing writes nothing, and a change only its own record.
+  // While something plays the changes go to the card once they have waited a little (on the device's
+  // background task); soon after it stops, at once.
   {
-    Tap(1, 1);
-    Frames(140);
-    const auto before = WriteTimes(internal);
-    Tap(1, 1);
-    Frames(140);
-    assert(WriteTimes(internal) == before);
-    assert(groove->Sequencer().InsertNote(1, 0, 5, 0, 72, 100, 24));
-    Tap(1, 1);
-    Frames(140);
-    const auto after = WriteTimes(internal);
-    std::size_t changed = 0;
-    for (const auto& record : after)
-    {
-      const auto earlier = before.find(record.first);
-      if (earlier == before.end() || earlier->second != record.second) ++changed;
-    }
-    assert(changed == 1 && after.count("as_p1_0.rec") == 1);
-    assert(groove->Sequencer().ClearPatternEvents(1, 0));
-    Tap(1, 1);
-    Frames(140);
-  }
-
-  // While something plays nothing goes to flash, because a write can stall the sound for a moment.
-  {
-    const std::string before = ReadText(internal / "as_g.rec");
+    const std::string before = ReadText(sessionFolder / "autosave.txt");
     groove->Sequencer().Play();
     keepWorking(150);
     Frames(150);
-    assert(ReadText(internal / "as_g.rec") == before);
+    assert(ReadText(sessionFolder / "autosave.txt") == before);
     // Keys in a row count as playing too, also with the transport stopped.
     groove->Sequencer().Stop();
     for (int beat = 0; beat < 20; ++beat)
@@ -370,86 +505,53 @@ int main()
       Tap(1, 1);
       Frames(20);
     }
-    assert(ReadText(internal / "as_g.rec") == before);
+    assert(ReadText(sessionFolder / "autosave.txt") == before);
     // Soon after it stops the changes are in.
     Frames(140);
-    assert(ReadText(internal / "as_g.rec") != before);
-    // Played on and on, the changes go to the card once they have waited a little (a flash write stops
-    // both cores: a click and a late beat), and to the flash when it stops. The newer one comes back.
-    const std::string longPlay = ReadText(internal / "as_g.rec");
-    const fs::path cardSession = cardenza / "Apps" / "Cardenza" / "Synth" / "Session";
+    const std::string stopped = ReadText(sessionFolder / "autosave.txt");
+    assert(stopped != before);
+    // Played on and on: on the card after ten seconds.
     groove->Sequencer().Play();
     keepWorking(151);
     Frames(20);
-    assert(ReadText(internal / "as_g.rec") == longPlay);
+    assert(ReadText(sessionFolder / "autosave.txt") == stopped);
     gNow += 11000;
     Frames(2);
-    assert(ReadText(internal / "as_g.rec") == longPlay);
-    assert(fs::exists(cardSession / "autosave.ccproj") && fs::exists(cardSession / "autosave.txt"));
-    gNow += 61000;
-    Frames(2);
-    assert(ReadText(internal / "as_g.rec") == longPlay);  // the card has it: the flash waits
+    assert(ReadText(sessionFolder / "autosave.txt") != stopped && FlashRecords(internal) == 0);
     powerCut();
     restart();
     assert(groove->Sequencer().Tempo() == 151);
-    // Stopped, the flash takes it, and numbers it above the card's, which a later start then skips.
-    Frames(140);
-    assert(ReadText(internal / "as_g.rec") != longPlay);
     keepWorking(152);
     Frames(140);
     powerCut();
     restart();
     assert(groove->Sequencer().Tempo() == 152);
-    // Without the card, playing on: the flash after a minute, as before.
-    CardenzaSim::Input::SetCardInserted(false);
-    Frames(2);
-    const std::string noCard = ReadText(internal / "as_g.rec");
-    groove->Sequencer().Play();
-    keepWorking(153);
-    Frames(20);
-    assert(ReadText(internal / "as_g.rec") == noCard);
-    gNow += 61000;
-    Frames(2);
-    assert(ReadText(internal / "as_g.rec") != noCard);
-    groove->Sequencer().Stop();
-    CardenzaSim::Input::SetCardInserted(true);
-    Frames(650);  // the system retries the card every ten seconds
   }
 
-  // No card, no difference: the work stays, also over a restart. The sample it names waits for the card
-  // and comes back with it.
+  // Without a card nothing outlives the power (internal flash is never written), and the screen says so.
+  // A start without it begins empty; the card coming later brings its working state back, as long as
+  // nothing was changed meanwhile.
   {
-    const std::string tiny = (cardenza / "Shared" / "Samples" / "tiny.wav").string();
-    const std::array<std::int16_t, 64> frames{{1000, -1000}};
-    assert(synth::sampler::WriteMono16Wav(tiny, frames.data(), frames.size(), 44100));
-    assert(groove->Sampler().SelectBrowserSample(3, "tiny.wav"));
-    Tap(1, 1);
-    Frames(140);
     CardenzaSim::Input::SetCardInserted(false);
-    fs::rename(tiny, tiny + ".out");  // the simulated card's files stay readable
+    Frames(2);
     keepWorking(144);
     Frames(140);
+    assert(Contains(groove->Ui().State().toast.text, "NO SD CARD") && FlashRecords(internal) == 0);
     powerCut();
     restart();
-    assert(groove->Sequencer().Tempo() == 144 && groove->Sampler().BuildUiState(3).sampleFileName.empty());
-    // A save without the card does not forget the sample.
-    keepWorking(145);
-    Frames(140);
-    powerCut();
-    restart();
-    assert(groove->Sequencer().Tempo() == 145 && groove->Sampler().BuildUiState(3).sampleFileName.empty());
-    fs::rename(tiny + ".out", tiny);
+    assert(groove->Sequencer().Tempo() == 120);
     CardenzaSim::Input::SetCardInserted(true);
-    Frames(650);  // the system retries the card every ten seconds
-    assert(groove->Sampler().BuildUiState(3).sampleFileName == "tiny.wav");
-    Tap(1, 1);
+    Frames(700);  // the device looks for the card now and then
+    assert(groove->Sequencer().Tempo() == 152 && groove->Ui().State().projectName == "SONG 01");
+    // With the card back the changes go to it again.
+    keepWorking(153);
     Frames(140);
-    fs::remove(tiny);
     powerCut();
     restart();
+    assert(groove->Sequencer().Tempo() == 153);
   }
 
-  // Too much for the room in flash: what plays stays, and the screen says so. SAVE keeps it all.
+  // A long project goes whole: every pattern of every track comes back.
   {
     auto& sequencer = groove->Sequencer();
     for (std::size_t track = 0; track < 4; ++track)
@@ -461,24 +563,21 @@ int main()
     for (std::size_t track = 0; track < 4; ++track) assert(sequencer.QueuePattern(track, 0));
     Tap(1, 1);
     Frames(140);
-    assert(Contains(groove->Ui().State().toast.text, "TOO LONG"));
-    assert(AutosaveBytes(internal) < 13 * 1024);
     powerCut();
     restart();
-    for (std::size_t track = 0; track < 4; ++track) assert(groove->Sequencer().PatternStepMask(track, 0) != 0);
-    // Back to a short one: the room is free again.
+    for (std::size_t track = 0; track < 4; ++track)
+      for (std::size_t pattern = 0; pattern < 16; ++pattern) assert(groove->Sequencer().PatternStepMask(track, pattern) != 0);
     groove::ProjectUiSettings fresh;
     std::string message;
     assert(groove->NewProject(fresh, message));
     groove->Sequencer().SetTempo(133);
     Tap(1, 1);
     Frames(140);
-    assert(AutosaveBytes(internal) < 1500);
   }
 
-  // A record that does not make sense: a clean start, no crash.
+  // An autosave that does not make sense: a clean start, no crash.
   powerCut();
-  WriteText(cut / "internal" / "as_t1.rec", "x");
+  WriteText(cut / "session" / "autosave.ccproj", "CARDENZA_PROJECT 7\nnonsense\n");
   restart();
   assert(groove->Sequencer().Tempo() == 120);
   // A state that keeps crashing the start is not tried forever.
@@ -486,10 +585,45 @@ int main()
   Tap(1, 1);
   Frames(140);
   powerCut();
-  WriteText(cut / "internal" / "as_boot.rec", "3");
+  WriteText(cut / "session" / "restore.txt", "3\n");
   restart();
   assert(groove->Sequencer().Tempo() == 120);
-  groove->Sequencer().SetTempo(133);
+
+  // An older firmware's autosave in internal flash, newer than the card's: it comes back, goes to the
+  // card at the next quiet moment and is erased from the flash; the next start takes the card's.
+  {
+    groove->Sequencer().SetTempo(147);
+    Tap(1, 1);
+    Frames(140);
+    powerCut();
+    synth::ProjectData project;
+    assert(synth::LoadProjectFileAt((cut / "session" / "autosave.ccproj").string(), project) == synth::ProjectResult::Ok);
+    project.sequence->bpm = 149;
+    synth::SessionInfo info;
+    info.name = "SONG 01";
+    info.dirty = true;
+    info.generation = 1000000;
+    older::WriteFlashAutosave(cut / "internal", info, project);
+    WriteText(cut / "internal" / "as_boot.rec", "1");
+    restart();
+    assert(groove->Sequencer().Tempo() == 149 && groove->Ui().State().projectName == "SONG 01" && groove->Ui().State().dirty);
+    // Nothing plays at a start: on the card in the first frame, out of the flash in the next.
+    assert(FlashRecords(internal) == 0 && ReadText(root / "internal" / "launcher.rec") == "theirs");
+    assert(Contains(ReadText(sessionFolder / "autosave.txt"), "generation=1000001\n"));
+    powerCut();
+    restart();
+    assert(groove->Sequencer().Tempo() == 149);
+    // An older one than the card's stays unread, and goes too.
+    project.sequence->bpm = 99;
+    info.generation = 5;
+    older::WriteFlashAutosave(internal, info, project);
+    powerCut();
+    restart();
+    assert(groove->Sequencer().Tempo() == 149);
+    Frames(140);
+    assert(FlashRecords(internal) == 0);
+    groove->Sequencer().SetTempo(133);
+  }
 
   // A sample recording survives too: at most the last second is gone, and its screen comes back.
   CardenzaSim::Input::SetMicrophonePresent(true);
@@ -554,13 +688,13 @@ int main()
 
   assert(!os::system::SwitchApplication("Nobody/Here"));
 
-  // Card out: device settings are kept in internal flash and copied back when the card returns.
+  // Card out: device settings wait in RAM (not in internal flash) and go to the card when it returns.
   CardenzaSim::Input::SetCardInserted(false);
   groove->SetMasterVolume(30);
   Frames(70);
-  assert(fs::is_regular_file(root / "internal" / "sys.rec") && Contains(ReadText(systemSettings), "sys.volume=60\n"));
+  assert(!fs::exists(root / "internal" / "sys.rec") && Contains(ReadText(systemSettings), "sys.volume=60\n"));
   CardenzaSim::Input::SetCardInserted(true);
-  Frames(650);  // the system retries the card every ten seconds
+  Frames(700);  // the system tries the card again every ten seconds
   assert(!fs::exists(root / "internal" / "sys.rec") && Contains(ReadText(systemSettings), "sys.volume=30\n"));
 
   // While nothing happens nothing is written, however long the device stays on.
@@ -569,7 +703,7 @@ int main()
     const auto snapshot = [&]() {
       std::map<std::string, fs::file_time_type> times;
       for (const fs::path& folder : {root / "internal", cardenza})
-        for (const auto& entry : fs::recursive_directory_iterator(folder))
+        for (const auto& entry : fs::recursive_directory_iterator(folder, fs::directory_options::none))
           if (entry.is_regular_file()) times[entry.path().string()] = entry.last_write_time();
       return times;
     };
@@ -581,7 +715,7 @@ int main()
   // An orderly shutdown suspends the app: the session is waiting for the next start.
   os::system::Shutdown();
   assert(os::system::ActiveApplication() == nullptr);
-  assert(fs::is_regular_file(internal / "as_g.rec"));
+  assert(fs::is_regular_file(sessionFolder / "autosave.ccproj") && FlashRecords(internal) == 0);
 
   fs::current_path(fs::temp_directory_path());
   fs::remove_all(root);
