@@ -1,6 +1,10 @@
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# Quad I/O, as the Launcher's bootloader runs the flash (W25Q128JV, IO2 / IO3 wired). The bootloader
+# decides how the cache reads the flash, so this matters for a board flashed with ours: in DIO the code
+# AMY runs from flash made a block's cost outside the voices about 40% higher (2026-11-05).
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
