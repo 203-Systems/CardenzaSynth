@@ -74,13 +74,17 @@ void GridRipple(Gfx& g, Animator& animator, std::size_t index, Color color)
 }
 
 // The kit's eight drums in one row, like the eight pad columns on the keyboard (a column is a drum).
-void DrawPads(Gfx& g, const Controller& controller, Animator& animator, const Rect& area, const synth::ISynthEngine* engine)
+// With fill (VOICE) they take the whole area, as the keyboard of a melodic track does, less the room
+// a hit kicks them up; otherwise (the KIT page's graphic) a strip of at most 24 px in its middle.
+void DrawPads(Gfx& g, const Controller& controller, Animator& animator, const Rect& area, const synth::ISynthEngine* engine,
+              bool fill = false)
 {
   constexpr int kGap = 2;
+  constexpr int kKickRoom = 3;  // how far a hit kicks a pad up, at most
   const int padWidth = (area.width - kGap * 7) / 8;
-  const int padHeight = std::min(area.height, 24);
+  const int padHeight = fill ? area.height - kKickRoom : std::min(area.height, 24);
   const int left = area.x + (area.width - (padWidth * 8 + kGap * 7)) / 2;
-  const int top = area.y + (area.height - padHeight) / 2;
+  const int top = fill ? area.y + kKickRoom : area.y + (area.height - padHeight) / 2;
   static constexpr std::array<const char*, 8> kIds{{"kick.level", "snare.level", "closed_hat.level", "open_hat.level",
                                                     "clap.level", "tom.level", "cowbell.level", "maraca.level"}};
   const std::uint32_t now = animator.Now();
@@ -199,7 +203,7 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
   const Rect lower{area.x, pianoTop, area.width, area.y + area.height - pianoTop};
   if (host.EngineKind(state.track) == synth::SynthEngineKind::Drums)
   {
-    DrawPads(g, controller, animator, lower, engine);
+    DrawPads(g, controller, animator, lower, engine, true);
     return;
   }
   const int base = synth::kHomePerformanceBaseMidiNote + state.keyboard.octave * 12;
