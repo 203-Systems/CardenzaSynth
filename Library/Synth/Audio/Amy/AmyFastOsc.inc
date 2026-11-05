@@ -15,11 +15,18 @@
 // so the later saw has the same fraction and the cubic, being linear in the table's values, can run
 // once on their differences. Against two passes it differs by AMY's rounding only.
 
+// MSVC builds the host tests.
+#if defined(_MSC_VER)
+#define CARDENZA_FAST_OSC_INLINE static __forceinline
+#else
+#define CARDENZA_FAST_OSC_INLINE static inline __attribute__((always_inline))
+#endif
+
 // INTERP_CUBIC (Miller's form) to the bit, from the table's own values: AMY's L2S shifts them up 8
 // bits, its MUL0_SS shifts each operand down (8 and 7 bits) before the product, and differences of
 // values 8 bits up shift back without loss, so this is the same arithmetic with those shifts taken
 // out. f is S_FRAC_OF_P's 23-bit fraction.
-static inline __attribute__((always_inline)) SAMPLE cardenza_cubic(int32_t ta, int32_t tb, int32_t tc, int32_t td, int32_t f)
+CARDENZA_FAST_OSC_INLINE SAMPLE cardenza_cubic(int32_t ta, int32_t tb, int32_t tc, int32_t td, int32_t f)
 {
     const int32_t f16 = f >> 7;                                                     // MUL0_SS's frac operand
     const int32_t cminusb = tc - tb;
@@ -34,7 +41,7 @@ static inline __attribute__((always_inline)) SAMPLE cardenza_cubic(int32_t ta, i
 // shifted by the table's size, a variable amount, and Xtensa's one shift-amount register and 16
 // registers made it set that register twice a sample and keep half its values on the stack (75
 // instructions a sample, 61 here).
-static inline __attribute__((always_inline)) PHASOR cardenza_lut_cub_block(SAMPLE* buf, uint32_t turn, uint32_t turn_step, SAMPLE current_amp,
+CARDENZA_FAST_OSC_INLINE PHASOR cardenza_lut_cub_block(SAMPLE* buf, uint32_t turn, uint32_t turn_step, SAMPLE current_amp,
                                                                            SAMPLE incremental_amp, const LUTSAMPLE* table, const int bits,
                                                                            const int square, SAMPLE* pmax_value)
 {
@@ -107,7 +114,7 @@ static PHASOR cardenza_render_lut_cub(SAMPLE* buf, PHASOR phase, PHASOR step, SA
 // render_lut_fm_fb: the DX7's operators), to the bit, for a table of 2^bits values; constant bits,
 // use_mod and use_fb select the variant at compile time as above. The modulation and the feedback add
 // to the phase before the index is taken, as in RENDER_LUT_GUTS (INT_OF_P drops the turn's carry).
-static inline __attribute__((always_inline)) uint32_t cardenza_lut_lin_block(SAMPLE* buf, uint32_t turn, uint32_t turn_step, SAMPLE current_amp,
+CARDENZA_FAST_OSC_INLINE uint32_t cardenza_lut_lin_block(SAMPLE* buf, uint32_t turn, uint32_t turn_step, SAMPLE current_amp,
                                                                              SAMPLE incremental_amp, const LUTSAMPLE* table, const int bits,
                                                                              const SAMPLE* mod, const int use_mod, SAMPLE feedback_level,
                                                                              SAMPLE* last_two, const int use_fb, SAMPLE* pmax_value)
