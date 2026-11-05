@@ -1025,10 +1025,12 @@ def build_guide(out_dir, work, sim_build, skip_shots, docs, dictionary_ids, leds
     guide = guide_lessons.load()
     img = out_dir / "img"
     shots = sorted(img.glob("guide-*.png")) if img.exists() else []
-    if not (skip_shots and shots):
+    leds_file = work / "guide-leds.json"
+    if not (skip_shots and shots and leds_file.exists()):
         guide_lessons.run(guide, sim_build, work, img)
+    guide_leds = json.loads(leds_file.read_text())
     say = lambda text, lang: inline(text, docs[lang])
-    rail, cards, lessons, index = guide_lessons.render(guide, say, set(dictionary_ids), leds)
+    rail, cards, lessons, index = guide_lessons.render(guide, say, set(dictionary_ids), guide_leds, led_light)
     template = (HERE / "guide.html").read_text(encoding="utf-8")
     page = (template.replace("{{ICONS}}", figures.icon_sprite())
             .replace("{{VERSION}}", html.escape(version))

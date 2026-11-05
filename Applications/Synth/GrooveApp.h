@@ -109,7 +109,7 @@ private:
   void ExitGuide();
   void GuideSetup(const char* fields, std::size_t length);
   bool FreshGuideProject();
-  void FillGuideDemo();
+  void FillGuideSong(int stage);
   void SendGuide(const std::string& text);
   void SendGuideState(std::uint32_t now, bool always);
   void SendGuideLeds(std::uint32_t now);

@@ -4,7 +4,7 @@ manual itself is the reference next to it.
 A lesson is a few steps. Concept lessons (an "anim") are animations the page plays; device lessons
 run on the live device of the page (the web simulator, or a Cardenza on USB) through the guide link
 (Applications/Synth/GrooveAppGuide.cpp): "start" puts the device where the lesson begins (GL fields:
-s scene, p page, t track 1-4, r1 a fresh project, d1 the song demo), and per step
+s scene, p page, t track 1-4, r1 a fresh project, d<n> the song of the song lessons as lessons 1..n made it), and per step
 
   keys   the keys that blink on the device until the step is learned (the others dimmed), framed on the picture (figures.keys_for tokens)
   done   what completes it, all of: ["press", KEYS] a key pressed (["press", KEYS, n]: n different
@@ -14,6 +14,9 @@ s scene, p page, t track 1-4, r1 a fresh project, d1 the song demo), and per ste
   demo   what a person would press: tap / down / up KEY, wait FRAMES (16 ms), shot (the step's
          picture is taken there, else at the end)
   marks  highlights on the step's picture (figures.target_rect)
+  lights the key picture glows with the device's key lights at that moment (as in the manual's pictures)
+  keymarks  numbered frames on the key picture, [[KEYS, {zh, en}], ...], told under it; they take the
+         place of the plain frame around "keys"
 
 The build runs every device lesson's demos on the firmware (CardenzaSimShot) and fails when a step
 does not complete: the lessons cannot drift from the device. The pictures come from that run.
@@ -52,6 +55,10 @@ def load():
                     sys.exit(f"guide: {lesson_id} step {number} needs done and demo")
                 key_indices(step.get("keys", ""))
                 parse_demo(step["demo"])
+                for spec, label in step.get("keymarks", []):
+                    key_indices(spec)
+                    if not label.get("zh") or not label.get("en"):
+                        sys.exit(f"guide: {lesson_id} step {number} has a key mark without words")
     return guide
 
 
@@ -204,7 +211,7 @@ def run(guide, sim_build, work, img):
         from PIL import Image
     except ImportError:
         Image = None
-    count = 0
+    leds = {}
     for png in sorted(raw.glob("guide-*.png")):
         if Image is None:
             shutil.copyfile(png, img / png.name)
@@ -212,8 +219,12 @@ def run(guide, sim_build, work, img):
             with Image.open(png) as shot:
                 shot.convert("RGB").quantize(colors=64, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).save(
                     img / png.name, optimize=True)
-        count += 1
-    return count
+        # The key lights of that moment (CardenzaSimShot writes them next to the picture).
+        led_file = png.with_suffix(".leds.txt")
+        if led_file.exists():
+            leds[png.stem] = [list(map(int, line.split())) for line in led_file.read_text().splitlines()[:4]]
+    (work / "guide-leds.json").write_text(json.dumps(leds))
+    return leds
 
 
 # ---------------------------------------------------------------------------------------------
@@ -248,8 +259,26 @@ def keys_figure(spec, seed):
     return svg
 
 
-def render(guide, say, dictionary_ids, leds):
-    """-> (rail html, home html, lessons html, lesson index json). say(text, lang) renders inline markup."""
+def key_picture(step, shot, shot_leds, light):
+    """The step's keys: the keys to press framed (the others dimmed), or with "lights" the keyboard as the
+    device lit it, and with "keymarks" numbered frames told under it. -> html."""
+    lit = shot_leds.get(shot) if step.get("lights") else None
+    keymarks = step.get("keymarks", [])
+    if not lit and not keymarks:
+        return keys_figure(step.get("keys", ""), "guide:" + shot)
+    marks = [("key", spec, label["en"]) for spec, label in keymarks]
+    svg, _items = figures.keyboard(lit, light if lit else (lambda level: 0), marks, "guide:" + shot, plain(step["say"]["en"]),
+                                   focus_only=not lit, badge_all=True)
+    rows = "".join(f'<li><span class="mk">{number}</span><span class="mk-text">{plain_both(label)}</span></li>'
+                   for number, (_spec, label) in enumerate(keymarks, start=1))
+    # Told in two columns filled top to bottom: with the edge keys, the left column is the left keys.
+    rows_per_column = (len(keymarks) + 1) // 2
+    return svg + (f'<ol class="marks" style="--rows:{rows_per_column}">{rows}</ol>' if rows else "")
+
+
+def render(guide, say, dictionary_ids, shot_leds, light):
+    """-> (rail html, home html, lessons html, lesson index json). say(text, lang) renders inline markup;
+    shot_leds are the key lights of the steps' pictures, light(level) how bright a level shows."""
     numbers, rail, cards, sections = {}, [], [], []
     order = lesson_ids(guide)
     for part in guide["parts"]:
@@ -297,7 +326,7 @@ def render(guide, say, dictionary_ids, leds):
             pages.append(
                 f'<div class="st-page" data-step="{index - 1}" hidden>'
                 f'<div class="st-screen"><div class="bezel">{picture}</div></div>'
-                f'<div class="st-keys">{keys_figure(step.get("keys", ""), "guide:" + shot)}</div></div>')
+                f'<div class="st-keys">{key_picture(step, shot, shot_leds, light)}</div></div>')
         kind = "anim" if "anim" in lesson else "device"
         attrs = f'data-anim="{lesson["anim"]}"' if kind == "anim" else f'data-start="{html.escape(lesson["start"])}"'
         # Both kinds show one step at a time: a stage, and under it the step's words with the steps as dots.
@@ -315,22 +344,14 @@ def render(guide, say, dictionary_ids, leds):
         else:
             stage = (f'<div class="anim-wrap"><div class="anim-stage st-stage">{"".join(pages)}</div>'
                      f'<button type="button" class="a-show">{ui("show")}</button></div>' + bar)
-        prev_id = order[position - 1] if position > 0 else None
-        next_id = order[position + 1] if position + 1 < len(order) else None
-        # The links say what they do, not the other lesson's title (a bare "换界面 →" reads like an action;
-        # the rail shows the titles).
-        pager = '<nav class="l-pager">'
-        if prev_id:
-            pager += f'<a class="prev" href="#/{prev_id}">← {plain_both({"zh": "学习上一个", "en": "Previous lesson"})}</a>'
-        # Learn this lesson again: its tick goes and it starts over from its first step. Only on a
-        # finished lesson (paintProgress shows it).
-        pager += f'<button type="button" class="redo" data-lesson="{lesson_id}" hidden>↺ {ui("redo")}</button>'
-        pager += f'<a class="next" href="#/{next_id}">{plain_both({"zh": "学习下一个", "en": "Next lesson"})} →</a>' if next_id else \
-            '<a class="next" href="#/">' + plain_both({"zh": "回到目录", "en": "All lessons"}) + ' →</a>'
-        pager += "</nav>"
+        # The lesson's last step turns Next into "learn the next lesson" (guide.js, data-next); learning this
+        # one again (its tick goes, it starts over) is offered there too.
+        next_id = order[position + 1] if position + 1 < len(order) else ""
+        pager = (f'<nav class="l-pager"><button type="button" class="redo" data-lesson="{lesson_id}" hidden>↺ {ui("redo")}</button>'
+                 '</nav>')
         more_link = (f'<p class="l-more"><a href="reference.html#{more}">{ui("more")} →</a></p>' if more else "")
         sections.append(
-            f'<section class="lesson" id="lesson-{lesson_id}" data-lesson="{lesson_id}" data-kind="{kind}" {attrs} hidden>'
+            f'<section class="lesson" id="lesson-{lesson_id}" data-lesson="{lesson_id}" data-kind="{kind}" data-next="{next_id}" {attrs} hidden>'
             f'<header class="l-head"><div class="l-kicker">{plain_both(part["title"])} · {number} / {len(part["lessons"])}</div>'
             f'<h1>{plain_both(lesson["title"])}</h1><p class="l-lead">{plain_both(lesson["lead"])}</p>'
             # Whether a Cardenza follows the lesson (guide.js says it).

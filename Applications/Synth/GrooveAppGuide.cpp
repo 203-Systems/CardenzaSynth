@@ -8,8 +8,8 @@
 //   GX        end it                        GX (also when the device ends it by itself)
 //   GP        still here (any G message is) -
 //   GQ        the state now                 GS<Controller::GuideState()>
-//   GL<pairs> lesson start: r1 a fresh      GS... (s scene, p page, t track 1-4, d1 the song
-//             practice project               lesson's demo project)
+//   GL<pairs> lesson start: r1 a fresh      GS... (s scene, p page, t track 1-4, d<n> the song
+//             practice project               lessons' song as lessons 1..n made it)
 //   GH<keys>  the step's keys, blinking: two hex digits per KeyIndex, none clears
 //   GT<keys>  the same, steady: the step is learned and the user tries more keys
 //   GK<kk><0|1> press / release a key       GK<kk><0|1> for every key the user presses
@@ -22,8 +22,10 @@
 
 #include "Applications/Synth/GrooveApp.h"
 
+#include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <initializer_list>
 #include <string>
 #include <utility>
 
@@ -269,8 +271,8 @@ void GrooveApp::ExitGuide()
 
 void GrooveApp::GuideSetup(const char* fields, std::size_t length)
 {
-  int scene = -1, page = -1, track = -1;
-  bool fresh = false, demo = false;
+  int scene = -1, page = -1, track = -1, song = 0;
+  bool fresh = false;
   for (std::size_t at = 0; at < length;)
   {
     const char field = fields[at++];
@@ -286,43 +288,57 @@ void GrooveApp::GuideSetup(const char* fields, std::size_t length)
     if (field == 'p') page = value;
     if (field == 't' && value >= 1 && value <= static_cast<int>(synth::kSynthTrackCount)) track = value - 1;
     if (field == 'r') fresh = value != 0;
-    if (field == 'd') demo = value != 0;
+    if (field == 'd') song = value;
   }
-  if ((fresh || demo) && !FreshGuideProject()) return;
-  if (demo) FillGuideDemo();
+  if ((fresh || song > 0) && !FreshGuideProject()) return;
+  if (song > 0) FillGuideSong(song);
   const auto& view = controller_.State();
   if (scene < 0 && page < 0 && track < 0) return;
   controller_.GuideGoTo(scene >= 0 ? static_cast<groove::Scene>(scene) : view.scene, page,
                         track >= 0 ? static_cast<std::size_t>(track) : view.track);
 }
 
-// The song lesson's start: two drum patterns (a beat and a fill) and a bass line, so a song has
-// something to put in a row, whatever the earlier lessons left.
-void GrooveApp::FillGuideDemo()
+// The song lessons build one song, each from where the one before ended. d<stage> starts a fresh
+// project with what lessons 1..stage made, so a lesson opened on its own has the song so far:
+//   1  T1 P01: kick on 1 5 9 13, snare on 5 13, closed hat on 3 7 11 15 (the drum pads' top row)
+//   2  T1 P02: P01 with the hat on 1 5 9 13 too; T1 stays on it, as the lesson leaves it
+//   3  T3 P01: Am on 1 4 7, F on 9 12 15 (A3 and F3 with the chord key on: TRIAD in C)
+//   4  T2 P01: the tune A4 G4 E4 F4 E4 C4 on 1 4 7 9 12 15
+void GrooveApp::FillGuideSong(int stage)
 {
-  constexpr std::uint8_t kKick = 36, kSnare = 38, kHat = 42;
-  auto drums = [&](const int* kicks, const int* snares) {
-    for (std::size_t step = 0; step < 16; ++step)
+  auto write = [&](std::size_t track, std::initializer_list<int> steps, std::initializer_list<std::uint8_t> notes, std::uint8_t velocity) {
+    for (const int step : steps)
     {
-      std::uint8_t notes[3];
-      std::size_t count = 0;
-      for (const int* at = kicks; *at >= 0; ++at)
-        if (static_cast<std::size_t>(*at) == step) notes[count++] = kKick;
-      for (const int* at = snares; *at >= 0; ++at)
-        if (static_cast<std::size_t>(*at) == step) notes[count++] = kSnare;
-      if (step % 2 == 0) notes[count++] = kHat;
-      (void)sequencer_.SetStepNotes(0, step, notes, count, 110);
+      // Added to what the step holds, as a second pad on a written step does.
+      std::array<synth::SynthSequencer::StepNoteView, 8> held{};
+      std::array<std::uint8_t, 8> all{};
+      std::size_t count = sequencer_.StepNoteEvents(track, static_cast<std::size_t>(step - 1), held);
+      for (std::size_t index = 0; index < count; ++index) all[index] = held[index].note;
+      for (const std::uint8_t note : notes)
+        if (count < all.size()) all[count++] = note;
+      (void)sequencer_.SetStepNotes(track, static_cast<std::size_t>(step - 1), all.data(), count, velocity);
     }
   };
-  static constexpr int kBeatKicks[] = {0, 4, 8, 12, -1}, kBeatSnares[] = {4, 12, -1};
-  static constexpr int kFillKicks[] = {0, 4, 8, 10, -1}, kFillSnares[] = {4, 12, 13, 14, 15, -1};
+  const std::uint8_t kick = groove::kDrumNotes[0], snare = groove::kDrumNotes[1], hat = groove::kDrumNotes[2];
+  const std::uint8_t hard = groove::kDrumRowVelocity[0];
   sequencer_.SetActiveTrack(0);
-  drums(kBeatKicks, kBeatSnares);
-  if (sequencer_.SelectOrCreatePattern(1)) drums(kFillKicks, kFillSnares);
-  (void)sequencer_.SelectOrCreatePattern(0);
-  // T2: a bass line in C.
-  static constexpr std::pair<std::size_t, std::uint8_t> kBass[] = {{0, 36}, {3, 36}, {6, 43}, {8, 41}, {11, 41}, {14, 43}};
-  for (const auto& [step, note] : kBass) (void)sequencer_.SetStepNotes(1, step, &note, 1, 100);
+  write(0, {1, 5, 9, 13}, {kick}, hard);
+  write(0, {5, 13}, {snare}, hard);
+  write(0, {3, 7, 11, 15}, {hat}, hard);
+  if (stage >= 2 && sequencer_.CopyPattern(0, 1) && sequencer_.SelectOrCreatePattern(1)) write(0, {1, 5, 9, 13}, {hat}, hard);
+  constexpr std::uint8_t kPlayed = 110;  // the keyboard's velocity in a new project
+  if (stage >= 3)
+  {
+    sequencer_.SetActiveTrack(2);
+    write(2, {1, 4, 7}, {57, 60, 64}, kPlayed);
+    write(2, {9, 12, 15}, {53, 57, 60}, kPlayed);
+  }
+  if (stage >= 4)
+  {
+    sequencer_.SetActiveTrack(1);
+    static constexpr std::pair<int, std::uint8_t> kTune[] = {{1, 69}, {4, 67}, {7, 64}, {9, 65}, {12, 64}, {15, 60}};
+    for (const auto& [step, note] : kTune) write(1, {step}, {note}, kPlayed);
+  }
   sequencer_.SetActiveTrack(controller_.State().track);
 }
 

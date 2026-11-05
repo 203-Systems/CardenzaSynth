@@ -74,31 +74,12 @@ body.guide { --rail: 236px; }
   display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 .l-done[hidden] { display: none; }
 .l-done b { font: 800 20px var(--mono); color: var(--play); }
-.l-pager { display: flex; justify-content: space-between; gap: 12px; margin-top: 26px; font: 13px var(--mono); }
-.l-pager a { text-decoration: none; border: 1px solid var(--line-2); padding: 9px 13px; border-radius: 7px; background: var(--panel); }
-.l-pager a:hover { border-color: var(--dim); }
-.l-pager .next { margin-left: auto; }
-.l-pager .redo { margin-left: auto; border: 1px solid var(--line-2); padding: 9px 13px; border-radius: 7px; background: var(--panel);
+/* Under the step bar: Learn again, on the lesson's last step. */
+.l-pager { display: flex; justify-content: flex-end; gap: 12px; margin-top: 18px; font: 13px var(--mono); }
+.l-pager .redo { border: 1px solid var(--line-2); padding: 9px 13px; border-radius: 7px; background: var(--panel);
   color: var(--dim); font: 13px var(--mono); cursor: pointer; }
 .l-pager .redo:hover { border-color: var(--dim); color: var(--ink); }
 .l-pager .redo[hidden] { display: none; }
-.l-pager .redo:not([hidden]) + .next { margin-left: 0; }
-/* 学习下一个: a ring of blue gradient with a soft glow; on hover it grows a little and brightens. A finished
-   lesson fills it with the gradient. */
-.l-pager .next {
-  --next-a: #33b1ff; --next-b: #a070ff;
-  border: 1.5px solid transparent;
-  background: linear-gradient(var(--panel), var(--panel)) padding-box, linear-gradient(120deg, var(--next-a), var(--next-b)) border-box;
-  box-shadow: 0 0 10px -2px color-mix(in srgb, var(--next-a) 45%, transparent), 0 0 14px -4px color-mix(in srgb, var(--next-b) 40%, transparent);
-  transition: transform .22s ease, filter .22s ease, box-shadow .22s ease;
-}
-.l-pager .next:hover, .l-pager .next:focus-visible {
-  border-color: transparent; transform: scale(1.06); filter: brightness(1.25) saturate(1.1);
-  box-shadow: 0 0 16px -2px color-mix(in srgb, var(--next-a) 70%, transparent), 0 0 22px -4px color-mix(in srgb, var(--next-b) 60%, transparent);
-}
-.lesson.complete .l-pager .next { color: #000; font-weight: 600;
-  background: linear-gradient(120deg, var(--next-a), var(--next-b)) padding-box, linear-gradient(120deg, var(--next-a), var(--next-b)) border-box; }
-@media (prefers-reduced-motion: reduce) { .l-pager .next { transition: none; } .l-pager .next:hover { transform: none; } }
 .l-more { font: 13px var(--mono); margin-top: 18px; }
 .l-more a { color: var(--tab); text-decoration: none; }
 
@@ -116,6 +97,8 @@ body.guide { --rail: 236px; }
 .st-screen { width: min(400px, 62%); }
 .st-screen .bezel { padding: 6px; border-radius: 8px; box-shadow: 0 0 0 3px #0a0a09; }
 .st-keys { width: min(720px, 100%); }
+.st-keys .marks { margin: 12px 0 0; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 2), auto);
+  grid-auto-flow: column; max-width: none; }
 .a-show { position: absolute; top: 10px; right: 10px; border: 1px solid var(--line-2); background: rgba(14, 14, 13, .85); color: var(--dim);
   font: 600 12px var(--mono); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
 .a-show:hover { color: var(--ink); border-color: var(--dim); }

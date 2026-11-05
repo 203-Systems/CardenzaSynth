@@ -2681,9 +2681,17 @@ void TestGuide(Harness& h)
   h.Frames(4);
   listen();
   assert(field('h') == 1 && hits(0) == 1);
-  // The song lesson's demo: two patterns on T1, a beat on both, the song page.
-  send("GLd1s3p1t1");
-  assert(field('s') == 3 && field('p') == 1 && field('q') == 2 && field('h') > 4 && field('g') == 0);
+  // The song lessons' song so far: the beat (d1), its busier copy that T1 stays on (d2), the chords
+  // on T3 (d3), the tune on T2 (d4).
+  send("GLd1s2p0t1");
+  assert(field('s') == 2 && field('q') == 1 && field('h') == 8 && field('g') == 0);
+  send("GLd4s3p1t1");
+  assert(field('s') == 3 && field('p') == 1 && field('q') == 2 && field('w') == 1 && field('h') == 8 && field('g') == 0);
+  {
+    std::array<synth::SynthSequencer::StepNoteView, 8> chord{};
+    assert(app.Sequencer().StepNoteEvents(0, 0, chord) == 2 && app.Sequencer().StepNoteEvents(2, 0, chord) == 3 &&
+           app.Sequencer().StepNoteEvents(1, 14, chord) == 1 && chord[0].note == 60);
+  }
 
   // The end: the working state is back, where the user left it.
   send("GX");

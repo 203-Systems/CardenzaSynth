@@ -332,9 +332,10 @@ def _frame_tokens(spec):
     return boxes
 
 
-def keyboard(levels, light, marks=(), seed="kbd", label="", first=1, focus_only=False):
+def keyboard(levels, light, marks=(), seed="kbd", label="", first=1, focus_only=False, badge_all=False):
     """levels: 4 x 14 LED levels (or None: unlit); light(level) -> 0..1. marks: [(kind, KEYS, label)],
-    kind 'key'. focus_only dims the keys no mark names (key maps). -> (svg, legend items)."""
+    kind 'key'. focus_only dims the keys no mark names (key maps); badge_all numbers every frame of a
+    mark, not only its first (a key and the steps it goes on). -> (svg, legend items)."""
     pad = 8
     marked = set()
     frames, badges, items = [], [], []
@@ -346,7 +347,7 @@ def keyboard(levels, light, marks=(), seed="kbd", label="", first=1, focus_only=
         for index, (x, y, w, h, keys) in enumerate(boxes):
             marked.update(keys)
             frames.append(f'<rect class="hl" x="{x - 2.5}" y="{y - 2.5}" width="{w + 5}" height="{h + 5}" rx="7"/>')
-            if index == 0 and text:
+            if (index == 0 or badge_all) and text:
                 badges.append(_badge(x + w - 8, y - 9, number, 15, KB_W + pad, KB_H + pad, -pad))
         if text:
             items.append((number, text))

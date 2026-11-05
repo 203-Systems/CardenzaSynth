@@ -41,12 +41,18 @@ std::string Controller::GuideState() const
   unsigned preset = 0;
   if (const auto* engine = host_.Engine(track))
     for (const char c : engine->CurrentPresetId()) preset = (preset * 31u + static_cast<unsigned char>(c)) % 1000u;
-  // The SONG cell under the cursor: its pattern number (P01 = 1), 0 for -- or past the song.
-  unsigned songCell = 0;
+  // The SONG cell under the cursor: its pattern number (P01 = 1), 0 for -- or past the song; its row
+  // (from 1) and how many bars that row plays, 0 past the song.
+  unsigned songCell = 0, songRow = 0, songBars = 0;
   if (state_.songRow < sequencer.SongLength() && state_.songTrack < kTrackCount)
-    songCell = static_cast<unsigned>(sequencer.SongRowAt(state_.songRow).patterns[state_.songTrack] + 1);
-  char text[96];
-  std::snprintf(text, sizeof(text), "s%up%ut%ue%uy%um%uo%uh%uq%uw%uk%uz%uc%ua%ug%ul%ux%uv%u", static_cast<unsigned>(state_.scene),  // scene: 0 SETUP .. 3 TAPE
+  {
+    const auto row = sequencer.SongRowAt(state_.songRow);
+    songCell = static_cast<unsigned>(row.patterns[state_.songTrack] + 1);
+    songRow = static_cast<unsigned>(state_.songRow + 1);
+    songBars = row.repeats;
+  }
+  char text[112];
+  std::snprintf(text, sizeof(text), "s%up%ut%ue%uy%um%uo%uh%uq%uw%uk%uz%uc%ua%ug%ul%ux%uj%ub%uv%u", static_cast<unsigned>(state_.scene),  // scene: 0 SETUP .. 3 TAPE
                 static_cast<unsigned>(CurrentPage()),                                                    // page of the scene, from 0
                 static_cast<unsigned>(track),                                                            // track, from 0
                 static_cast<unsigned>(host_.EngineKind(track)),                                          // its engine
@@ -62,7 +68,7 @@ std::string Controller::GuideState() const
                 sequencer.GetArpSettings(track).mode != synth::ArpMode::Off ? 1u : 0u,                   // its arpeggiator
                 static_cast<unsigned>(sequencer.SongLength()),                                           // song rows
                 sequencer.SongMode() ? 1u : 0u,                                                          // SONG or LOOP
-                songCell, preset);
+                songCell, songRow, songBars, preset);
   return std::string(text) + "n" + PageTab(state_.scene, CurrentPage());
 }
 

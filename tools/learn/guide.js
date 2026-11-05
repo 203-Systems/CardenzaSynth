@@ -55,8 +55,6 @@
   }
   function paintProgress() {
     $$('.g-part a[data-lesson], .card[data-lesson]').forEach((a) => a.classList.toggle('done', !!done[a.dataset.lesson]));
-    // "Learn again" only on a lesson that is done.
-    $$('.l-pager .redo[data-lesson]').forEach((button) => { button.hidden = !done[button.dataset.lesson]; });
     const count = data.order.filter((id) => done[id]).length;
     $('#redo-all').hidden = count === 0;
     $('#progress-bar').style.width = (100 * count / Math.max(1, data.order.length)) + '%';
@@ -422,6 +420,15 @@
   // lessons). The demo plays once on the key picture when the step comes up; Show me plays it again.
   function pageOf(index) { return $(`.st-page[data-step="${index}"]`, run.section); }
 
+  // The last step's Next goes on to the next lesson (or back to all lessons after the last one), and it
+  // offers to learn the lesson again.
+  function nextLabel(section) {
+    return section.dataset.next ? say('学习下一节 →', 'Next lesson →') : say('回到目录 →', 'All lessons →');
+  }
+  function goNext(section) {
+    location.hash = section.dataset.next ? '#/' + section.dataset.next : '#/';
+  }
+
   // With a Cardenza following, Next is grey until the step is learned on it; then "learned" shows
   // under the step's words (nothing covers the picture) and Next lights up. The page never moves on by
   // itself: the user tries more keys, then presses Next. Without one, Next is how the lesson goes on.
@@ -437,16 +444,15 @@
       dot.classList.toggle('done', steps[i].classList.contains('done'));
     });
     $('.a-back', section).disabled = index === 0;
-    const complete = section.classList.contains('complete');
     const last = index === steps.length - 1;
     const next = $('.a-next', section);
-    next.innerHTML = complete ? say('下一课 →', 'Next lesson →') : last ? say('完成 ✓', 'Done ✓') : say('下一步 →', 'Next →');
-    next.classList.toggle('idle', follows && !learned && !complete);
+    next.innerHTML = last ? nextLabel(section) : say('下一步 →', 'Next →');
+    next.classList.toggle('idle', follows && !learned);
+    $('.l-pager .redo', section).hidden = !last;
     const pass = $('.anim-pass', section);
     pass.hidden = !learned;
-    $('.pass-text', pass).textContent = last
-      ? say('学会了！再多按几下试试，然后点「完成」。', 'You have got it! Try a few more keys, then press Done.')
-      : say('学会了！再多按几下试试，然后点「下一步」。', 'You have got it! Try a few more keys, then press Next.');
+    const press = last ? (section.dataset.next ? say('学习下一节', 'Next lesson') : say('回到目录', 'All lessons')) : say('下一步', 'Next');
+    $('.pass-text', pass).textContent = say(`学会了！再多按几下试试，然后点「${press}」。`, `You have got it! Try a few more keys, then press ${press}.`);
     if (justLearned) {
       for (const node of [pass, next]) {
         node.classList.remove('pop');
@@ -541,10 +547,9 @@
     stopDemo();
     li.classList.add('done');
     if (index + 1 < run.steps.length) activateStep(index + 1);
-    else if (!section.classList.contains('complete')) {
-      lessonComplete(section);
-      const nextLink = $('.l-pager .next', section);
-      if (nextLink) setTimeout(() => { location.hash = nextLink.getAttribute('href'); }, 900);
+    else {
+      if (!section.classList.contains('complete')) lessonComplete(section);
+      goNext(section);
     }
   }
 
@@ -564,10 +569,7 @@
     if (!section || !run || run.section !== section) return;
     if (run.demo || run.catchingUp) return;  // the device is showing or catching up: it finishes first
     if (event.target.closest('.a-next')) {
-      if (section.classList.contains('complete')) {
-        const nextLink = $('.l-pager .next', section);
-        if (nextLink) location.hash = nextLink.getAttribute('href');
-      } else completeStep(run.index, 'next');
+      completeStep(run.index, 'next');
     } else if (event.target.closest('.a-back')) {
       if (run.index > 0) activateStep(run.index - 1);
     } else if (event.target.closest('.a-dot')) {
@@ -761,7 +763,8 @@
     });
     const last = index === anim.steps.length - 1;
     const next = $('.a-next', anim.section);
-    next.innerHTML = last ? say('明白了 ✓', 'Got it ✓') : say('下一步 →', 'Next →');
+    next.innerHTML = last ? nextLabel(anim.section) : say('下一步 →', 'Next →');
+    $('.l-pager .redo', anim.section).hidden = !last;
     $('.a-back', anim.section).disabled = index === 0;
   }
 
@@ -774,8 +777,7 @@
       else {
         anim.steps.forEach((li) => { li.classList.add('done'); li.classList.remove('current'); });
         lessonComplete(section);
-        const nextLink = $('.l-pager .next', section);
-        if (nextLink) setTimeout(() => { location.hash = nextLink.getAttribute('href'); }, 900);
+        goNext(section);
       }
     } else if (event.target.closest('.a-back')) {
       if (anim.index > 0) showAnimStep(anim.index - 1);
