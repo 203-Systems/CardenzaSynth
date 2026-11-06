@@ -1189,7 +1189,12 @@ void Controller::ComputeLeds(LedFrame& frame) const
   if (guideHint_ == 0) return;
   for (std::size_t index = 0; index < kKeyCount; ++index)
   {
-    if ((guideHint_ >> index) & 1u) frame[index] = LedCell{kLedFull, guideHintWaits_ ? LedEffect::Hint : LedEffect::Steady};
+    // A pad the keyboard leaves silent (PIANO's gaps) is not asked for: it stays as it is, dark.
+    const std::size_t row = index / kColumns, column = index % kColumns;
+    const bool pad = column >= kPadFirstColumn && column < kPadFirstColumn + kPadColumns;
+    int note = 0;
+    if (((guideHint_ >> index) & 1u) != 0 && (!pad || PadNoteFor(row, column, note)))
+      frame[index] = LedCell{kLedFull, guideHintWaits_ ? LedEffect::Hint : LedEffect::Steady};
     else frame[index].level = std::min(frame[index].level, kLedHalf);
   }
 }
