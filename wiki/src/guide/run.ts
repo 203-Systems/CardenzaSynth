@@ -38,6 +38,20 @@ export type Lesson = {
 const DEMO_PACE = {start: 800, tap: 900, tapLit: 420, down: 900, up: 650, shot: 900, loop: 2200, waitScale: 1.6, waitMin: 350};
 
 const hex = (key: number) => key.toString(16).padStart(2, '0');
+/** Keys a guide message carries: it is at most 60 characters (Device::USB::kAppMessageSize), two hex
+ *  digits a key after the two of its kind. All 32 pads take two messages (GH / GT, then G+). */
+const KEYS_PER_MESSAGE = 29;
+
+/** The pads that make no sound in the device's keyboard: PIANO's gaps (before C#, between E and F,
+ *  after A#) on a melodic track. Without a device's state, the PIANO of a new project. */
+export function silentPads(state: DeviceState | null | undefined): Set<number> {
+  const silent = new Set<number>();
+  const layout = state && state.z !== undefined ? state.z : 0;
+  const drums = !!state && state.e === 4;
+  if (layout !== 0 || drums) return silent;
+  for (const row of [0, 2]) for (const column of [1, 4, 8]) silent.add(row * 14 + column);
+  return silent;
+}
 
 export class LessonRun implements LessonHooks {
   index = 0;
@@ -144,7 +158,8 @@ export class LessonRun implements LessonHooks {
         return;
       }
     }
-    this.startFields = parseState(start.replace(/[rd]\d/g, ''));
+    // r1 a fresh project, d<n> the song so far, f1 the keyboard of a new project (not the user's): no state fields.
+    this.startFields = parseState(start.replace(/[rdf]\d/g, ''));
     if (this.startFields.t !== undefined) this.startFields.t = (this.startFields.t as number) - 1;
     delete this.startFields.n;
     device.send('GL' + start);
@@ -196,17 +211,29 @@ export class LessonRun implements LessonHooks {
     if (this.base) this.evaluate(this.base);
   }
 
+  private hintFor = '';
+
   private sendHint() {
-    if (this.oldFirmware) return;
+    if (this.oldFirmware || !device?.guide) return;
     const step = this.steps[this.index];
-    const keys = step ? step.keys : [];
+    // Only keys that do something: a pad in a keyboard gap is not lit (it would ask for a key that is
+    // silent). The device's keyboard is the user's, so this follows its state.
+    const silent = silentPads(device.state);
+    const keys = (step ? step.keys : []).filter((key) => !silent.has(key));
+    this.hintFor = `${device.state?.z ?? ''},${device.state?.e ?? ''}`;
     // Blinking while the step waits for the user, steady once it is learned (they try more keys).
-    if (device?.guide) device.send((this.learned[this.index] ? 'GT' : 'GH') + keys.map(hex).join(''));
+    const kind = this.learned[this.index] ? 'GT' : 'GH';
+    device.send(kind + keys.slice(0, KEYS_PER_MESSAGE).map(hex).join(''));
+    for (let at = KEYS_PER_MESSAGE; at < keys.length; at += KEYS_PER_MESSAGE) {
+      device.send('G+' + keys.slice(at, at + KEYS_PER_MESSAGE).map(hex).join(''));
+    }
   }
 
   onState(state: DeviceState) {
     if (this.disposed) return;
     if (this.pendingStart) this.applyStart();
+    // Another track or keyboard layout lights other pads.
+    if (!this.oldFirmware && !this.pendingStart && !this.demo && !this.catchingUp && `${state.z ?? ''},${state.e ?? ''}` !== this.hintFor) this.sendHint();
     if (this.demo || this.catchingUp || this.oldFirmware || this.pendingStart) return;
     if (this.waitingStart) {
       const matches = Object.keys(this.startFields).every((f) => state[f] === this.startFields[f]);

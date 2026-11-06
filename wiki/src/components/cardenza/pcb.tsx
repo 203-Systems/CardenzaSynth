@@ -5,7 +5,7 @@
 // an LED under each switch, the HOME side key, the display (240 x 135 pixels).
 import React, {useId} from 'react';
 import useBaseUrl from '@docusaurus/useBaseUrl';
-import {keysFor, ledLight} from './keys';
+import {keysFor} from './keys';
 
 export const BOARD = {w: 252, h: 144};
 export const SWITCH = {x: 4.25, y: 69.09, w: 13.18, h: 9.35, dx: (234.57 - 4.25) / 13, dy: (128.62 - 69.09) / 3};
@@ -14,25 +14,15 @@ export const DISPLAY = {x: 68.36, y: 9.49, w: 69.93, h: 39.34};
 export const HOME = {x: 51.48, y: 22.28, w: 9.35, h: 13.18};
 /** The key area: the legends of the top row down to the LEDs of the bottom row. */
 const KEYS_VIEW = {x: 0, y: 62.4, w: BOARD.w, h: BOARD.h - 62.4};
-/** The top of the device: its display with a margin of the board around it, shown as wide as the key
- *  area, so magnified about 3 times and the screen readable (on the board it is a quarter of the width). */
-const TOP_VIEW = {x: 61.5, y: 4.5, w: 83.5, h: 49};
-
-/** The device's top with a screen in its display: screen is drawn in the screen's 240 x 135 pixels
- *  (useScreen's inner). dim shows the board as in a dim room (with the key lights), the screen bright. */
-export function DeviceTop({screen, label, dim = false}: {screen: React.ReactNode; label: string; dim?: boolean}) {
-  const board = useBoardImage();
-  return (
-    <svg className="cz-pcb-top" viewBox={`${TOP_VIEW.x} ${TOP_VIEW.y} ${TOP_VIEW.w} ${TOP_VIEW.h}`} role="img" aria-label={label}>
-      <image href={board} x="0" y="0" width={BOARD.w} height={BOARD.h} preserveAspectRatio="none" />
-      {dim && <rect className="cz-pcb-dark" x="0" y="0" width={BOARD.w} height={BOARD.h} />}
-      <svg x={DISPLAY.x} y={DISPLAY.y} width={DISPLAY.w} height={DISPLAY.h} viewBox="0 0 240 135" preserveAspectRatio="none" overflow="visible">
-        {screen}
-      </svg>
-    </svg>
-  );
-}
-
+/** The device as one white board: above its keys, its display (the LCD module), magnified so the screen
+ *  reads (60% of the width; on the board it is a quarter) on the same board, the parts around it left out,
+ *  so the picture is one device at one scale and not a magnified top over a plain one. */
+const FACE = {screenW: 151, margin: 7, frame: 3.2};
+const FACE_SCREEN_H = (FACE.screenW * 135) / 240;
+const FACE_TOP = FACE.margin * 2 + FACE.frame * 2 + FACE_SCREEN_H;
+/** Under the display, the board from its printed row of labels (203 Systems | Cardenza, ESP32-S3, ...)
+ *  down: cut there it has no seam. */
+const FACE_KEYS_Y = 55.2;
 export type Rect = [number, number, number, number];
 type Item = [number, React.ReactNode];
 
@@ -65,14 +55,18 @@ function Badge({x, y, n}: {x: number; y: number; n: number}) {
 
 /**
  * The board's key area. levels: the key lights (4 x 14 perceived levels, Devices/LedLight.h) or null:
- * with them the board is shown dimmed, as in a room, so the lights read. marks: groups of keys
+ * they glow on the white board. marks: groups of keys
  * (KEYS tokens, tools/wiki/keys.py), each token framed; a labelled group is numbered (on its first
  * frame, or on every frame with badgeAll) and listed. focusOnly fades the keys no mark names.
  * pressed: keys (KeyIndex) down at the moment (the guide's demo, or the keys pressed on a Cardenza).
  */
-export function usePcbKeys({levels, marks, first = 1, focusOnly = false, badgeAll = false, pressed, label}: {
+export function usePcbKeys({levels, marks, first = 1, focusOnly = false, badgeAll = false, pressed, label, screen, silent}: {
   levels: number[][] | null; marks: {keys: string; label?: React.ReactNode}[]; first?: number; focusOnly?: boolean;
   badgeAll?: boolean; pressed?: Set<number>; label: string;
+  /** Keys inside a frame that do nothing (a keyboard's gaps): faded like the keys outside it. */
+  silent?: Set<number>;
+  /** The screen (useScreen's inner, in its 240 x 135 pixels): the whole device, its display above its keys. */
+  screen?: React.ReactNode;
 }): {svg: React.ReactElement; items: Item[]} {
   const board = useBoardImage();
   const uid = 'p' + useId().replace(/[^a-zA-Z0-9]/g, '');
@@ -85,7 +79,7 @@ export function usePcbKeys({levels, marks, first = 1, focusOnly = false, badgeAl
     keys.split(/\s+/).filter(Boolean).forEach((token, index) => {
       const xs: number[] = [], ys: number[] = [];
       for (const [r, c] of keysFor(token)) {
-        marked.add(r * 14 + c);
+        if (!silent?.has(r * 14 + c)) marked.add(r * 14 + c);
         const [x, y, w, h] = cell(r, c);
         xs.push(x, x + w);
         ys.push(y, y + h);
@@ -108,8 +102,10 @@ export function usePcbKeys({levels, marks, first = 1, focusOnly = false, badgeAl
     for (let column = 0; column < 14; column++) {
       const index = row * 14 + column;
       const down = pressed?.has(index);
-      const value = down ? 1 : levels ? ledLight(levels[row][column]) : 0;
-      const glow = value ? Math.round(value ** 0.45 * 1000) / 1000 : 0;
+      // On the white board a key shows how bright it looks (its perceived level), as in a lit room: half
+      // lit is a clear glow, full lit a strong one; the board's own LED pads are not a light.
+      const value = down ? 1 : levels ? Math.min(levels[row][column], 15) / 15 : 0;
+      const glow = value ? Math.round(value * 1000) / 1000 : 0;
       const [cx, cy] = ledCentre(row, column);
       if (glow > 0) {
         // The key lit by its LED: the switch glows with it, the LED shines below.
@@ -117,7 +113,7 @@ export function usePcbKeys({levels, marks, first = 1, focusOnly = false, badgeAl
         lights.push(
           <g key={index} opacity={glow}>
             <rect className="cz-pcb-lit" x={x + 2.1} y={y + 5.7} width={SWITCH.w} height={SWITCH.h} rx="4.6" />
-            <circle cx={cx} cy={cy} r="7" fill={`url(#${uid}-glow)`} />
+            <circle cx={cx} cy={cy - 3.5} r="10" fill={`url(#${uid}-glow)`} />
             <rect x={cx - 2.27} y={cy - 1.135} width="4.54" height="2.27" rx="0.4" className="cz-pcb-led" />
           </g>,
         );
@@ -141,22 +137,52 @@ export function usePcbKeys({levels, marks, first = 1, focusOnly = false, badgeAl
       <rect className="cz-pcb-fade" x="0" y="0" width={BOARD.w} height={BOARD.h} mask={`url(#${uid}-focus)`} />
     </>
   );
-  const svg = (
-    <svg className="cz-pcb" viewBox={`${KEYS_VIEW.x} ${KEYS_VIEW.y} ${KEYS_VIEW.w} ${KEYS_VIEW.h}`} role="img" aria-label={label}>
+  // The keys on the white board, lit as the device lit them: an LED glows on the board, it does not
+  // darken it (the board stays the colour it is, as the device does in a lit room).
+  const clipY = screen ? FACE_KEYS_Y : KEYS_VIEW.y;
+  const keyArea = (
+    <>
       <defs>
         <radialGradient id={`${uid}-glow`}>
-          <stop offset="0" stopColor="rgb(255, 246, 226)" stopOpacity="1" />
-          <stop offset="0.35" stopColor="rgb(255, 246, 226)" stopOpacity="0.55" />
-          <stop offset="1" stopColor="rgb(255, 246, 226)" stopOpacity="0" />
+          <stop offset="0" stopColor="rgb(255, 200, 70)" stopOpacity="0.95" />
+          <stop offset="0.4" stopColor="rgb(255, 205, 90)" stopOpacity="0.5" />
+          <stop offset="1" stopColor="rgb(255, 210, 110)" stopOpacity="0" />
         </radialGradient>
+        <clipPath id={`${uid}-keys`}>
+          <rect x={KEYS_VIEW.x} y={clipY} width={KEYS_VIEW.w} height={BOARD.h - clipY} />
+        </clipPath>
       </defs>
-      <image href={board} x="0" y="0" width={BOARD.w} height={BOARD.h} preserveAspectRatio="none" />
-      {levels && <rect className="cz-pcb-dark" x="0" y="0" width={BOARD.w} height={BOARD.h} />}
-      {fade}
-      {downs}
-      {lights}
+      <g clipPath={`url(#${uid}-keys)`}>
+        <image href={board} x="0" y="0" width={BOARD.w} height={BOARD.h} preserveAspectRatio="none" />
+        {fade}
+        {downs}
+        {lights}
+      </g>
       {frames}
       {badges}
+    </>
+  );
+  if (!screen) {
+    const svg = (
+      <svg className="cz-pcb" viewBox={`${KEYS_VIEW.x} ${KEYS_VIEW.y} ${KEYS_VIEW.w} ${KEYS_VIEW.h}`} role="img" aria-label={label}>
+        {keyArea}
+      </svg>
+    );
+    return {svg, items};
+  }
+  const sx = (BOARD.w - FACE.screenW) / 2;
+  const sy = FACE.margin + FACE.frame;
+  const shift = FACE_TOP - FACE_KEYS_Y;
+  const height = FACE_TOP + BOARD.h - FACE_KEYS_Y;
+  const svg = (
+    <svg className="cz-pcb cz-pcb-face" viewBox={`0 0 ${BOARD.w} ${height}`} role="img" aria-label={label}>
+      <rect className="cz-pcb-board" x="0" y="0" width={BOARD.w} height={height} />
+      <rect className="cz-pcb-module" x={sx - FACE.frame} y={sy - FACE.frame} width={FACE.screenW + FACE.frame * 2}
+        height={FACE_SCREEN_H + FACE.frame * 2} rx="2.4" />
+      <svg x={sx} y={sy} width={FACE.screenW} height={FACE_SCREEN_H} viewBox="0 0 240 135" preserveAspectRatio="none" overflow="visible">
+        {screen}
+      </svg>
+      <g transform={`translate(0 ${shift})`}>{keyArea}</g>
     </svg>
   );
   return {svg, items};

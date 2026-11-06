@@ -74,6 +74,12 @@ html { background-color: var(--ifm-background-color); }
 .cz-figure figcaption { color: var(--cz-dim); font-size: 13.5px; margin-top: 12px; max-width: 640px; padding-top: 10px; border-top: 1px dotted var(--cz-line-2); }
 .cz-figure a { color: var(--cz-tab); }
 .cz-figure strong { color: #fff; }
+/* A figure of the device (the white board, its screen and key lights): on a light table, as in the guide. */
+.cz-figure.cz-shot, .cz-figure.cz-keymap { background: #eceeea; border-color: #d6d8d4; color: #262624; }
+.cz-figure.cz-shot figcaption, .cz-figure.cz-keymap figcaption { color: #575854; border-top-color: #c6c8c3; }
+.cz-figure.cz-shot strong, .cz-figure.cz-keymap strong { color: #111; }
+.cz-figure.cz-shot a, .cz-figure.cz-keymap a { color: #0a7884; }
+.cz-shot .cz-keys-label { color: #575854; }
 .cz-bezel { background: #000; padding: 8px; border-radius: 8px; border: 1px solid #1d1d1b; box-shadow: 0 0 0 4px #0a0a09; line-height: 0; max-width: 576px; }
 .cz-screen { display: block; width: 100%; height: auto; }
 .cz-screen image { image-rendering: pixelated; }
@@ -85,20 +91,21 @@ html { background-color: var(--ifm-background-color); }
 .cz-badge text { fill: #000; font-family: var(--cz-mono); font-weight: 800; text-anchor: middle; }
 .cz-keys-label { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; font: 600 11.5px var(--cz-mono); color: var(--cz-dim); }
 /* The device (./pcb.tsx): its top around the display, magnified so the screen reads, over its keys. */
-.cz-device { max-width: 680px; border-radius: 10px; overflow: hidden; background: #fff; box-shadow: 0 0 0 1px #2a2a27; }
+.cz-device { max-width: 680px; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 0 0 1px #d9dbd8, 0 6px 22px rgba(0, 0, 0, .28); }
 .cz-device > svg { display: block; width: 100%; height: auto; }
-.cz-device > .cz-pcb { border-radius: 0; border-top: 1px solid rgba(0, 0, 0, .14); }
-.cz-pcb-top .cz-screen-shot { image-rendering: pixelated; }
+.cz-device > .cz-pcb { border-radius: 0; }
+.cz-pcb-face .cz-screen-shot { image-rendering: pixelated; }
 .cz-shot .cz-keys-label { margin-bottom: 8px; }
 
 /* The board's keys (./pcb.tsx): dimmed as in a room when it shows the key lights, the keys no mark
    names faded, a pressed key yellow, frames in the device's dashed highlight with numbered badges. */
 .cz-pcb { display: block; width: 100%; height: auto; border-radius: 8px; background: #fff; }
 .cz-pcb image { image-rendering: auto; }
-.cz-pcb-dark { fill: rgba(6, 10, 16, .7); }
-.cz-pcb-lit { fill: rgb(255, 246, 226); filter: drop-shadow(0 0 1.6px rgba(255, 246, 226, .9)); }
+.cz-pcb-lit { fill: rgba(255, 186, 40, .62); stroke: rgb(226, 150, 10); stroke-width: .5; }
+.cz-pcb-board { fill: #fff; }
+.cz-pcb-module { fill: #1d2226; stroke: #3b434a; stroke-width: .5; }
 .cz-pcb-fade { fill: rgba(255, 255, 255, .74); }
-.cz-pcb-led { fill: rgb(255, 246, 226); }
+.cz-pcb-led { fill: rgb(255, 236, 160); stroke: rgb(232, 168, 24); stroke-width: .35; }
 .cz-pcb-down { fill: rgba(255, 208, 48, .55); stroke: #1c1c1a; stroke-width: .5; }
 .cz-pcb-frame .under { fill: none; stroke: #1c1c1a; stroke-width: 1.4; opacity: .5; }
 .cz-pcb-hl { fill: none; stroke: var(--cz-mark); stroke-width: .8; stroke-dasharray: 2 1.4; animation: cz-pcb-ants 1.2s linear infinite; }

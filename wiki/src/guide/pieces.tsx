@@ -7,10 +7,10 @@ import {useHistory, useLocation} from '@docusaurus/router';
 import {useBaseUrlUtils} from '@docusaurus/useBaseUrl';
 import {useLang} from '@site/src/components/cardenza/common';
 import {Legend, useScreen} from '@site/src/components/cardenza/figures';
-import {DeviceTop, usePcbKeys} from '@site/src/components/cardenza/pcb';
+import {usePcbKeys} from '@site/src/components/cardenza/pcb';
 import {GUIDE, GUIDE_LEDS, lessonPath, loadAnim, type AnimPlayer} from './data';
 import {REASONS, STATUS, device, useDevice} from './device';
-import type {DeviceStep} from './run';
+import {silentPads, type DeviceStep} from './run';
 import {clearDone, requestRestart, toast, useProgress, useToast} from './store';
 import {useSay} from './text';
 import './guide.css';
@@ -172,21 +172,21 @@ export function AnimThumb({name, className}: {name: string; className: string}) 
  *  of the demo going down. */
 export function StepPicture({step, pressed}: {step: DeviceStep; pressed?: Set<number>}) {
   const lang = useLang();
+  // The pads the device's keyboard leaves silent (as it lights them), or a new project's PIANO.
+  const d = useDevice();
+  const silent = silentPads(d?.connected() && d.guide ? d.state : null);
   const screen = useScreen({shot: step.shot, marks: step.marks.map((at) => ({at})), light: true, alt: step.say.en});
   const lit = step.lights ? GUIDE_LEDS[step.shot] ?? null : null;
   const plain = !lit && !step.keymarks.length;
   const keys = usePcbKeys(plain
-    ? {levels: null, focusOnly: true, pressed, label: step.keySpec,
+    ? {levels: null, focusOnly: true, pressed, label: step.say.en, screen: screen.inner, silent,
       marks: step.keySpec.split(/\s+/).filter(Boolean).map((token) => ({keys: token}))}
-    : {levels: lit, focusOnly: !lit, badgeAll: true, pressed, label: step.say.en,
+    : {levels: lit, focusOnly: !lit, badgeAll: true, pressed, label: step.say.en, screen: screen.inner,
       marks: step.keymarks.map(([spec, label]) => ({keys: spec, label: label[lang]}))});
   return (
     <div className="st-page">
       <div className="st-keys">
-        <div className="cz-device">
-          <DeviceTop screen={screen.inner} label={step.say.en} dim={!!lit} />
-          {keys.svg}
-        </div>
+        <div className="cz-device">{keys.svg}</div>
         {step.keymarks.length > 0 && <Legend items={keys.items} rows={Math.ceil(step.keymarks.length / 2)} />}
       </div>
     </div>

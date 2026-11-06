@@ -5,7 +5,7 @@ import leds from '@site/generated/data/leds.json';
 import {Key} from './chips';
 import {Icon, marker, nodeText, parts, say, useLang, useUrls} from './common';
 import {targetRect} from './keys';
-import {DeviceTop, usePcbKeys} from './pcb';
+import {usePcbKeys} from './pcb';
 
 export type Levels = number[][];
 export type Item = [number, React.ReactNode];
@@ -102,16 +102,13 @@ export function Shot({name, children}: {name: string; children?: React.ReactNode
     marks: parts<{at: string; children?: React.ReactNode}>(children, 'mark').map((m) => ({at: m.at, label: m.children})),
   });
   const keys = usePcbKeys({
-    levels, label: alt, first: screen.items.length + 1,
+    levels, label: alt, first: screen.items.length + 1, screen: screen.inner,
     marks: parts<{keys: string; children?: React.ReactNode}>(children, 'keymark').map((m) => ({keys: m.keys, label: m.children})),
   });
   return (
     <figure className="cz-figure cz-shot" data-shot={name}>
       <span className="cz-keys-label" data-nosearch=""><Icon name="light" />{say(lang, '同一时刻的屏幕和按键灯', 'The screen and the key lights at that moment')}</span>
-      <div className="cz-device">
-        <DeviceTop screen={screen.inner} label={alt} dim />
-        {keys.svg}
-      </div>
+      <div className="cz-device">{keys.svg}</div>
       <Legend items={[...screen.items, ...keys.items]} />
       {cap && <figcaption>{cap}</figcaption>}
     </figure>

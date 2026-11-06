@@ -5,7 +5,8 @@ A part with "hidden": true stays off the site for now (its lessons are still loa
 A lesson is a few steps. Concept lessons (an "anim") are animations the page plays; device lessons
 run on a Cardenza on USB that follows the page through the guide link
 (Applications/Synth/GrooveAppGuide.cpp): "start" puts the device where the lesson begins (GL fields:
-s scene, p page, t track 1-4, r1 a fresh project, d<n> the song of the song lessons as lessons 1..n made it), and per step
+s scene, p page, t track 1-4, r1 a fresh project, d<n> the song of the song lessons as lessons 1..n made it, f1 the keyboard of a
+new project instead of the user's, for lessons that change it or name the notes of keys), and per step
 
   keys   the keys that blink on the device until the step is learned (the others dimmed), framed on the picture (keys_for tokens, tools/wiki/keys.py)
   done   what completes it, all of: ["press", KEYS] a key pressed (["press", KEYS, n]: n different

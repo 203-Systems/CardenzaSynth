@@ -154,7 +154,7 @@
       "more": "play-chords",
       "title": {"zh": "电钢琴和弦", "en": "Piano chords"},
       "lead": {"zh": "T3 是电钢琴。打开和弦，一个键就是一个和弦：写两个，Am 和 F。", "en": "T3 is an electric piano. With the chord on, a key is a whole chord: write two, Am and F."},
-      "start": "d2s2p0t1",
+      "start": "f1d2s2p0t1",
       "steps": [
         {"say": {"zh": "按住 {{key:TAB}}，点 GRID 3：到 {{track:3}}，电钢琴。", "en": "Hold {{key:TAB}} and tap GRID 3: {{track:3}}, the electric piano."},
          "keys": "TAB G3", "marks": ["track"], "done": [["state", "t", 2]], "demo": "down TAB; wait 30; tap G3; up TAB; wait 10"},
@@ -180,7 +180,7 @@
       "more": "seq-roll",
       "title": {"zh": "旋律", "en": "The tune"},
       "lead": {"zh": "T2 是 Juno 合成器，用它写一段旋律：6 个音，全是白键。", "en": "T2 is a Juno synth: write a tune on it, 6 notes, all white keys."},
-      "start": "d3s2p0t3",
+      "start": "f1d3s2p0t3",
       "steps": [
         {"say": {"zh": "按住 {{key:TAB}}，点 GRID 2：到 {{track:2}}，Juno 合成器。", "en": "Hold {{key:TAB}} and tap GRID 2: {{track:2}}, the Juno synth."},
          "keys": "TAB G2", "marks": ["track"], "done": [["state", "t", 1]], "demo": "down TAB; wait 30; tap G2; up TAB; wait 10"},
@@ -198,7 +198,7 @@
       "more": "play-scale",
       "title": {"zh": "换音阶", "en": "Scales"},
       "lead": {"zh": "选一个调，弹什么都在调上。", "en": "Pick a scale; whatever you play stays in it."},
-      "start": "s1p0t2",
+      "start": "f1s1p0t2",
       "steps": [
         {"say": {"zh": "随便弹几个琴键：有的音放在一起很好听，有的却怎么听都不对劲，像是跑调了。有没有办法让每个键都好听、不跑调？", "en": "Play a few keys at random: some notes sound good together, others just sound wrong, out of tune. Is there a way for every key to sound right?"},
          "keys": "PADS", "done": [["press", "PADS"]], "demo": "tap r3c1; wait 12; tap r2c2; wait 12; tap r3c4; wait 12; tap r2c5; wait 12; tap r3c7"},

@@ -93,6 +93,10 @@
 .anim-wrap { position: relative; }
 .anim-stage { position: relative; aspect-ratio: 16 / 9; background: #000; border: 1px solid #1d1d1b; border-radius: 12px; overflow: hidden; color: var(--cz-ink); }
 .st-stage { aspect-ratio: auto; min-height: 380px; display: grid; place-items: center; padding: 26px 22px 22px; }
+/* A device step: the white device on a light table, not in a black box. */
+.anim-stage.st-stage { background: #eceeea; border-color: #d6d8d4; color: #262624; }
+.lesson[data-kind="device"] .a-show { background: rgba(255, 255, 255, .92); border-color: #c9cbc6; color: #3b3b37; }
+.lesson[data-kind="device"] .a-show:hover { color: #111; border-color: #8a8c86; }
 .st-page { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 18px; }
 .st-keys { width: min(680px, 100%); }
 .st-keys .cz-device { margin: 0 auto; }
