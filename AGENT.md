@@ -521,7 +521,7 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 
 ### USB
 
-USB 口是 CardenzaHAL 提供的一个复合设备（`usb/usb.h`）：MIDI、双向音频和 HID。设备层开机时启动它（开机按住 Func 则保留 USB-Serial-JTAG）。
+USB 口是 CardenzaHAL 提供的一个复合设备（`usb/usb.h`）：MIDI、双向音频和 HID。设备层开机时启动它。
 
 - **MIDI**：电脑可以弹各轨：通道 1–4 对应轨道 1–4，其他通道弹当前轨。这些音符有主人（`GrooveApp::computerNotes_`，计入 `EndOrphanNotes`），电脑断开时结束；CC 120 / 123 也会结束它们，其他 CC 交给该轨的引擎。设备弹出的音（按键和音序器）也发给电脑，轨道 n 走通道 n。
 - **音频**：电脑录到的是设备的声音，在设备音量之前（单声道复制到两个声道）。USB 音频两个方向的通道都在，但电脑播放的声音 app 目前不用（用户 2026-11-06：先只当电脑的麦克风）：`GrooveApp` 不装 line input，设备层把一块里没人读的从 USB 收下丢掉，好让电脑的播放流一直走着（HAL 的反馈看它的 FIFO 有多满，一直满着电脑就会降到最慢）。装上（`synth::audio::SetLineInput(&Device::Audio::ReadComputerAudio)`）时，它在输出增益和限幅器之前以单位增益并入混音，带电脑自己的静音和音量，于是也回到电脑录到的声音里。电脑里设备叫「203 Systems Cardenza」，仍有它的扬声器，播进去听不到。

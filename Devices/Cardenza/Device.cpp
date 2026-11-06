@@ -414,7 +414,7 @@ std::string BackendName() {
 bool Init() {
   const bool initialized = CardenzaHAL::Init();
   // One composite device: MIDI, audio both ways, HID, and the HAL's system channel (console, restart
-  // into the Launcher or the ROM download mode). Func held at start keeps USB-Serial-JTAG.
+  // into the Launcher or the ROM download mode).
   CardenzaHAL::USB::Config usb;
   // What a computer lists the device, its MIDI ports and its audio as. Host tools and the guide page
   // find it by "Cardenza" in the name.
