@@ -272,7 +272,7 @@ int main(int argc, char** argv)
   assert(os::system::ActiveApplicationId() == "Cardenza/Synth");
   auto* groove = &Groove();
   assert(groove->Ui().TopModal() == nullptr);  // no notice with a card
-  assert(groove->MasterVolume() == 50 && os::storage::kDefaultOutputVolume == 50);
+  assert(groove->MasterVolume() == 70 && os::storage::kDefaultOutputVolume == 70);
   assert(groove->LedBrightness() == 9 && groove->Ui().Settings().keyboard.multiSelect);
 
   // The release's project and sample are there; the folders in between are not read.
@@ -355,7 +355,7 @@ int main(int argc, char** argv)
   Frames(70);
   text = ReadText(systemSettings);
   assert(Contains(text, "sys.volume=60\n") && Contains(text, "sys.led=7\n") && Contains(text, "sys.screen=150\n"));
-  assert(Contains(text, "sys.volume.rev=2\n") && Contains(text, "future.system=keep\n"));
+  assert(Contains(text, "sys.volume.rev=3\n") && Contains(text, "future.system=keep\n"));
   // The play settings are project data (since format 6): the keyboard and each track's chord and arp.
   text = ReadText(synthSettings);
   assert(Contains(text, "future.synth=keep\n") && !Contains(text, "arp.") && !Contains(text, "keys.octave"));

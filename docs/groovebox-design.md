@@ -105,7 +105,7 @@ PADS 与四周按键上的第二功能：
 
 - KEYS：LAYOUT PIANO（默认，黑白键）/ SCALE / CHROMA；SCALE 14 种音阶；ROOT C–B；OCTAVE −3…+3；VELO 演奏力度 1–127；LOCK OFF / MUTE / SNAP；SELECT ONE / MULTI。
 - PROJECT：BPM 30–300；SWING 50–75 %；PLAY LOOP / SONG。
-- SYSTEM：VOLUME 主音量 0–100；KEY LED 按键灯 0–15（选中它时，演奏区从左到右是亮度梯（感知等级 0、6、7、8、9、11、13、15，校正后是 HAL 的 0、1、2、3、4、7、10、15），方便用眼睛判断）；SCREEN 屏幕亮度；LOG 日志 ON / OFF（默认 ON，见第 9 节「日志」）。
+- SYSTEM：VOLUME 主音量 0–100，按听感：v 对应 -60 (1 - v/100)^1.5 dB（1 约 -59 dB，25 约 -39，50 约 -21，默认 70 约 -10，100 是 0 dB），小音量一端宽、大音量一端细（`Device::Audio::SetOutputVolume`；2026-11-06 以前只有 -20..0 dB，1 也很响；`sys.volume.rev` 3，旧的音量回到默认一次）；KEY LED 按键灯 0–15（选中它时，演奏区从左到右是亮度梯（感知等级 0、6、7、8、9、11、13、15，校正后是 HAL 的 0、1、2、3、4、7、10、15），方便用眼睛判断）；SCREEN 屏幕亮度；LOG 日志 ON / OFF（默认 ON，见第 9 节「日志」）。
 
 待机（屏保）已去掉（2026-11-04，用户要求）：机器一直显示当前的画面和键灯。
 

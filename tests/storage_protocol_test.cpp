@@ -269,7 +269,7 @@ void TestDeviceSettings()
   assert(OutputVolume() == 100 && outputVolume == 100 && KeyLedBrightness() == 9 && ledMaster == 9);
   assert(ScreenBacklight() == kMinScreenBacklight && backlight == kMinScreenBacklight);
   SetOutputVolume(50);
-  assert(outputVolume == 100 - 50 * 42 / 100);  // the perceptual curve
+  assert(outputVolume == 50);  // as it is: the device puts the curve on it (Device::Audio::SetOutputVolume)
   SetOutputVolume(0);
   assert(outputVolume == 0);
   SetOutputVolume(60);
@@ -281,7 +281,7 @@ void TestDeviceSettings()
   ledMaster = backlight = outputVolume = 0;
   ReloadAllSettings();
   ApplyDeviceSettings();
-  assert(OutputVolume() == 60 && ledMaster == 9 && backlight == kMinScreenBacklight && outputVolume == 100 - 40 * 42 / 100);
+  assert(OutputVolume() == 60 && ledMaster == 9 && backlight == kMinScreenBacklight && outputVolume == 60);
   std::cout << "device settings passed\n";
 }
 

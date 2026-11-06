@@ -449,11 +449,19 @@ namespace Device::Audio {
 
 void SetOutputVolume(std::uint8_t percent)
 {
-  // The HAL's percent runs the codec linearly in dB over its whole -95.5..0 dB, so half the slider
-  // would be inaudible. Ours takes the top 50 dB, half a dB per percent (a codec register step).
+  // By ear: volume v is -60 (1 - v / 100)^1.5 dB, about -59 dB at 1, -39 at 25, -21 at 50, -10 at 70
+  // and 0 at 100, so the quiet end is wide and the top keeps fine steps. (Until 2026-11-06 it spanned
+  // only -20..0 dB: 1 was still loud.) The HAL's percent runs the codec linearly in dB over its
+  // -95.5..0 dB, 0.5 dB a register step: a level of d dB is its percent 100 + d * 200 / 191.
   const std::uint8_t volume = (std::min)(percent, std::uint8_t{100});
   g_outputVolume.store(volume, std::memory_order_relaxed);
-  (void)CardenzaHAL::Audio::SetVolume(volume == 0 ? 0 : static_cast<std::uint8_t>(((91 + volume) * 100 + 95) / 191));
+  long hal = 0;
+  if (volume > 0)
+  {
+    const float db = -60.0f * std::pow(1.0f - static_cast<float>(volume) / 100.0f, 1.5f);
+    hal = std::clamp(std::lround(100.0f + db * 200.0f / 191.0f), 1L, 100L);
+  }
+  (void)CardenzaHAL::Audio::SetVolume(static_cast<std::uint8_t>(hal));
 }
 
 ComputerAudioStats ComputerStats()
