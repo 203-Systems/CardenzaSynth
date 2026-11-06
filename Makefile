@@ -145,7 +145,7 @@ else
 	@exit 1
 endif
 
-# The on-board stress test (Applications/Synth/StressTest.cpp, docs/groovebox-design.md 压力测试): the
+# The on-board stress test (Applications/Synth/StressTest.cpp): the
 # release configuration plus the task watchdog (a hang becomes a crash report with its backtrace) and
 # the task list for the test's stall watcher. Flash it with BUILD=build/Cardenza-stress
 # tools/remote-flash/push.sh and read the `stress:` lines of the log. Never ship this build.

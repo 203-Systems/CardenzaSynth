@@ -4,7 +4,7 @@ namespace apps {
 
 class GrooveApp;
 
-// The on-board stress test (docs/groovebox-design.md 压力测试): `make DEVICE=Cardenza stress` builds a
+// The on-board stress test (Applications/Synth/StressTest.cpp): `make DEVICE=Cardenza stress` builds a
 // firmware with it (CARDENZA_STRESS_TEST, never a release) that, 20 s after boot, writes extreme
 // projects and old project files to the card, loads and plays them, works the device while they play
 // (engine switches, loads, saves, a storm of keys) and measures each scenario: audio underruns and

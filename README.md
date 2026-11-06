@@ -2,7 +2,7 @@
 
 Cardenza 是一台四轨 groovebox：DX7、Juno、Sampler、Drums 四种音源，音序器（每个 Pattern 1–256 步），整首歌的 Pattern 编排（走带），四轨混音，每轨效果（失真、降采样、DJ 滤波、合唱）与总线延迟 / 混响，工程与音色存储。屏幕 240×135，键盘 4×14 并带单色按键灯。
 
-界面是黑底的终端风格，搭配新极简排版和 dither 填充。屏幕左右两边各有 4 个键帽，和键盘最左、最右两列逐行对应：左侧不写字，用颜色区分（ESC 红橙、TAB 青、FN 黄、CTRL 紫），键帽里的小点表示这个键管的对象（场景、轨道、录音、页），当前项是白点；右侧是 + − ↵ ▶。按键灯有一套语言：亮度表示数值大小，呼吸表示按下会执行动作，细闪表示焦点，闪烁表示等待中；当前画面在用的那一块键最亮。界面和按键灯都带动效，逐帧录像（含键盘灯光）见 [docs/groovebox/motion](docs/groovebox/motion)。完整规格见 [Groovebox 设计](docs/groovebox-design.md)。
+界面是黑底的终端风格，搭配新极简排版和 dither 填充。屏幕左右两边各有 4 个键帽，和键盘最左、最右两列逐行对应：左侧不写字，用颜色区分（ESC 红橙、TAB 青、FN 黄、CTRL 紫），键帽用图标表示场景、轨道、菜单和页面；右侧图标跟随当前操作。按键灯用灭、半亮、全亮表示空位、可用和选中，闪烁表示等待，鼓轨击打另有力度扩散。界面和按键灯都带动效，逐帧录像（含键盘灯光）见 [docs/groovebox/motion](docs/groovebox/motion)。
 
 ## 按键
 
@@ -124,9 +124,9 @@ ctest --test-dir build/synth-regression -C Debug --output-on-failure
 
 固件通过 ESP-IDF 5.3.5 构建，入口和烧录步骤见 [Cardenza 说明](Devices/Cardenza/README.md)。开发板连在远端 Mac 上时，`make DEVICE=Cardenza remote-flash` 会编译、推送、烧录并回传启动日志（见 `tools/remote-flash/`）。
 
-- [Groovebox 设计](docs/groovebox-design.md)：当前交互、视觉与实现说明。
+- [开发规则与 Groovebox 设计](AGENT.md)：项目约束、交互、页面与协议。
 - [应用存储协议](docs/app-storage-protocol.md)：SD 卡目录、设置文件格式、应用生命周期。
 - [Learn](https://cardenza-synth.vercel.app/learn/)：入门教程（接上机器，跟着课程按）和完整的中英文说明书，带截图、按键灯、地图导航和同义词搜索（Docusaurus 网站，源文件在 `wiki/`，`make learn` 构建，见 [wiki/README.md](wiki/README.md)）。
-- 旧界面代码仍在仓库中，`-DCARDENZA_GROOVE_UI=OFF` 可以构建；当前交互以 [Groovebox 规格](docs/groovebox-design.md) 为准。
+- 旧界面代码仍在仓库中，`-DCARDENZA_GROOVE_UI=OFF` 可以构建。
 
 实机按键手感、屏幕实际观感、扬声器音量曲线、麦克风录音电平仍需在板子前确认。外部 MIDI / USB 同步尚未实现。两分钟 Electro House 示例的生成工具见 [Demo 说明](tools/demo/README.md)。

@@ -32,7 +32,8 @@ function(cardenza_forbid_text relative_path forbidden_text)
     endif()
 endfunction()
 
-cardenza_require_file("docs/AGENT.md")
+cardenza_require_file("AGENTS.md")
+cardenza_require_file("AGENT.md")
 
 # With PSRAM the firmware is built with -mdisable-hardware-atomics: GCC turns std::atomic_flag::test_and_set
 # into a plain load and store there (no library call exists for it), which froze the device (2026-11-04).

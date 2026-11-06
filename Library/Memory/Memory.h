@@ -1,6 +1,6 @@
 #pragma once
 
-// Where data lives (docs/groovebox-design.md 内存, AGENT.md Memory).
+// Where data lives (AGENT.md, Memory).
 //
 // Internal RAM: about 280 KB of heap beside the screen buffer and the code in IRAM. Fast, DMA-capable,
 // and the only RAM usable while the flash is written: every task stack, the audio path (AMY's
