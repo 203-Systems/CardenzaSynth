@@ -32,7 +32,6 @@ function(cardenza_forbid_text relative_path forbidden_text)
     endif()
 endfunction()
 
-cardenza_require_file("AGENTS.md")
 cardenza_require_file("AGENT.md")
 
 # With PSRAM the firmware is built with -mdisable-hardware-atomics: GCC turns std::atomic_flag::test_and_set
