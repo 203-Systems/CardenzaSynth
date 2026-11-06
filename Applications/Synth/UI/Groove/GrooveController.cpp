@@ -91,6 +91,11 @@ bool Controller::FnOverlay() const
   return key.down && state_.now - key.pressedAt >= kHoldMs && !FnYellowMode();
 }
 
+bool Controller::FnDown() const
+{
+  return state_.left[LeftIndex(KeyRole::Fn)].down;
+}
+
 bool Controller::CtrlOverlay() const
 {
   const auto& key = state_.left[3];
@@ -291,6 +296,7 @@ void Controller::AddHeldPadNotes(std::size_t track, std::array<std::uint32_t, 4>
 void Controller::ReleaseAllPads()
 {
   StopStepAudition();
+  rollTap_ = RollTap{};
   for (std::size_t index = 0; index < state_.padNote.size(); ++index)
   {
     if (state_.padNote[index] == kNoNote) continue;
@@ -611,6 +617,8 @@ void Controller::ReleasePad(std::size_t row, std::size_t column)
   SoundPad(index, false);
   state_.padNote[index] = kNoNote;
   state_.padChordCount[index] = 0;
+  // A new hold starts the ROLL gesture over.
+  if (rollTap_.pad == static_cast<int>(index)) rollTap_ = RollTap{};
 }
 
 void Controller::PressGrid(std::size_t index)

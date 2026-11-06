@@ -22,6 +22,21 @@ else()
 endif()
 add_test(NAME CardenzaArpTests COMMAND CardenzaArpTests)
 
+# ROLL: the sequencer on its test hooks too, so a step's sub-hits land on exact pulses.
+add_executable(CardenzaRollTests
+  roll_test.cpp
+  ${PROJECT_SOURCE_DIR}/Applications/Synth/Runtime/Sequencer/SynthSequencer.cpp
+  ${PROJECT_SOURCE_DIR}/OS/Framework/Midi/MidiPacket.cpp
+)
+target_include_directories(CardenzaRollTests PRIVATE ${PROJECT_SOURCE_DIR})
+target_compile_definitions(CardenzaRollTests PRIVATE CARDENZA_SEQUENCER_TEST_HOOKS=1)
+if(MSVC)
+  target_compile_definitions(CardenzaRollTests PRIVATE _CRT_SECURE_NO_WARNINGS)
+else()
+  target_link_libraries(CardenzaRollTests PRIVATE pthread)
+endif()
+add_test(NAME CardenzaRollTests COMMAND CardenzaRollTests)
+
 # The SD-only storage protocol (2) on the simulator's card, with the card taken out and put back, and a
 # run that starts without one.
 cardenza_collect_storage_cpp_sources(${PROJECT_SOURCE_DIR} storage_test_sources)

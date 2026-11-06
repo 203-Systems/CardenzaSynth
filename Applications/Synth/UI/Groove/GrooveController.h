@@ -487,6 +487,8 @@ public:
   // is the drum machine (DrumLayout); the GRID's step keys work as on any note page.
   bool DrumTrack() const;
   bool DrumLayout() const;
+  // Fn held: the modifier of a key's second function (the second press of a tap on some pages).
+  bool FnDown() const;
   AdjustMeaning AdjustKeysMean() const;
   // The pads as the values of the GRID cell being held. What a cell offers: `info` is its range and
   // current value, as for ADD / SUB. Returns false for a cell that holds no parameter.
@@ -669,6 +671,18 @@ private:
   void StepKeyPress(std::size_t index);
   void StepKeyRelease(std::size_t index);
   void UseStepKeys();
+  // The ROLL gesture's memory: which pad, on which step, and how many taps it has taken since that
+  // pad went down. ReleasePad and ReleaseAllPads clear it, so putting the pad down again starts
+  // over and the first tap on a step that already holds the hit takes it out.
+  struct RollTap {
+    std::size_t track = 0;
+    std::size_t step = 0;
+    int pad = -1;
+    int taps = 0;
+    bool hadHit = false;
+    std::uint8_t velocity = 0;
+  };
+  RollTap rollTap_;
   void AuditionStep(std::size_t index, std::size_t step);
   void StopStepAudition();
   void AdjustPatternLength(int delta, bool coarse);

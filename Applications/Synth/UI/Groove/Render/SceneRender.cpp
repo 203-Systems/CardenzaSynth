@@ -76,6 +76,50 @@ void GridRipple(Gfx& g, Animator& animator, std::size_t index, Color color)
 constexpr std::array<int, 4> kDrumDensity{{16, 8, 4, 2}};
 int DrumDensity(std::uint8_t velocity) { return kDrumDensity[DrumRowForVelocity(velocity)]; }
 
+// Velocity is height now that ROLL cuts the bar: as tall as it is loud, standing on the bottom of
+// the space it has, never shorter than two pixels (a hit too quiet to see is a hit you cannot edit).
+// A density would fight the notches; a height reads through them.
+Rect VelocityBar(const Rect& space, std::uint8_t velocity)
+{
+  if (space.height <= 3) return space;
+  const int wanted = (space.height * static_cast<int>(velocity) + 63) / 127;
+  const int height = std::clamp(wanted, 3, space.height);
+  return Rect{space.x, space.y + space.height - height, space.width, height};
+}
+
+// ROLL in a GRID square: a 2 x 2 corner of dots filled clockwise — the top row for x2, then the
+// right one of the second row for x3, then all four for x4. Off shows nothing. The square keeps its
+// full body for the hit itself, so the count never eats the step's own shape.
+void DrawRollDots(Gfx& g, const Rect& cell, std::uint8_t roll)
+{
+  if (roll <= 1) return;
+  constexpr int kDot = 2;
+  constexpr int kStep = 3;  // dot + one pixel of gap
+  const int left = cell.x + cell.width - 2 - (2 * kStep - 1);
+  const int top = cell.y + 2;
+  g.Fill(Rect{left, top, kDot, kDot}, kBlack);
+  g.Fill(Rect{left + kStep, top, kDot, kDot}, kBlack);
+  if (roll >= 3) g.Fill(Rect{left + kStep, top + kStep, kDot, kDot}, kBlack);
+  if (roll >= 4) g.Fill(Rect{left, top + kStep, kDot, kDot}, kBlack);
+}
+
+// ROLL: the bar is cut into the sub-hits it retriggers on, one notch per repeat, so a sixteenth
+// rolled four times reads as four 64ths.
+void DrawRollNotches(Gfx& g, const Rect& bar, int roll)
+{
+  if (roll <= 1 || bar.width < 3) return;
+  int last = -1;
+  for (int hit = 1; hit < roll; ++hit)
+  {
+    // Clamped to the inside of the bar, and never twice on one pixel: a four-pulse step is four
+    // pixels wide, so its four sub-hits can only read as a denser pattern there.
+    const int x = bar.x + (bar.width * hit) / roll;
+    if (x <= bar.x || x >= bar.x + bar.width - 1 || x == last) continue;
+    g.Fill(Rect{x, bar.y, 1, bar.height}, kBlack);
+    last = x;
+  }
+}
+
 // The kit's eight drums in one row, like the eight pad columns on the keyboard (a column is a drum).
 // With fill (VOICE) they take the whole area, as the keyboard of a melodic track does, less the room
 // a hit kicks them up; otherwise (the KIT page's graphic) a strip of at most 24 px in its middle.
@@ -800,15 +844,18 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       const auto& note = carried[step][index];
       if (note.note < low || note.note > high) continue;
       const int inPage = static_cast<int>(pulseStart + note.microstep * synth::kSequencerPulsesPerMicrostep + note.lengthPulses) - static_cast<int>(kGridCount * synth::kSequencerPulsesPerStep);
-      const Rect bar{x0, rowY(note.note), std::min(inPage * column / static_cast<int>(synth::kSequencerPulsesPerStep), column * static_cast<int>(steps)), std::max(1, rowHeight - 1)};
+      const Rect room{x0, rowY(note.note), std::min(inPage * column / static_cast<int>(synth::kSequencerPulsesPerStep), column * static_cast<int>(steps)), std::max(1, rowHeight - 1)};
+      const Rect bar = VelocityBar(room, note.velocity);
       // On a lit row the bar is cut out of the light, solid in the track's color.
       if (pressed[note.note & 0x7F] != 0)
       {
         g.Fill(Rect{bar.x, bar.y - 1, bar.width, bar.height + 2}, kBlack);
         g.Fill(bar, trackColor);
+        DrawRollNotches(g, bar, note.roll);
         continue;
       }
-      g.Dither(bar, trackColor, 6 + note.velocity * 10 / 127);
+      g.Fill(bar, trackColor);
+      DrawRollNotches(g, bar, note.roll);
     }
   }
   for (std::size_t step = 0; step < steps; ++step)
@@ -819,17 +866,20 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       if (note.note < low || note.note > high) continue;
       const int x = x0 + static_cast<int>(step) * column + static_cast<int>(note.microstep) * column / synth::kSequencerMicrostepCount;
       const int width = std::max(2, static_cast<int>(note.lengthPulses) * column / synth::kSequencerPulsesPerStep - 1);
-      const Rect bar{x, rowY(note.note), std::min(width, x0 + column * static_cast<int>(steps) - x), std::max(1, rowHeight - 1)};
+      const Rect room{x, rowY(note.note), std::min(width, x0 + column * static_cast<int>(steps) - x), std::max(1, rowHeight - 1)};
       // Notes keep the track's color everywhere: a selected step's (its column is lit) and a lit
-      // row's are solid, cut out of the light; the others as dense as they are loud.
+      // row's are solid, cut out of the light; the others stand as tall as they are loud.
+      const Rect bar = VelocityBar(room, note.velocity);
       const bool held = seq.steps[step].held;
       if (pressed[note.note & 0x7F] != 0 || held)
       {
         g.Fill(Rect{bar.x, bar.y - 1, bar.width, bar.height + 2}, kBlack);
         g.Fill(bar, trackColor);
+        DrawRollNotches(g, bar, note.roll);
         continue;
       }
-      g.Dither(bar, trackColor, 6 + note.velocity * 10 / 127);
+      g.Fill(bar, trackColor);
+      DrawRollNotches(g, bar, note.roll);
       g.Fill(Rect{bar.x, bar.y, 1, bar.height}, trackColor);
     }
   }
@@ -857,7 +907,7 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
     const Rect band{x0, y0 + height / 2 - 10, column * static_cast<int>(steps), 20};
     g.Fill(band, kBlack);
     g.TextAligned(Rect{band.x, band.y, band.width, 10}, "HOLD A PAD + TAP STEPS", kDim, Font::Micro, Align::Center);
-    g.TextAligned(Rect{band.x, band.y + 10, band.width, 10}, "TAP STEP + PADS  HOLD OK TAKES", (now / 600) % 2 ? kFaint : kShade, Font::Micro, Align::Center);
+    g.TextAligned(Rect{band.x, band.y + 10, band.width, 10}, "TAP AGAIN = ROLL   FN CLEARS", (now / 600) % 2 ? kFaint : kShade, Font::Micro, Align::Center);
   }
 }
 
@@ -1006,14 +1056,16 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       const int late = note.microstep;
       const int x = x0 + step * kColumn + late * (kColumn - 3) / (synth::kSequencerMicrostepCount - 1);
       // On the beat it fills the step; off it, a sliver where in the step it falls.
-      const Rect mark = drums ? Rect{x, y + 2, late == 0 ? kColumn - 1 : 2, rowHeight - 5}
-                              : Rect{x, y, late == 0 ? kColumn - 1 : 2, std::max(1, rowHeight - 1)};
+      const Rect room = drums ? Rect{x, y + 2, late == 0 ? kColumn - 1 : 2, std::max(2, rowHeight - 5)}
+                              : Rect{x, y, late == 0 ? kColumn - 1 : 2, std::max(2, rowHeight - 1)};
+      // Same language as the piano roll: how hard, by how tall, never under two pixels.
+      const Rect mark = VelocityBar(room, note.velocity);
       const std::uint8_t held = heldVelocity[note.note & 0x7F];
       const bool strong = held != 0 || row == chosen || seq.steps[static_cast<std::size_t>(step)].held;
-      if (strong) g.Fill(Rect{mark.x - 1, mark.y - (drums ? 1 : 0), mark.width + 2, mark.height + (drums ? 2 : 0)}, kBlack);
+      if (strong) g.Fill(Rect{mark.x - 1, mark.y - 1, mark.width + 2, mark.height + 2}, kBlack);
       if (head) g.Fill(mark, kPlay);
-      else if (drums) g.Dither(mark, trackColor, held != 0 ? std::max(8, DrumDensity(note.velocity)) : DrumDensity(note.velocity));
-      else g.Dither(mark, trackColor, strong ? 16 : 6 + note.velocity * 10 / 127);
+      else g.Fill(mark, trackColor);
+      DrawRollNotches(g, mark, note.roll);
     }
   }
   if (playingHere)
@@ -1043,16 +1095,20 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     const auto& info = seq.steps[index];
     std::uint8_t velocity = 0;
     std::uint8_t late = 0;
+    std::uint8_t roll = 1;
     for (std::size_t slot = 0; slot < counts[index] && picked >= 0; ++slot)
       if (notes[index][slot].note == picked && velocity == 0)
       {
         velocity = std::max<std::uint8_t>(notes[index][slot].velocity, 1);
         late = notes[index][slot].microstep;
+        roll = notes[index][slot].roll;
       }
     const bool marked = info.held;  // selected: inverse
     const float flash = info.playing ? fx::Decay(now, animator.StepPlayedAt(index), kStepFlashMs) : 0.0f;
+    // A hit fills the square whole — whether there is one is the GRID's question, how hard it was is
+    // the step machine's and the piano roll's. ROLL reads as dots in the corner instead of cuts.
     if (marked) g.Fill(cell, kInk);
-    else if (velocity != 0) g.Dither(cell, trackColor, DrumDensity(velocity));
+    else if (velocity != 0) g.Fill(cell, trackColor);
     else if (info.hasEvents) g.Fill(Rect{cell.x, cell.y + cell.height - 2, cell.width, 2}, kDim);
     if (info.playing && !marked)
     {
@@ -1060,10 +1116,13 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       g.Stroke(cell, kPlay);
     }
     else if (!marked && velocity == 0) g.DottedHLine(cell.x, cell.y + cell.height - 1, cell.width, index % 4 == 0 ? kDim : kFaint, 1);
+    if (velocity != 0) DrawRollDots(g, cell, roll);
     // A hit off the beat: a tick along the bottom, where in the step it falls.
     if (velocity != 0 && late != 0)
       g.Fill(Rect{cell.x + (cell.width - 4) * late / (synth::kSequencerMicrostepCount - 1), cell.y + cell.height - 3, 4, 2}, marked ? kBlack : kInk);
-    g.Text(cell.x + 2, cell.y + 2, Pad2(step + 1), marked ? kBlack : (velocity != 0 ? kInk : (index % 4 == 0 ? kDim : kFaint)), Font::Micro);
+    // The step number reads on black or on the bar itself, whichever it happens to sit on.
+    g.Text(cell.x + 2, cell.y + 2, Pad2(step + 1),
+           marked || velocity != 0 ? kBlack : (index % 4 == 0 ? kDim : kFaint), Font::Micro);
   }
 }
 

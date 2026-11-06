@@ -73,6 +73,7 @@ public:
     std::uint8_t velocity = 0;
     std::uint16_t lengthPulses = 0;
     std::uint8_t microstep = 0;
+    std::uint8_t roll = 1;
   };
   std::size_t StepNoteEvents(std::size_t track, std::size_t step, std::array<StepNoteView, 8>& notes) const;
   // Step recording: the step's notes become exactly these (one step long, on the grid).
@@ -94,6 +95,16 @@ public:
   // Pulses processed since playback started (0 while stopped): where a played note sits in time.
   std::uint64_t PlayPulse() const;
   std::uint8_t SelectedNoteVelocity(std::uint8_t pitch) const;
+  // ROLL: a step's note retriggers inside its own sixteenth. 1 is off, 2 gives two 32nds,
+  // 3 three 48ths (16th triplets) and 4 four 64ths. StepRoll reports the highest count on the
+  // step; setting one applies to every note of the step (or to one pitch when one is given)
+  // and is remembered as the count the next written note starts with.
+  std::uint8_t StepRoll(std::size_t stepIndex) const;
+  bool SetStepRoll(std::size_t stepIndex, std::uint8_t roll, int pitch = -1);
+  // 1 -> 2 -> 3 -> 4 -> 1, the gesture of holding a PAD and tapping the step again.
+  bool CycleStepRoll(std::size_t stepIndex, int pitch = -1);
+  std::uint8_t DefaultRoll() const;
+  void CycleDefaultRoll();
   void QuantizeStep(std::size_t stepIndex);
   void QuantizeHeldSteps();
   void QuantizeActivePattern();
@@ -244,12 +255,29 @@ public:
     std::uint8_t velocity = 110;
     std::uint16_t lengthPulses = kSequencerPulsesPerStep;
     std::uint8_t microstep = 0;
-    bool active = false;
+    // Bitfields keep NoteEvent at six bytes: a StepData page is 768 bytes for sixteen steps,
+    // and the board has no room for a wider page. Three bits hold 1..4 with room to spare.
+    std::uint8_t active : 1;
+    std::uint8_t roll : 3;  // 1 off .. kSequencerMaxRoll; 0 (an older reset) reads as 1
+
+    std::uint8_t Roll() const
+    {
+      return roll < 1 ? 1 : static_cast<std::uint8_t>(roll > kSequencerMaxRoll ? kSequencerMaxRoll : roll);
+    }
+    void SetRoll(std::uint8_t value)
+    {
+      roll = value < 1 ? 1 : static_cast<std::uint8_t>(value > kSequencerMaxRoll ? kSequencerMaxRoll : value);
+    }
   };
 
   struct StepData {
     std::array<NoteEvent, 8> notes{};
   };
+
+  // A StepStore page is sixteen steps of 48 bytes. ROLL rides in the spare bits of NoteEvent's
+  // last byte, so a page stays 768 bytes however many attributes a note gains.
+  static_assert(sizeof(NoteEvent) == 6, "NoteEvent must stay six bytes: a step page is 768 bytes.");
+  static_assert(sizeof(StepData) == 48, "StepData must stay 48 bytes: a step page is 768 bytes.");
 
   // The steps of a pattern, stored one GRID page at a time. A page costs its 768 bytes only once
   // something is written on it (256 steps flat would be 12 KB per pattern, and the board has no
@@ -325,6 +353,8 @@ public:
     std::size_t activePattern = 0;
     std::uint8_t defaultVelocity = 110;
     std::uint16_t defaultLengthPulses = kSequencerPulsesPerStep;
+    // ROLL the next note written on this track starts with (1 off .. kSequencerMaxRoll).
+    std::uint8_t defaultRoll = 1;
     bool enabled = true;
     bool muted = false;
     // Each pattern's own length, 1..kSequencerMaxSteps.

@@ -826,7 +826,66 @@ void Controller::StepKeyPress(std::size_t index)
       for (std::size_t pad = 0; pad < state_.padNote.size(); ++pad)
         if (state_.padNote[pad] == notes[held] && state_.padTrack[pad] == state_.track)
           velocities[held] = std::max(velocities[held], state_.padVelocity[pad]);
-    if (sequencer.ToggleStepNotes(state_.track, step, notes.data(), count, drums ? velocities.data() : nullptr)) MarkDirty();
+    // ROLL gesture. While one pad stays down, taps on a step walk it: the first writes the hit,
+    // the next ones move the count on (off, x2, x3, x4, off...). Lift the pad, put it down again
+    // and tap the step it already holds: the hit comes out, the following tap writes it back with
+    // the velocity it had, and the count walks on from there. Velocity never moves under the
+    // fingers; FN is the plain toggle it always was.
+    std::size_t padIndex = state_.padNote.size();
+    for (std::size_t pad = 0; pad < state_.padNote.size(); ++pad)
+      if (state_.padNote[pad] == notes[0] && state_.padTrack[pad] == state_.track)
+      {
+        padIndex = pad;
+        break;
+      }
+    std::array<std::uint8_t, 8> existing{};
+    const std::size_t existingCount = sequencer.StepNotes(step, existing);
+    const bool holds = std::any_of(notes.begin(), notes.begin() + static_cast<std::ptrdiff_t>(count), [&](std::uint8_t note) {
+      return std::find(existing.begin(), existing.begin() + static_cast<std::ptrdiff_t>(existingCount), note) !=
+             existing.begin() + static_cast<std::ptrdiff_t>(existingCount);
+    });
+    const bool sameHold = rollTap_.track == state_.track && rollTap_.step == step &&
+                          rollTap_.pad == static_cast<int>(padIndex) && rollTap_.pad >= 0 &&
+                          static_cast<std::size_t>(rollTap_.pad) < state_.padNote.size();
+    if (!sameHold)
+    {
+      // How hard the hit already there was: the one thing the gesture must not change.
+      std::uint8_t kept = 0;
+      std::array<synth::SynthSequencer::StepNoteView, 8> views{};
+      const std::size_t viewCount = sequencer.StepNoteEvents(state_.track, step, views);
+      for (std::size_t index = 0; index < viewCount; ++index)
+        for (std::size_t held = 0; held < count; ++held)
+          if (views[index].note == notes[held]) kept = std::max(kept, views[index].velocity);
+      rollTap_ = RollTap{};
+      rollTap_.track = state_.track;
+      rollTap_.step = step;
+      rollTap_.pad = static_cast<int>(padIndex);
+      rollTap_.hadHit = holds;
+      rollTap_.velocity = kept;
+    }
+    ++rollTap_.taps;
+
+    // No HUD for any of this: the step is under the fingers and the GRID square already says what
+    // happened (empty, filled, or filled with the count's dots).
+    if (FnDown() || (rollTap_.hadHit && rollTap_.taps == 1))
+    {
+      if (sequencer.ToggleStepNotes(state_.track, step, notes.data(), count, nullptr)) MarkDirty();
+      return;
+    }
+
+    const int written = rollTap_.taps - (rollTap_.hadHit ? 1 : 0);
+    if (written == 1)
+    {
+      if (rollTap_.hadHit && rollTap_.velocity != 0)
+        for (std::size_t held = 0; held < count; ++held) velocities[held] = rollTap_.velocity;
+      if (sequencer.ToggleStepNotes(state_.track, step, notes.data(), count, drums ? velocities.data() : nullptr)) MarkDirty();
+      for (std::size_t held = 0; held < count; ++held) sequencer.SetStepRoll(step, 1, notes[held]);
+      return;
+    }
+
+    const auto roll = static_cast<std::uint8_t>((written - 1) % synth::kSequencerMaxRoll) + 1;
+    for (std::size_t held = 0; held < count; ++held) sequencer.SetStepRoll(step, roll, notes[held]);
+    MarkDirty();
     return;
   }
   key.wasSelected = ui.steps[index].held;
