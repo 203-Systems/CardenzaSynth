@@ -1,0 +1,29 @@
+name: Submodules
+description: >-
+  Fetch the pinned submodules. AMY is public; CardenzaHAL is private, so its fetch carries a
+  read-only token (the CARDENZA_HAL_TOKEN secret), for that repository only.
+inputs:
+  hal-token:
+    description: Read access to 203-Systems/CardenzaHAL
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        HAL_TOKEN: ${{ inputs.hal-token }}
+      run: |
+        set -euo pipefail
+        if [ -z "$HAL_TOKEN" ]; then
+          echo "::error::CARDENZA_HAL_TOKEN is not configured: a token that can read 203-Systems/CardenzaHAL"
+          exit 1
+        fi
+        git config --global --add safe.directory '*'
+        auth=$(printf 'x-access-token:%s' "$HAL_TOKEN" | base64 | tr -d '\n')
+        echo "::add-mask::$auth"
+        # Only requests to the HAL's repository get the header; nothing is written to a config file.
+        export GIT_CONFIG_COUNT=1
+        export GIT_CONFIG_KEY_0="http.https://github.com/203-Systems/CardenzaHAL.git.extraheader"
+        export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+        git submodule update --init --depth 1
+        git submodule status
