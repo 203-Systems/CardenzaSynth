@@ -94,15 +94,10 @@
 .anim-stage { position: relative; aspect-ratio: 16 / 9; background: #000; border: 1px solid #1d1d1b; border-radius: 12px; overflow: hidden; color: var(--cz-ink); }
 .st-stage { aspect-ratio: auto; min-height: 380px; display: grid; place-items: center; padding: 26px 22px 22px; }
 .st-page { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 18px; }
-.st-screen { width: min(400px, 62%); }
-.st-screen .cz-bezel { padding: 6px; border-radius: 8px; box-shadow: 0 0 0 3px #0a0a09; }
-.st-keys { width: min(720px, 100%); }
+.st-keys { width: min(680px, 100%); }
+.st-keys .cz-device { margin: 0 auto; }
 .st-keys .cz-marks-cols { margin: 12px 0 0; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 2), auto);
   grid-auto-flow: column; max-width: none; }
-/* The demo on the key picture: a key pressed goes down and lights, as on the device. */
-.st-keys .k .cap { transition: transform .08s; transform-box: fill-box; }
-.st-keys .k.press { --b: 1 !important; opacity: 1 !important; }
-.st-keys .k.press .cap { transform: translateY(1.5px); }
 .a-show, .a-sound { position: absolute; top: 10px; right: 10px; border: 1px solid #34342f; background: rgba(14, 14, 13, .85); color: #a2a29a;
   font: 600 12px var(--cz-mono); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
 .a-show:hover { color: #e8e8e0; border-color: #a2a29a; }
@@ -164,7 +159,6 @@
 @media (max-width: 860px) {
   .g-hero { grid-template-columns: minmax(0, 1fr); }
   .st-stage { min-height: 0; padding: 46px 10px 12px; }  /* Show me sits above the screen */
-  .st-screen { width: min(360px, 86%); }
   .anim-text { font-size: 16px; }
 }
 @media (max-width: 520px) {

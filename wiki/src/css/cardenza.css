@@ -80,32 +80,31 @@ html { background-color: var(--ifm-background-color); }
 .cz-scrim { fill: rgba(0, 0, 0, .58); }
 .cz-scrim.light { fill: rgba(0, 0, 0, .4); }
 .cz-hl { fill: none; stroke: var(--cz-mark); stroke-width: 1; stroke-dasharray: 2 1.5; animation: cz-ants 1.2s linear infinite; }
-.cz-keys .cz-hl { stroke-width: 2.5; stroke-dasharray: 5 3.5; }
 @keyframes cz-ants { to { stroke-dashoffset: -7; } }
 .cz-badge rect { fill: var(--cz-mark); }
 .cz-badge text { fill: #000; font-family: var(--cz-mono); font-weight: 800; text-anchor: middle; }
-.cz-keys-wrap { margin-top: 18px; position: relative; max-width: 640px; }
 .cz-keys-label { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; font: 600 11.5px var(--cz-mono); color: var(--cz-dim); }
-.cz-keys { width: 100%; height: auto; display: block; max-width: 640px; }
-.cz-keys .kb-body { fill: #0a0a09; }
-.cz-keys .k { --b: 0; }
-.cz-keys .k .cap { fill: #171715; stroke: #2c2c29; stroke-width: 1; }
-.cz-keys .k.grid .cap { stroke: #3e3e38; stroke-dasharray: 4 2.5; }
-.cz-keys .k.esc .cap { stroke: color-mix(in srgb, var(--cz-esc) 55%, #000); }
-.cz-keys .k.tab .cap { stroke: color-mix(in srgb, var(--cz-tab) 55%, #000); }
-.cz-keys .k.fn .cap { stroke: color-mix(in srgb, var(--cz-fn) 55%, #000); }
-.cz-keys .k.ctrl .cap { stroke: color-mix(in srgb, var(--cz-ctrl) 55%, #000); }
-.cz-keys .k .lamp { fill: rgb(var(--cz-led)); opacity: calc(var(--b) * .88); }
-.cz-keys .k .glow { fill: rgb(var(--cz-led)); opacity: calc(var(--b) * .35); filter: blur(4px); }
-.cz-keys .k .lg { font: 700 11px var(--cz-mono); fill: var(--cz-ink); }
-.cz-keys .k .lg.small { font-size: 8px; font-weight: 400; fill: var(--cz-dim); }
-.cz-keys .k .tg { font: 600 7px var(--cz-mono); fill: var(--cz-faint); text-anchor: end; }
-.cz-keys .k.esc .lg { fill: var(--cz-esc); } .cz-keys .k.tab .lg { fill: var(--cz-tab); }
-.cz-keys .k.fn .lg { fill: var(--cz-fn); } .cz-keys .k.ctrl .lg { fill: var(--cz-ctrl); }
-.cz-keys .k.right .lg, .cz-keys .k.play .lg { font-size: 15px; }
-.cz-keys .k.play .lg { fill: var(--cz-play); }
-.cz-keys .k.lit .lg, .cz-keys .k.lit .tg { paint-order: stroke; stroke: rgba(0, 0, 0, .75); stroke-width: 2.5px; }
-.cz-keys .k.dim { opacity: .28; }
+/* The device (./pcb.tsx): its top around the display, magnified so the screen reads, over its keys. */
+.cz-device { max-width: 680px; border-radius: 10px; overflow: hidden; background: #fff; box-shadow: 0 0 0 1px #2a2a27; }
+.cz-device > svg { display: block; width: 100%; height: auto; }
+.cz-device > .cz-pcb { border-radius: 0; border-top: 1px solid rgba(0, 0, 0, .14); }
+.cz-pcb-top .cz-screen-shot { image-rendering: pixelated; }
+.cz-shot .cz-keys-label { margin-bottom: 8px; }
+
+/* The board's keys (./pcb.tsx): dimmed as in a room when it shows the key lights, the keys no mark
+   names faded, a pressed key yellow, frames in the device's dashed highlight with numbered badges. */
+.cz-pcb { display: block; width: 100%; height: auto; border-radius: 8px; background: #fff; }
+.cz-pcb image { image-rendering: auto; }
+.cz-pcb-dark { fill: rgba(6, 10, 16, .7); }
+.cz-pcb-lit { fill: rgb(255, 246, 226); filter: drop-shadow(0 0 1.6px rgba(255, 246, 226, .9)); }
+.cz-pcb-fade { fill: rgba(255, 255, 255, .74); }
+.cz-pcb-led { fill: rgb(255, 246, 226); }
+.cz-pcb-down { fill: rgba(255, 208, 48, .55); stroke: #1c1c1a; stroke-width: .5; }
+.cz-pcb-frame .under { fill: none; stroke: #1c1c1a; stroke-width: 1.4; opacity: .5; }
+.cz-pcb-hl { fill: none; stroke: var(--cz-mark); stroke-width: .8; stroke-dasharray: 2 1.4; animation: cz-pcb-ants 1.2s linear infinite; }
+@keyframes cz-pcb-ants { to { stroke-dashoffset: -3.4; } }
+.cz-pcb-badge rect { fill: var(--cz-mark); stroke: #1c1c1a; stroke-width: .3; }
+.cz-pcb-badge text { fill: #000; font-family: var(--cz-mono); font-weight: 800; text-anchor: middle; }
 
 /* The numbered legend under a picture. */
 .cz-marks { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 18px; max-width: 690px; }
@@ -138,34 +137,39 @@ table.cz-lists th { width: 140px; }
 .cz-ref-page { font-family: var(--cz-mono); }
 .cz-ref-page small { color: var(--ifm-color-emphasis-600); font-weight: 400; font-size: 12px; margin-left: 6px; }
 
-/* Device map */
-.cz-device { margin: 14px 0; padding: 12px; background: var(--cz-bg); border-radius: 14px; }
-.cz-device-map { width: 100%; max-width: 760px; height: auto; display: block; margin: 0 auto; }
-.cz-device-map .body { fill: var(--cz-panel); stroke: var(--cz-line); }
-.cz-device-map .screen { fill: #000; stroke: #1d1d1b; }
-.cz-device-map .map-link rect { fill: rgba(255, 255, 255, .04); stroke: rgba(255, 255, 255, .22); stroke-dasharray: 3 3; }
-.cz-device-map .map-link:hover rect, .cz-device-map .map-link:focus rect { fill: rgba(255, 208, 48, .18); stroke: var(--cz-fn); }
-.cz-device-map .map-link.strip.esc rect { fill: #ff5a3666; } .cz-device-map .map-link.strip.tab rect { fill: #36d6e666; }
-.cz-device-map .map-link.strip.fn rect { fill: #ffd03066; } .cz-device-map .map-link.strip.ctrl rect { fill: #a070ff66; }
-.cz-device-map .map-label { fill: #55554f; font: 13px var(--cz-mono); text-anchor: middle; pointer-events: none; }
-.cz-device-map .map-key rect { fill: #171715; stroke: #2c2c29; }
-.cz-device-map .map-key text { fill: var(--cz-ink); font: 700 10px var(--cz-mono); text-anchor: middle; pointer-events: none; }
-.cz-device-map .map-key.esc rect { stroke: #8c3b28; } .cz-device-map .map-key.esc text { fill: var(--cz-esc); }
-.cz-device-map .map-key.tab rect { stroke: #24808a; } .cz-device-map .map-key.tab text { fill: var(--cz-tab); }
-.cz-device-map .map-key.fn rect { stroke: #8f7720; } .cz-device-map .map-key.fn text { fill: var(--cz-fn); }
-.cz-device-map .map-key.ctrl rect { stroke: #5f4497; } .cz-device-map .map-key.ctrl text { fill: var(--cz-ctrl); }
-.cz-device-map .map-key.grid rect { stroke: #3e3e38; stroke-dasharray: 4 2; }
-.cz-device-map .map-key.quick rect { fill: #24221a; }
-.cz-device-map .map-key:hover rect, .cz-device-map .map-key:focus rect { fill: rgb(var(--cz-led)); }
-.cz-device-map .map-key:hover text, .cz-device-map .map-key:focus text { fill: #111; }
-.cz-device-map .home rect { fill: #2c2c29; }
-.cz-map-legend { list-style: none; padding: 0; margin: 10px auto 0; max-width: 760px; display: flex; flex-wrap: wrap; gap: 6px 16px; font: 12.5px var(--cz-mono); color: var(--cz-dim); }
-.cz-map-legend li { margin: 0; }
-.cz-map-legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 2px solid; }
-.cz-map-legend .sw.esc { border-color: var(--cz-esc); } .cz-map-legend .sw.tab { border-color: var(--cz-tab); }
-.cz-map-legend .sw.fn { border-color: var(--cz-fn); } .cz-map-legend .sw.ctrl { border-color: var(--cz-ctrl); }
-.cz-map-legend .sw.pad { border-color: #2c2c29; background: #171715; } .cz-map-legend .sw.grid { border-color: #3e3e38; border-style: dashed; }
-.cz-map-legend .sw.quick { border-color: #2c2c29; background: #24221a; } .cz-map-legend .sw.right { border-color: #6a6a63; }
+/* Device map: the board as drawn (static/img/device/cardenza-pcb.svg), hotspots over it, and the
+   card of the one pointed at. Its coordinates are the board's width in cqw. */
+.cz-board { position: relative; margin: 16px 0 26px; max-width: 900px; container-type: inline-size; }
+.cz-board-frame { position: relative; aspect-ratio: 252 / 144; border-radius: 12px; background: #fff;
+  box-shadow: 0 0 0 1px var(--ifm-color-emphasis-300), var(--ifm-global-shadow-lw); }
+.cz-board-frame > img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 12px; }
+.cz-board-spots { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cz-board-spots image { image-rendering: pixelated; }
+.cz-board-spots .spot { cursor: pointer; outline: none; }
+.cz-board-spots .spot rect { fill: transparent; stroke: transparent; stroke-width: .7; }
+.cz-board-spots .spot:hover rect, .cz-board-spots .spot:focus-visible rect, .cz-board-spots .spot.on rect {
+  fill: rgba(255, 208, 48, .22); stroke: #1c1c1a; stroke-dasharray: 1.6 1.1; }
+.cz-board-spots .spot.screen:hover rect, .cz-board-spots .spot.screen.on rect, .cz-board-spots .spot.screen:focus-visible rect {
+  fill: rgba(255, 208, 48, .16); stroke: var(--cz-fn); stroke-width: .45; stroke-dasharray: .9 .6; }
+.cz-board-pop {
+  position: absolute; z-index: 20; width: 290px; max-width: calc(100cqw - 16px);
+  left: clamp(150px, calc(var(--x) * 1cqw), calc(100cqw - 150px)); top: calc(var(--y) * 1cqw);
+  transform: translate(-50%, calc(-100% - 10px));
+  padding: 10px 13px 11px; border-radius: 8px; border: 1px solid var(--cz-fn);
+  background: #0e0e0d; color: var(--cz-ink); font-size: 13.5px; line-height: 1.5;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+}
+.cz-board-pop[data-below] { transform: translate(-50%, 10px); }
+.cz-board-pop .pop-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.cz-board-pop .pop-head b { font: 700 14px var(--cz-mono); }
+.cz-board-pop p { margin: 0 0 4px; }
+.cz-board-pop .pop-fn { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--cz-dim); font: 12px var(--cz-mono); margin-top: 6px; }
+.cz-board-pop .pop-more { display: inline-block; margin-top: 4px; color: var(--cz-tab); font-size: 13px; }
+.cz-board figcaption { margin-top: 8px; color: var(--ifm-color-emphasis-700); font-size: 13.5px; }
+@media (max-width: 640px) {
+  /* No room beside the board: the card goes under it. */
+  .cz-board-pop, .cz-board-pop[data-below] { position: static; transform: none; width: auto; max-width: none; margin-top: 10px; }
+}
 
 /* Scene map */
 .cz-scene-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin: 18px 0; }
@@ -178,4 +182,4 @@ table.cz-lists th { width: 140px; }
 @media (max-width: 640px) {
   .cz-figure { padding: 10px; border-radius: 10px; }
 }
-@media (prefers-reduced-motion: reduce) { .cz-hl, .cz-led.blink { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .cz-hl, .cz-pcb-hl, .cz-led.blink { animation: none; } }

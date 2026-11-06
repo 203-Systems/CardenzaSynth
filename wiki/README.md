@@ -11,6 +11,7 @@ translation, the 203 navbar and footer. `make learn` builds it into `build/web/s
 | `docs/*.mdx` | the manual's chapters in English (their order: `sidebar_position`) |
 | `i18n/zh-Hans/docusaurus-plugin-content-docs/current/*.mdx` | the same chapters in Chinese, the same section ids |
 | `src/components/cardenza/` | key caps, chips, screenshots with key lights, step strips, key maps, reference tables, device and scene maps |
+| `static/img/device/cardenza-pcb.svg` | the board as drawn: the device map (`board.tsx`, a card for every key and screen area) and every key picture (`pcb.tsx`: lights, frames, pressed keys) are drawn on it |
 | `src/theme/MDXComponents.tsx` | makes them usable on every page without an import |
 | `src/pages/index.tsx`, `src/guide/` | the guide: its home and a page per lesson (`plugins/guide-routes.js`, `/guide/<lesson>/`) |
 | `src/guide/device.ts`, `run.ts` | the Cardenza on USB (Web MIDI, one connection for the whole site) and a device lesson as it runs |

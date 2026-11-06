@@ -6,7 +6,8 @@ import Link from '@docusaurus/Link';
 import {useHistory, useLocation} from '@docusaurus/router';
 import {useBaseUrlUtils} from '@docusaurus/useBaseUrl';
 import {useLang} from '@site/src/components/cardenza/common';
-import {Legend, keyboard, useScreen} from '@site/src/components/cardenza/figures';
+import {Legend, useScreen} from '@site/src/components/cardenza/figures';
+import {DeviceTop, usePcbKeys} from '@site/src/components/cardenza/pcb';
 import {GUIDE, GUIDE_LEDS, lessonPath, loadAnim, type AnimPlayer} from './data';
 import {REASONS, STATUS, device, useDevice} from './device';
 import type {DeviceStep} from './run';
@@ -166,22 +167,26 @@ export function AnimThumb({name, className}: {name: string; className: string}) 
   return <div className={className} ref={box} />;
 }
 
-/** A device step as the device looks: its screen (marks framed), its keys under it (the keys to press
- *  framed and the others dimmed, or lit as the device lit them), the keys of the demo going down. */
+/** A device step as the device looks: its screen in its display (enlarged, marks framed), the board's
+ *  keys under it (the keys to press framed and the others faded, or lit as the device lit them), the keys
+ *  of the demo going down. */
 export function StepPicture({step, pressed}: {step: DeviceStep; pressed?: Set<number>}) {
   const lang = useLang();
   const screen = useScreen({shot: step.shot, marks: step.marks.map((at) => ({at})), light: true, alt: step.say.en});
   const lit = step.lights ? GUIDE_LEDS[step.shot] ?? null : null;
-  const keys = !lit && !step.keymarks.length
-    ? keyboard({levels: null, focusOnly: true, pressed, label: step.keySpec,
-      marks: step.keySpec.split(/\s+/).filter(Boolean).map((token) => ({keys: token}))})
-    : keyboard({levels: lit, focusOnly: !lit, badgeAll: true, pressed, label: step.say.en,
+  const plain = !lit && !step.keymarks.length;
+  const keys = usePcbKeys(plain
+    ? {levels: null, focusOnly: true, pressed, label: step.keySpec,
+      marks: step.keySpec.split(/\s+/).filter(Boolean).map((token) => ({keys: token}))}
+    : {levels: lit, focusOnly: !lit, badgeAll: true, pressed, label: step.say.en,
       marks: step.keymarks.map(([spec, label]) => ({keys: spec, label: label[lang]}))});
   return (
     <div className="st-page">
-      <div className="st-screen"><div className="cz-bezel">{screen.svg}</div></div>
       <div className="st-keys">
-        {keys.svg}
+        <div className="cz-device">
+          <DeviceTop screen={screen.inner} label={step.say.en} dim={!!lit} />
+          {keys.svg}
+        </div>
         {step.keymarks.length > 0 && <Legend items={keys.items} rows={Math.ceil(step.keymarks.length / 2)} />}
       </div>
     </div>

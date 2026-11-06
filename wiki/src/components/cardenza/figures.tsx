@@ -1,10 +1,11 @@
-// Pictures in the product's look: the screenshot in its bezel with numbered
-// highlights, the key lights of that moment, step strips and key maps, each with a numbered legend.
+// Pictures in the product's look: the screenshot in its bezel with numbered highlights, the board's
+// keys with their lights at that moment (./pcb.tsx), step strips and key maps, each with a numbered legend.
 import React, {useId} from 'react';
 import leds from '@site/generated/data/leds.json';
 import {Key} from './chips';
 import {Icon, marker, nodeText, parts, say, useLang, useUrls} from './common';
-import {KB_H, KB_W, capText, isPrinted, keyGeometry, keyRole, keysFor, ledLight, targetRect} from './keys';
+import {targetRect} from './keys';
+import {DeviceTop, usePcbKeys} from './pcb';
 
 export type Levels = number[][];
 export type Item = [number, React.ReactNode];
@@ -29,10 +30,11 @@ function Badge({x, y, n, size, w: limitW, h: limitH, low = 0}: {x: number; y: nu
   );
 }
 
-/** The screenshot; marked areas stay bright, the rest dims; labelled marks get numbers. */
+/** The screenshot; marked areas stay bright, the rest dims; labelled marks get numbers. svg is it on
+ *  its own; inner is what it draws in the screen's 240 x 135 pixels (the device puts it in its display). */
 export function useScreen({shot, marks, first = 1, light = false, alt}: {
   shot: string; marks: {at: string; label?: React.ReactNode}[]; first?: number; light?: boolean; alt: string;
-}): {svg: React.ReactElement; items: Item[]} {
+}): {svg: React.ReactElement; inner: React.ReactElement; items: Item[]} {
   const urls = useUrls();
   const mask = 'm' + useId().replace(/[^a-zA-Z0-9]/g, '');
   const items: Item[] = [];
@@ -46,9 +48,9 @@ export function useScreen({shot, marks, first = 1, light = false, alt}: {
     }
     return box;
   });
-  const svg = (
-    <svg className="cz-screen" viewBox="0 0 240 135" role="img" aria-label={alt}>
-      <image href={urls.shot(shot)} x="0" y="0" width="240" height="135" preserveAspectRatio="none" />
+  const inner = (
+    <>
+      <image className="cz-screen-shot" href={urls.shot(shot)} x="0" y="0" width="240" height="135" preserveAspectRatio="none" />
       {boxes.length > 0 && (
         <>
           <mask id={mask}>
@@ -60,74 +62,10 @@ export function useScreen({shot, marks, first = 1, light = false, alt}: {
       )}
       {boxes.map((b, i) => <rect key={i} className="cz-hl" x={b.x} y={b.y} width={b.w} height={b.h} />)}
       {boxes.filter((b) => b.n).map((b) => <Badge key={b.n} x={b.x - 3} y={b.y - 3} n={b.n} size={9} w={240} h={135} />)}
-    </svg>
+    </>
   );
-  return {svg, items};
-}
-
-/** 4 x 14 keys lit by their LEDs (or unlit), with framed and numbered keys. focusOnly dims the keys
- *  no mark names; badgeAll numbers every frame of a mark (a key and the steps it goes on); pressed
- *  keys (KeyIndex) go down and light, as on the device (the guide's demos). */
-export function keyboard({levels, marks, first = 1, focusOnly = false, badgeAll = false, pressed, label}: {
-  levels: Levels | null; marks: {keys: string; label?: React.ReactNode}[]; first?: number; focusOnly?: boolean;
-  badgeAll?: boolean; pressed?: Set<number>; label: string;
-}): {svg: React.ReactElement; items: Item[]} {
-  const pad = 8;
-  const marked = new Set<string>();
-  const frames: React.ReactElement[] = [];
-  const badges: React.ReactElement[] = [];
-  const items: Item[] = [];
-  let number = first;
-  marks.forEach(({keys, label: text}, mi) => {
-    keys.split(/\s+/).filter(Boolean).forEach((token, index) => {
-      const positions = keysFor(token);
-      const xs: number[] = [], ys: number[] = [];
-      for (const [r, c] of positions) {
-        marked.add(`${r},${c}`);
-        const [x, y, w, h] = keyGeometry(r, c);
-        xs.push(x, x + w);
-        ys.push(y, y + h);
-      }
-      const x = Math.min(...xs), y = Math.min(...ys), w = Math.max(...xs) - x, h = Math.max(...ys) - y;
-      frames.push(<rect key={`${mi}-${index}`} className="cz-hl" x={x - 2.5} y={y - 2.5} width={w + 5} height={h + 5} rx="7" />);
-      if ((index === 0 || badgeAll) && text) {
-        badges.push(<Badge key={`${mi}-${index}`} x={x + w - 8} y={y - 9} n={number} size={15} w={KB_W + pad} h={KB_H + pad} low={-pad} />);
-      }
-    });
-    if (text) items.push([number++, text]);
-  });
-  const keys: React.ReactElement[] = [];
-  for (let row = 0; row < 4; row++) {
-    for (let column = 0; column < 14; column++) {
-      const [x, y, w, h] = keyGeometry(row, column);
-      const role = keyRole(row, column);
-      const [legend, tag] = capText(row, column);
-      const value = levels ? ledLight(levels[row][column]) : 0;
-      const glow = value ? Math.round(value ** 0.45 * 1000) / 1000 : 0;
-      const dim = focusOnly && !marked.has(`${row},${column}`);
-      const small = column > 0 && column < 13 && !isPrinted(row, column) ? ' small' : '';
-      keys.push(
-        <g key={row * 14 + column} data-k={row * 14 + column}
-          className={`k ${role}${dim ? ' dim' : ''}${glow > 0.55 ? ' lit' : ''}${pressed?.has(row * 14 + column) ? ' press' : ''}`}
-          style={{'--b': glow} as React.CSSProperties}>
-          <rect className="glow" x={x - 3} y={y - 3} width={w + 6} height={h + 6} rx="9" />
-          <rect className="cap" x={x} y={y} width={w} height={h} rx="6" />
-          <rect className="lamp" x={x} y={y} width={w} height={h} rx="6" />
-          <text className={'lg' + small} x={x + 5} y={y + 13}>{legend}</text>
-          {tag.trim() && <text className="tg" x={x + w - 4} y={y + 10}>{tag}</text>}
-        </g>,
-      );
-    }
-  }
-  const svg = (
-    <svg className="cz-keys" viewBox={`${-pad} ${-pad} ${KB_W + 2 * pad} ${KB_H + 2 * pad}`} role="img" aria-label={label}>
-      <rect className="kb-body" x={-pad} y={-pad} width={KB_W + 2 * pad} height={KB_H + 2 * pad} rx="12" />
-      {keys}
-      {frames}
-      {badges}
-    </svg>
-  );
-  return {svg, items};
+  const svg = <svg className="cz-screen" viewBox="0 0 240 135" role="img" aria-label={alt}>{inner}</svg>;
+  return {svg, inner, items};
 }
 
 export function Legend({items, rows}: {items: Item[]; rows?: number}) {
@@ -152,7 +90,8 @@ function caption(children: React.ReactNode): React.ReactNode {
   return parts<{children?: React.ReactNode}>(children, 'caption')[0]?.children;
 }
 
-/** A screenshot with the key lights of that moment and a numbered legend of what is marked. */
+/** The device at a moment: its screen (enlarged, in its display) and its key lights, and a numbered
+ *  legend of what is marked. */
 export function Shot({name, children}: {name: string; children?: React.ReactNode}) {
   const lang = useLang();
   const levels = needShot(name);
@@ -162,15 +101,15 @@ export function Shot({name, children}: {name: string; children?: React.ReactNode
     shot: name, alt,
     marks: parts<{at: string; children?: React.ReactNode}>(children, 'mark').map((m) => ({at: m.at, label: m.children})),
   });
-  const keys = keyboard({
+  const keys = usePcbKeys({
     levels, label: alt, first: screen.items.length + 1,
     marks: parts<{keys: string; children?: React.ReactNode}>(children, 'keymark').map((m) => ({keys: m.keys, label: m.children})),
   });
   return (
     <figure className="cz-figure cz-shot" data-shot={name}>
-      <div className="cz-bezel">{screen.svg}</div>
-      <div className="cz-keys-wrap">
-        <span className="cz-keys-label" data-nosearch=""><Icon name="light" />{say(lang, '同一时刻的按键灯', 'Key lights at that moment')}</span>
+      <span className="cz-keys-label" data-nosearch=""><Icon name="light" />{say(lang, '同一时刻的屏幕和按键灯', 'The screen and the key lights at that moment')}</span>
+      <div className="cz-device">
+        <DeviceTop screen={screen.inner} label={alt} dim />
         {keys.svg}
       </div>
       <Legend items={[...screen.items, ...keys.items]} />
@@ -213,7 +152,7 @@ export function Strip({children}: {children?: React.ReactNode}) {
 /** The keyboard with groups of keys framed and numbered, the rest dimmed. */
 export function Keymap({children}: {children?: React.ReactNode}) {
   const cap = caption(children);
-  const keys = keyboard({
+  const keys = usePcbKeys({
     levels: null, focusOnly: true, label: nodeText(cap),
     marks: parts<{keys: string; children?: React.ReactNode}>(children, 'group').map((g) => ({keys: g.keys, label: g.children})),
   });

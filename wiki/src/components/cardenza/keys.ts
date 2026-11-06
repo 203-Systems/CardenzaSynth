@@ -69,10 +69,6 @@ export function capText(row: number, column: number): [string, string] {
   return legend.trim() ? [legend, ''] : [CAP_PRINT[`${row},${column}`] ?? '', ''];
 }
 
-export function isPrinted(row: number, column: number): boolean {
-  return LEGEND[row][column].trim() !== '';
-}
-
 // Key lights (Devices/LedLight.h): the perceived level through the gamma table to CardenzaHAL's
 // linear key duty, times the HAL's gamma-2 global PWM.
 const KEY_LEVEL_FOR_PERCEIVED = [0, 1, 1, 1, 1, 1, 1, 2, 3, 4, 5, 7, 8, 10, 13, 15];
@@ -80,17 +76,6 @@ const KEY_LEVEL_FOR_PERCEIVED = [0, 1, 1, 1, 1, 1, 1, 2, 3, 4, 5, 7, 8, 10, 13, 
 export function ledLight(level: number, master = 15): number {
   return (KEY_LEVEL_FOR_PERCEIVED[Math.min(level, 15)] / 15) * (Math.min(master, 15) / 15) ** 2;
 }
-
-// Geometry of the key diagram.
-export const KEY_W = 40, KEY_H = 36, GAP = 4;
-
-export function keyGeometry(row: number, column: number): [number, number, number, number] {
-  const x = column * (KEY_W + GAP) + GAP * (+(column >= 1) + +(column >= 9) + +(column >= 13));
-  return [x, row * (KEY_H + GAP), KEY_W, KEY_H];
-}
-
-export const KB_W = 13 * (KEY_W + GAP) + 3 * GAP + KEY_W;
-export const KB_H = 4 * KEY_H + 3 * GAP;
 
 // Screen targets, in screen pixels (240 x 135).
 function cellRect(row: number, column: number): [number, number, number, number] {
