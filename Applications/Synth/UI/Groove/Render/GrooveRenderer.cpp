@@ -725,32 +725,48 @@ void DrawContent(Gfx& g, const Controller& controller, Animator& animator)
   }
 
   const auto& transition = animator.CurrentTransition();
-  if (animator.TransitionActive())
+  if (animator.TransitionActive() && transition.kind == Animator::TransitionKind::Scene)
+  {
+    // Scenes are floors, pages are rooms along one: a scene switch moves up and down, a page switch
+    // sideways. Going down (direction 1: every tap on ESC, round the ring and out of SETUP; Animator's
+    // SceneDirection) the new floor rises from below and the one left goes up out of sight; going up,
+    // the other way. A line in the ESC color is the floor between them.
+    constexpr int kFloorGap = 6;
+    const float p = fx::EaseInOutCubic(fx::Progress(now, transition.start, transition.duration));
+    const int direction = transition.direction;
+    const int distance = kContentArea.height + kFloorGap;
+    const int outgoing = -direction * static_cast<int>(p * static_cast<float>(distance));
+    const int incoming = direction * static_cast<int>((1.0f - p) * static_cast<float>(distance));
+    g.SetOrigin(0, outgoing);
+    render::SceneContent(g, controller, animator, transition.fromScene, transition.fromPage);
+    g.SetOrigin(0, incoming);
+    render::SceneContent(g, controller, animator, state.scene, controller.CurrentPage());
+    g.SetOrigin(0, 0);
+    const int floorY = direction > 0 ? kContentArea.y + incoming - kFloorGap / 2 - 1
+                                     : kContentArea.y + incoming + kContentArea.height + kFloorGap / 2;
+    g.HLine(kContentArea.x, floorY, kContentArea.width, kEsc);
+  }
+  else if (animator.TransitionActive())
   {
     const float p = fx::EaseInOutCubic(fx::Progress(now, transition.start, transition.duration));
-    const bool sceneChange = transition.kind == Animator::TransitionKind::Scene;
-    const int distance = sceneChange ? kContentWidth + 14 : kContentWidth / 2 + 10;
+    const int distance = kContentWidth / 2 + 10;
     const int direction = transition.direction;
     const int outgoing = -direction * static_cast<int>(p * static_cast<float>(distance));
     const int incoming = direction * static_cast<int>((1.0f - p) * static_cast<float>(distance));
     g.SetOrigin(outgoing, 0);
     render::SceneContent(g, controller, animator, transition.fromScene, transition.fromPage);
     g.SetOrigin(0, 0);
-    if (!sceneChange)
-    {
-      // Pages overlap: the outgoing page sinks into the dither while the new one covers it.
-      fx::Fade(g, kContentArea, static_cast<int>(p * 14.0f));
-      const int left = direction > 0 ? kContentArea.x + incoming : kContentArea.x;
-      const int right = direction > 0 ? kContentArea.x + kContentArea.width : kContentArea.x + kContentArea.width + incoming;
-      g.Fill(Rect{left, kContentArea.y, right - left, kContentArea.height}, kBlack);
-    }
+    // Pages overlap: the outgoing page sinks into the dither while the new one covers it.
+    fx::Fade(g, kContentArea, static_cast<int>(p * 14.0f));
+    const int left = direction > 0 ? kContentArea.x + incoming : kContentArea.x;
+    const int right = direction > 0 ? kContentArea.x + kContentArea.width : kContentArea.x + kContentArea.width + incoming;
+    g.Fill(Rect{left, kContentArea.y, right - left, kContentArea.height}, kBlack);
     g.SetOrigin(incoming, 0);
     render::SceneContent(g, controller, animator, state.scene, controller.CurrentPage());
     g.SetOrigin(0, 0);
-    // The seam rides the leading edge of the incoming screen.
+    // The seam rides the leading edge of the incoming page.
     const int seamX = direction > 0 ? kContentArea.x + incoming : kContentArea.x + kContentArea.width + incoming - 1;
-    fx::Seam(g, seamX, kContentArea.y, kContentArea.height, direction, sceneChange ? kEsc : kCtrl);
-    if (sceneChange && p < 0.45f) fx::Glitch(g, kContentArea, (0.45f - p) * 2.2f, now / 16);
+    fx::Seam(g, seamX, kContentArea.y, kContentArea.height, direction, kCtrl);
   }
   else
   {

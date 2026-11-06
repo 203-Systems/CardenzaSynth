@@ -152,20 +152,6 @@ void Seam(Gfx& g, int x, int top, int height, int direction, Color color)
   }
 }
 
-void Glitch(Gfx& g, const Rect& rect, float intensity, std::uint32_t seed)
-{
-  if (intensity <= 0.0f) return;
-  const int bands = 1 + static_cast<int>(intensity * 5.0f);
-  for (int band = 0; band < bands; ++band)
-  {
-    const std::uint32_t noise = Hash(seed + static_cast<std::uint32_t>(band) * 7919u);
-    const int y = rect.y + static_cast<int>(noise % static_cast<std::uint32_t>(std::max(1, rect.height)));
-    const int rows = 1 + static_cast<int>((noise >> 8) % 4);
-    const int shift = (static_cast<int>((noise >> 12) % 17) - 8) * static_cast<int>(intensity * 2.0f + 1.0f);
-    for (int row = 0; row < rows; ++row) g.ShiftRow(y + row, rect.x, rect.width, shift);
-  }
-}
-
 void Fade(Gfx& g, const Rect& rect, int level)
 {
   if (level <= 0) return;

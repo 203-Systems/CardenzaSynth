@@ -32,8 +32,6 @@ void Ripple(Gfx& g, const Rect& rect, float t, Color color);
 void ScanLine(Gfx& g, int x, int width, int y, int trail, Color color);
 // Vertical seam with a dithered motion trail on the side it came from.
 void Seam(Gfx& g, int x, int top, int height, int direction, Color color);
-// Displaces a few rows of the screen region horizontally (digital tear).
-void Glitch(Gfx& g, const Rect& rect, float intensity, std::uint32_t seed);
 // Dithered black mask: level 16 hides everything, 0 shows everything.
 void Fade(Gfx& g, const Rect& rect, int level);
 

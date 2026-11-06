@@ -21,6 +21,16 @@ int PageDirection(std::size_t from, std::size_t to, std::size_t count)
   return delta >= 0 ? 1 : -1;
 }
 
+// Direction of a scene change: 1 down, -1 up (GrooveRenderer). A tap on ESC walks the ring (INSTR, SEQ,
+// TAPE, INSTR ...) and always goes down, TAPE back to INSTR too; a step back round the ring goes up.
+// SETUP is above the ring: going there goes up, leaving it (ESC) down.
+int SceneDirection(Scene from, Scene to)
+{
+  if (IsMusicScene(from) && to == NextMusicScene(from)) return 1;
+  if (IsMusicScene(to) && from == NextMusicScene(to)) return -1;
+  return static_cast<int>(to) > static_cast<int>(from) ? 1 : -1;
+}
+
 }  // namespace
 
 std::uint32_t Animator::Key(const char* text, std::uint32_t salt)
@@ -92,8 +102,8 @@ void Animator::Update(const Controller& controller, std::uint32_t now)
   const bool trackChanged = state.track != track_;
   if (state.scene != scene_)
   {
-    transition_ = Transition{TransitionKind::Scene, scene_, pages_[static_cast<std::size_t>(scene_)],
-                             static_cast<int>(state.scene) > static_cast<int>(scene_) ? 1 : -1, now, kSceneSlideMs};
+    transition_ = Transition{TransitionKind::Scene, scene_, pages_[static_cast<std::size_t>(scene_)], SceneDirection(scene_, state.scene),
+                             now, kSceneSlideMs};
   }
   else if (!trackChanged && state.page[static_cast<std::size_t>(state.scene)] != pages_[static_cast<std::size_t>(state.scene)] &&
            controller.TopModal() == nullptr)

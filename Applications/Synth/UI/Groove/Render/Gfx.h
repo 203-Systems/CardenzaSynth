@@ -57,8 +57,6 @@ public:
   void SetOrigin(int x, int y) { originX_ = x; originY_ = y; }
   int OriginX() const { return originX_; }
   int OriginY() const { return originY_; }
-  // Glitch helper: shifts pixels of screen row `y` inside [x, x + width) by `dx` (screen space).
-  void ShiftRow(int y, int x, int width, int dx);
 
   void Pixel(int x, int y, Color color);
   void HLine(int x, int y, int width, Color color);

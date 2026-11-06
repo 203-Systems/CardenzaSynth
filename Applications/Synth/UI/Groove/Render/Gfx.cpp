@@ -202,17 +202,6 @@ void Gfx::Dither(const Rect& area, Color color, int level)
   }
 }
 
-void Gfx::ShiftRow(int y, int x, int width, int dx)
-{
-  if (pixels_ == nullptr || y < 0 || y >= height_ || dx == 0) return;
-  const int left = std::max(0, x);
-  const int right = std::min(width_, x + width);
-  if (right - left <= std::abs(dx)) return;
-  auto* row = pixels_ + static_cast<std::size_t>(y) * static_cast<std::size_t>(width_);
-  if (dx > 0) std::copy_backward(row + left, row + right - dx, row + right);
-  else std::copy(row + left - dx, row + right, row + left);
-}
-
 void Gfx::DottedHLine(int x, int y, int width, Color color, int gap)
 {
   for (int offset = 0; offset < width; offset += 1 + gap) Pixel(x + offset, y, color);
