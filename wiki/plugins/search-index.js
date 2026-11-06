@@ -95,8 +95,10 @@ module.exports = function searchIndex(context) {
         const generated = path.join(siteDir, 'generated', 'data');
         const synonyms = JSON.parse(fs.readFileSync(path.join(generated, 'synonyms.json'), 'utf8'));
         const manual = JSON.parse(fs.readFileSync(path.join(generated, 'manual.json'), 'utf8'));
-        let build = '';
-        try { build = execSync('git rev-parse --short HEAD', {cwd: siteDir}).toString().trim(); } catch (e) { /* not a checkout */ }
+        let build = process.env.CARDENZA_LEARN_COMMIT?.slice(0, 7) || '';
+        if (!build) {
+          try { build = execSync('git rev-parse --short HEAD', {cwd: siteDir}).toString().trim(); } catch (e) { /* not a checkout */ }
+        }
         index = {version: manual.version, build, date: new Date().toISOString().slice(0, 10), sections: [],
           synonyms: synonyms.groups, stopwords: synonyms.stopwords || []};
       } else {

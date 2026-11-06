@@ -7,17 +7,18 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
-// The product's name in Chinese is 鸣片 (the page titles' "| 鸣片"; the navbar's is in i18n/zh-Hans).
-const chinese = process.env.DOCUSAURUS_CURRENT_LOCALE === 'zh-Hans';
+// Keep the Cardenza brand in the browser title in every language.
+const baseUrl = process.env.CARDENZA_LEARN_BASE_URL || '/learn/';
+const simulatorUrl = process.env.CARDENZA_SIMULATOR_URL || 'pathname:///';
 
 const config: Config = {
-  title: chinese ? '鸣片' : 'Cardenza',
+  title: 'Cardenza',
   tagline: 'Cardenza Groovebox',
   favicon: 'img/favicon.png',
 
   // Served next to the web simulator, where the Learn site is today (tools/web-deploy.sh).
-  url: 'https://cardenza-synth.203.io',
-  baseUrl: '/learn/',
+  url: process.env.CARDENZA_LEARN_URL || 'https://cardenza-synth.203.io',
+  baseUrl,
   // Pages as folders (manual/seq/index.html): the Vercel project serves files as they are (no
   // cleanUrls), so /learn/manual/seq/ works there without a rewrite.
   trailingSlash: true,
@@ -87,7 +88,7 @@ const config: Config = {
           to: '/',
           label: 'Guide',
           position: 'left',
-          activeBaseRegex: '^/learn/(zh-Hans/)?(guide/.*)?$',
+          activeBaseRegex: `^${baseUrl}(zh-Hans/)?(guide/.*)?$`,
         },
         {
           type: 'docSidebar',
@@ -96,7 +97,7 @@ const config: Config = {
           label: 'Manual',
         },
         {
-          href: 'pathname:///',
+          href: simulatorUrl,
           target: '_self',
           label: 'Simulator',
           position: 'left',
@@ -121,7 +122,7 @@ const config: Config = {
           items: [
             {label: 'Guide', to: '/'},
             {label: 'Manual', to: '/manual/start'},
-            {label: 'Simulator', href: 'pathname:///', target: '_self'},
+            {label: 'Simulator', href: simulatorUrl, target: '_self'},
           ],
         },
         {
