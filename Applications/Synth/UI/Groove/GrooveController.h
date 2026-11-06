@@ -519,6 +519,7 @@ public:
     guideHintWaits_ = waiting;
   }
   std::uint64_t GuideHint() const { return guideHint_; }
+  bool GuideHintWaits() const { return guideHintWaits_; }
   // Where a lesson starts: the track, then the scene and its page (from 0; -1 keeps the scene's page).
   void GuideGoTo(Scene scene, int page, std::size_t track);
   // What the lesson page checks, letter and number pairs with the page tab last:

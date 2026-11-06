@@ -108,7 +108,7 @@ private:
   bool EnterGuide(std::string& reason);
   void ExitGuide();
   void GuideSetup(const char* fields, std::size_t length);
-  bool FreshGuideProject();
+  bool FreshGuideProject(bool newKeyboard = false);
   void FillGuideSong(int stage);
   void SendGuide(const std::string& text);
   void SendGuideState(std::uint32_t now, bool always);
@@ -176,6 +176,7 @@ private:
   std::uint32_t guideLedsAt_ = 0;
   std::array<char, 2 + groove::kKeyCount> guideLeds_{};  // the last GD sent
   groove::Scene guideScene_ = groove::Scene::Instrument;  // where the user was, to go back there
+  groove::KeyboardSettings guideKeyboard_{};  // the user's keyboard: the practice projects play with it
   std::uint8_t guidePage_ = 0;
   // Changes the autosave does not have yet, and when the first of them came.
   bool sessionChanged_ = false;

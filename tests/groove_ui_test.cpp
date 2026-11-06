@@ -1,6 +1,7 @@
 // Groovebox UI workflow tests: the real GrooveApp and runtime on the simulator device, driven key by
 // key with a fake clock so hold, repeat and transition timing is deterministic.
 #include <algorithm>
+#include <bitset>
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -2724,6 +2725,15 @@ void TestGuide(Harness& h)
   };
   listen();
   heard.clear();
+  // The user's keyboard is CHROMA (every pad a semitone): the lessons play with it.
+  const auto setLayout = [&](groove::KeyboardLayout layout, Key step) {
+    GoToSetupPage(h, groove::kSetupKeys);
+    h.Tap(Grid(0));  // LAYOUT
+    for (int tries = 0; tries < 4 && h.State().keyboard.layout != layout; ++tries) h.Tap(step);
+    assert(h.State().keyboard.layout == layout);
+    h.Tap(kEsc);
+  };
+  setLayout(groove::KeyboardLayout::Chromatic, kAdd);
   // The working state: SEQ, T1 with one hit on step 3.
   GoToScene(h, 2);
   h.Chord(kTab, Grid(0));
@@ -2747,6 +2757,42 @@ void TestGuide(Harness& h)
   assert(field('s') == 1 && field('p') == 0 && field('t') == 0 && field('h') == 0 && hits(0) == 0);
   assert(state().find("nVOICE") != std::string::npos);
   h.Render();
+
+  // The practice project has the user's keyboard; f1 gives a lesson a new project's (PIANO).
+  assert(field('z') == 2);
+  // Every pad of the hint lights, all 32 in two messages (one holds 29: kAppMessageSize), and none the
+  // keyboard leaves silent: PIANO's gaps stay dark.
+  const auto hex = [](std::size_t key) { return std::string(1, "0123456789abcdef"[key / 16]) + "0123456789abcdef"[key % 16]; };
+  std::string first = "GH", rest = "G+";
+  std::size_t listed = 0;
+  for (std::size_t row = 0; row < 4; ++row)
+    for (std::size_t column = 1; column <= 8; ++column) (listed++ < 29 ? first : rest) += hex(groove::KeyIndex(row, column));
+  assert(first.size() <= Device::USB::kAppMessageSize);
+  const auto padsFull = [&]() {
+    groove::LedFrame frame{};
+    ui.ComputeLeds(frame);
+    std::uint64_t full = 0;
+    for (std::size_t row = 0; row < 4; ++row)
+      for (std::size_t column = 1; column <= 8; ++column)
+        if (frame[groove::KeyIndex(row, column)].level == groove::kLedFull) full |= std::uint64_t{1} << groove::KeyIndex(row, column);
+    return full;
+  };
+  send("GLs1p0t2");
+  send(first);
+  send(rest);
+  assert(std::bitset<64>(padsFull()).count() == 32);
+  send("GLr1f1s1p0t2");
+  assert(field('z') == 0 && h.State().track == 1);
+  send(first);
+  send(rest);
+  const std::uint64_t lit = padsFull();
+  assert(std::bitset<64>(lit).count() == 26);
+  for (const std::size_t row : {0u, 2u})
+    for (const std::size_t column : {1u, 4u, 8u}) assert(((lit >> groove::KeyIndex(row, column)) & 1u) == 0);
+  assert(((lit >> groove::KeyIndex(3, 8)) & 1u) != 0);  // from G+
+  send("GLr1s1p0t1");
+  assert(field('z') == 2 && field('t') == 0);
+  send("GH");
 
   // The hint, as the lesson page shows it: ESC and ADD full, every other key no brighter than half; on
   // the device the two edge keys go full too (otherwise held to the dimmest glow). While the step waits
@@ -2852,6 +2898,7 @@ void TestGuide(Harness& h)
   // While nothing runs, messages without G are ignored, and a guide message after the end is too.
   send("GH000d");
   assert(ui.GuideHint() == 0);
+  setLayout(groove::KeyboardLayout::Piano, kSub);
 }
 
 // Every cell of every page of every scene, on every engine, stopped and playing: moved both ways, in
