@@ -522,6 +522,11 @@ public:
   bool GuideHintWaits() const { return guideHintWaits_; }
   // Where a lesson starts: the track, then the scene and its page (from 0; -1 keeps the scene's page).
   void GuideGoTo(Scene scene, int page, std::size_t track);
+  // The pages and focus (see GrooveGuide.cpp): the user's kept while the guide runs and put back after
+  // it; a lesson's practice project gets those of a new start.
+  void GuideKeepView() { CopyView(guideView_, state_); }
+  void GuideRestoreView() { CopyView(state_, guideView_); }
+  void GuideFreshView() { CopyView(state_, UiState{}); }
   // What the lesson page checks, letter and number pairs with the page tab last:
   // "s1p0t0e0y0m0o0h0q1w0k0z0c0a0g0l0x0v123nVOICE" (GrooveGuide.cpp says what each one is).
   std::string GuideState() const;
@@ -728,6 +733,8 @@ private:
   bool guide_ = false;
   std::uint64_t guideHint_ = 0;
   bool guideHintWaits_ = true;
+  UiState guideView_;  // the user's pages and focus while the guide runs
+  static void CopyView(UiState& to, const UiState& from);
   void ComputeSceneLeds(LedFrame& frame) const;
   void FillPresetRows(Modal& modal) const;
   void SetCellParameter(std::size_t index, int value);

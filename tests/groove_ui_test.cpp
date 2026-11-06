@@ -2758,8 +2758,11 @@ void TestGuide(Harness& h)
   assert(state().find("nVOICE") != std::string::npos);
   h.Render();
 
-  // The practice project has the user's keyboard; f1 gives a lesson a new project's (PIANO).
+  // The practice project has the user's keyboard; f1 gives a lesson a new project's (PIANO). Its pages are
+  // those of a new start: SETUP opens on PROJECT, though the user left it on KEYS.
   assert(field('z') == 2);
+  send("GLs0");
+  assert(field('s') == 0 && field('p') == 0);
   // Every pad of the hint lights, all 32 in two messages (one holds 29: kAppMessageSize), and none the
   // keyboard leaves silent: PIANO's gaps stay dark.
   const auto hex = [](std::size_t key) { return std::string(1, "0123456789abcdef"[key / 16]) + "0123456789abcdef"[key % 16]; };
@@ -2883,6 +2886,8 @@ void TestGuide(Harness& h)
   // The end: the working state is back, where the user left it.
   send("GX");
   assert(sent("GX") && !ui.Guide());
+  // The user's pages are theirs again: SETUP where they left it.
+  assert(h.State().page[static_cast<std::size_t>(Scene::Setup)] == groove::kSetupKeys);
   assert(h.State().scene == Scene::Sequence && h.State().track == 0 && hits(0) == 1);
   std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
   assert(app.Sequencer().StepNoteEvents(0, 2, notes) == 1 && app.Sequencer().PatternCount(0) == 1);

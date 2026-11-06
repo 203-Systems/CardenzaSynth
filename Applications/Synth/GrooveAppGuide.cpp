@@ -214,6 +214,7 @@ bool GrooveApp::EnterGuide(std::string& reason)
   guideSongMode_ = sequencer_.SongMode();
   // The user's keyboard (layout, scale, octave, ...) is a setting of theirs: the lessons play with it.
   guideKeyboard_ = controller_.Settings().keyboard;
+  controller_.GuideKeepView();
   if (!FreshGuideProject())
   {
     // Nothing was replaced: the working state is still here.
@@ -244,6 +245,7 @@ bool GrooveApp::FreshGuideProject(bool newKeyboard)
   if (!NewProject(ui, message)) return false;
   if (!newKeyboard) ui.keyboard = guideKeyboard_;
   controller_.Restore(ui, "");
+  controller_.GuideFreshView();
   controller_.GuideGoTo(groove::Scene::Instrument, 0, synth::kDefaultActiveTrack);
   return true;
 }
@@ -265,6 +267,7 @@ void GrooveApp::ExitGuide()
   if (RestoreSessionState())
   {
     sequencer_.SetSongMode(guideSongMode_);
+    controller_.GuideRestoreView();
     controller_.GuideGoTo(guideScene_, guidePage_, controller_.State().track);
   }
   else
