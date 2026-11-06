@@ -2,9 +2,9 @@
 # publishes a Nightly to the Launcher hub; a vMAJOR.MINOR.PATCH tag (equal to version.txt)
 # publishes that release and makes a GitHub Release holding its bin.
 #
-# Repository settings: secret CARDENZA_HAL_TOKEN (read access to 203-Systems/CardenzaHAL),
-# secret LAUNCHER_APP_TOKEN (the Cardenza Synth App Token, target cardenza); optional variables
-# LAUNCHER_APP_ID and LAUNCHER_PUBLISH_URL.
+# Repository settings: secret LAUNCHER_APP_TOKEN (the Cardenza Synth App Token, target cardenza);
+# optional variables LAUNCHER_APP_ID and LAUNCHER_PUBLISH_URL. The submodules (AMY, CardenzaHAL)
+# are public.
 name: Firmware
 on:
   push:
@@ -22,14 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: true
           persist-credentials: false
-      - uses: ./.github/actions/submodules
-        with:
-          hal-token: ${{ secrets.CARDENZA_HAL_TOKEN }}
       - name: Build
         shell: bash
         run: |
           set -euo pipefail
+          # The container's user does not own the checkout; the build reads its Git commit.
+          git config --global --add safe.directory '*'
           . "$IDF_PATH/export.sh" > /dev/null
           version=$(tr -d '[:space:]' < version.txt)
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
@@ -60,10 +60,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: true
           persist-credentials: false
-      - uses: ./.github/actions/submodules
-        with:
-          hal-token: ${{ secrets.CARDENZA_HAL_TOKEN }}
       - name: Host tests
         run: |
           cmake -S . -B build/host -DDEVICE=CardenzaSim -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
