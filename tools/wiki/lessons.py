@@ -17,6 +17,8 @@ new project instead of the user's, for lessons that change it or name the notes 
          picture is taken there, else at the end)
   marks  highlights on the step's picture (screen targets, wiki/src/components/cardenza/keys.ts)
   lights the key picture glows with the device's key lights at that moment (as in the manual's pictures)
+  byLayout  {"1": {"say": ...}, "2": ...}: what a step that names PIANO's keys says when the device's
+         keyboard (the user's) is SCALE (1) or CHROMA (2); its picture then shows that keyboard, without keymarks
   keymarks  numbered frames on the key picture, [[KEYS, {zh, en}], ...], told under it; they take the
          place of the plain frame around "keys"
 

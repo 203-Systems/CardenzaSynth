@@ -177,6 +177,7 @@ def guide_data(guide, index):
                         "marks": step.get("marks", []),
                         "lights": bool(step.get("lights")),
                         "keymarks": step.get("keymarks", []),
+                        "byLayout": step.get("byLayout", {}),
                     })
             out["lessons"][lesson_id] = entry
     return out

@@ -65,7 +65,8 @@
       "start": "s1p0t2",
       "steps": [
         {"say": {"zh": "弹琴键：和钢琴一样，下面一行白键，上面一行黑键。", "en": "Play the keys: like a piano, white keys below, black keys above."},
-         "keys": "PADS", "done": [["press", "PADS"]], "demo": "tap r3c1; wait 10; tap r3c2; wait 10; tap r3c3; wait 10; tap r2c2; wait 90; shot", "lights": true, "keymarks": [["r0c1-r0c8", {"zh": "黑键", "en": "Black keys"}], ["r1c1-r1c8", {"zh": "白键，从 C4 开始", "en": "White keys, from C4"}], ["r2c1-r2c8", {"zh": "黑键", "en": "Black keys"}], ["r3c1-r3c8", {"zh": "白键，从左下角的 C3 开始", "en": "White keys, from C3 at the bottom left"}]]},
+         "keys": "PADS", "done": [["press", "PADS"]], "demo": "tap r3c1; wait 10; tap r3c2; wait 10; tap r3c3; wait 10; tap r2c2; wait 90; shot", "lights": true, "byLayout": {"1": {"say": {"zh": "弹琴键：现在是 SCALE 排列，每个键都是调里的音。一行是一个八度，从左往右升高，左下角是主音。", "en": "Play the keys: in the SCALE layout every key is a note of the key. A row is an octave, rising left to right, the root at the bottom left."}}, "2": {"say": {"zh": "弹琴键：现在是 CHROMA 排列，每个键都能弹。从左下角起，往右一个键升高半音，一行 8 个，上一行接着往上。", "en": "Play the keys: in the CHROMA layout every key plays. From the bottom left each key to the right is a semitone higher, 8 to a row, the row above going on."}}},
+         "keymarks": [["r0c1-r0c8", {"zh": "黑键", "en": "Black keys"}], ["r1c1-r1c8", {"zh": "白键，从 C4 开始", "en": "White keys, from C4"}], ["r2c1-r2c8", {"zh": "黑键", "en": "Black keys"}], ["r3c1-r3c8", {"zh": "白键，从左下角的 C3 开始", "en": "White keys, from C3 at the bottom left"}]]},
         {"say": {"zh": "按 {{key:ADD}} 或 {{key:SUB}}：换一个音色，名字在屏幕最上面。", "en": "{{key:ADD}} or {{key:SUB}}: another sound. Its name is at the top of the screen."},
          "keys": "ADD SUB", "marks": ["header"], "done": [["change", "v"]], "demo": "tap ADD"},
         {"say": {"zh": "再弹一下，听听新音色。", "en": "Play again and hear the new sound."},
@@ -198,7 +199,7 @@
       "more": "play-scale",
       "title": {"zh": "换音阶", "en": "Scales"},
       "lead": {"zh": "选一个调，弹什么都在调上。", "en": "Pick a scale; whatever you play stays in it."},
-      "start": "f1s1p0t2",
+      "start": "r1f1s1p0t2",
       "steps": [
         {"say": {"zh": "随便弹几个琴键：有的音放在一起很好听，有的却怎么听都不对劲，像是跑调了。有没有办法让每个键都好听、不跑调？", "en": "Play a few keys at random: some notes sound good together, others just sound wrong, out of tune. Is there a way for every key to sound right?"},
          "keys": "PADS", "done": [["press", "PADS"]], "demo": "tap r3c1; wait 12; tap r2c2; wait 12; tap r3c4; wait 12; tap r2c5; wait 12; tap r3c7"},

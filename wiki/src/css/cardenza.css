@@ -75,11 +75,11 @@ html { background-color: var(--ifm-background-color); }
 .cz-figure a { color: var(--cz-tab); }
 .cz-figure strong { color: #fff; }
 /* A figure of the device (the white board, its screen and key lights): on a light table, as in the guide. */
-.cz-figure.cz-shot, .cz-figure.cz-keymap { background: #eceeea; border-color: #d6d8d4; color: #262624; }
-.cz-figure.cz-shot figcaption, .cz-figure.cz-keymap figcaption { color: #575854; border-top-color: #c6c8c3; }
-.cz-figure.cz-shot strong, .cz-figure.cz-keymap strong { color: #111; }
-.cz-figure.cz-shot a, .cz-figure.cz-keymap a { color: #0a7884; }
-.cz-shot .cz-keys-label { color: #575854; }
+.cz-figure.cz-shot, .cz-figure.cz-keymap { background: none; border-color: transparent; padding-left: 0; padding-right: 0; color: var(--ifm-font-color-base); }
+.cz-figure.cz-shot figcaption, .cz-figure.cz-keymap figcaption { color: var(--ifm-color-emphasis-700); border-top-color: var(--ifm-color-emphasis-300); }
+.cz-figure.cz-shot strong, .cz-figure.cz-keymap strong { color: inherit; }
+.cz-figure.cz-shot a, .cz-figure.cz-keymap a { color: var(--ifm-link-color); }
+.cz-shot .cz-keys-label { color: var(--ifm-color-emphasis-700); }
 .cz-bezel { background: #000; padding: 8px; border-radius: 8px; border: 1px solid #1d1d1b; box-shadow: 0 0 0 4px #0a0a09; line-height: 0; max-width: 576px; }
 .cz-screen { display: block; width: 100%; height: auto; }
 .cz-screen image { image-rendering: pixelated; }
