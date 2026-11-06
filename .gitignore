@@ -55,3 +55,16 @@ logs/
 # ESP-IDF component manager downloads (dependencies.lock pins them) and Python caches
 Devices/Cardenza/managed_components/
 __pycache__/
+
+# Local agent planning notes (project rules stay tracked)
+/.agent/
+
+# macOS metadata and editor temporary files
+.DS_Store
+._*
+*.swp
+*.swo
+*~
+
+# Local exports
+/exports/

@@ -127,6 +127,6 @@ ctest --test-dir build/synth-regression -C Debug --output-on-failure
 - [Groovebox 设计](docs/groovebox-design.md)：当前交互、视觉与实现说明。
 - [应用存储协议](docs/app-storage-protocol.md)：SD 卡目录、设置文件格式、应用生命周期。
 - [Learn](https://cardenza-synth.vercel.app/learn/)：入门教程（接上机器，跟着课程按）和完整的中英文说明书，带截图、按键灯、地图导航和同义词搜索（Docusaurus 网站，源文件在 `wiki/`，`make learn` 构建，见 [wiki/README.md](wiki/README.md)）。
-- 旧版界面的清单与改版记录（`docs/ui-inventory.*`、`docs/ui-redesign*`、`docs/sequencer.md`）只作历史参考。旧界面代码仍在仓库中，`-DCARDENZA_GROOVE_UI=OFF` 可以构建。
+- 旧界面代码仍在仓库中，`-DCARDENZA_GROOVE_UI=OFF` 可以构建；当前交互以 [Groovebox 规格](docs/groovebox-design.md) 为准。
 
 实机按键手感、屏幕实际观感、扬声器音量曲线、麦克风录音电平仍需在板子前确认。外部 MIDI / USB 同步尚未实现。两分钟 Electro House 示例的生成工具见 [Demo 说明](tools/demo/README.md)。

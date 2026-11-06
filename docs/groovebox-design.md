@@ -1,6 +1,6 @@
 # Cardenza Groovebox · 交互与视觉规格
 
-日期：2026-10-22。本文描述已经实现的 groovebox 界面，取代 `ui-redesign-2026-10-11.md`、`ui-inventory.md` 中的旧 Home / Context 交互。音源、音序数据、工程与采样存储沿用原运行时，本轮只在运行时上做加法。代码在 `Applications/Synth/UI/Groove/` 与 `Applications/Synth/GrooveApp.*`。
+日期：2026-10-22。本文描述已经实现的 groovebox 界面，取代旧版 Home / Context 交互。音源、音序数据、工程与采样存储沿用原运行时，本轮只在运行时上做加法。代码在 `Applications/Synth/UI/Groove/` 与 `Applications/Synth/GrooveApp.*`。
 
 ## 1. 硬件
 
