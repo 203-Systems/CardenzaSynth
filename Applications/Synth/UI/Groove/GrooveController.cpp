@@ -577,7 +577,8 @@ void Controller::PressPad(std::size_t row, std::size_t column)
       state_.drumVelocity[state_.track] = velocity;
     }
     else state_.noteLane[state_.track] = static_cast<std::uint8_t>(note);
-    for (std::size_t voice = 0; voice < voices; ++voice) editing = PadForSequence(chord[voice], true, drums ? velocity : std::uint8_t{0}) || editing;
+    // The pad's notes as one: a chord goes in whole, or (any of it in a step) comes out whole.
+    editing = PadForSequence(chord.data(), voices, true, drums ? velocity : std::uint8_t{0});
   }
   const bool audition = !editing || !sequencer.Playing();
   state_.padNote[index] = static_cast<std::uint8_t>(note);

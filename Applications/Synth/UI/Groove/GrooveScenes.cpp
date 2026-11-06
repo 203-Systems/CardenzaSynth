@@ -784,14 +784,15 @@ void Controller::RunSlotAction(SlotAction action)
 // ---------------------------------------------------------------------------------------------
 // SEQ
 
-// A pad while steps are selected (held or tapped): its note goes into them, or comes out. A new note
-// gets `velocity` (a drum pad's row), or with 0 the track's new-note velocity.
-bool Controller::PadForSequence(int note, bool pressed, std::uint8_t velocity)
+// A pad while steps are selected (held or tapped): its notes (its chord, as one) go into them, or come
+// out: a step that holds any of them loses them all and gains none. A new note gets `velocity` (a drum
+// pad's row), or with 0 the track's new-note velocity.
+bool Controller::PadForSequence(const std::uint8_t* notes, std::size_t count, bool pressed, std::uint8_t velocity)
 {
-  if (!pressed) return false;
+  if (!pressed || count == 0) return false;
   auto& sequencer = host_.Sequencer();
   if (!sequencer.BuildUiState(state_.track).hasHeldSteps) return false;
-  if (sequencer.ToggleNoteOnSelectedSteps(static_cast<std::uint8_t>(note), velocity)) MarkDirty();
+  if (sequencer.ToggleNotesOnSelectedSteps(notes, count, velocity)) MarkDirty();
   return true;
 }
 

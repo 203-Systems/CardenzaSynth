@@ -795,6 +795,51 @@ void TestSelectionEditing() {
   sequencer.reset();
 }
 
+// A chord (or the notes of the pads held) goes into a step or out of it as one group: when the step
+// holds any of its notes they all come out and none goes in; when it holds none they all go in.
+void TestChordTogglesAsOne() {
+  using namespace synth;
+  Output output;
+  auto sequencer = std::make_unique<SynthSequencer>();
+  sequencer->SetMidiSink(Sink, &output);
+  using Values = std::vector<int>;
+  const std::uint8_t chord[] = {60, 64, 67};
+  const std::uint8_t third = 64;
+
+  // Pads held, a step tapped: an empty step takes the whole chord, and gives it back whole.
+  assert(sequencer->ToggleStepNotes(0, 0, chord, std::size(chord)));
+  assert(StepPitches(*sequencer, 0) == (Values{60, 64, 67}));
+  assert(sequencer->ToggleStepNotes(0, 0, chord, std::size(chord)));
+  assert(StepPitches(*sequencer, 0).empty());
+  // A step that holds one of its notes (and another note): that one comes out, C and G do not go in,
+  // the other note stays.
+  const std::uint8_t mixed[] = {64, 72};
+  assert(sequencer->ToggleStepNotes(0, 1, mixed, std::size(mixed)));
+  assert(sequencer->ToggleStepNotes(0, 1, chord, std::size(chord)));
+  assert(StepPitches(*sequencer, 1) == (Values{72}));
+
+  // Steps selected, then a chord's pad: each selected step decides for itself.
+  assert(sequencer->ToggleStepNotes(0, 2, &third, 1));  // step 2 holds E; step 3 is empty
+  sequencer->SetStepSelected(2, true);
+  sequencer->SetStepSelected(3, true);
+  assert(sequencer->ToggleNotesOnSelectedSteps(chord, std::size(chord), 90));
+  assert(StepPitches(*sequencer, 2).empty() && StepPitches(*sequencer, 3) == (Values{60, 64, 67}));
+  assert(StepValues(*sequencer, 3, [](const auto& note) { return note.velocity; }) == (Values{90, 90, 90}));
+  assert(sequencer->ToggleNotesOnSelectedSteps(chord, std::size(chord)));
+  assert(StepPitches(*sequencer, 2) == (Values{60, 64, 67}) && StepPitches(*sequencer, 3).empty());
+  sequencer->ClearSelectedSteps();
+  assert(!sequencer->ToggleNotesOnSelectedSteps(chord, std::size(chord)));  // nothing selected
+
+  // The older step keys (PressStep) take the held notes as one group too.
+  sequencer->PressStep(4, &third, 1);
+  sequencer->ReleaseStep(4);
+  assert(StepPitches(*sequencer, 4) == (Values{64}));
+  sequencer->PressStep(4, chord, std::size(chord));
+  sequencer->ReleaseStep(4);
+  assert(StepPitches(*sequencer, 4).empty());
+  sequencer.reset();
+}
+
 void TestSequencerSettings() {
   using namespace synth;
   Output output;
@@ -1580,6 +1625,7 @@ int main() {
   std::filesystem::create_directory(projectDirectory);
   TestSequencerEditing();
   TestSelectionEditing();
+  TestChordTogglesAsOne();
   TestSequencerSettings();
   TestLiveRecording();
   TestSwingPlayback();

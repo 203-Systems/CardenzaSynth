@@ -55,6 +55,8 @@ public:
   // pattern longer than 16 steps is cut in 16 equal slices, a bit for each.
   std::uint16_t PatternStepMask(std::size_t trackIndex, std::size_t patternIndex) const;
 
+  // A step pressed (it is held) with notes held: in the NOTE lane they go in or out as one group, all
+  // or none (any of them there takes them all out).
   void PressStep(std::size_t stepIndex, const std::uint8_t* heldNotes, std::size_t heldNoteCount);
   void ReleaseStep(std::size_t stepIndex);
   void ClearHeldSteps();
@@ -75,10 +77,10 @@ public:
   std::size_t StepNoteEvents(std::size_t track, std::size_t step, std::array<StepNoteView, 8>& notes) const;
   // Step recording: the step's notes become exactly these (one step long, on the grid).
   bool SetStepNotes(std::size_t track, std::size_t step, const std::uint8_t* notes, std::size_t count, std::uint8_t velocity);
-  // Notes held on the pads and a step tapped (MatrixOS): when the step of the track's active pattern
-  // holds any of them they come out, else they all go in, with the track's new-note length and each
-  // its velocity from `velocities` (null, or 0 for a note: the track's new-note velocity). The
-  // selection is left alone. False when nothing was given.
+  // Notes held on the pads and a step tapped (MatrixOS): all or none, a chord as one. When the step of
+  // the track's active pattern holds any of them they all come out and none goes in, else they all go
+  // in, with the track's new-note length and each its velocity from `velocities` (null, or 0 for a
+  // note: the track's new-note velocity). The selection is left alone. False when nothing was given.
   bool ToggleStepNotes(std::size_t track, std::size_t step, const std::uint8_t* notes, std::size_t count,
                        const std::uint8_t* velocities = nullptr);
   // Adds one timed note to a pattern of a track (a note of the same pitch on that step is
@@ -177,6 +179,10 @@ public:
   // A note into the selected steps, or out of those that have it; a new one gets `velocity` (0: the
   // track's new-note velocity).
   bool ToggleNoteOnSelectedSteps(std::uint8_t note, std::uint8_t velocity = 0);
+  // The notes of one pad (its chord) into the selected steps or out of them, as one: a selected step
+  // that holds any of them loses them all and gains none, one that holds none gains them all, each at
+  // `velocity` (0: the track's new-note velocity). False when no step is selected or no note given.
+  bool ToggleNotesOnSelectedSteps(const std::uint8_t* notes, std::size_t count, std::uint8_t velocity = 0);
   void SetEditLane(SequencerEditLane lane);
   void CycleEditLane();
   void CycleNoteScope();
@@ -414,6 +420,10 @@ private:
   void AuditionScopedNoteLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
 
   void ToggleNoteInStepLocked(StepData& step, std::uint8_t note, TrackData& track, std::size_t stepIndex, std::uint8_t velocity = 0);
+  // A group of notes (given[note]: a pad's chord, the pads held) toggled in a step all or none: any of
+  // them there and they all come out, none goes in; none there and they all go in, each at velocity[note].
+  void ToggleNotesInStepLocked(StepStore& steps, std::size_t stepIndex, const std::array<bool, 128>& given,
+                               const std::array<std::uint8_t, 128>& velocity, TrackData& track);
   void ApplyLengthToHeldStepsLocked(std::uint16_t lengthPulses);
   void ApplyVelocityToHeldStepsLocked(std::uint8_t velocity);
   void ApplyMicrostepToHeldStepsLocked(std::uint8_t microstep);

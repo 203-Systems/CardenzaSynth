@@ -688,7 +688,7 @@ private:
   bool ConfirmLosingEdits(ConfirmPurpose purpose, const std::string& title, const std::string& payload);
   void ApplyPreset(const std::string& presetId);
   void ApplyEngine(synth::SynthEngineKind kind);
-  bool PadForSequence(int note, bool pressed, std::uint8_t velocity = 0);
+  bool PadForSequence(const std::uint8_t* notes, std::size_t count, bool pressed, std::uint8_t velocity = 0);
   // Recording (GrooveRecord.cpp).
   void CaptureNoteOn(std::size_t track, std::uint8_t note, std::uint8_t velocity);
   void CaptureNoteOff(std::size_t track, std::uint8_t note);

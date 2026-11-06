@@ -1037,6 +1037,38 @@ void TestPlayFeatures(Harness& h)
   h.Up(c3);
   h.Chord(kTab, Grid(1));
   assert(std::string(app.Ui().CurrentInstrumentPage()->tab) == "CHORD");
+  // A chord's pad on a selected step: the chord goes in whole and comes out whole. With one of its notes
+  // in the step (E, alone) a press takes it out and puts nothing in; then all three go in, then out.
+  {
+    auto& sequencer = app.Sequencer();
+    GoToScene(h, 2);
+    while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
+    assert(h.State().scene == Scene::Sequence && h.State().track == 1);
+    const std::uint8_t e = 52;
+    std::array<synth::SynthSequencer::StepNoteView, 8> views{};
+    // An empty step of the page on the GRID (the project's pattern has notes on some); it is empty again after.
+    const std::size_t first = h.Seq().firstViewStep;
+    std::size_t cell = 0;
+    while (cell < 16 && sequencer.StepNoteEvents(1, first + cell, views) != 0) ++cell;
+    assert(cell < 16);
+    const std::size_t step = first + cell;
+    assert(sequencer.ToggleStepNotes(1, step, &e, 1));
+    h.Tap(Grid(cell));
+    assert(h.Seq().steps[cell].held);
+    h.Tap(c3);  // C E G: E is there, so it comes out and C and G stay out
+    assert(sequencer.StepNoteEvents(1, step, views) == 0);
+    h.Tap(c3);  // none there: all three go in
+    assert(sequencer.StepNoteEvents(1, step, views) == 3);
+    std::array<int, 3> pitches{views[0].note, views[1].note, views[2].note};
+    std::sort(pitches.begin(), pitches.end());
+    assert((pitches == std::array<int, 3>{48, 52, 55}));
+    h.Tap(c3);
+    assert(sequencer.StepNoteEvents(1, step, views) == 0);
+    h.Tap(kEsc);  // lets the step go
+    assert(!h.Seq().hasHeldSteps);
+    GoToScene(h, 1);
+    assert(std::string(app.Ui().CurrentInstrumentPage()->tab) == "CHORD");
+  }
   // SETUP KEYS LOCK (the keyboard of every track): MUTE silences keys outside the scale (and darkens
   // them); SNAP moves them down to it.
   GoToSetupPage(h, groove::kSetupKeys);

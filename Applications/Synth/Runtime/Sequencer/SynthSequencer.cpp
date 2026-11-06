@@ -783,18 +783,13 @@ void SynthSequencer::PressStep(std::size_t stepIndex, const std::uint8_t* heldNo
     return;
   }
 
+  // The held notes as one group: any of them in the step takes them all out, else they all go in.
   TrackData& track = tracks_[activeTrack_];
-  StepData& step = ActivePatternLocked(track).steps.Edit(stepIndex);
-  std::array<bool, 128> seen{};
+  std::array<bool, 128> given{};
+  const std::array<std::uint8_t, 128> velocity{};
   for (std::size_t index = 0; index < heldNoteCount; ++index)
-  {
-    const std::uint8_t note = heldNotes[index];
-    if (note < seen.size() && !seen[note])
-    {
-      seen[note] = true;
-      ToggleNoteInStepLocked(step, note, track, stepIndex);
-    }
-  }
+    if (heldNotes[index] < given.size()) given[heldNotes[index]] = true;
+  ToggleNotesInStepLocked(ActivePatternLocked(track).steps, stepIndex, given, velocity, track);
   NormalizeScopeLocked();
 }
 
@@ -967,7 +962,6 @@ bool SynthSequencer::ToggleStepNotes(std::size_t trackIndex, std::size_t stepInd
   if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerMaxSteps || notes == nullptr || count == 0) return false;
   std::lock_guard<std::mutex> lock(mutex_);
   TrackData& track = tracks_[trackIndex];
-  auto& steps = ActivePatternLocked(track).steps;
   std::array<bool, 128> given{};
   std::array<std::uint8_t, 128> velocity{};
   for (std::size_t index = 0; index < count; ++index)
@@ -976,22 +970,27 @@ bool SynthSequencer::ToggleStepNotes(std::size_t trackIndex, std::size_t stepInd
     given[notes[index]] = true;
     velocity[notes[index]] = velocities != nullptr ? velocities[index] : 0;
   }
+  ToggleNotesInStepLocked(ActivePatternLocked(track).steps, stepIndex, given, velocity, track);
+  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  return true;
+}
+
+void SynthSequencer::ToggleNotesInStepLocked(StepStore& steps, std::size_t stepIndex, const std::array<bool, 128>& given,
+                                             const std::array<std::uint8_t, 128>& velocity, TrackData& track)
+{
   const auto& current = steps[stepIndex].notes;
   const bool present = std::any_of(current.begin(), current.end(), [&](const NoteEvent& event) { return event.active && event.note < given.size() && given[event.note]; });
   if (present)
   {
+    // Any of them there: they all come out, and none goes in.
     for (NoteEvent& event : steps.Edit(stepIndex).notes)
       if (event.active && event.note < given.size() && given[event.note]) event = NoteEvent{};
     steps.ReleaseEmptyPages();
+    return;
   }
-  else
-  {
-    StepData& step = steps.Edit(stepIndex);
-    for (std::size_t note = 0; note < given.size(); ++note)
-      if (given[note]) ToggleNoteInStepLocked(step, static_cast<std::uint8_t>(note), track, stepIndex, velocity[note]);
-  }
-  if (trackIndex == activeTrack_) NormalizeScopeLocked();
-  return true;
+  StepData& step = steps.Edit(stepIndex);
+  for (std::size_t note = 0; note < given.size(); ++note)
+    if (given[note]) ToggleNoteInStepLocked(step, static_cast<std::uint8_t>(note), track, stepIndex, velocity[note]);
 }
 
 bool SynthSequencer::MoveNote(std::size_t trackIndex, std::size_t patternIndex, std::size_t stepIndex, std::uint8_t note, std::uint8_t fromMicrostep, std::uint8_t toMicrostep)
@@ -1976,10 +1975,23 @@ void SynthSequencer::ClearSelectedSteps()
 
 bool SynthSequencer::ToggleNoteOnSelectedSteps(std::uint8_t note, std::uint8_t velocity)
 {
-  if (note > 127)
+  return ToggleNotesOnSelectedSteps(&note, 1, velocity);
+}
+
+bool SynthSequencer::ToggleNotesOnSelectedSteps(const std::uint8_t* notes, std::size_t count, std::uint8_t velocity)
+{
+  if (notes == nullptr) return false;
+  std::array<bool, 128> given{};
+  std::array<std::uint8_t, 128> velocities{};
+  bool any = false;
+  for (std::size_t index = 0; index < count; ++index)
   {
-    return false;
+    if (notes[index] >= given.size()) continue;
+    given[notes[index]] = true;
+    velocities[notes[index]] = velocity;
+    any = true;
   }
+  if (!any) return false;
 
   std::lock_guard<std::mutex> lock(mutex_);
   if (activeTrack_ >= tracks_.size() || std::none_of(heldSteps_.begin(), heldSteps_.end(), [](bool held) { return held; }))
@@ -1987,10 +1999,11 @@ bool SynthSequencer::ToggleNoteOnSelectedSteps(std::uint8_t note, std::uint8_t v
     return false;
   }
 
+  // Each selected step decides for itself: one that holds any of the notes loses them all.
   TrackData& track = tracks_[activeTrack_];
-  PatternData& pattern = ActivePatternLocked(track);
+  StepStore& steps = ActivePatternLocked(track).steps;
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
-    if (heldSteps_[stepIndex]) ToggleNoteInStepLocked(pattern.steps.Edit(stepIndex), note, track, stepIndex, velocity);
+    if (heldSteps_[stepIndex]) ToggleNotesInStepLocked(steps, stepIndex, given, velocities, track);
   NormalizeScopeLocked();
   return true;
 }
