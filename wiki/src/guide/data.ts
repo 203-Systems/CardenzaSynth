@@ -13,7 +13,7 @@ export const GUIDE_LEDS = guideLeds as unknown as Record<string, number[][]>;
 export const partOf = (lesson: Lesson) => GUIDE.parts.find((p) => p.id === lesson.part)!;
 export const lessonPath = (id: string) => `/guide/${id}/`;
 
-/** The guide's animations (tools/learn/guide-anim.js): a browser-only script that sets window.GuideAnim. */
+/** The guide's animations (./guide-anim.js): a browser-only script that sets window.GuideAnim. */
 export type AnimPlayer = {setStep(index: number): void; destroy(): void};
 export type GuideAnim = {
   create(container: HTMLElement, name: string): AnimPlayer;
@@ -24,7 +24,7 @@ export type GuideAnim = {
 let loading: Promise<GuideAnim> | null = null;
 export function loadAnim(): Promise<GuideAnim> {
   // @ts-expect-error: a plain script (no exports), run for what it sets on window
-  loading = loading || import('@site/../tools/learn/guide-anim.js').then(
+  loading = loading || import('./guide-anim.js').then(
     () => (window as unknown as {GuideAnim: GuideAnim}).GuideAnim);
   return loading;
 }

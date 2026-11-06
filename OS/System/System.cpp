@@ -50,8 +50,8 @@ SystemState& State() {
 }
 
 // Every physical key change also goes to the USB console as one line, "@K<row>,<column>,<0|1>"
-// ("@H<0|1>" for HOME): the Learn manual reads them over Web Serial and plays them on its live
-// device (tools/learn/learn.js). Raw changes, so the mirror sees every press and its release.
+// ("@H<0|1>" for HOME), raw changes, so a mirror sees every press and its release. The one-page
+// Learn manual played them on its live device over Web Serial; the wiki that replaced it does not.
 void ReportKey(std::size_t row, std::size_t column, bool pressed) {
 #if defined(ESP_PLATFORM)
   std::printf("@K%u,%u,%u\n", static_cast<unsigned>(row), static_cast<unsigned>(column), pressed ? 1u : 0u);

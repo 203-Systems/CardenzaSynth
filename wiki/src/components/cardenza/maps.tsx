@@ -1,8 +1,8 @@
 // The device map (every key and screen area links to its section) and the scene map (every page,
-// with its screenshot). tools/learn/build.py device_map / scene_map.
+// with its screenshot, ./scene-map.ts).
 import React from 'react';
 import Link from '@docusaurus/Link';
-import sceneMap from '@site/generated/data/scene-map.json';
+import {SCENE_MAP} from './scene-map';
 import {useLang, useUrls} from './common';
 
 const MAP_LEGEND = [
@@ -88,14 +88,12 @@ export function DeviceMap() {
   );
 }
 
-type SceneColumn = [string, string, [string, string, string][]];
-
 export function SceneMap() {
   const lang = useLang();
   const urls = useUrls();
   return (
     <div className="cz-scene-map">
-      {(sceneMap as SceneColumn[]).map(([title, section, items]) => (
+      {SCENE_MAP.map(([title, section, items]) => (
         <section key={title} className="scene-col">
           <Link className="scene-title" to={urls.sectionPath(section)}>{title === 'HOLD' ? TEXT[lang].hold : title}</Link>
           {items.map(([label, sec, shot]) => (

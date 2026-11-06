@@ -1,5 +1,5 @@
-// Every page can use the Cardenza components without importing them (tools/wiki/convert.py writes
-// them in place of the old manual's {{...}} syntax).
+// Every page can use the Cardenza components without importing them (the manual's MDX writes them in
+// place: <Key k="FN+6" />, <Shot name="...">, ...).
 import MDXComponents from '@theme-original/MDXComponents';
 import {Icon} from '@site/src/components/cardenza/common';
 import {Key, Keywords, Led, Page, Scene, Track} from '@site/src/components/cardenza/chips';

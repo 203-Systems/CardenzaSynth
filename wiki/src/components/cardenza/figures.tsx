@@ -1,4 +1,4 @@
-// Pictures in the product's look (tools/learn/figures.py): the screenshot in its bezel with numbered
+// Pictures in the product's look: the screenshot in its bezel with numbered
 // highlights, the key lights of that moment, step strips and key maps, each with a numbered legend.
 import React, {useId} from 'react';
 import leds from '@site/generated/data/leds.json';

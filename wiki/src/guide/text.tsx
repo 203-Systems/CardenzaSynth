@@ -1,4 +1,4 @@
-// The lessons' words keep the manual's inline markup (tools/learn/build.py inline): `code`,
+// The lessons' words (docs/learn/guide.json) keep the one-page manual's inline markup: `code`,
 // [[#section]] / [[#section|text]], {{key:..}} {{hold:..}} {{icon:..}} {{led:state|label}}
 // {{scene:..}} {{track:..}} {{page:..}}, **bold**, *em*, [text](url). Rendered with the manual's chips.
 import React from 'react';

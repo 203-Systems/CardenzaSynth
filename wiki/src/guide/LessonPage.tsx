@@ -20,14 +20,14 @@ function useNextUrl(lesson: Lesson) {
   return withBaseUrl(lesson.next ? lessonPath(lesson.next) : '/');
 }
 
-function Header({lesson, device}: {lesson: Lesson; device: boolean}) {
+function Header({lesson, device, song = false}: {lesson: Lesson; device: boolean; song?: boolean}) {
   const lang = useLang();
   return (
     <header className="l-head">
       <div className="l-kicker">{partOf(lesson).title[lang]} · {lesson.number} / {lesson.of}</div>
       <h1>{lesson.title[lang]}</h1>
       <p className="l-lead">{lesson.lead[lang]}</p>
-      {device && <DeviceLine />}
+      {device && <DeviceLine song={song} />}
     </header>
   );
 }
@@ -81,7 +81,7 @@ function DeviceLesson({lesson}: {lesson: Lesson}) {
   const press = last ? (lesson.next ? say('学习下一节', 'Next lesson') : say('回到目录', 'All lessons')) : say('下一步', 'Next');
   return (
     <section className="lesson" data-kind="device">
-      <Header lesson={lesson} device />
+      <Header lesson={lesson} device song={!!run?.oldFirmware} />
       <div className="anim-wrap">
         <div className="anim-stage st-stage">
           <StepPicture key={index} step={step} pressed={run?.pressedKeys} />

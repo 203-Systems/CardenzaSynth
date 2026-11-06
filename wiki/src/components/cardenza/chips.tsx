@@ -1,5 +1,5 @@
 // Inline chips, as the screen and the simulator draw them: key caps (in their role colour, chords
-// and sequences), key lights, scenes, tracks and pages. tools/learn/figures.py chip / chord.
+// and sequences), key lights, scenes, tracks and pages.
 import React from 'react';
 import {keysFor, keyRole, capText} from './keys';
 import {useLang, say} from './common';

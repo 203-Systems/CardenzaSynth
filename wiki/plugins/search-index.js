@@ -1,10 +1,9 @@
-// The manual's search index, in the format of the old one-page manual (tools/learn/build.py), so
-// the same search core (tools/learn/learn-search.js), the same synonyms and the same regression
-// test (tools/learn/search.test.js) keep working: every h1 / h2 / h3 of a manual page is a section
+// The manual's search index for the search core (src/search/learn-search.js), its synonyms
+// (docs/learn/synonyms.json) and its regression test (scripts/search.test.js): every h1 / h2 / h3 of a manual page is a section
 // with its text (pictures' legends and captions included, the drawings left out) and the words of
 // its <Keywords>. Built after each locale (postBuild); locales build one after the other, the
 // default first, so each adds its sections to the index of the ones before. Written at the site's
-// root (the guide and /api/search read it there) and next to each locale (the search bar).
+// root (the English search bar and scripts/search.test.js read it there) and next to each other locale.
 const fs = require('fs');
 const path = require('path');
 const {execSync} = require('child_process');

@@ -1,6 +1,6 @@
 // The Cardenza on USB that follows the guide, through Web MIDI: one connection for the whole site,
-// so it stays while the reader moves between lessons and the manual. A port of the device part of
-// tools/learn/guide.js (same messages, timings and states). The guide pages ask for MIDI (SysEx) when
+// so it stays while the reader moves between lessons and the manual (the device part of the one-page
+// guide of before: same messages, timings and states). The guide pages ask for MIDI (SysEx) when
 // they open (start()): the browser asks the user once, and from then on a Cardenza plugged in, now or
 // later, is found by itself. A device lesson starts the guide on it (GE): the device sets the user's
 // work aside in a practice project, goes where the lesson starts (GL), blinks the keys of the step
@@ -241,7 +241,7 @@ class GuideDevice {
       this.lesson?.onGuideOn();
     } else if (text.startsWith('GE0')) {
       this.entering = false;
-      this.reason = ['rec', 'save', 'mem'].includes(text.slice(4)) ? text.slice(4) : 'other';
+      this.reason = text.slice(4) in REASONS ? text.slice(4) : 'other';
       this.paint();
     } else if (text === 'GX') {
       const ours = this.leaving;
@@ -276,14 +276,18 @@ export const REASONS: Record<string, [string, string]> = {
   save: ['你现在的工程太长，教程没法替你暂存。先用 FN+S 存到卡上，在 SETUP 里新建一个空工程，再点这里重试。',
     'Your project is too long to set aside. Save it with FN+S, start a new project in SETUP, then click here to try again.'],
   mem: ['机器的内存不够：重启一下，再点这里重试。', 'The device is short of memory: restart it, then click here to try again.'],
+  card: ['机器里没有 SD 卡：教程开始前要先把你的工程存到卡上。插上卡，重启机器，再点这里重试。',
+    'There is no SD card in the device: the guide first keeps your project on it. Put a card in, restart the device, then click here to try again.'],
   other: ['机器没能开始教程：点这里重试。', 'The device could not start the guide: click here to try again.'],
 };
 
-export const STATUS: Record<Status, [string, string]> = {
+export const STATUS: Record<Status | 'song', [string, string]> = {
   nomidi: ['用电脑上的 Chrome 或 Edge 打开这一页，再接上鸣片：机器会跟着课程走。', 'Open this page in Chrome or Edge on a computer and plug in your Cardenza: it follows the lessons.'],
   denied: ['要让鸣片跟着课程走：在地址栏左边的网站设置里允许 MIDI 设备，再刷新这一页。', 'To have your Cardenza follow the lessons, allow MIDI devices in the site settings (left of the address bar) and reload.'],
   waiting: ['用 USB 线接上鸣片，它会跟着这一课走；没有机器也可以看图跟着学。', 'Plug in your Cardenza with a USB cable and it follows this lesson; no device, follow the pictures.'],
   hello: ['正在连接鸣片…', 'Connecting to your Cardenza…'],
   old: ['这台鸣片的固件还不支持教程：更新到最新固件，再接上。', "This Cardenza's firmware has no guide yet: update it, then plug it in again."],
+  // A song lesson on firmware that cannot start from the song so far (its state has no song bars).
+  song: ['这一课要新固件：机器上的固件还不能接着做这首歌，先看图跟着学。', 'This lesson needs newer firmware: the one on your Cardenza cannot pick up the song here yet. Follow the pictures.'],
   on: ['鸣片已连接：照着机器上闪的键按，学会了再点「下一步」。', 'Your Cardenza is connected: press the keys blinking on it; when you have got it, press Next.'],
 };

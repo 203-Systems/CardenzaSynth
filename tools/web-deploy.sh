@@ -30,9 +30,8 @@ done
 
 # Stage only the page files; the Vercel link survives between runs next to the build.
 cp "$SITE"/index.html "$SITE"/*.js "$SITE"/*.css "$SITE"/*.wasm "$STAGE"/
-# The Learn manual (/learn) and its search function (/api/search), when built (make learn).
+# The Learn site (/learn: the guide and the manual, wiki/), when built (make learn).
 [[ -d $SITE/learn ]] && cp -r "$SITE"/learn "$STAGE"/learn
-[[ -d $SITE/api ]] && cp -r "$SITE"/api "$STAGE"/api
 cp Devices/CardenzaWeb/vercel.json "$STAGE"/
 [[ -d $LINK ]] && cp -r "$LINK" "$STAGE"/.vercel
 

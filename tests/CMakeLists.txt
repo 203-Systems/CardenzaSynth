@@ -102,8 +102,8 @@ if(CARDENZA_GROOVE_UI)
   add_test(NAME CardenzaGrooveUiTests COMMAND CardenzaGrooveUiTests)
   list(APPEND cardenza_ui_tests CardenzaGrooveUiTests)
 
-  # Exports pages, parameters and shortcuts as JSON for the Learn manual (tools/learn/build.py).
-  add_executable(CardenzaLearnDump ${PROJECT_SOURCE_DIR}/tools/learn/learn_dump.cpp)
+  # Exports pages, parameters and shortcuts as JSON for the Learn site's reference tables (tools/wiki/generate.py).
+  add_executable(CardenzaLearnDump ${PROJECT_SOURCE_DIR}/tools/wiki/learn_dump.cpp)
   target_link_libraries(CardenzaLearnDump PRIVATE CardenzaSystem CardenzaSimDevice)
 
   # App switching and the groovebox's settings and session on the real system; and a start without a

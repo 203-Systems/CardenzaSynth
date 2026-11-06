@@ -1,6 +1,5 @@
 // Reference tables generated from the firmware (CardenzaLearnDump): an engine's pages and
 // parameters, the SETUP settings, the FN quick keys, the lists, the pages of every scene.
-// tools/learn/build.py engine_reference / fn_reference / ...
 import React from 'react';
 import dump from '@site/generated/data/dump.json';
 import {LEGEND} from './keys';

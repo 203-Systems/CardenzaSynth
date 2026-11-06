@@ -105,15 +105,17 @@ export function GuideLayout({active, title, children}: {active: string; title: s
   );
 }
 
-/** Whether a Cardenza follows the lesson; after a refusal it is the button to try again. */
-export function DeviceLine() {
+/** Whether a Cardenza follows the lesson; after a refusal it is the button to try again. song: the
+ *  lesson needs newer firmware than the device's (it goes by the pictures). */
+export function DeviceLine({song = false}: {song?: boolean}) {
   const d = useDevice();
   const say = useSay();
   const status = d?.status ?? 'waiting';
   const connected = status === 'on';
   const guide = !!d?.guide;
   const reason = d?.reason ?? null;
-  const words = reason ? REASONS[reason] || REASONS.other : connected && !guide ? STATUS.hello : STATUS[status];
+  const words = reason ? REASONS[reason] || REASONS.other : connected && !guide ? STATUS.hello
+    : song && guide ? STATUS.song : STATUS[status];
   const cls = ['l-device',
     connected && guide ? 'on' : '',
     status === 'hello' || (connected && !guide && !reason) ? 'wait' : '',
@@ -122,7 +124,7 @@ export function DeviceLine() {
   return <p className={cls} role="status" onClick={() => d?.retry()}>{say(words[0], words[1])}</p>;
 }
 
-/** A concept lesson's animation (tools/learn/guide-anim.js), showing one step. */
+/** A concept lesson's animation (./guide-anim.js), showing one step. */
 export function AnimStage({name, step}: {name: string; step: number}) {
   const box = useRef<HTMLDivElement>(null);
   const player = useRef<AnimPlayer | null>(null);

@@ -1,10 +1,10 @@
-// Learn manual search regression: everyday questions, in both languages, must find the section that
-// answers them among the first three results. Run by tools/learn/build.py after each build:
-//   node tools/learn/search.test.js build/web/site/learn
+// The manual's search regression: everyday questions, in both languages, must find the section that
+// answers them among the first three results, and every title its own section. After a build:
+//   npm run test:search        (node scripts/search.test.js build)
 const path = require('path');
 
-const dir = path.resolve(process.argv[2] || 'build/web/site/learn');
-const LearnSearch = require(path.join(dir, 'learn-search.js'));
+const dir = path.resolve(process.argv[2] || 'build');
+const LearnSearch = require('../src/search/learn-search.js');
 const index = LearnSearch.createIndex(require(path.join(dir, 'search-index.json')));
 
 const cases = [

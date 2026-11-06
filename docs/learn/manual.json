@@ -3,24 +3,5 @@
   "title": {
     "zh": "鸣片 Groovebox 说明书",
     "en": "Cardenza Groovebox manual"
-  },
-  "chapters": [
-    "start",
-    "keys",
-    "navigate",
-    "play",
-    "fn",
-    "instr",
-    "sampler",
-    "seq",
-    "tape",
-    "setup",
-    "effects",
-    "lights",
-    "projects",
-    "web",
-    "faq",
-    "reference",
-    "changelog"
-  ]
+  }
 }

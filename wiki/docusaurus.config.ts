@@ -1,4 +1,4 @@
-// Cardenza wiki: the Learn manual on Docusaurus, set up like 203 Systems' Matrix wiki
+// The Learn site (the guide and the manual) on Docusaurus, set up like 203 Systems' Matrix wiki
 // (https://github.com/203-Systems/Matrix-Wiki): one sidebar per area, English with a zh-Hans
 // translation, the 203 navbar and footer. What is drawn from the firmware (screenshots, key lights,
 // reference tables, the guide's lessons) comes from tools/wiki/generate.py into generated/ (not in git).

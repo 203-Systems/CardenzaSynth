@@ -1,4 +1,4 @@
-/* The guide inside the wiki (tools/learn/guide.css): the rail of lessons beside the lesson, cards on
+/* The guide: the rail of lessons beside the lesson, cards on
    the home page. The frame follows the wiki's light and dark theme; the stage stays the device's black. */
 .cz-guide {
   --g-step: #33b1ff;      /* the lessons' step bar: a sky blue that is no key's role nor T2's blue */

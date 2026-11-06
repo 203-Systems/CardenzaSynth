@@ -101,12 +101,15 @@ endif
 web:
 	$(MAKE) DEVICE=CardenzaWeb build
 
-# The Learn manual (docs/learn) into $(WEB_BUILD)/site/learn: screenshots and reference tables come
-# from the host build (CardenzaSimShot, CardenzaLearnDump in build/linux-groove).
+# The Learn site (wiki/, Docusaurus: the guide and the manual) into $(WEB_BUILD)/site/learn. Its
+# screenshots, key lights and reference tables come from the host build (CardenzaSimShot,
+# CardenzaLearnDump in build/linux-groove), where the guide's lessons run first (tools/wiki/generate.py).
 LEARN_HOST_BUILD ?= build/linux-groove
 learn:
 	$(CMAKE) --build $(LEARN_HOST_BUILD) --target CardenzaSimShot CardenzaLearnDump
-	python3 tools/learn/build.py --out $(WEB_BUILD)/site/learn --host-build $(LEARN_HOST_BUILD)
+	python3 tools/wiki/generate.py --host-build $(LEARN_HOST_BUILD)
+	cd wiki && { test -d node_modules || npm ci; } && npm run build && npm run test:search
+	rm -rf "$(WEB_BUILD)/site/learn" && mkdir -p "$(WEB_BUILD)/site" && cp -r wiki/build "$(WEB_BUILD)/site/learn"
 
 # Production page on Vercel (https://cardenza-synth.203.io); see tools/web-deploy.sh for the setup.
 web-deploy:

@@ -1,5 +1,6 @@
-// Learn manual search: one core for the page (window.LearnSearch) and the /api/search function
-// (require). The index (search-index.json) holds every section of both languages and the synonym
+// The manual's search: the core of the navbar search (src/theme/SearchBar) and of its regression test
+// (scripts/search.test.js). The index (search-index.json, plugins/search-index.js) holds every section
+// of both languages and the synonym
 // groups from docs/learn/synonyms.json, so a query finds a section by any word that means the same,
 // in either language: "音量", "volume", "louder", "声音太小" all lead to the volume sections.
 (function (root, factory) {

@@ -1,5 +1,5 @@
 // The keyboard as the web simulator draws it (Devices/CardenzaWeb/web/cardenza-web.js, which mirrors
-// GrooveTypes.h and the device's keycap prints): the same tables as tools/learn/figures.py.
+// GrooveTypes.h and the device's keycap prints): the same tables as tools/wiki/keys.py.
 
 export type Pos = [number, number]; // [row, column], 4 x 14
 

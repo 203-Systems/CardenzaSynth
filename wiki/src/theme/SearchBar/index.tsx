@@ -1,4 +1,4 @@
-// The navbar search: the old manual's search core (tools/learn/learn-search.js) over the index
+// The navbar search: the manual's search core (src/search/learn-search.js) over the index
 // plugins/search-index.js builds (sections of both languages, the synonyms of
 // docs/learn/synonyms.json), showing the reader's language. "/" focuses it.
 import React, {useCallback, useEffect, useRef, useState} from 'react';
@@ -6,8 +6,8 @@ import Link from '@docusaurus/Link';
 import {useHistory} from '@docusaurus/router';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import {useLang, say} from '@site/src/components/cardenza/common';
-// A UMD script, shared with the guide and /api/search.
-import LearnSearch from '@site/../tools/learn/learn-search.js';
+// A UMD script, shared with scripts/search.test.js.
+import LearnSearch from '@site/src/search/learn-search.js';
 import styles from './styles.module.css';
 
 type Snippet = {text: string; offset: number; marks: number[][]};

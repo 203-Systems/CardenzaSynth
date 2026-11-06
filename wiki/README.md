@@ -1,26 +1,36 @@
-# Cardenza wiki (prototype)
+# Cardenza Learn
 
-The Learn manual on [Docusaurus](https://docusaurus.io/), set up like 203 Systems'
-[Matrix wiki](https://github.com/203-Systems/Matrix-Wiki): one page per chapter with a sidebar,
-English with a zh-Hans translation, the 203 navbar and footer. It is a prototype next to
-`docs/learn` + `tools/learn` (`make learn`), which stay the source until the wiki takes over.
+The Learn site on [Docusaurus](https://docusaurus.io/), set up like 203 Systems'
+[Matrix wiki](https://github.com/203-Systems/Matrix-Wiki): the guide (short lessons a Cardenza on
+USB follows) and the manual (one page per chapter with a sidebar), English with a zh-Hans
+translation, the 203 navbar and footer. `make learn` builds it into `build/web/site/learn`;
+`make web-deploy` puts it at `/learn` next to the web simulator.
 
 | | |
 |---|---|
-| `docs/*.mdx` | the chapters in English |
-| `i18n/zh-Hans/docusaurus-plugin-content-docs/current/*.mdx` | the same chapters in Chinese (same section ids) |
+| `docs/*.mdx` | the manual's chapters in English (their order: `sidebar_position`) |
+| `i18n/zh-Hans/docusaurus-plugin-content-docs/current/*.mdx` | the same chapters in Chinese, the same section ids |
 | `src/components/cardenza/` | key caps, chips, screenshots with key lights, step strips, key maps, reference tables, device and scene maps |
 | `src/theme/MDXComponents.tsx` | makes them usable on every page without an import |
-| `src/theme/SearchBar/` | the navbar search: the old manual's search core and synonyms |
-| `plugins/search-index.js` | builds the search index from the built pages (old format, both languages) |
-| `src/pages/index.tsx`, `src/guide/` | the guide: the home page and a page per lesson (`plugins/guide-routes.js`, `/guide/<lesson>/`) |
-| `src/guide/device.ts`, `run.ts` | the Cardenza on USB (Web MIDI, one connection for the whole site) and a device lesson as it runs: a port of `tools/learn/guide.js` with its messages, timings and conditions |
+| `src/pages/index.tsx`, `src/guide/` | the guide: its home and a page per lesson (`plugins/guide-routes.js`, `/guide/<lesson>/`) |
+| `src/guide/device.ts`, `run.ts` | the Cardenza on USB (Web MIDI, one connection for the whole site) and a device lesson as it runs |
+| `src/theme/SearchBar/`, `src/search/` | the navbar search: its core, the synonyms of `docs/learn/synonyms.json` |
+| `plugins/search-index.js` | the search index, built from the pages (both languages) |
 | `generated/` | not in git: what `tools/wiki/generate.py` draws from the firmware |
+
+The guide's lessons are `docs/learn/guide.json` (see `tools/wiki/lessons.py` for its fields); the
+manual's version is `docs/learn/manual.json`.
 
 ## Build
 
 ```bash
-python tools/wiki/generate.py --host-build build/linux-groove
+make learn
+```
+
+or by hand, with a host build that has `CardenzaSimShot` and `CardenzaLearnDump`:
+
+```bash
+python3 tools/wiki/generate.py --host-build build/linux-groove
 ```
 
 ```bash
@@ -28,20 +38,19 @@ cd wiki && npm ci && npm run build && npm run test:search
 ```
 
 `npm run serve` then shows it on http://localhost:3000/learn/ (the guide; the manual is under
-`/learn/manual/`, in Chinese under `/learn/zh-Hans/manual/`).
+`/learn/manual/`, in Chinese under `/learn/zh-Hans/`).
 
-`generate.py` runs the same screenshot script and the same guide lessons as `make learn` (a step
-that does not complete on the firmware fails it) and puts the results in `generated/`: screenshots
-and key lights, the firmware's reference dump, the lessons as data (`docs/learn/guide.json` with
-keys and demos resolved), and `reference.html`, which sends links of the one-page manual
-(`reference.html#section`) to the chapter page of that section. The lessons' words keep the manual's
-inline markup (`{{key:..}}`, `[[#id]]`), rendered by `src/guide/text.tsx`; the concept lessons'
-animations are `tools/learn/guide-anim.js` as it is.
+`generate.py` runs the screenshot script (`tools/wiki/shots.py`) and every device lesson's demos on
+the firmware (a step that does not complete fails it) and puts the results in `generated/`:
+screenshots and key lights, the firmware's reference dump (`tools/wiki/learn_dump.cpp`), the lessons
+as data, the section ids of both languages (which must match), and `reference.html`, which sends links
+of the one-page manual of before (`reference.html#section`) to that section.
 
 ## Writing
 
-The chapters are MDX. The old `{{...}}` syntax became components (`tools/wiki/convert.py` did the
-move and lists them): `<Key k="FN+6" />`, `<Scene name="SEQ" />`, `<Led state="half" />`,
+The chapters are MDX. Every `##` and `###` has its id (`{#id}`), the same in both languages; the
+components are written in place, for example `<Key k="FN+6" />`, `<Scene name="SEQ" />`,
+`<Led state="half" />`, `<Keywords k="volume, louder, 音量" />` and
 
 ```mdx
 <Shot name="seq-notes">
@@ -51,7 +60,10 @@ move and lists them): `<Key k="FN+6" />`, `<Scene name="SEQ" />`, `<Led state="h
 </Shot>
 ```
 
-A screenshot, icon, key or section that does not exist fails the build, as `make learn` did.
+A new screenshot is a `shot(...)` in `tools/wiki/shots.py`. A screenshot, icon, key or section that
+does not exist fails the build. In Chinese the product is 鸣片. The lessons' words in
+`docs/learn/guide.json` keep the inline markup the pages render (`{{key:..}}`, `[[#section]]`,
+`src/guide/text.tsx`).
 
 ## Notes
 
@@ -63,4 +75,4 @@ A screenshot, icon, key or section that does not exist fails the build, as `make
 - Locally `npm run serve` turns `/learn/reference.html` into `/reference` (it drops the base URL);
   open `/learn/reference#section` there. Vercel serves the file as it is.
 - On a host build older than the guide's lessons, `generate.py --lenient-lessons` warns instead of
-  failing; `make learn` and a release keep failing on them.
+  failing; `make learn` keeps failing on them.

@@ -1,5 +1,5 @@
 // A device lesson as it runs: which step is shown, what is learned, the demo on the key picture and
-// on the device. A port of the device lessons of tools/learn/guide.js (same conditions, demo pace and
+// on the device (as the one-page guide of before ran them: same conditions, demo pace and
 // messages); the page (LessonPage) draws what it holds and calls next / back / dot / show.
 import {device, parseState, type DeviceState, type LessonHooks} from './device';
 import {markDone, toast} from './store';
@@ -52,6 +52,10 @@ export class LessonRun implements LessonHooks {
   waitingStart = true;
   /** When the step was learned on the device (the page lets "learned" and Next pop). */
   learnedAt = 0;
+  /** A song lesson (GL d<n>) waits for the device's state to know whether it can start there. */
+  pendingStart = false;
+  /** The device's firmware cannot start from the song so far: the lesson goes by the pictures. */
+  oldFirmware = false;
   version = 0;
 
   private steps: DeviceStep[];
@@ -98,6 +102,8 @@ export class LessonRun implements LessonHooks {
     this.waitingStart = true;
     this.catchingUp = false;
     this.base = null;
+    this.pendingStart = false;
+    this.oldFirmware = false;
     if (device) device.lesson = this;
     this.activateStep(0);
     device?.beginGuide();
@@ -120,6 +126,24 @@ export class LessonRun implements LessonHooks {
     if (!device || !device.guide || this.disposed) return;
     const start = this.lesson.start || '';
     this.waitingStart = true;
+    // The song lessons start from the song so far (GL d<n>): firmware without it would load its old
+    // demo and could not finish the steps. Its state has no song bars (b): the lesson goes by the pictures.
+    this.pendingStart = false;
+    this.oldFirmware = false;
+    this.paint();
+    if (/d\d/.test(start)) {
+      if (!device.state) {
+        this.pendingStart = true;
+        device.send('GQ');
+        return;
+      }
+      if (device.state.b === undefined) {
+        this.oldFirmware = true;
+        device.send('GH');
+        this.paint();
+        return;
+      }
+    }
     this.startFields = parseState(start.replace(/[rd]\d/g, ''));
     if (this.startFields.t !== undefined) this.startFields.t = (this.startFields.t as number) - 1;
     delete this.startFields.n;
@@ -159,7 +183,7 @@ export class LessonRun implements LessonHooks {
 
   /** With a Cardenza following, the step waits to be learned on it before Next lights up. */
   follows() {
-    return !!device && device.connected() && device.guide;
+    return !!device && device.connected() && device.guide && !this.oldFirmware;
   }
 
   private activateStep(index: number) {
@@ -173,6 +197,7 @@ export class LessonRun implements LessonHooks {
   }
 
   private sendHint() {
+    if (this.oldFirmware) return;
     const step = this.steps[this.index];
     const keys = step ? step.keys : [];
     // Blinking while the step waits for the user, steady once it is learned (they try more keys).
@@ -180,7 +205,9 @@ export class LessonRun implements LessonHooks {
   }
 
   onState(state: DeviceState) {
-    if (this.disposed || this.demo || this.catchingUp) return;
+    if (this.disposed) return;
+    if (this.pendingStart) this.applyStart();
+    if (this.demo || this.catchingUp || this.oldFirmware || this.pendingStart) return;
     if (this.waitingStart) {
       const matches = Object.keys(this.startFields).every((f) => state[f] === this.startFields[f]);
       if (matches) this.takeBase(state);
@@ -372,7 +399,7 @@ export class LessonRun implements LessonHooks {
   // at the lesson's start, and the earlier steps' demos again), does the step so it is seen and heard,
   // and goes back there. The step is then the user's to do.
   private showOnDevice(index: number) {
-    if (!device?.guide || this.waitingStart) {
+    if (!device?.guide || this.waitingStart || this.oldFirmware) {
       this.playDemo(index, 1);
       return;
     }
@@ -380,7 +407,7 @@ export class LessonRun implements LessonHooks {
     this.paint();
     const start = this.lesson.start || '';
     const toStepStart = (token: number, then: () => void) => {
-      device?.send('GL' + (/[rd]1/.test(start) ? start : 'r1' + start));
+      device?.send('GL' + (/[rd]\d/.test(start) ? start : 'r1' + start));
       this.replay(this.steps.slice(0, index).flatMap((s) => s.demo), token, then);
     };
     this.cancelDemo();

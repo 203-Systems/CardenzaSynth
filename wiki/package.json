@@ -10,7 +10,7 @@
     "clear": "docusaurus clear",
     "write-translations": "docusaurus write-translations",
     "typecheck": "tsc",
-    "test:search": "node scripts/search-test.js build"
+    "test:search": "node scripts/search.test.js build"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.1",

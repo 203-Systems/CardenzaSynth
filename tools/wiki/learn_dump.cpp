@@ -1,7 +1,7 @@
 // Exports what the Learn manual documents straight from the firmware code, as JSON on stdout:
 // every engine's INSTR pages with their GRID slots and parameter ranges, defaults and option names,
 // the page tabs of each scene, the FN panel, the FN shortcuts and the keyboard choices.
-// tools/learn/build.py runs it; the manual's reference tables are generated from its output.
+// tools/wiki/generate.py runs it; the manual's reference tables (wiki <Ref>) are drawn from its output.
 #include <cstdio>
 #include <filesystem>
 #include <string>

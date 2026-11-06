@@ -1,7 +1,7 @@
 import React from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {useBaseUrlUtils} from '@docusaurus/useBaseUrl';
-import icons from '@site/generated/data/icons.json';
+import {ICONS} from './icons';
 import sections from '@site/generated/data/sections.json';
 
 export type Lang = 'zh' | 'en';
@@ -34,9 +34,9 @@ export function useUrls() {
   };
 }
 
-/** An icon of tools/learn/figures.py (24 x 24 strokes). */
+/** An icon of ./icons.ts (24 x 24 strokes). */
 export function Icon({name, className}: {name: string; className?: string}) {
-  const body = (icons as Record<string, string>)[name];
+  const body = ICONS[name];
   if (body === undefined) throw new Error(`cardenza: unknown icon ${name}`);
   return (
     <svg className={'cz-ico' + (className ? ' ' + className : '')} viewBox="0 0 24 24" aria-hidden="true"

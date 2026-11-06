@@ -1,4 +1,4 @@
-// The guide's concept animations (tools/learn/guide.js plays them): a music box that becomes a
+// The guide's concept animations (src/guide/LessonPage.tsx plays them): a music box that becomes a
 // sequencer, four boxes that make a part, parts in a row that make a song. Drawn in the product's
 // look: black, the screen's colours and track colours, 4x4 Bayer dither, a green playhead. And the
 // Launcher's lessons (updating it, installing firmware): its screens as it draws them, over the keys.

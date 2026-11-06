@@ -1,4 +1,4 @@
-/* Cardenza's own look inside the wiki (tools/learn/learn.css): key caps as the web simulator draws
+/* Cardenza's own look inside the wiki: key caps as the web simulator draws
    them, the screen's chips, and figures as the device panel (the screen in its bezel, the lit keys,
    the numbered legend). Prefixed cz- so Infima's classes (badge, panel, ...) stay out of it. The
    figures keep the device's dark panel in both themes; chips sit in the text of either. */
