@@ -878,7 +878,6 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
 
   // How hard each note is held on the pads (0: not held), chord tones too.
   std::array<std::uint8_t, 128> heldVelocity{};
-  bool anyHeld = false;
   for (std::size_t pad = 0; pad < state.padNote.size(); ++pad)
   {
     if (state.padNote[pad] == kNoNote || state.padTrack[pad] != state.track) continue;
@@ -886,7 +885,6 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     const auto hold = [&](std::uint8_t note) { heldVelocity[note & 0x7F] = std::max(heldVelocity[note & 0x7F], velocity); };
     hold(state.padNote[pad]);
     for (std::size_t voice = 0; voice < state.padChordCount[pad]; ++voice) hold(state.padChord[pad][voice]);
-    anyHeld = true;
   }
   std::array<std::array<synth::SynthSequencer::StepNoteView, 8>, kGridCount> notes{};
   std::array<std::size_t, kGridCount> counts{};
@@ -1019,13 +1017,8 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   if (playingHere)
     for (int y = top; y < top + matrixHeight; y += 2)
       g.Pixel(x0 + static_cast<int>(seq.currentStep - first) * kColumn + 2, y, kPlay);
-  if (seq.populatedStepCount == 0 && !anyHeld)
-  {
-    const Rect band{kContentX, kContentY + kContentHeight / 2 - 10, label + kMatrixWidth, 20};
-    g.Fill(band, kBlack);
-    g.TextAligned(Rect{band.x, band.y, band.width, 10}, "HOLD PAD + TAP STEPS", kDim, Font::Micro, Align::Center);
-    g.TextAligned(Rect{band.x, band.y + 10, band.width, 10}, "TAP STEP + PADS", (now / 600) % 2 ? kFaint : kShade, Font::Micro, Align::Center);
-  }
+  // No words over an empty pattern here: the matrix is too narrow for them and they covered the names
+  // (the piano roll, which has the width, keeps its hint).
 
   // The GRID: the same 4 x 4 as the keys, for the chosen drum or note.
   constexpr int kGap = 2;

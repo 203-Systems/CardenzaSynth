@@ -20,7 +20,7 @@ constexpr std::uint32_t kPulsesPerQuarter = kPulsesPerStep * 4;
 
 const char* ViewName(SeqView view, bool drums)
 {
-  return view == SeqView::Roll ? "PIANO ROLL" : drums ? "MACHINE" : "STEPS";
+  return view == SeqView::Roll ? "PIANO ROLL" : drums ? "DRUM MACHINE" : "STEPS";
 }
 
 struct TimedNote {
