@@ -651,7 +651,9 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   constexpr int kGutter = 20;
   constexpr int kStrip = 9;
   const int x0 = kContentX + kGutter;
-  const int column = (kContentWidth - kGutter) / static_cast<int>(kGridCount);
+  // The page's steps share the width, so a pattern shorter than the GRID fills it too (with a column
+  // a sixteenth wide, an 8-step pattern took the left half). The strip under it follows the columns.
+  const int column = (kContentWidth - kGutter) / static_cast<int>(steps);
   const int top = kContentY + 1;
   const int bottom = kContentBottom - kStrip - 2;
 
