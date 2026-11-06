@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -57,6 +58,17 @@ constexpr std::uint16_t kSequencerPulsesPerQuarter = 96;
 constexpr std::uint16_t kSequencerPulsesPerStep = 24;
 constexpr std::uint8_t kSequencerMicrostepCount = 6;
 constexpr std::uint16_t kSequencerPulsesPerMicrostep = kSequencerPulsesPerStep / kSequencerMicrostepCount;
+// ROLL retriggers one step's note inside that step: 1 is off, 2 is two 32nds, 3 three
+// 48ths (16th triplets), 4 four 64ths. Every count divides kSequencerPulsesPerStep, so the
+// sub-hits land on whole pulses of the 96 PPQ clock.
+constexpr std::uint8_t kSequencerMaxRoll = 4;
+constexpr std::size_t kSequencerRollCount = kSequencerMaxRoll;
+constexpr std::array<const char*, kSequencerRollCount> kSequencerRollNames{{"OFF", "X2", "X3", "X4"}};
+
+constexpr std::uint16_t SequencerRollSubHitPulses(std::uint8_t roll)
+{
+  return static_cast<std::uint16_t>(kSequencerPulsesPerStep / (roll < 2 ? 1 : (roll > kSequencerMaxRoll ? kSequencerMaxRoll : roll)));
+}
 constexpr std::uint8_t kHomePerformanceBaseMidiNote = 48;
 constexpr std::size_t kContextMenuRows = 4;
 constexpr std::size_t kContextMenuColumns = 2;
@@ -71,6 +83,7 @@ static_assert(kSequencerStepFirstColumn == 9, "Home sequencer should start at ke
 static_assert(kSequencerStepLastColumn == 12, "Home sequencer should end before the right bar.");
 static_assert(kSequencerMaxPatternCount >= 1, "Sequencer needs at least one pattern.");
 static_assert(kSequencerPulsesPerStep % kSequencerMicrostepCount == 0, "Microsteps must map to whole sequencer pulses.");
+static_assert(kSequencerPulsesPerStep % kSequencerMaxRoll == 0, "A roll's sub-hits must land on whole sequencer pulses.");
 
 constexpr std::size_t HomePerformanceOctaveIndex(std::size_t row)
 {

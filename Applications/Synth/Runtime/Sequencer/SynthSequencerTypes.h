@@ -14,6 +14,7 @@ enum class SequencerEditLane : std::uint8_t {
   Length,
   Velocity,
   Micro,
+  Roll,
 };
 
 // Song (arrangement) mode: an ordered list of rows, each naming one pattern per track and a
@@ -82,6 +83,8 @@ inline const char* SequencerEditLaneLabel(SequencerEditLane lane)
       return "VEL";
     case SequencerEditLane::Micro:
       return "TIME";
+    case SequencerEditLane::Roll:
+      return "ROLL";
     default:
       return "SEQ";
   }
@@ -98,6 +101,8 @@ struct SequencerStepUiState {
   float editFlash = 0.0f;
   // Highest velocity among the step's active notes; 0 when the step is empty.
   std::uint8_t velocity = 0;
+  // Highest ROLL count of the step's active notes: 1 off, 2..kSequencerMaxRoll retriggers.
+  std::uint8_t roll = 1;
 };
 
 struct SequencerTrackUiState {

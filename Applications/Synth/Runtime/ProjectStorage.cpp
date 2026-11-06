@@ -36,9 +36,11 @@ constexpr std::size_t kMaxProjectBytes = 4 * 1024 * 1024;
 // one PLAYFX line per track (chord, voicing, arp mode, rate, octaves, gate, latch); the UI line's
 // octave, root, scale and layout are the project's keyboard.
 // Version 7 gives every pattern its own length, up to 256 steps: the T line ends with the length of
-// each pattern instead of the one length of the track. The next format change takes 8.
-constexpr int kProjectVersion = 7;
-constexpr int kMaxReadProjectVersion = 7;
+// each pattern instead of the one length of the track.
+// Version 8 adds the per-note ROLL count: a seventh number on every note line (1 off, 2..4
+// retriggers inside the step). Version 7 files and older read as ROLL off.
+constexpr int kProjectVersion = 8;
+constexpr int kMaxReadProjectVersion = 8;
 constexpr int kMinProjectVersion = 1;
 constexpr unsigned kMaxMixerLevel = 100;
 
@@ -197,7 +199,8 @@ void WriteProjectText(std::ostream& file, const ProjectData& project) {
       for (std::size_t s = track.patterns[p].steps.NextInUse(0); s < kSequencerMaxSteps; s = track.patterns[p].steps.NextInUse(s + 1))
         for (const auto& note : track.patterns[p].steps[s].notes)
           if (note.active) file << p << ' ' << s << ' ' << static_cast<int>(note.note) << ' ' << static_cast<int>(note.velocity)
-                               << ' ' << note.lengthPulses << ' ' << static_cast<int>(note.microstep) << '\n';
+                               << ' ' << note.lengthPulses << ' ' << static_cast<int>(note.microstep) << ' ' << static_cast<int>(note.Roll())
+                               << '\n';
   }
   // The song mode switch is a performance control and is not stored.
   file << "SONG " << project.sequence->songLength << ' ' << project.sequence->songLoop << '\n';
@@ -379,16 +382,20 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
     track.muted = muted != 0;
     for (std::size_t n = 0; n < noteCount; ++n) {
       std::size_t p = 0, s = 0;
-      unsigned pitch = 0, microstep = 0;
+      unsigned pitch = 0, microstep = 0, roll = 1;
       if (!(file >> p >> s >> pitch >> velocity >> length >> microstep) || p >= track.patternCount || s >= kSequencerMaxSteps ||
           pitch > 127 || velocity < 1 || velocity > 127 || length < 1 || length > kSequencerMaxSteps * kSequencerPulsesPerStep || microstep >= kSequencerMicrostepCount) return ProjectResult::Invalid;
+      // Files from before version 8 have no ROLL field: they load with every note rolled off.
+      if (version >= 8 && (!(file >> roll) || roll < 1 || roll > kSequencerMaxRoll)) return ProjectResult::Invalid;
       if (!track.patterns.Ensure(p)) return ProjectResult::NoMemory;
       auto* step = track.patterns[p].steps.TryEdit(s);
       if (step == nullptr) return ProjectResult::NoMemory;
       auto& notes = step->notes;
       auto slot = std::find_if(notes.begin(), notes.end(), [](const auto& note) { return !note.active; });
       if (slot == notes.end()) return ProjectResult::Invalid;
-      *slot = {static_cast<std::uint8_t>(pitch), static_cast<std::uint8_t>(velocity), static_cast<std::uint16_t>(length), static_cast<std::uint8_t>(microstep), true};
+      *slot = {static_cast<std::uint8_t>(pitch), static_cast<std::uint8_t>(velocity), static_cast<std::uint16_t>(length),
+               static_cast<std::uint8_t>(microstep), true, 0};
+      slot->SetRoll(static_cast<std::uint8_t>(roll));
     }
   }
   // Versions 1 and 2 load with an empty, looping song (the ProjectState defaults).

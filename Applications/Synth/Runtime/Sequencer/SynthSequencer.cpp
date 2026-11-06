@@ -481,6 +481,7 @@ void SynthSequencer::Reset()
     track.activePattern = 0;
     track.defaultVelocity = 110;
     track.defaultLengthPulses = kSequencerPulsesPerStep;
+    track.defaultRoll = 1;
     track.enabled = true;
     track.muted = false;
     track.patternSteps = TrackData::DefaultPatternSteps();
@@ -920,7 +921,7 @@ std::size_t SynthSequencer::StepNoteEvents(std::size_t trackIndex, std::size_t s
   for (const NoteEvent& event : ActivePatternLocked(tracks_[trackIndex]).steps[stepIndex].notes)
   {
     if (!event.active || count >= notes.size()) continue;
-    notes[count++] = StepNoteView{event.note, event.velocity, event.lengthPulses, event.microstep};
+    notes[count++] = StepNoteView{event.note, event.velocity, event.lengthPulses, event.microstep, event.Roll()};
   }
   return count;
 }
@@ -1051,6 +1052,7 @@ bool SynthSequencer::InsertNote(std::size_t trackIndex, std::size_t patternIndex
   target->velocity = std::clamp<std::uint8_t>(velocity, 1, 127);
   target->microstep = std::min<std::uint8_t>(microstep, kSequencerMicrostepCount - 1);
   target->lengthPulses = ClampLengthInPattern(track.patternSteps[patternIndex], stepIndex, target->microstep, std::max<std::uint16_t>(1, lengthPulses));
+  target->SetRoll(track.defaultRoll);
   if (trackIndex == activeTrack_) NormalizeScopeLocked();
   return true;
 }
@@ -1424,9 +1426,11 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
           // length and timing changes without retaining a second pattern copy.
           cell.contentFingerprint = cell.contentFingerprint * 16777619u ^
               (static_cast<std::uint32_t>(note.note) | (static_cast<std::uint32_t>(note.velocity) << 7) |
-               (static_cast<std::uint32_t>(note.lengthPulses) << 14) | (static_cast<std::uint32_t>(note.microstep) << 25));
+               (static_cast<std::uint32_t>(note.lengthPulses) << 14) | (static_cast<std::uint32_t>(note.microstep) << 25) |
+               (static_cast<std::uint32_t>(note.Roll()) << 28));
           if (cell.lowestNote < 0 || note.note < cell.lowestNote) cell.lowestNote = note.note;
           cell.velocity = std::max(cell.velocity, note.velocity);
+          cell.roll = std::max(cell.roll, note.Roll());
         }
     cell.hasEvents = cell.noteCount > 0;
     cell.held = heldSteps_[stepIndex];
@@ -2028,10 +2032,93 @@ void SynthSequencer::CycleEditLane()
     case SequencerEditLane::Note: editLane_ = SequencerEditLane::Length; break;
     case SequencerEditLane::Length: editLane_ = SequencerEditLane::Velocity; break;
     case SequencerEditLane::Velocity: editLane_ = SequencerEditLane::Micro; break;
-    case SequencerEditLane::Micro:
+    case SequencerEditLane::Micro: editLane_ = SequencerEditLane::Roll; break;
+    case SequencerEditLane::Roll:
     default: editLane_ = SequencerEditLane::Note; break;
   }
   NormalizeScopeLocked();
+}
+
+std::uint8_t SynthSequencer::StepRoll(std::size_t stepIndex) const
+{
+  if (stepIndex >= kSequencerMaxSteps) return 1;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size()) return 1;
+  std::uint8_t roll = 1;
+  for (const NoteEvent& note : ActivePatternLocked(tracks_[activeTrack_]).steps[stepIndex].notes)
+  {
+    if (note.active) roll = std::max(roll, note.Roll());
+  }
+  return roll;
+}
+
+bool SynthSequencer::SetStepRoll(std::size_t stepIndex, std::uint8_t roll, int pitch)
+{
+  if (stepIndex >= kSequencerMaxSteps) return false;
+  const auto wanted = static_cast<std::uint8_t>(std::clamp<int>(roll, 1, kSequencerMaxRoll));
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size()) return false;
+  TrackData& track = tracks_[activeTrack_];
+  track.defaultRoll = wanted;
+  // Reading first keeps an empty step from allocating a page just to hold a roll count.
+  bool any = false;
+  for (const NoteEvent& note : ActivePatternLocked(track).steps[stepIndex].notes)
+  {
+    if (note.active && (pitch < 0 || static_cast<int>(note.note) == pitch)) any = true;
+  }
+  if (!any) return false;
+
+  bool changed = false;
+  for (NoteEvent& note : ActivePatternLocked(track).steps.Edit(stepIndex).notes)
+  {
+    if (!note.active) continue;
+    if (pitch >= 0 && static_cast<int>(note.note) != pitch) continue;
+    if (note.Roll() == wanted) continue;
+    note.SetRoll(wanted);
+    changed = true;
+  }
+  return changed;
+}
+
+bool SynthSequencer::CycleStepRoll(std::size_t stepIndex, int pitch)
+{
+  if (stepIndex >= kSequencerMaxSteps) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size()) return false;
+  TrackData& track = tracks_[activeTrack_];
+
+  std::uint8_t current = 1;
+  for (const NoteEvent& note : ActivePatternLocked(track).steps[stepIndex].notes)
+  {
+    if (note.active && (pitch < 0 || static_cast<int>(note.note) == pitch)) current = std::max(current, note.Roll());
+  }
+  const auto next = static_cast<std::uint8_t>(current >= kSequencerMaxRoll ? 1 : current + 1);
+  track.defaultRoll = next;
+
+  bool changed = false;
+  for (NoteEvent& note : ActivePatternLocked(track).steps.Edit(stepIndex).notes)
+  {
+    if (!note.active) continue;
+    if (pitch >= 0 && static_cast<int>(note.note) != pitch) continue;
+    note.SetRoll(next);
+    changed = true;
+  }
+  return changed;
+}
+
+std::uint8_t SynthSequencer::DefaultRoll() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size()) return 1;
+  return static_cast<std::uint8_t>(std::clamp<int>(tracks_[activeTrack_].defaultRoll, 1, kSequencerMaxRoll));
+}
+
+void SynthSequencer::CycleDefaultRoll()
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size()) return;
+  std::uint8_t& roll = tracks_[activeTrack_].defaultRoll;
+  roll = static_cast<std::uint8_t>(roll >= kSequencerMaxRoll ? 1 : roll + 1);
 }
 
 void SynthSequencer::CycleNoteScope()
@@ -2098,6 +2185,17 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
       const auto next = static_cast<std::uint8_t>(std::clamp(static_cast<int>(track.defaultVelocity) + delta * (coarse ? 10 : 1), 1, 127));
       const bool changed = next != track.defaultVelocity;
       track.defaultVelocity = next;
+      return changed;
+    }
+    if (editLane_ == SequencerEditLane::Roll)
+    {
+      // No note to retrigger yet: cycle the count the next note will be written with.
+      const auto current = std::max<std::uint8_t>(1, std::min<std::uint8_t>(track.defaultRoll, kSequencerMaxRoll));
+      int next = static_cast<int>(current) + delta;
+      if (next > static_cast<int>(kSequencerMaxRoll)) next = 1;
+      if (next < 1) next = kSequencerMaxRoll;
+      const bool changed = static_cast<std::uint8_t>(next) != track.defaultRoll;
+      track.defaultRoll = static_cast<std::uint8_t>(next);
       return changed;
     }
     return false;
@@ -2190,6 +2288,20 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
           if (target == event.microstep) continue;
           event.microstep = target;
           event.lengthPulses = ClampLengthForStepMicrostep(stepIndex, event.microstep, event.lengthPulses);
+          changed = true;
+        }
+        break;
+      case SequencerEditLane::Roll:
+        for (std::size_t order = 0; order < slotCount; ++order)
+        {
+          NoteEvent& event = step.notes[slots[order]];
+          // Off, 2, 3, 4, and around again: no stop at the ends.
+          int target = static_cast<int>(event.Roll()) + delta;
+          if (target > static_cast<int>(kSequencerMaxRoll)) target = 1;
+          if (target < 1) target = kSequencerMaxRoll;
+          if (static_cast<std::uint8_t>(target) == event.Roll()) continue;
+          event.SetRoll(static_cast<std::uint8_t>(target));
+          track.defaultRoll = static_cast<std::uint8_t>(target);
           changed = true;
         }
         break;
@@ -2842,6 +2954,7 @@ void SynthSequencer::ToggleNoteInStepLocked(StepData& step, std::uint8_t note, T
       event.velocity = velocity != 0 ? std::min<std::uint8_t>(velocity, 127) : track.defaultVelocity;
       event.microstep = 0;
       event.lengthPulses = ClampLengthForStepMicrostep(stepIndex, event.microstep, track.defaultLengthPulses);
+      event.SetRoll(track.defaultRoll);
       return;
     }
   }
@@ -3151,6 +3264,7 @@ void SynthSequencer::PopulateEditValueStateLocked(SequencerUiState& state, const
   {
     defaults.lengthPulses = tracks_[activeTrack_].defaultLengthPulses;
     defaults.velocity = tracks_[activeTrack_].defaultVelocity;
+    defaults.SetRoll(tracks_[activeTrack_].defaultRoll);
     note = &defaults;
   }
 
@@ -3192,6 +3306,10 @@ void SynthSequencer::PopulateEditValueStateLocked(SequencerUiState& state, const
     case SequencerEditLane::Micro:
       state.editValueCount = note != nullptr ? kSequencerMicrostepCount : 0;
       state.editValueIndex = note != nullptr ? std::min<std::size_t>(note->microstep, kSequencerMicrostepCount - 1) : 0;
+      break;
+    case SequencerEditLane::Roll:
+      state.editValueCount = kSequencerRollCount;
+      state.editValueIndex = note != nullptr ? static_cast<std::size_t>(note->Roll() - 1) : 0;
       break;
     case SequencerEditLane::Note:
     default:
@@ -3242,6 +3360,8 @@ std::string SynthSequencer::ValueLabelLocked(const StepData* step) const
       if (editLane_ == SequencerEditLane::Velocity)
         return "NEW VEL " + std::to_string(tracks_[activeTrack_].defaultVelocity);
       if (editLane_ == SequencerEditLane::Micro) return "ADD NOTES FIRST";
+      if (editLane_ == SequencerEditLane::Roll)
+        return std::string("NEW ROLL ") + kSequencerRollNames[std::min<std::size_t>(tracks_[activeTrack_].defaultRoll - 1, kSequencerRollCount - 1)];
     }
     return SequencerEditLaneLabel(editLane_);
   }
@@ -3281,6 +3401,8 @@ std::string SynthSequencer::ValueLabelLocked(const StepData* step) const
       return "VEL " + std::to_string(note->velocity);
     case SequencerEditLane::Micro:
       return "TIME " + std::to_string(note->microstep + 1);
+    case SequencerEditLane::Roll:
+      return std::string("ROLL ") + kSequencerRollNames[std::min<std::size_t>(note->Roll() - 1, kSequencerRollCount - 1)];
     default:
       return "SEQ";
   }
@@ -3315,16 +3437,35 @@ void SynthSequencer::FireStepNotesLocked(std::size_t trackIndex,
 {
   for (const NoteEvent& note : step.notes)
   {
-    if (!note.active || note.microstep >= kSequencerMicrostepCount || NoteOffsetPulsesLocked(stepIndex, note.microstep) != targetOffset)
+    if (!note.active || note.microstep >= kSequencerMicrostepCount)
     {
       continue;
     }
+
+    // ROLL fires the note again inside its own step: the first hit sits on the note's own
+    // offset (microstep and swing included) and the rest follow one sub-step apart, so a
+    // sixteenth becomes two 32nds, three 48ths or four 64ths.
+    const std::uint8_t roll = note.Roll();
+    const std::uint16_t subHitPulses = SequencerRollSubHitPulses(roll);
+    const std::uint16_t firstOffset = NoteOffsetPulsesLocked(stepIndex, note.microstep);
+    bool due = false;
+    for (std::uint8_t hit = 0; hit < roll && !due; ++hit)
+    {
+      due = static_cast<std::uint32_t>(firstOffset + hit * subHitPulses) == targetOffset;
+    }
+    if (!due)
+    {
+      continue;
+    }
+
     if (ConsumeSuppressedNoteLocked(trackIndex, note.note, pulse))
     {
       continue;
     }
 
-    if (ScheduleNoteOffLocked(trackIndex, note.note, pulse + std::max<std::uint16_t>(1, note.lengthPulses)))
+    // A rolled note lasts one sub-step; a plain note keeps the length it was given.
+    const std::uint16_t length = roll > 1 ? subHitPulses : note.lengthPulses;
+    if (ScheduleNoteOffLocked(trackIndex, note.note, pulse + std::max<std::uint16_t>(1, length)))
       AddPendingMidi(events, count, trackIndex, midi::MidiPacket::NoteOn(0, note.note, note.velocity));
   }
 }
