@@ -982,11 +982,21 @@ void Controller::SequenceAdjust(int delta, bool coarse)
       // the GRID's page, FN + ADD / SUB go to the next / previous pattern.
       if (ui.hasHeldSteps)
       {
-        // On a drum track the pads pick the drum: the NOTE lane does not move hits to pitches that
-        // are no drum (OK goes on to the length, velocity and timing).
-        if (DrumTrack() && ui.editLane == synth::SequencerEditLane::Note)
+        // Choosing inside a step: a held GRID key means "this step", so ADD / SUB walk the note
+        // scope instead of editing the value. A drum track's NOTE lane has nothing to move (a pad
+        // picks the drum, and there is no pitch to move a hit to), so there it picks the scope on
+        // its own, whether the key is held or not.
+        const bool gridHeld = std::any_of(state_.gridDown.begin(), state_.gridDown.end(),
+                                          [](bool down) { return down; });
+        if (gridHeld || (DrumTrack() && ui.editLane == synth::SequencerEditLane::Note))
         {
-          ShowHud("NOTE", "PADS PICK DRUMS");
+          if (ui.noteCount == 0)
+          {
+            ShowHud("NOTE", "ADD NOTES FIRST");
+            return;
+          }
+          sequencer.CycleNoteScope(delta);
+          MarkDirty();
           return;
         }
         if (sequencer.AdjustSelectedSteps(delta, coarse)) MarkDirty();
