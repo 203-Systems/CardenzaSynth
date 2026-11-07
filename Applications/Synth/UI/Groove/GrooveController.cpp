@@ -1,5 +1,7 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
 
+#include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -818,9 +820,31 @@ void Controller::ReportAutosaveProblem(const std::string& text)
   ShowToast(text, ToastKind::Error);
 }
 
+void Controller::SyncScopeOrder()
+{
+  auto& sequencer = host_.Sequencer();
+  // A kit's Step matrix draws its pads bottom-up in pad order; its piano roll draws them by pitch.
+  // The scope walks whichever of the two the screen is showing, so ADD / SUB always move one
+  // visible row.
+  if (DrumLayout())
+    sequencer.SetScopePitchOrder(synth::kDrumNotes.data(), synth::kDrumNotes.size());
+  else
+    sequencer.SetScopePitchOrder(nullptr, 0);
+}
+
 void Controller::Tick(std::uint32_t nowMs)
 {
   state_.now = nowMs;
+  // A track switch outside SelectTrack (a project load, a guide step) lands here too, and so does
+  // flipping a drum track between its matrix and its roll.
+  const bool padOrder = DrumLayout();
+  if (!scopeOrderSynced_ || scopeOrderEngine_ != ActiveKind() || scopeOrderPadOrder_ != padOrder)
+  {
+    scopeOrderSynced_ = true;
+    scopeOrderEngine_ = ActiveKind();
+    scopeOrderPadOrder_ = padOrder;
+    SyncScopeOrder();
+  }
   OkTick();
   if (CellPickerActive()) ShowCellHud();
   if (synth::SynthSequencer::ConsumePatternMemoryFull()) ShowToast("MEMORY FULL - NOTE NOT WRITTEN", ToastKind::Error);

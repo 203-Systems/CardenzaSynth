@@ -185,7 +185,13 @@ public:
   bool ToggleNotesOnSelectedSteps(const std::uint8_t* notes, std::size_t count, std::uint8_t velocity = 0);
   void SetEditLane(SequencerEditLane lane);
   void CycleEditLane();
+  // The order the note scope walks in, when pitch order is not the screen order: a drum kit's
+  // pads from the bottom row up, so ADD / SUB move one visible row at a time. Empty on a melodic
+  // track, where the piano roll already reads low to high.
+  void SetScopePitchOrder(const std::uint8_t* pitches, std::size_t count);
+  // Walks the note scope: +1 for ADD, -1 for SUB. The order is ALL, then the step's notes.
   void CycleNoteScope();
+  void CycleNoteScope(int delta);
   // Relative edit of the current lane for the scoped note (or every note) of each selected
   // step. Returns true when any value changed.
   bool AdjustSelectedSteps(int delta, bool coarse);
@@ -430,6 +436,7 @@ private:
   void ClearStepLocked(StepData& step);
   void QuantizeStepLocked(StepData& step, std::size_t stepIndex);
   void CycleNoteScopeLocked();
+  void CycleNoteScopeLocked(int delta);
   void NormalizeScopeLocked();
   void PopulateEditValueStateLocked(SequencerUiState& state, const StepData* step) const;
   PatternData& ActivePatternLocked(TrackData& track);
@@ -519,6 +526,9 @@ private:
   std::size_t activeTrack_ = 0;
   SequencerEditLane editLane_ = SequencerEditLane::Note;
   int noteScopeIndex_ = -1;
+  // The scope's walk order when the host has one (see SetScopePitchOrder); empty means by pitch.
+  std::array<std::uint8_t, 8> scopeOrder_{};
+  std::size_t scopeOrderCount_ = 0;
   bool playing_ = false;
   std::size_t playbackStep_ = 0;
   std::uint64_t absolutePulse_ = 0;

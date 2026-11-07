@@ -76,6 +76,16 @@ void GridRipple(Gfx& g, Animator& animator, std::size_t index, Color color)
 constexpr std::array<int, 4> kDrumDensity{{16, 8, 4, 2}};
 int DrumDensity(std::uint8_t velocity) { return kDrumDensity[DrumRowForVelocity(velocity)]; }
 
+// The kit's pads from the top row down: the pad order read backwards, so pad 1 (BD) is the bottom
+// row. The matrix then reads like the piano roll -- low at the bottom -- without moving any key:
+// pad 1 is still BD, and the columns of keys are untouched.
+//
+// The note scope walks by MIDI pitch, which is NOT this order (CP is 39, below CH's 42), so the
+// walk and the rows disagree on CP / OH / TM. That is a known trade: the screen follows the hands,
+// the scope follows the notes.
+constexpr std::array<std::size_t, 8> kDrumRowPad{{7, 6, 5, 4, 3, 2, 1, 0}};
+
+
 // The kit's eight drums in one row, like the eight pad columns on the keyboard (a column is a drum).
 // With fill (VOICE) they take the whole area, as the keyboard of a melodic track does, less the room
 // a hit kicks them up; otherwise (the KIT page's graphic) a strip of at most 24 px in its middle.
@@ -791,6 +801,13 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
     for (int y = y0; y < y0 + height; y += 2) g.Pixel(x0 + static_cast<int>(step) * column, y, step % 16 == 0 ? kDim : kShade);
   for (std::size_t step = 0; step < steps; ++step)
     if (seq.steps[step].held) g.Dither(Rect{x0 + static_cast<int>(step) * column, y0, column, height}, kInk, 3);
+  // The note the scope is on blinks in reverse: it is the one ADD / SUB will edit, and on a step
+  // holding a chord the strip below is not where the eye is. Two blinks a second.
+  const bool scopeBlink = ((animator.Now() / 250u) & 1u) == 0;
+  const auto scopedNow = [&](std::size_t step, int note) {
+    return scopeBlink && seq.hasHeldSteps && seq.scopedNote >= 0 &&
+           first + step == seq.primaryHeldStep && note == seq.scopedNote;
+  };
   // The notes.
   for (std::size_t step = 0; step < kGridCount; ++step)
   {
@@ -802,6 +819,12 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       const int inPage = static_cast<int>(pulseStart + note.microstep * synth::kSequencerPulsesPerMicrostep + note.lengthPulses) - static_cast<int>(kGridCount * synth::kSequencerPulsesPerStep);
       const Rect bar{x0, rowY(note.note), std::min(inPage * column / static_cast<int>(synth::kSequencerPulsesPerStep), column * static_cast<int>(steps)), std::max(1, rowHeight - 1)};
       // On a lit row the bar is cut out of the light, solid in the track's color.
+      if (scopedNow(step, note.note))
+      {
+        g.Fill(Rect{bar.x, bar.y - 1, bar.width, bar.height + 2}, kBlack);
+        g.Fill(bar, kInk);
+        continue;
+      }
       if (pressed[note.note & 0x7F] != 0)
       {
         g.Fill(Rect{bar.x, bar.y - 1, bar.width, bar.height + 2}, kBlack);
@@ -823,6 +846,12 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       // Notes keep the track's color everywhere: a selected step's (its column is lit) and a lit
       // row's are solid, cut out of the light; the others as dense as they are loud.
       const bool held = seq.steps[step].held;
+      if (scopedNow(step, note.note))
+      {
+        g.Fill(Rect{bar.x, bar.y - 1, bar.width, bar.height + 2}, kBlack);
+        g.Fill(bar, kInk);
+        continue;
+      }
       if (pressed[note.note & 0x7F] != 0 || held)
       {
         g.Fill(Rect{bar.x, bar.y - 1, bar.width, bar.height + 2}, kBlack);
@@ -935,11 +964,13 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   }
   const auto rowOf = [&](int note) {
     if (!drums) return note < low || note > high ? -1 : high - note;
-    for (std::size_t lane = 0; lane < kDrumNotes.size(); ++lane)
-      if (kDrumNotes[lane] == note) return static_cast<int>(lane);
+    for (std::size_t row = 0; row < kDrumRowPad.size(); ++row)
+      if (kDrumNotes[kDrumRowPad[row]] == note) return static_cast<int>(row);
     return -1;
   };
-  const auto noteOf = [&](int row) { return drums ? static_cast<int>(kDrumNotes[static_cast<std::size_t>(row)]) : high - row; };
+  const auto noteOf = [&](int row) {
+    return drums ? static_cast<int>(kDrumNotes[kDrumRowPad[static_cast<std::size_t>(row)]]) : high - row;
+  };
   const int chosen = picked >= 0 ? rowOf(picked) : -1;
 
   const int label = drums ? 14 : 20;
@@ -979,7 +1010,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     if (drums)
     {
       if (lit) g.Fill(Rect{kContentX, y, label - 2, rowHeight - 1}, kInk);
-      g.Text(kContentX + 1, y + (rowHeight - 6) / 2, kDrumNames[static_cast<std::size_t>(row)], lit ? kBlack : kDim, Font::Micro);
+      g.Text(kContentX + 1, y + (rowHeight - 6) / 2, kDrumNames[kDrumRowPad[static_cast<std::size_t>(row)]], lit ? kBlack : kDim, Font::Micro);
       for (int step = 0; step < steps; ++step)
       {
         bool hit = false;
@@ -993,6 +1024,13 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     if (lit) g.Fill(Rect{kContentX, labelY, label - 2, 8}, kInk);
     if (lit || rowHeight >= 3 || note % 24 == 0) g.Text(kContentX + 1, labelY + 1, NoteName(note), lit ? kBlack : kFaint, Font::Micro);
   }
+  // The scoped note blinks in reverse here too: on the matrix that is the row of the one piece
+  // ADD / SUB will edit, which the strip below does not say. Two blinks a second.
+  const bool scopeBlink = ((animator.Now() / 250u) & 1u) == 0;
+  const auto scopedNow = [&](std::size_t step, int note) {
+    return scopeBlink && seq.hasHeldSteps && seq.scopedNote >= 0 &&
+           first + step == seq.primaryHeldStep && note == seq.scopedNote;
+  };
   // The hits, in the track's color: on a lit or chosen row cut out of its light and stronger.
   for (int step = 0; step < steps; ++step)
   {
@@ -1011,6 +1049,11 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       const std::uint8_t held = heldVelocity[note.note & 0x7F];
       const bool strong = held != 0 || row == chosen || seq.steps[static_cast<std::size_t>(step)].held;
       if (strong) g.Fill(Rect{mark.x - 1, mark.y - (drums ? 1 : 0), mark.width + 2, mark.height + (drums ? 2 : 0)}, kBlack);
+      if (scopedNow(static_cast<std::size_t>(step), note.note))
+      {
+        g.Fill(mark, kInk);
+        continue;
+      }
       if (head) g.Fill(mark, kPlay);
       else if (drums) g.Dither(mark, trackColor, held != 0 ? std::max(8, DrumDensity(note.velocity)) : DrumDensity(note.velocity));
       else g.Dither(mark, trackColor, strong ? 16 : 6 + note.velocity * 10 / 127);

@@ -599,6 +599,10 @@ public:
   bool IsChordNoteHeld(int note) const;
 
 private:
+  // What SyncScopeOrder last saw, so it only runs when the engine or the view changes.
+  synth::SynthEngineKind scopeOrderEngine_{};
+  bool scopeOrderPadOrder_ = false;
+  bool scopeOrderSynced_ = false;
   // Input routing
   void PressLeft(std::size_t row);
   void ReleaseLeft(std::size_t row);
@@ -762,6 +766,9 @@ private:
   synth::ISynthEngine* ActiveEngine();
   const synth::ISynthEngine* ActiveEngine() const;
   synth::SynthEngineKind ActiveKind() const;
+  // Keeps the note scope's walk order in step with the active track: a drum kit walks its pads as
+  // the matrix draws them, a melodic track walks by pitch (the roll's own order).
+  void SyncScopeOrder();
   void ClampPages();
 
   Host& host_;

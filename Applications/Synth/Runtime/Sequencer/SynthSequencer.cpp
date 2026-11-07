@@ -2034,10 +2034,26 @@ void SynthSequencer::CycleEditLane()
   NormalizeScopeLocked();
 }
 
+void SynthSequencer::SetScopePitchOrder(const std::uint8_t* pitches, std::size_t count)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  scopeOrderCount_ = pitches != nullptr ? std::min(count, scopeOrder_.size()) : 0;
+  for (std::size_t index = 0; index < scopeOrderCount_; ++index)
+  {
+    scopeOrder_[index] = pitches[index];
+  }
+}
+
 void SynthSequencer::CycleNoteScope()
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  CycleNoteScopeLocked();
+  CycleNoteScopeLocked(1);
+}
+
+void SynthSequencer::CycleNoteScope(int delta)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  CycleNoteScopeLocked(delta);
 }
 
 bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
@@ -2984,6 +3000,11 @@ void SynthSequencer::QuantizeStepLocked(StepData& step, std::size_t stepIndex)
 
 void SynthSequencer::CycleNoteScopeLocked()
 {
+  CycleNoteScopeLocked(1);
+}
+
+void SynthSequencer::CycleNoteScopeLocked(int delta)
+{
   const StepData* primaryStep = nullptr;
   if (activeTrack_ < tracks_.size())
   {
@@ -3005,17 +3026,23 @@ void SynthSequencer::CycleNoteScopeLocked()
     return;
   }
 
+  const int count = static_cast<int>(noteCount);
+  if (delta == 0)
+  {
+    return;
+  }
   if (noteScopeIndex_ < 0)
   {
-    noteScopeIndex_ = 0;
+    // From the whole step: ADD starts at the first note, SUB at the last one.
+    noteScopeIndex_ = delta > 0 ? 0 : count - 1;
     return;
   }
 
-  ++noteScopeIndex_;
-  if (noteScopeIndex_ >= static_cast<int>(noteCount))
-  {
-    noteScopeIndex_ = -1;
-  }
+  // ALL sits at both ends of the walk, so the count is the ring's length.
+  int next = noteScopeIndex_ + (delta > 0 ? 1 : -1);
+  if (next >= count) next = -1;
+  if (next < -1) next = count - 1;
+  noteScopeIndex_ = next;
 }
 
 void SynthSequencer::NormalizeScopeLocked()
@@ -3106,6 +3133,18 @@ std::size_t SynthSequencer::ScopedNoteSlot(const StepData& step) const
       slots[slotCount++] = slot;
     }
   }
+  // The walk follows the screen, not MIDI: the host hands over the kit's pads in the order the
+  // matrix draws them from the bottom row up, so ADD / SUB move one visible row at a time instead
+  // of jumping when a pad's pitch disagrees with its row (CP is 39, CH is 42). A melodic track
+  // hands over nothing and pitch order is the screen order anyway.
+  const auto rank = [this](std::uint8_t pitch) {
+    for (std::size_t index = 0; index < scopeOrderCount_; ++index)
+    {
+      if (scopeOrder_[index] == pitch) return static_cast<int>(index);
+    }
+    return static_cast<int>(scopeOrderCount_) + static_cast<int>(pitch);
+  };
+
   // GCC's small-range std::sort expansion probes its 16-item insertion-sort
   // threshold and triggers -Warray-bounds for this fixed 8-item buffer on
   // Xtensa. An explicit insertion sort keeps every access visibly bounded.
@@ -3113,7 +3152,7 @@ std::size_t SynthSequencer::ScopedNoteSlot(const StepData& step) const
   {
     const std::size_t slot = slots[index];
     std::size_t insertionIndex = index;
-    while (insertionIndex > 0 && step.notes[slot].note < step.notes[slots[insertionIndex - 1]].note)
+    while (insertionIndex > 0 && rank(step.notes[slot].note) < rank(step.notes[slots[insertionIndex - 1]].note))
     {
       slots[insertionIndex] = slots[insertionIndex - 1];
       --insertionIndex;
