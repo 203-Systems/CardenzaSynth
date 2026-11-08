@@ -1463,7 +1463,9 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   };
   const int chosen = picked >= 0 ? rowOf(picked) : -1;
 
-  const int label = drums ? 14 : 20;
+  // The gutter is the roll's own, twenty pixels, so a lane's first column starts on the same pixel
+  // whether the view is the matrix or the roll; a kit's names still hang at the left edge.
+  constexpr int label = 20;
   // The GRID on the right decides the split: it is four squares again, and what it leaves the matrix
   // has. A square is the width the cells had, less three.
   constexpr int kGap = kStepGap;
