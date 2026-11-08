@@ -1226,13 +1226,16 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   }
   for (std::size_t step = 0; step < page; ++step)
   {
-    for (std::size_t index = 0; index < counts[step]; ++index)
+    // The page being edited sits at `brightStart` in the window, so its notes are the ones loaded for
+    // that slot: the left half on an odd page, the right half on an even one.
+    const std::size_t slot = lanes ? brightStart + step : step;
+    for (std::size_t index = 0; index < counts[slot]; ++index)
     {
-      const auto& note = notes[step][index];
+      const auto& note = notes[slot][index];
       if (note.note < low || note.note > high) continue;
       // On a lane roll a bar sits inside its cell, one pixel in, so the grid's lines stay the box it
       // fills; the piano roll's bars keep their old place on the column.
-      const int x = x0 + static_cast<int>(lanes ? brightStart + step : step) * column +
+      const int x = x0 + static_cast<int>(slot) * column +
                     static_cast<int>(note.microstep) * column / synth::kSequencerMicrostepCount + (lanes ? 1 : 0);
       const int width = std::max(1, static_cast<int>(note.lengthPulses) * column / synth::kSequencerPulsesPerStep - 1);
       const Rect room{x, rowY(note.note), std::min(width, fullWidth - (lanes ? 1 : 0) - x), std::max(1, rowHeight - 1)};
