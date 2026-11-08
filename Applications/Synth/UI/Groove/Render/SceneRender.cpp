@@ -134,6 +134,28 @@ void DrawRollNotches(Gfx& g, const Rect& bar, int roll)
   }
 }
 
+// A chop's hit on the step matrix: the cell's whole width (TIME stays the GRID's business) and as
+// tall as the hit is hard, standing on the cell's floor. The same three heights the lane roll uses -
+// quiet three, normal four, loud five - so a note reads the same on both screens.
+Rect ChopBar(const Rect& cell, std::uint8_t velocity)
+{
+  const int wanted = velocity >= 100 ? 5 : velocity >= 61 ? 4 : 3;
+  const int height = std::clamp(wanted, 1, (std::max)(1, cell.height));
+  return Rect{cell.x, cell.y + cell.height - height, cell.width, height};
+}
+
+// ROLL on the matrix: the bar cut into the repeats the slice fires on, the way the GRID square cuts
+// its own - two, three or four parts.
+void DrawChopCuts(Gfx& g, const Rect& bar, std::uint8_t roll)
+{
+  for (int part = 1; part < roll; ++part)
+  {
+    const int x = bar.x + bar.width * part / roll;
+    if (x <= bar.x || x >= bar.x + bar.width) continue;
+    g.Fill(Rect{x, bar.y, 1, bar.height}, kBlack);
+  }
+}
+
 // The kit's eight drums in one row, like the eight pad columns on the keyboard (a column is a drum).
 // With fill (VOICE) they take the whole area, as the keyboard of a melodic track does, less the room
 // a hit kicks them up; otherwise (the KIT page's graphic) a strip of at most 24 px in its middle.
@@ -1109,8 +1131,6 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       g.HLine(x0 - (divider ? 6 : 3), lineY, divider ? 7 : 4, divider ? kDim : kFaint);
       // Lanes are counted - 1 5 9 13 up sixteen slices - instead of named, a note meaning nothing there.
       if (counted && rowHeight * 4 >= 10) g.Text(kContentX, y + rowHeight / 2 - 4, laneLabel(note), kFaint, Font::Micro);
-      // A chop's first slice opens the ruler, so its top edge closes the grid like the rules below.
-      if (chop && lane == 0 && y - 1 >= kContentY) g.HLine(x0 - 6, y - 1, fullWidth + 6, kInk);
       continue;
     }
     // The piano roll: black keys shaded, every C named.
@@ -1507,16 +1527,13 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       const int cellX = x0 + step * column;
       const int x = cellX + late * (column - 3) / (synth::kSequencerMicrostepCount - 1);
       // On the beat it fills the step; off it, a sliver where in the step it falls. A chop's block
-      // fills the grid's cell - the lines are its frame, so it runs from one to the next.
-      const Rect room = chop ? Rect{cellX + 1 + late * (column - 3) / (synth::kSequencerMicrostepCount - 1), y,
-                                    late == 0 ? column - 1 : 2, std::max(2, rowHeight - 1)}
+      // takes the cell's whole width - TIME is left to the GRID square - and stands on its floor as
+      // tall as the hit is hard.
+      const Rect room = chop ? Rect{cellX + 1, y, column - 1, std::max(2, rowHeight - 1)}
                              : lanes ? Rect{x, y + 2, late == 0 ? column - 1 : 2, std::max(2, rowHeight - 5)}
                                      : Rect{x, y, late == 0 ? column - 1 : 2, std::max(2, rowHeight - 1)};
-      // Same language as the piano roll: how hard, by how tall, never under two pixels. A chop's
-      // matrix is only the map of where its slices fall - a hit fills its cell, the same block
-      // however hard it was struck, since how hard and how often are the GRID's story and the grid
-      // already frames every cell.
-      const Rect mark = chop ? room : VelocityBar(room, note.velocity);
+      // Same language as the piano roll: how hard, by how tall, never under two pixels.
+      const Rect mark = chop ? ChopBar(room, note.velocity) : VelocityBar(room, note.velocity);
       const std::uint8_t held = heldVelocity[note.note & 0x7F];
       const bool heldStep = seq.steps[static_cast<std::size_t>(step)].held;
       const bool strong = held != 0 || row == chosen || heldStep;
@@ -1528,7 +1545,9 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       else if (lanes && heldStep && !scoping) g.Fill(mark, kInk);
       else if (head) g.Fill(mark, kPlay);
       else g.Fill(mark, trackColor);
-      if (!chop) DrawRollNotches(g, mark, note.roll);
+      // ROLL cuts the bar into the repeats it fires on, here as in the GRID square.
+      if (chop) DrawChopCuts(g, mark, note.roll);
+      else DrawRollNotches(g, mark, note.roll);
     }
   }
   if (playingHere)
