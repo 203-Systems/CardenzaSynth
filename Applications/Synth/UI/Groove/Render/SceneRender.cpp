@@ -1538,7 +1538,8 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       // A kit names its lanes - BD, SD, CH - where a chop counts its slices: the grid already says
       // which step is which, so no dots are needed to read an empty lane.
       if (lit) g.Fill(Rect{kContentX, y, label - 2, rowHeight - 1}, kInk);
-      g.Text(kContentX + 1, y + (rowHeight - 6) / 2, kDrumNames[kDrumRowPad[static_cast<std::size_t>(row)]], lit ? kBlack : kDim, Font::Micro);
+      // The name sits where the roll's does: hard against the gutter, on the lane's middle.
+      g.Text(kContentX, y + rowHeight / 2 - 4, kDrumNames[kDrumRowPad[static_cast<std::size_t>(row)]], lit ? kBlack : kDim, Font::Micro);
       continue;
     }
     if (!lit && note % 12 != 0) continue;
