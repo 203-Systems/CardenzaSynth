@@ -714,9 +714,11 @@ void Controller::PressPad(std::size_t row, std::size_t column)
   if (voices == 0) return;
   auto& sequencer = host_.Sequencer();
   // On a drum track the row says how hard. On the drum page a pad also chooses what the GRID puts on
-  // the steps: this drum, this hard.
+  // the steps: this drum, this hard. A chop of eight slices or fewer lies across the pads the same
+  // way - a slice a column, the four rows the four velocities - so there too the row says how hard.
   const bool drums = ActiveKind() == synth::SynthEngineKind::Drums;
-  const std::uint8_t velocity = drums ? kDrumRowVelocity[row] : state_.keyboard.velocity;
+  const bool rowVelocity = drums || (ActiveKind() == synth::SynthEngineKind::Chop && ChopSliceCount() <= kPadColumns);
+  const std::uint8_t velocity = rowVelocity ? kDrumRowVelocity[row] : state_.keyboard.velocity;
   state_.padVelocity[index] = velocity;
   if (drums) state_.drumPadHits[column - kPadFirstColumn] = DrumHit{state_.now == 0 ? 1 : state_.now, static_cast<std::uint8_t>(row), velocity};
   // Selected steps (held or tapped) turn the pads into a note editor for them; on the drum machine a
@@ -731,7 +733,7 @@ void Controller::PressPad(std::size_t row, std::size_t column)
     }
     else state_.noteLane[state_.track] = static_cast<std::uint8_t>(note);
     // The pad's notes as one: a chord goes in whole, or (any of it in a step) comes out whole.
-    editing = PadForSequence(chord.data(), voices, true, drums ? velocity : std::uint8_t{0});
+    editing = PadForSequence(chord.data(), voices, true, rowVelocity ? velocity : std::uint8_t{0});
   }
   const bool audition = !editing || !sequencer.Playing();
   state_.padNote[index] = static_cast<std::uint8_t>(note);
