@@ -1241,8 +1241,10 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       DrawRollNotches(g, bar, note.roll);
     }
   }
-  // The half that is not being edited keeps its notes, dimmed: on an odd page that is what is coming,
-  // on an even page what was just played. Past the end of the pattern the grid stays empty.
+  // The half that is not being edited keeps its notes, and in their own colour: on an odd page that is
+  // what is coming, on an even page what was just played. Only the grid under them stays dim, so the
+  // eye knows which half the keys write without the other half going grey. Past the end of the pattern
+  // there is nothing to draw.
   for (std::size_t slot = 0; lanes && slot < span; ++slot)
   {
     if (slot >= brightStart && slot < brightStart + page) continue;
@@ -1254,8 +1256,10 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       const int x = x0 + static_cast<int>(slot) * column +
                     static_cast<int>(note.microstep) * column / synth::kSequencerMicrostepCount + 1;
       const int width = std::max(1, static_cast<int>(note.lengthPulses) * column / synth::kSequencerPulsesPerStep - 1);
-      const Rect bar{x, rowY(note.note) + 1, std::max(1, std::min(width, x0 + fullWidth - 1 - x)), std::max(1, rowHeight - 2)};
-      g.Dither(bar, kDim, 6);
+      const Rect room{x, rowY(note.note), std::min(width, x0 + fullWidth - 1 - x), std::max(1, rowHeight - 1)};
+      const Rect bar = noteBar(room, note.velocity);
+      g.Fill(bar, trackColor);
+      DrawRollNotches(g, bar, note.roll);
     }
   }
   if (seq.playing)
