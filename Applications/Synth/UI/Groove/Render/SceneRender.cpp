@@ -1152,10 +1152,10 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
     {
       // The grid is lines, not a halftone: a hairline under every lane, a bright white one every fourth
       // to group them. The page being edited is drawn brighter than the half that is only context.
-      // A chop counts down the page, so its groups start at slice 1 (row one) and close under slice 4;
-      // the drums count up from the floor and keep their own way.
-      const bool divider = chop ? lane % 4 == 3 : lane % 4 == 0;
-      const bool counted = chop ? lane % 4 == 0 : true;
+      // Both count down the page - slice 1, or the top drum - so a group closes under its fourth lane
+      // and the white lines fall every four rows from the frame at the top.
+      const bool divider = lane % 4 == 3;
+      const bool counted = true;
       const Color hairline = divider ? kInk : kFaint;
       g.HLine(x0, lineY, fullWidth, divider ? kInk : kShade);
       g.HLine(brightX0, lineY, brightWidth, hairline);
