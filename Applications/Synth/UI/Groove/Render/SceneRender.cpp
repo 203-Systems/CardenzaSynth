@@ -1392,11 +1392,17 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   const int chosen = picked >= 0 ? rowOf(picked) : -1;
 
   const int label = drums ? 14 : 20;
-  constexpr int kColumn = 5;
-  constexpr int kMatrixWidth = kColumn * static_cast<int>(kGridCount);
+  // The GRID on the right decides the split: it is four squares again, and what it leaves the matrix
+  // has. A square is the width the cells had, less three.
+  constexpr int kGap = 2;
+  constexpr int kNameHeight = 10;
+  constexpr int kSquare = (kContentHeight - kNameHeight - 3 * kGap) / 4;
+  const int left = kContentRight - (kSquare * 4 + 3 * kGap);
+  const int x0 = kContentX + label;
+  const int column = std::max(3, (left - 5 - x0) / static_cast<int>(kGridCount));
+  const int matrixWidth = column * static_cast<int>(kGridCount);
   const int rowHeight = std::max(2, kContentHeight / rows);
   const int matrixHeight = rowHeight * rows;
-  const int x0 = kContentX + label;
   const int top = kContentY + (kContentHeight - matrixHeight) / 2;
   const int steps = static_cast<int>(std::min<std::size_t>(kGridCount, length > first ? length - first : 0));
 
@@ -1409,30 +1415,39 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     const int pitch = note % 12;
     if (chop)
     {
-      // The roll's ruler, turned on its side: a hairline a slice, a white one every fourth, and the
-      // slice number where the counting lands - 1, 5, 9, 13 reading up.
+      // The roll's ruler, turned on its side: a hairline a slice, a mid-gray one every fourth, and
+      // the slice number where the counting lands - 1, 5, 9, 13 reading up.
       const int lineY = y + rowHeight - 1;
       const bool divider = (rows - row) % 4 == 1;
-      g.HLine(x0, lineY, kMatrixWidth, divider ? kInk : kFaint);
+      g.HLine(x0, lineY, matrixWidth, divider ? kDim : kFaint);
       g.HLine(x0 - (divider ? 6 : 3), lineY, divider ? 7 : 4, divider ? kDim : kFaint);
       if (divider && rowHeight * 4 >= 10)
-        g.Text(kContentX, y + rowHeight / 2 - 4, std::to_string(rows - row), kFaint, Font::Micro);
-      if (held != 0) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight - 1}, kInk, 8);
-      else if (row == chosen) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight - 1}, kShade, 8);
+        g.Text(kContentX, y + rowHeight / 2 - 4, std::to_string(rows - row), kDim, Font::Micro);
+      if (held != 0) g.Dither(Rect{x0, y, matrixWidth, rowHeight - 1}, kInk, 8);
+      else if (row == chosen) g.Dither(Rect{x0, y, matrixWidth, rowHeight - 1}, kShade, 8);
       continue;
     }
-    if (!drums && (pitch == 1 || pitch == 3 || pitch == 6 || pitch == 8 || pitch == 10)) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight}, kShade, 3);
+    if (!drums && (pitch == 1 || pitch == 3 || pitch == 6 || pitch == 8 || pitch == 10)) g.Dither(Rect{x0, y, matrixWidth, rowHeight}, kShade, 3);
     // Lit across: a drum as dense as its pad hits (the four pad rows), a note a checker.
-    if (held != 0) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight - (drums ? 1 : 0)}, kInk, drums ? DrumDensity(held) : 8);
-    else if (row == chosen) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight - (drums ? 1 : 0)}, kShade, 8);
-    if (!drums && pitch == 0) g.DottedHLine(x0, y + rowHeight - 1, kMatrixWidth, kShade, 2);
+    if (held != 0) g.Dither(Rect{x0, y, matrixWidth, rowHeight - (drums ? 1 : 0)}, kInk, drums ? DrumDensity(held) : 8);
+    else if (row == chosen) g.Dither(Rect{x0, y, matrixWidth, rowHeight - (drums ? 1 : 0)}, kShade, 8);
+    if (!drums && pitch == 0) g.DottedHLine(x0, y + rowHeight - 1, matrixWidth, kShade, 2);
   }
   // Beats (melodic: the rows are too thin for the dots of the drum rows), the selected steps' columns.
   if (!lanes)
     for (int step = 0; step <= steps; step += 4)
-      for (int y = top; y < top + matrixHeight; y += 2) g.Pixel(x0 + step * kColumn, y, step % 16 == 0 ? kDim : kShade);
+      for (int y = top; y < top + matrixHeight; y += 2) g.Pixel(x0 + step * column, y, step % 16 == 0 ? kDim : kShade);
   for (int step = 0; step < steps; ++step)
-    if (seq.steps[static_cast<std::size_t>(step)].held) g.Dither(Rect{x0 + step * kColumn, top, kColumn, matrixHeight}, kInk, 3);
+    if (seq.steps[static_cast<std::size_t>(step)].held) g.Dither(Rect{x0 + step * column, top, column, matrixHeight}, kInk, 3);
+  // A chop's matrix is a grid, not a set of lanes: the steps run down the screen too, so a hit is a
+  // cell filled and the counting reads at a glance. The top edge closes the grid, one pixel above the
+  // first row so that row is as tall as the rest and the columns have a line to stand on.
+  if (chop)
+  {
+    g.HLine(x0, top - 1, matrixWidth, kDim);
+    for (int step = 0; step <= steps; ++step)
+      g.VLine(x0 + step * column, top - 1, matrixHeight + 1, step % 4 == 0 ? kDim : kFaint);
+  }
   // Names: every drum; a melodic track's C rows, and the chosen and held notes inverse.
   for (int row = 0; row < rows; ++row)
   {
@@ -1448,7 +1463,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       {
         bool hit = false;
         for (std::size_t slot = 0; slot < counts[static_cast<std::size_t>(step)]; ++slot) hit = hit || notes[static_cast<std::size_t>(step)][slot].note == note;
-        if (!hit && heldVelocity[static_cast<std::size_t>(note)] == 0) g.Pixel(x0 + step * kColumn + 2, y + rowHeight / 2, step % 4 == 0 ? kFaint : kShade);
+        if (!hit && heldVelocity[static_cast<std::size_t>(note)] == 0) g.Pixel(x0 + step * column + 2, y + rowHeight / 2, step % 4 == 0 ? kFaint : kShade);
       }
       continue;
     }
@@ -1475,18 +1490,23 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       if (row < 0) continue;
       const int y = top + row * rowHeight;
       const int late = note.microstep;
-      const int x = x0 + step * kColumn + late * (kColumn - 3) / (synth::kSequencerMicrostepCount - 1);
-      // On the beat it fills the step; off it, a sliver where in the step it falls.
-      const Rect room = lanes ? Rect{x, y + 2, late == 0 ? kColumn - 1 : 2, std::max(2, rowHeight - 5)}
-                              : Rect{x, y, late == 0 ? kColumn - 1 : 2, std::max(2, rowHeight - 1)};
+      const int cellX = x0 + step * column;
+      const int x = cellX + late * (column - 3) / (synth::kSequencerMicrostepCount - 1);
+      // On the beat it fills the step; off it, a sliver where in the step it falls. A chop's block
+      // sits inside the grid's cell, one pixel in on every side, so the counting stays visible
+      // around it.
+      const Rect room = chop ? Rect{cellX + 1 + late * (column - 3) / (synth::kSequencerMicrostepCount - 1), y + 1,
+                                    late == 0 ? column - 2 : 2, std::max(2, rowHeight - 2)}
+                             : lanes ? Rect{x, y + 2, late == 0 ? column - 1 : 2, std::max(2, rowHeight - 5)}
+                                     : Rect{x, y, late == 0 ? column - 1 : 2, std::max(2, rowHeight - 1)};
       // Same language as the piano roll: how hard, by how tall, never under two pixels. A chop's
-      // matrix is only the map of where its slices fall - a hit fills its row top to bottom, the
-      // same block however hard it was struck, since how hard and how often are the GRID's story
-      // and the rows here are too thin to tell them.
+      // matrix is only the map of where its slices fall - a hit fills its cell, the same block
+      // however hard it was struck, since how hard and how often are the GRID's story and the grid
+      // already frames every cell.
       const Rect mark = chop ? room : VelocityBar(room, note.velocity);
       const std::uint8_t held = heldVelocity[note.note & 0x7F];
       const bool strong = held != 0 || row == chosen || seq.steps[static_cast<std::size_t>(step)].held;
-      if (strong) g.Fill(Rect{mark.x - 1, mark.y - 1, mark.width + 2, mark.height + 2}, kBlack);
+      if (strong && !chop) g.Fill(Rect{mark.x - 1, mark.y - 1, mark.width + 2, mark.height + 2}, kBlack);
       if (scopedNow(static_cast<std::size_t>(step), note.note)) g.Fill(mark, kInk);
       else if (head) g.Fill(mark, kPlay);
       else g.Fill(mark, trackColor);
@@ -1495,19 +1515,19 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   }
   if (playingHere)
     for (int y = top; y < top + matrixHeight; y += 2)
-      g.Pixel(x0 + static_cast<int>(seq.currentStep - first) * kColumn + 2, y, kPlay);
+      g.Pixel(x0 + static_cast<int>(seq.currentStep - first) * column + 2, y, kPlay);
   // No words over an empty pattern here: the matrix is too narrow for them and they covered the names
   // (the piano roll, which has the width, keeps its hint).
 
-  // The GRID: the same 4 x 4 as the keys, for the chosen drum or note.
-  constexpr int kGap = 2;
-  const int left = x0 + kMatrixWidth + 6;
-  const int cellWidth = (kContentRight - left - 3 * kGap) / 4;
-  const int nameHeight = 11;
-  const int gridTop = kContentY + nameHeight;
-  const int cellHeight = (kContentBottom - gridTop - 3 * kGap) / 4;
+  // The GRID: the same 4 x 4 as the keys, for the chosen drum or note. A chop's rows are slices, not
+  // notes, so it names nothing above the squares - and without the name the squares start where the
+  // matrix does, the two sides lined up.
+  const int cellWidth = kSquare;
+  const int cellHeight = kSquare;
+  // Centred on the same band as the matrix, so no edge of one side hangs below the other.
+  const int gridTop = chop ? kContentY + (kContentHeight - (kSquare * 4 + 3 * kGap)) / 2 : kContentY + kNameHeight;
   const std::string chosenName = picked < 0 ? std::string("PADS: A NOTE") : drums ? std::string(kDrumNames[controller.DrumLane()]) : NoteName(picked);
-  g.TextFit(left, kContentY + 1, kContentRight - left, chosenName, picked < 0 ? kFaint : kInk, picked < 0 ? Font::Micro : Font::Small);
+  if (!chop) g.TextFit(left, kContentY + 1, kContentRight - left, chosenName, picked < 0 ? kFaint : kInk, picked < 0 ? Font::Micro : Font::Small);
   for (std::size_t index = 0; index < kGridCount; ++index)
   {
     const Rect cell{left + static_cast<int>(index % 4) * (cellWidth + kGap), gridTop + static_cast<int>(index / 4) * (cellHeight + kGap), cellWidth, cellHeight};
@@ -1535,31 +1555,27 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       // A chop's square carries the two readings its matrix gives up: how hard, by how tall the bar
       // stands on the floor of the square, and ROLL, by that bar cut into the two, three or four
       // repeats the slice fires on. Where in the step a hit falls is left out - the cuts already
-      // crowd it, and TIME has the hardware's own page.
-      if (marked) g.Fill(cell, kInk);
+      // crowd it, and TIME has the hardware's own page. The square itself is a light gray key, so an
+      // empty step still reads as one of the sixteen.
+      const Rect inner{cell.x + 1, cell.y + 1, cell.width - 2, cell.height - 2};
+      g.Fill(cell, kFaint);
       if (velocity != 0)
       {
-        // The number keeps the top of the square, so the bar stops under it: a glyph half on the bar
-        // and half on the black above it reads as neither.
-        const int cap = std::max(3, cell.height - 10);
-        // The square's whole height under the number, not a share of it: the loudest hit still stands
-        // tallest instead of flattening against the cap.
-        const int height = 3 + (cap - 3) * static_cast<int>(velocity) / 127;
-        const Rect bar{cell.x + 1, cell.y + cell.height - 1 - height, cell.width - 2, height};
-        g.Fill(bar, marked ? kBlack : trackColor);
+        // The bar keeps the track's color, selected or not: how hard is the reading it carries, and
+        // an inverse square would bury it.
+        const Rect bar = VelocityBar(inner, velocity);
+        g.Fill(bar, trackColor);
         for (int part = 1; part < roll; ++part)
         {
           const int x = bar.x + bar.width * part / roll;
           if (x <= bar.x || x >= bar.x + bar.width) continue;
-          g.Fill(Rect{x, bar.y, 1, bar.height}, marked ? kInk : kBlack);
+          g.Fill(Rect{x, bar.y, 1, bar.height}, kBlack);
         }
       }
-      else if (info.hasEvents) g.Fill(Rect{cell.x, cell.y + cell.height - 2, cell.width, 2}, kDim);
-      if (info.playing && !marked) g.Stroke(cell, kPlay);
-      else if (!marked && velocity == 0) g.DottedHLine(cell.x, cell.y + cell.height - 1, cell.width, index % 4 == 0 ? kDim : kFaint, 1);
-      // The number reads on the black above the bar, black on the square when the step is selected.
-      g.Text(cell.x + 2, cell.y + 2, Pad2(step + 1),
-             marked ? kBlack : (velocity != 0 || index % 4 == 0 ? kDim : kFaint), Font::Micro);
+      else if (info.hasEvents) g.Fill(Rect{inner.x, inner.y + inner.height - 2, inner.width, 2}, kDim);
+      // The frame is the whole of the selection here: white for the step being edited, green while
+      // it plays, the key's own gray for the rest of the grid.
+      if (marked || info.playing) g.Stroke(cell, marked ? kInk : kPlay);
       continue;
     }
     // A hit fills the square whole — whether there is one is the GRID's question, how hard it was is
