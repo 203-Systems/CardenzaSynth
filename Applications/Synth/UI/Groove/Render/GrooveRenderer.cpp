@@ -96,7 +96,8 @@ void DrawGlyphColumn(Gfx& g, const Controller& controller, Animator& animator)
   switch (controller.AdjustKeysMean())
   {
     case AdjustMeaning::List: add = Glyph::Up; sub = Glyph::Down; break;
-    case AdjustMeaning::Sideways: add = Glyph::Right; sub = Glyph::Left; break;
+    // Sideways: the upper key goes back, the lower one on, matching what they do on those maps.
+    case AdjustMeaning::Sideways: add = Glyph::Left; sub = Glyph::Right; break;
     case AdjustMeaning::Erase: add = Glyph::Delete; sub = Glyph::None; break;
     case AdjustMeaning::None: add = Glyph::None; sub = Glyph::None; break;
     case AdjustMeaning::Value:

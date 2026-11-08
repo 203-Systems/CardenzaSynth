@@ -621,6 +621,11 @@ void Controller::ReleaseLeft(std::size_t row)
 
 void Controller::PressRight(KeyRole role)
 {
+  // On the sideways maps - the page map, the track map, the engine picker, flipping a pattern's page -
+  // the two keys read the other way round: the upper one steps back, the lower one on. The glyphs
+  // beside them are drawn the same way round, so what a key looks like is what it does.
+  if ((role == KeyRole::Add || role == KeyRole::Sub) && AdjustKeysMean() == AdjustMeaning::Sideways)
+    role = role == KeyRole::Add ? KeyRole::Sub : KeyRole::Add;
   const bool fn = state_.left[LeftIndex(KeyRole::Fn)].down;
   if (fn) state_.left[LeftIndex(KeyRole::Fn)].used = true;
   const bool tab = state_.left[LeftIndex(KeyRole::Tab)].down;
@@ -669,11 +674,9 @@ void Controller::PressRight(KeyRole role)
 void Controller::ReleaseRight(KeyRole role)
 {
   if (role == KeyRole::Enter) OkRelease();
-  if (role == KeyRole::Sub || role == KeyRole::Add)
-  {
-    const int direction = role == KeyRole::Sub ? -1 : 1;
-    if (state_.repeat.direction == direction) state_.repeat = RepeatState{};
-  }
+  // Either key ends the repeat: only one of them repeats at a time, and the sideways maps swap which
+  // direction it carries, so comparing directions here would leave a repeat running.
+  if ((role == KeyRole::Sub || role == KeyRole::Add) && state_.repeat.down) state_.repeat = RepeatState{};
 }
 
 void Controller::PressPad(std::size_t row, std::size_t column)
