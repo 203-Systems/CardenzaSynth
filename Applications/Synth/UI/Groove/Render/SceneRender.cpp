@@ -1355,8 +1355,10 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       if (step % 4 == 0) g.Text(cell.x, stripY - 8, std::to_string(first + step + 1), kFaint, Font::Micro);
     }
   }
-  // An empty screen says how to fill it, unless a held note's row is to be seen.
-  if (drawnNotes == 0 && pressedHigh < 0)
+  // An empty screen says how to fill it, unless a held note's row is to be seen. Only a melodic track
+  // gets the hint: a lane track's screen is a grid of voices, where the band would sit over the
+  // counting and the rules and say nothing the pads do not.
+  if (!lanes && drawnNotes == 0 && pressedHigh < 0)
   {
     const Rect band{brightX0, y0 + height / 2 - 10, brightWidth, 20};
     g.Fill(band, kBlack);
