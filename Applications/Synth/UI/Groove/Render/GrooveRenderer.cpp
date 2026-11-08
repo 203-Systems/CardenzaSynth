@@ -574,12 +574,12 @@ void DrawTrackOverlay(Gfx& g, const Controller& controller, Animator& animator, 
   for (std::size_t track = 0; track < kTrackCount; ++track)
   {
     const bool current = track == controller.State().track;
-    const Rect tile = DropIn(widgets::Cell(0, track), t, track);
+    const Rect tile = DropIn(widgets::TrackCell(0, track), t, track);
     MapTile(g, tile, current, true, kTab, now, TrackColor(track));
     if (!current) g.Fill(Rect{tile.x, tile.y, tile.width, 2}, TrackColor(track));
     const Color ink = current ? kBlack : kInk;
     g.Text(tile.x + 3, tile.y + 2, "T" + std::to_string(track + 1), current ? kBlack : TrackColor(track));
-    g.Text(tile.x + 18, tile.y + 2, EngineCode(host.EngineKind(track)), current ? kBlack : kDim);
+    g.Text(tile.x + 13, tile.y + 2, EngineCode(host.EngineKind(track)), current ? kBlack : kDim);
     if (const auto* engine = host.Engine(track)) g.TextFit(tile.x + 3, tile.y + 11, tile.width - 6, engine->CurrentPresetName(), ink);
     const float level = animator.Smooth(Animator::Key("ovl-level", static_cast<std::uint32_t>(track)), static_cast<float>(host.TrackLevel(track)) / 100.0f);
     widgets::LevelBar(g, Rect{tile.x + 3, tile.y + tile.height - 3, tile.width - 10, 2}, level, ink, current ? kBlack : kFaint);
@@ -592,7 +592,7 @@ void DrawTrackOverlay(Gfx& g, const Controller& controller, Animator& animator, 
     const std::array<Color, 3> colors{{kRec, kFn, kDim}};
     for (std::size_t kind = 0; kind < 3; ++kind)
     {
-      const Rect cell = DropIn(widgets::Cell(kind + 1, track), t, track + kind + 1);
+      const Rect cell = DropIn(widgets::TrackCell(kind + 1, track), t, track + kind + 1);
       MapTile(g, cell, false, true, kTab, now);
       widgets::Badge(g, Rect{cell.x + 3, cell.y + 5, cell.width - 6, 13}, names[kind], states[kind], colors[kind]);
       PressRipple(g, animator, (kind + 1) * kGridColumns + track, cell, kTab);

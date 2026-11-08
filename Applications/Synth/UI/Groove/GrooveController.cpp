@@ -1,5 +1,8 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
 
+#include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
+#include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -96,6 +99,17 @@ bool Controller::FnDown() const
   return state_.left[LeftIndex(KeyRole::Fn)].down;
 }
 
+bool Controller::ModifierHeld() const
+{
+  if (state_.left[LeftIndex(KeyRole::Fn)].down || state_.left[LeftIndex(KeyRole::Esc)].down ||
+      state_.left[LeftIndex(KeyRole::Tab)].down)
+  {
+    return true;
+  }
+  const auto& ctrl = state_.left[LeftIndex(KeyRole::Ctrl)];
+  return ctrl.down && !ctrl.suppressed;
+}
+
 bool Controller::CtrlOverlay() const
 {
   const auto& key = state_.left[3];
@@ -120,7 +134,63 @@ synth::SynthEngineKind Controller::ActiveKind() const
 
 InstrumentPageList Controller::InstrumentPages() const
 {
+  if (ActiveKind() == synth::SynthEngineKind::Chop)
+  {
+    const auto slice = static_cast<std::int16_t>(ChopSlice());
+    if (slice != chopPagesSlice_)
+    {
+      chopPages_ = ChopPages(static_cast<std::size_t>(slice));
+      chopPagesSlice_ = slice;
+    }
+    return {chopPages_.data(), chopPages_.size()};
+  }
   return InstrumentPagesFor(ActiveKind());
+}
+
+std::size_t Controller::ChopSliceCount() const
+{
+  const auto* engine = host_.Engine(state_.track);
+  synth::SynthParameterInfo info;
+  if (engine != nullptr && engine->GetParameterInfo("chop.count", info) && info.value >= 8) return static_cast<std::size_t>(info.value);
+  return synth::kChopSliceCount;
+}
+
+std::size_t Controller::ChopSlice() const
+{
+  return std::min<std::size_t>(state_.chopSlice[state_.track], ChopSliceCount() - 1);
+}
+
+bool Controller::ChopSlicePads() const
+{
+  // Both pages that show the file (VOICE and SAMPLE) hand the pads to the slices: the file is the
+  // whole instrument here, and neither page has a use for a keyboard.
+  if (state_.scene != Scene::Instrument || ActiveKind() != synth::SynthEngineKind::Chop) return false;
+  const auto list = InstrumentPages();
+  if (list.count < 2) return false;
+  return state_.page[static_cast<std::size_t>(Scene::Instrument)] <= 1;
+}
+
+bool Controller::ChopSliceMarkers() const
+{
+  // The slice starts are drawn on the editing page only; the page before it shows the playhead alone,
+  // so the file reads as a whole rather than as a grid of marks.
+  return ChopSlicePads() && state_.page[static_cast<std::size_t>(Scene::Instrument)] == 1;
+}
+
+std::uint8_t Controller::ChopZoom() const
+{
+  return std::min<std::uint8_t>(state_.chopZoom[state_.track], 2);
+}
+
+bool Controller::ChopEndFocused() const
+{
+  // The SAMPLE page has a cell per point of the picked slice; the one under the white header is the
+  // one being moved, and the magnified view follows it so it never runs off the edge.
+  if (!ChopSliceMarkers()) return false;
+  const Slot& slot = CurrentInstrumentPage()->slots[InstrumentFocus()];
+  if (slot.id == nullptr) return false;
+  const std::string_view id{slot.id};
+  return id.size() > 4 && id.rfind(".end") == id.size() - 4;
 }
 
 const InstrumentPage* Controller::CurrentInstrumentPage() const
@@ -133,7 +203,15 @@ const InstrumentPage* Controller::CurrentInstrumentPage() const
 std::uint8_t Controller::InstrumentFocus() const
 {
   const std::size_t page = std::min<std::size_t>(state_.page[static_cast<std::size_t>(Scene::Instrument)], state_.instrumentFocus.size() - 1);
-  return state_.instrumentFocus[page];
+  std::uint8_t focus = state_.instrumentFocus[page];
+  // A page can lose the cell the focus was on (a slot moved between pages, a page rebuilt): the focus
+  // steps back to the nearest one that is still there instead of pointing at nothing.
+  const InstrumentPage* current = CurrentInstrumentPage();
+  if (current != nullptr)
+  {
+    while (focus > 0 && current->slots[focus].Empty()) --focus;
+  }
+  return focus;
 }
 
 std::size_t Controller::PageCount(Scene scene) const
@@ -200,7 +278,7 @@ void Controller::ClampPages()
 
 bool Controller::PadNoteFor(std::size_t row, std::size_t column, int& note) const
 {
-  return PadNote(state_.keyboard, ActiveKind(), row, column, note);
+  return PadNote(state_.keyboard, ActiveKind(), row, column, note, ChopSliceCount());
 }
 
 bool Controller::IsPadDown(std::size_t row, std::size_t column) const
@@ -362,6 +440,72 @@ void Controller::KeyEvent(std::size_t row, std::size_t column, bool pressed, std
       default:
         return;
     }
+  }
+
+  // The chop's SAMPLE page hands the whole pad block to the slices: the right four columns pick them,
+  // 4x4 for sixteen and 4x2 for eight, and the columns to their left do nothing at all - the page has
+  // no use for a keyboard. A press picks the slice the page edits and plays it whole, so a start can
+  // be adjusted and heard without leaving the page. The chop is monophonic, so a second press cuts the
+  // first: hit the same pad twice and the slice simply starts again.
+  // A held modifier or an open browser takes the block back first, as it does on every other page: FN
+  // runs the pad's letter, ESC / TAB / CTRL keep the pads quiet while the GRID chooses (TAB shows the
+  // track overlay there), and a search field types. Only a bare pad picks a slice.
+  if (role == KeyRole::Pad && column >= kPadFirstColumn && column < kPadFirstColumn + kPadColumns && ChopSlicePads() &&
+      TopModal() == nullptr && !ModifierHeld())
+  {
+    // The three keys in the block's top left corner are the magnifier, numbered as they are laid out:
+    // the first shows the whole file, the second 2x, the third 4x around the picked slice.
+    if (ChopSliceMarkers() && row == 0 && column < kPadFirstColumn + 3)
+    {
+      if (pressed)
+      {
+        state_.chopZoom[state_.track] = static_cast<std::uint8_t>(column - kPadFirstColumn);
+        ShowToast("ZOOM X" + std::to_string(1 << (column - kPadFirstColumn)), ToastKind::Ok);
+      }
+      return;
+    }
+    if (pressed && column >= kPadFirstColumn + 4)
+    {
+      const std::size_t slot = row * 4 + (column - (kPadFirstColumn + 4));
+      if (slot < ChopSliceCount())
+      {
+        state_.chopSlice[state_.track] = static_cast<std::uint8_t>(slot);
+        // With the end cell in front, a pad is a listen to the tail - the last second of the slice -
+        // so the cut can be placed by ear without hearing the whole thing again first.
+        const bool tail = ChopEndFocused();
+        ShowToast("SLICE " + std::to_string(slot + 1) + (tail ? " TAIL" : ""), ToastKind::Ok);
+        // No note off follows: the slice stops on its own where it ends.
+        const int first = tail ? synth::kChopTailFirstNote : synth::kChopFirstNote;
+        host_.NoteOn(state_.track, static_cast<std::uint8_t>(first + static_cast<int>(slot)), 127);
+      }
+    }
+    return;
+  }
+
+  // The engine picker is two rows of four: the pads pick a tile as well as the GRID does.
+  if (pressed && role == KeyRole::Pad && column >= kPadFirstColumn && column < kPadFirstColumn + 4 && row < 2)
+  {
+    const Modal* picker = TopModal();
+    if (picker != nullptr && picker->kind == ModalKind::EnginePicker)
+    {
+      const std::size_t slot = row * 4 + (column - kPadFirstColumn);
+      if (slot < picker->items.size())
+      {
+        ModalGrid(slot);
+      }
+      return;
+    }
+  }
+
+  // MIX, SENDS and the TAB overlay have a column per track, and the six keys that carry them are on
+  // the left pad rows rather than the four step keys.
+  if (role == KeyRole::Pad && column >= kPadFirstColumn && column < kPadFirstColumn + kPadColumns &&
+      TrackGridPage())
+  {
+    // Past the six track columns the pads are spare keys: they hold nothing and play nothing here.
+    if (column >= kTrackKeyFirstColumn && column < kTrackKeyFirstColumn + synth::kSynthTrackCount)
+      TrackRowKey(row, column - kTrackKeyFirstColumn, pressed);
+    return;
   }
 
   // A step key on the SEQ note page down while any other key is pressed: a hold, not a tap.
@@ -826,9 +970,46 @@ void Controller::ReportAutosaveProblem(const std::string& text)
   ShowToast(text, ToastKind::Error);
 }
 
+void Controller::SyncScopeOrder()
+{
+  auto& sequencer = host_.Sequencer();
+  // A kit's Step matrix draws its pads bottom-up in pad order; its piano roll draws them by pitch.
+  // The scope walks whichever of the two the screen is showing, so ADD / SUB always move one
+  // visible row.
+  if (DrumLayout())
+    sequencer.SetScopePitchOrder(synth::kDrumNotes.data(), synth::kDrumNotes.size());
+  else
+    sequencer.SetScopePitchOrder(nullptr, 0);
+}
+
 void Controller::Tick(std::uint32_t nowMs)
 {
   state_.now = nowMs;
+  // A track switch outside SelectTrack (a project load, a guide step) lands here too, and so does
+  // flipping a drum track between its matrix and its roll.
+  const bool padOrder = DrumLayout();
+  if (!scopeOrderSynced_ || scopeOrderEngine_ != ActiveKind() || scopeOrderPadOrder_ != padOrder)
+  {
+    scopeOrderSynced_ = true;
+    scopeOrderEngine_ = ActiveKind();
+    scopeOrderPadOrder_ = padOrder;
+    SyncScopeOrder();
+  }
+  // The roll's page is as wide as the keys that hold its steps: a lane track puts thirty-two on the
+  // pad block, a melodic one keeps the GRID's sixteen. Told once per track and engine change.
+  {
+    const synth::SynthEngineKind kind = ActiveKind();
+    const std::size_t viewSteps =
+        (kind == synth::SynthEngineKind::Drums || kind == synth::SynthEngineKind::Chop) ? synth::kSequencerMaxViewSteps
+                                                                                         : synth::kSequencerStepCount;
+    if (!viewStepsSynced_ || viewStepsTrack_ != state_.track || viewStepsValue_ != viewSteps)
+    {
+      viewStepsSynced_ = true;
+      viewStepsTrack_ = state_.track;
+      viewStepsValue_ = viewSteps;
+      host_.Sequencer().SetViewSteps(state_.track, viewSteps);
+    }
+  }
   OkTick();
   if (CellPickerActive()) ShowCellHud();
   if (synth::SynthSequencer::ConsumePatternMemoryFull()) ShowToast("MEMORY FULL - NOTE NOT WRITTEN", ToastKind::Error);
@@ -1125,7 +1306,8 @@ void Controller::ArrowKey(Arrow arrow)
       {
         if (horizontal != 0)
         {
-          state_.mixFocus = static_cast<std::uint8_t>((state_.mixFocus + 5 + horizontal) % 5);
+          const int slots = static_cast<int>(kTrackCount) + 1;
+          state_.mixFocus = static_cast<std::uint8_t>((state_.mixFocus + slots + horizontal) % slots);
           if (state_.mixFocus < kTrackCount) SelectTrack(state_.mixFocus);
         }
         else MixAdjust(-vertical, false);
@@ -1156,8 +1338,10 @@ void Controller::ArrowKey(Arrow arrow)
       const int next = (from + step + length) % length;
       sequencer.ClearSelectedSteps();
       sequencer.SetStepSelected(static_cast<std::size_t>(next), true);
-      // Walking off the page takes the GRID along.
-      if (next / static_cast<int>(kGridCount) != static_cast<int>(ui.viewPage)) sequencer.SetViewPage(state_.track, static_cast<std::size_t>(next) / kGridCount);
+      // Walking off the page takes the GRID along, in whatever a page is here: sixteen steps, or
+      // thirty-two on a lane track.
+      const int perPage = static_cast<int>(ui.viewSteps);
+      if (next / perPage != static_cast<int>(ui.viewPage)) sequencer.SetViewPage(state_.track, static_cast<std::size_t>(next) / perPage);
       break;
     }
   }
@@ -1329,12 +1513,27 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
   }
   // The track map and MIX share a layout: select, mute, solo, sequencer on.
   auto trackRows = [&](std::size_t focus) {
-    for (std::size_t track = 0; track < kTrackCount; ++track)
+    if (TrackGridPage())
     {
-      setGrid(track, choice(track == focus));
-      setGrid(4 + track, choice(host_.TrackMuted(track)));
-      setGrid(8 + track, choice(host_.TrackSoloed(track)));
-      setGrid(12 + track, choice(seq.tracks[track].enabled));
+      // One pad column per track: row 0 selects, the rows under it are mute, solo, sequencer.
+      for (std::size_t track = 0; track < kTrackCount; ++track)
+      {
+        const std::size_t key = kTrackKeyFirstColumn + track;
+        set(KeyIndex(0, key), choice(track == focus));
+        set(KeyIndex(1, key), choice(host_.TrackMuted(track)));
+        set(KeyIndex(2, key), choice(host_.TrackSoloed(track)));
+        set(KeyIndex(3, key), choice(seq.tracks[track].enabled));
+      }
+      return;
+    }
+    const std::size_t pageBase = GridTrackBase();
+    for (std::size_t column = 0; column < kGridColumns; ++column)
+    {
+      const std::size_t track = pageBase + column;
+      setGrid(column, choice(track == focus));
+      setGrid(kGridColumns + column, choice(host_.TrackMuted(track)));
+      setGrid(2 * kGridColumns + column, choice(host_.TrackSoloed(track)));
+      setGrid(3 * kGridColumns + column, choice(seq.tracks[track].enabled));
     }
   };
   if (TabOverlay())
@@ -1456,6 +1655,39 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
         set(index, (key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9') || key == '-' ? kLedHalf : kLedOff);
         continue;
       }
+      // MIX, SENDS and the TAB overlay hand the pads to the track columns: they are not a keyboard
+      // there, so no scale notes and no drum bars light up.
+      if (TrackGridPage())
+      {
+        set(index, kLedOff);
+        continue;
+      }
+      // A chop has no keyboard on any page: the right four columns are its slices (4x4, or 4x2 for
+      // eight) and the rest of the block is not a key at all. Where the page picks a slice, the picked
+      // one is full; elsewhere a slice's key is lit while it is down.
+      if (kind == synth::SynthEngineKind::Chop)
+      {
+        // The magnifier keys: the one in use is lit, the other two wait.
+        if (ChopSliceMarkers() && row == 0 && column < kPadFirstColumn + 3)
+        {
+          set(index, choice(static_cast<std::size_t>(ChopZoom()) == column - kPadFirstColumn));
+          continue;
+        }
+        if (column < kPadFirstColumn + 4)
+        {
+          set(index, kLedOff);
+          continue;
+        }
+        const std::size_t slot = row * 4 + (column - (kPadFirstColumn + 4));
+        if (slot >= ChopSliceCount())
+        {
+          set(index, kLedOff);
+          continue;
+        }
+        if (ChopSlicePads()) set(index, choice(slot == ChopSlice()));
+        else set(index, (IsPadDown(row, column) ? kLedFull : choice(false)));
+        continue;
+      }
       if (IsPadDown(row, column))
       {
         set(index, kLedFull);
@@ -1480,8 +1712,10 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
   {
     if (modal->kind == ModalKind::SampleRecord)
       for (std::size_t index = 0; index < 4; ++index) setGrid(index, choice(index < 2 && modal->trimMarker == index));
+    // The picker's tiles are drawn two rows of four, so the GRID's second row belongs to it as much as
+    // the first: the fifth engine (the chop) has a key of its own.
     if (modal->kind == ModalKind::EnginePicker)
-      for (std::size_t index = 0; index < modal->items.size() && index < 4; ++index) setGrid(index, choice(index == modal->cursor));
+      for (std::size_t index = 0; index < modal->items.size() && index < 8; ++index) setGrid(index, choice(index == modal->cursor));
     if (modal->kind == ModalKind::Record)
     {
       const RecordState& rec = state_.record;
@@ -1597,18 +1831,21 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
       }
       else if (page == kTapeSends)
       {
-        // Sends: on half, off off, the focused one full.
-        for (std::size_t index = 0; index < kGridCount; ++index)
+        // Sends: on half, off off, the focused one full. One pad column per track.
+        for (std::size_t row = 0; row < kSendIds.size(); ++row)
+        for (std::size_t track = 0; track < kTrackCount; ++track)
         {
-          if (index == state_.sendsFocus)
+          const std::size_t cell = row * kTrackCount + track;
+          const std::size_t key = KeyIndex(row, kTrackKeyFirstColumn + track);
+          if (cell == state_.sendsFocus)
           {
-            setGrid(index, kLedFull);
+            set(key, kLedFull);
             continue;
           }
-          const synth::ISynthEngine* trackEngine = host_.Engine(index % kGridColumns);
+          const synth::ISynthEngine* trackEngine = host_.Engine(track);
           synth::SynthParameterInfo info;
-          if (trackEngine != nullptr && trackEngine->GetParameterInfo(kSendIds[index / kGridColumns], info) && info.value != info.defaultValue)
-            setGrid(index, kLedHalf);
+          if (trackEngine != nullptr && trackEngine->GetParameterInfo(kSendIds[row], info) && info.value != info.defaultValue)
+            set(key, kLedHalf);
         }
       }
       else if (page == kTapeFx)

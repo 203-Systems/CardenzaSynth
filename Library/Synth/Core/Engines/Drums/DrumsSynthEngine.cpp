@@ -18,6 +18,10 @@ DrumsSynthEngine::DrumsSynthEngine()
   preset["master.level"] = 100;
   RegisterTrackFxParameters();
   RegisterPreset("drums.808", "808 Kit", preset);
+  // p90v2: two more kits, baked into AMY's PCM bank next to the 808 one (see pcm_tiny.h).
+  // CRUSH is a bit-crushed toy kit; LOFI is an acoustic kit in a small room, for chillhop.
+  RegisterPreset("drums.crush", "Crush Kit", preset);
+  RegisterPreset("drums.lofi", "Lofi Kit", preset);
   (void)LoadPreset("drums.808");
 }
 

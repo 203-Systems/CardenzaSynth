@@ -97,6 +97,16 @@ float TrackActivity(std::size_t engineIndex);
 // Decaying (~300 ms) peak of the final mono output after the soft clipper, 0..1 of full scale.
 float OutputPeak();
 
+// Where a chop track is playing: the slice that is sounding (-1 when nothing is) and where in the
+// file the playhead is, 0..1. It is a position, not a fraction of the slice, so a preview that starts
+// late in a slice (the last second of it) draws from where it really starts. The instrument page draws
+// it as a line across the waveform, so the part being heard can be seen as well as heard.
+struct ChopHead {
+  int slice = -1;
+  float position = 0.0f;
+};
+ChopHead ChopPlayhead(std::size_t engineIndex);
+
 // Effects (see SynthFx.h). Track inserts and sends arrive as "fx.*" engine parameters through
 // SetEngineParameter; they reset to their defaults when a track changes engine or loads a preset.
 // The master bus settings belong to the project. Values are clamped to the parameter range and

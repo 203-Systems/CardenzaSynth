@@ -16,6 +16,10 @@ inline constexpr std::size_t kColumns = synth::kKeyboardMatrixColumns;
 inline constexpr std::size_t kKeyCount = kRows * kColumns;
 inline constexpr std::size_t kPadColumns = synth::kHomePerformanceColumnCount;
 inline constexpr std::size_t kPadFirstColumn = synth::kHomePerformanceFirstColumn;
+// The last six of the left pads (columns 3..8) stand in for track columns on MIX, SENDS and the TAB
+// overlay: one key per track, so a six-track screen needs no paging. The two keys to their left keep
+// playing notes.
+inline constexpr std::size_t kTrackKeyFirstColumn = kPadFirstColumn + 2;
 inline constexpr std::size_t kGridFirstColumn = synth::kSequencerStepFirstColumn;
 inline constexpr std::size_t kGridColumns = synth::kSequencerStepColumnCount;
 inline constexpr std::size_t kGridCount = kRows * kGridColumns;
@@ -181,7 +185,8 @@ struct KeyboardSettings {
 };
 
 // Maps a pad (row, column) to a MIDI note for the given engine. Returns false for gaps (Piano layout).
-bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std::size_t row, std::size_t column, int& note);
+bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std::size_t row, std::size_t column, int& note,
+             std::size_t chopSlices = 0);
 
 // One track's chord effect (INSTR CHORD, saved with the project): what a key press of that track
 // plays, built on the scale of the keyboard settings.

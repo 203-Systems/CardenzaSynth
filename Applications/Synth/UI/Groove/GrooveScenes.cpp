@@ -1,4 +1,5 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
+#include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
 #include "OS/Storage/DeviceSettings.h"
 
 #include <algorithm>
@@ -25,6 +26,30 @@ constexpr std::size_t kTrackBpm = 3;
 bool StartsWith(const char* text, const char* prefix)
 {
   return text != nullptr && std::strncmp(text, prefix, std::strlen(prefix)) == 0;
+}
+
+bool EndsWith(const char* text, const char* suffix)
+{
+  if (text == nullptr) return false;
+  const std::size_t length = std::strlen(text);
+  const std::size_t tail = std::strlen(suffix);
+  return tail <= length && std::strcmp(text + length - tail, suffix) == 0;
+}
+
+// A point of a chop slice ("slice.07.start", "slice.07.end"): the cells whose step follows the
+// waveform's zoom, since they are placed by eye against it.
+bool IsChopPointSlot(const Slot& slot)
+{
+  // Only a slice's two points: "slice.07.start" and "slice.07.end". Its mute group is a plain 0..8
+  // choice that steps by one, and the trim's own "sample.start" / "sample.end" are coarser still.
+  return StartsWith(slot.id, "slice.") && (EndsWith(slot.id, ".start") || EndsWith(slot.id, ".end"));
+}
+
+// The chop's trim ("sample.start", "sample.end" of the whole file).
+bool IsChopTrimSlot(const Slot& slot)
+{
+  return slot.id != nullptr && (std::strcmp(slot.id, synth::kChopSampleStartId) == 0 ||
+                                std::strcmp(slot.id, synth::kChopSampleEndId) == 0);
 }
 
 std::string PatternLabel(std::size_t index)
@@ -665,6 +690,28 @@ void Controller::InstrumentAdjust(int delta, bool coarse)
   synth::ISynthEngine* engine = ActiveEngine();
   synth::SynthParameterInfo info;
   if (engine == nullptr || !engine->GetParameterInfo(slot.id, info)) return;
+  // A slice start is placed by eye against the magnified waveform, so one press moves it by what the
+  // window shows: a tenth of a percent of the file at 4x, half a percent at 2x, and 0.8% - what it
+  // always was - on the whole file. Holding the key still accelerates the same way (the repeat sends
+  // a bigger delta), and FN still takes the coarse step.
+  if (IsChopPointSlot(slot))
+  {
+    // Only the SAMPLE page has a magnifier; the slice page's own START keeps the whole-file step.
+    // A step is what the window shows: 0.05% of the file at 4x - the finest the positions go - a
+    // quarter of a percent at 2x, and 0.8%, what it always was, on the whole file.
+    const int zoom = ChopSliceMarkers() ? ChopZoomFactor() : 1;
+    const int unit = zoom >= 4 ? 1 : zoom == 2 ? 10 : 16;
+    const int scaled = delta * unit * (coarse ? 10 : 1);
+    if (engine->SetParameterValue(slot.id, std::clamp(info.value + scaled, info.minValue, info.maxValue))) MarkDirty();
+    return;
+  }
+  // The chop's trim steps by a hundredth of the file, and takes no coarse step: FN is the overlay key
+  // on these pages, and a tenth of the file a press is more than trimming wants.
+  if (ActiveKind() == synth::SynthEngineKind::Chop && IsChopTrimSlot(slot))
+  {
+    if (engine->AdjustParameterValue(slot.id, delta)) MarkDirty();
+    return;
+  }
   int scaled = delta;
   if (coarse) scaled *= info.maxValue - info.minValue >= 40 ? 10 : 3;
   if (engine->AdjustParameterValue(slot.id, scaled)) MarkDirty();
@@ -1041,11 +1088,21 @@ void Controller::SequenceAdjust(int delta, bool coarse)
       // the GRID's page, FN + ADD / SUB go to the next / previous pattern.
       if (ui.hasHeldSteps)
       {
-        // On a drum track the pads pick the drum: the NOTE lane does not move hits to pitches that
-        // are no drum (OK goes on to the length, velocity and timing).
-        if (DrumTrack() && ui.editLane == synth::SequencerEditLane::Note)
+        // Choosing inside a step: a held GRID key means "this step", so ADD / SUB walk the note
+        // scope instead of editing the value. A drum track's NOTE lane has nothing to move (a pad
+        // picks the drum, and there is no pitch to move a hit to), so there it picks the scope on
+        // its own, whether the key is held or not.
+        const bool gridHeld = std::any_of(state_.gridDown.begin(), state_.gridDown.end(),
+                                          [](bool down) { return down; });
+        if (gridHeld || (DrumTrack() && ui.editLane == synth::SequencerEditLane::Note))
         {
-          ShowHud("NOTE", "PADS PICK DRUMS");
+          if (ui.noteCount == 0)
+          {
+            ShowHud("NOTE", "ADD NOTES FIRST");
+            return;
+          }
+          sequencer.CycleNoteScope(delta);
+          MarkDirty();
           return;
         }
         if (sequencer.AdjustSelectedSteps(delta, coarse)) MarkDirty();
@@ -1209,11 +1266,56 @@ void Controller::SongArrow(int horizontal, int vertical)
 // track's loop end while playing. ENTER launches the whole row (a scene), Fn + ENTER captures what
 // plays now as a new SONG row, ADD / SUB move through the patterns.
 
+bool Controller::TrackGridPage() const
+{
+  if (TabOverlay()) return true;
+  return state_.scene == Scene::Tape && (CurrentPage() == kTapeMix || CurrentPage() == kTapeSends);
+}
+
+// Row 0 selects and the rows under it switch mute, solo and the sequencer, exactly as the GRID
+// keys do on these pages: the pads are only a wider keyboard, not a different set of commands.
+void Controller::TrackRowKey(std::size_t row, std::size_t track, bool pressed)
+{
+  if (!pressed || row >= kRows || track >= kTrackCount) return;
+  if (state_.scene == Scene::Tape && CurrentPage() == kTapeSends)
+  {
+    state_.sendsFocus = static_cast<std::uint8_t>(row * kTrackCount + track);
+    SelectTrack(track);
+    return;
+  }
+  auto& sequencer = host_.Sequencer();
+  switch (row)
+  {
+    case 0:
+      state_.mixFocus = static_cast<std::uint8_t>(track);
+      SelectTrack(track);
+      break;
+    case 1:
+      ToggleMute(track);
+      break;
+    case 2:
+      host_.SetTrackSoloed(track, !host_.TrackSoloed(track));
+      MarkDirty();
+      break;
+    case 3:
+      sequencer.SetTrackEnabled(track, !sequencer.TrackEnabled(track));
+      MarkDirty();
+      break;
+    default: break;
+  }
+}
+
+std::size_t Controller::GridTrackBase() const
+{
+  // Six tracks on a sixteen-key grid: the page slides so the active track is always on it.
+  return state_.track < kRows ? 0 : kTrackCount - kRows;
+}
+
 void Controller::SessionGrid(std::size_t index)
 {
   if (index >= kGridCount) return;
   auto& sequencer = host_.Sequencer();
-  const std::size_t track = index % kGridColumns;
+  const std::size_t track = GridTrackBase() + index % kGridColumns;
   const std::size_t pattern = state_.sessionScroll + index / kGridColumns;
   state_.sessionTrack = track;
   state_.sessionPattern = std::min(pattern, synth::kSequencerMaxPatternCount - 1);
@@ -1282,7 +1384,7 @@ void Controller::SessionCapture()
 void Controller::MixGrid(std::size_t index)
 {
   const std::size_t row = index / kGridColumns;
-  const std::size_t track = index % kGridColumns;
+  const std::size_t track = GridTrackBase() + index % kGridColumns;
   auto& sequencer = host_.Sequencer();
   switch (row)
   {
@@ -1336,7 +1438,7 @@ void Controller::SetSendValue(std::size_t track, const char* id, int value)
 void Controller::SendsGrid(std::size_t index)
 {
   if (index >= kGridCount) return;
-  const std::size_t track = index % kGridColumns;
+  const std::size_t track = GridTrackBase() + index % kGridColumns;
   // A second press on a focused chorus cell steps its mode, like a switch on an INSTR page.
   if (state_.sendsFocus == index && index / kGridColumns == 1)
   {
@@ -1349,8 +1451,8 @@ void Controller::SendsGrid(std::size_t index)
 
 void Controller::SendsAdjust(int delta, bool coarse)
 {
-  const std::size_t track = state_.sendsFocus % kGridColumns;
-  const char* id = kSendIds[state_.sendsFocus / kGridColumns];
+  const std::size_t track = state_.sendsFocus % kTrackCount;
+  const char* id = kSendIds[std::min<std::size_t>(state_.sendsFocus / kTrackCount, kSendIds.size() - 1)];
   synth::ISynthEngine* engine = host_.Engine(track);
   synth::SynthParameterInfo info;
   if (engine == nullptr || !engine->GetParameterInfo(id, info)) return;
@@ -1361,8 +1463,8 @@ void Controller::SendsAdjust(int delta, bool coarse)
 void Controller::SendsEnter()
 {
   // ENTER steps the chorus mode and switches a filter or send off and back on.
-  const std::size_t track = state_.sendsFocus % kGridColumns;
-  const std::size_t row = state_.sendsFocus / kGridColumns;
+  const std::size_t track = state_.sendsFocus % kTrackCount;
+  const std::size_t row = std::min<std::size_t>(state_.sendsFocus / kTrackCount, kSendIds.size() - 1);
   const char* id = kSendIds[row];
   synth::ISynthEngine* engine = host_.Engine(track);
   synth::SynthParameterInfo info;
@@ -1384,13 +1486,14 @@ void Controller::SendsEnter()
 
 void Controller::SendsReset()
 {
-  const std::size_t track = state_.sendsFocus % kGridColumns;
-  const char* id = kSendIds[state_.sendsFocus / kGridColumns];
+  const std::size_t track = state_.sendsFocus % kTrackCount;
+  const std::size_t row = std::min<std::size_t>(state_.sendsFocus / kTrackCount, kSendIds.size() - 1);
+  const char* id = kSendIds[row];
   synth::ISynthEngine* engine = host_.Engine(track);
   synth::SynthParameterInfo info;
   if (engine == nullptr || !engine->GetParameterInfo(id, info)) return;
   SetSendValue(track, id, info.defaultValue);
-  ShowToast("T" + std::to_string(track + 1) + " " + kSendTags[state_.sendsFocus / kGridColumns] + " DEFAULT");
+  ShowToast("T" + std::to_string(track + 1) + " " + kSendTags[row] + " DEFAULT");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1672,7 +1775,7 @@ MenuItems Controller::Menu() const
       const Slot& slot = instrumentPage->slots[InstrumentFocus()];
       const bool param = instrumentPage->graphic != PageGraphic::Voice && slot.IsParameter();
       put(4, MenuAction::Default, "RESET", param ? slot.label : "", "OK", param);
-      if (ActiveKind() == synth::SynthEngineKind::Sampler)
+      if (ActiveKind() == synth::SynthEngineKind::Sampler || ActiveKind() == synth::SynthEngineKind::Chop)
       {
         put(8, MenuAction::SampleFiles, "SAMPLES", "FILES");
         put(9, MenuAction::SampleRecord, "RECORD", "SAMPLE");
@@ -1733,7 +1836,7 @@ MenuItems Controller::Menu() const
       }
       else
       {
-        put(0, MenuAction::Default, "RESET", page == kTapeSends ? kSendTags[state_.sendsFocus / kGridColumns] : "PARAM", "OK");
+        put(0, MenuAction::Default, "RESET", page == kTapeSends ? kSendTags[std::min<std::size_t>(state_.sendsFocus / kTrackCount, kSendTags.size() - 1)] : "PARAM", "OK");
       }
       break;
     case Scene::Setup:

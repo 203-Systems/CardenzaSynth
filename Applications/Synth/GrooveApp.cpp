@@ -87,6 +87,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Dx7: return 14 * 1024;
     case synth::SynthEngineKind::Juno: return 6 * 1024;
     case synth::SynthEngineKind::Sampler: return 6 * 1024;
+    case synth::SynthEngineKind::Chop: return 6 * 1024;
     case synth::SynthEngineKind::Drums: return 4 * 1024;
     case synth::SynthEngineKind::None:
     default: return 0;
@@ -338,7 +339,9 @@ void GrooveApp::ApplyPendingSamples()
     if (pendingSamples_[track].empty()) continue;
     const std::string name = std::move(pendingSamples_[track]);
     pendingSamples_[track].clear();
-    if (rack_.Slot(track).kind != synth::SynthEngineKind::Sampler || !sampler_.BuildUiState(track).sampleFileName.empty()) continue;
+    const auto kind = rack_.Slot(track).kind;
+    if ((kind != synth::SynthEngineKind::Sampler && kind != synth::SynthEngineKind::Chop) ||
+        !sampler_.BuildUiState(track).sampleFileName.empty()) continue;
     synth::SamplerManager::PreparedSample sample;
     if (!synth::SamplerManager::PrepareSample(name, sample)) continue;
     (void)sampler_.ApplySample(track, sample);

@@ -382,13 +382,17 @@ struct UiState {
   Scene scene = Scene::Instrument;
   Scene previousScene = Scene::Sequence;
   std::array<std::uint8_t, kSceneCount> page{};
-  std::array<std::uint8_t, kTrackCount> drumVelocity{{100, 100, 100, 100}};  // how hard the drum the pads last chose was hit
+  std::array<std::uint8_t, kTrackCount> drumVelocity{{100, 100, 100, 100, 100, 100}};  // how hard the drum the pads last chose was hit
   std::array<std::uint8_t, kRows * kPadColumns> padVelocity{};
   std::array<DrumHit, kDrumNotes.size()> drumPadHits{};
   std::array<std::uint8_t, kTrackCount> drumLane{};  // the drum each track's pads last chose on the drum page
+  // The chop slice each track's pads picked: the SAMPLE page edits that one.
+  std::array<std::uint8_t, kTrackCount> chopSlice{};
+  // How far that page's waveform is magnified: 0 whole file, 1 half, 2 quarter (see ChopZoom).
+  std::array<std::uint8_t, kTrackCount> chopZoom{};
   // The note each melodic track's pads last chose on the note page (kNoNote: none yet): the row the
   // STEP view's GRID shows.
-  std::array<std::uint8_t, kTrackCount> noteLane{{kNoNote, kNoNote, kNoNote, kNoNote}};
+  std::array<std::uint8_t, kTrackCount> noteLane{{kNoNote, kNoNote, kNoNote, kNoNote, kNoNote, kNoNote}};
   std::array<StepKey, kGridCount> stepKeys{};
   StepAudition stepAudition;
   std::size_t track = synth::kDefaultActiveTrack;
@@ -487,8 +491,32 @@ public:
   // is the drum machine (DrumLayout); the GRID's step keys work as on any note page.
   bool DrumTrack() const;
   bool DrumLayout() const;
+  // The first track of the four-column grid pages (SONG row launch): the page that holds the active
+  // track, so six tracks still fit the sixteen keys.
+  std::size_t GridTrackBase() const;
+  // MIX, SENDS and the TAB overlay show one column per track: there the left pads (columns 3..8) are
+  // the track rows, so every track is one key away.
+  bool TrackGridPage() const;
+  // How many slices the chop track shows (8 or 16), and which one its pads picked.
+  std::size_t ChopSliceCount() const;
+  std::size_t ChopSlice() const;
+  // The chop's VOICE and SAMPLE pages: there the right half of the pads picks a slice.
+  bool ChopSlicePads() const;
+  // True on the SAMPLE page, where the slice starts are drawn over the waveform.
+  bool ChopSliceMarkers() const;
+  // The SAMPLE page's magnifier: 0 shows the whole file, 1 shows half of it (2x) and 2 a quarter (4x),
+  // centred on the point the page is editing - the picked slice's start, or its end once that cell has
+  // the focus.
+  std::uint8_t ChopZoom() const;
+  int ChopZoomFactor() const { return 1 << ChopZoom(); }
+  // True while the SAMPLE page's focused cell is the picked slice's end.
+  bool ChopEndFocused() const;
+  void TrackRowKey(std::size_t row, std::size_t track, bool pressed);
   // Fn held: the modifier of a key's second function (the second press of a tap on some pages).
   bool FnDown() const;
+  // A modifier on the left is held (FN, ESC, TAB, or an unsuppressed CTRL): the pads belong to that
+  // modifier, not to what the page plays or picks.
+  bool ModifierHeld() const;
   AdjustMeaning AdjustKeysMean() const;
   // The pads as the values of the GRID cell being held. What a cell offers: `info` is its range and
   // current value, as for ADD / SUB. Returns false for a cell that holds no parameter.
@@ -570,6 +598,9 @@ public:
   std::uint8_t CurrentPage() const { return state_.page[static_cast<std::size_t>(state_.scene)]; }
   const InstrumentPage* CurrentInstrumentPage() const;
   InstrumentPageList InstrumentPages() const;
+  // The chop's pages are rebuilt when its slice changes: the SAMPLE page names that slice.
+  mutable std::array<InstrumentPage, 4> chopPages_{};
+  mutable std::int16_t chopPagesSlice_ = -1;
   std::uint8_t InstrumentFocus() const;
   std::string PageTab(Scene scene, std::size_t page) const;
   // Short page description for the CTRL page map.
@@ -601,6 +632,15 @@ public:
   bool IsChordNoteHeld(int note) const;
 
 private:
+  // What SyncScopeOrder last saw, so it only runs when the engine or the view changes.
+  synth::SynthEngineKind scopeOrderEngine_{};
+  bool scopeOrderPadOrder_ = false;
+  bool scopeOrderSynced_ = false;
+  // How many steps the roll shows at once for the current track: sixteen on a melodic track, thirty-
+  // two on a lane one, whose steps sit on the pad block.
+  std::size_t viewStepsTrack_ = 0;
+  std::size_t viewStepsValue_ = 0;
+  bool viewStepsSynced_ = false;
   // Input routing
   void PressLeft(std::size_t row);
   void ReleaseLeft(std::size_t row);
@@ -776,6 +816,9 @@ private:
   synth::ISynthEngine* ActiveEngine();
   const synth::ISynthEngine* ActiveEngine() const;
   synth::SynthEngineKind ActiveKind() const;
+  // Keeps the note scope's walk order in step with the active track: a drum kit walks its pads as
+  // the matrix draws them, a melodic track walks by pitch (the roll's own order).
+  void SyncScopeOrder();
   void ClampPages();
 
   Host& host_;

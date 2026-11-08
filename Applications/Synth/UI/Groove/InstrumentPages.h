@@ -33,6 +33,7 @@ struct Slot {
 enum class PageGraphic : std::uint8_t {
   None,
   Voice,
+  ChopFile,          // the chop's home page: the preset title over the whole sample
   Algorithm,
   OperatorLevels,    // DX7: the six operator outputs, carriers vs modulators
   OperatorEnvelope,  // DX7: one operator's rate / level envelope
@@ -41,6 +42,7 @@ enum class PageGraphic : std::uint8_t {
   Oscillator,        // Juno DCO scope
   Lfo,               // LFO shape, rate and delay
   Waveform,
+  ChopTrim,          // the chop's SETTING page: the whole file, and the trim its slices live inside
   DrumPads,
   FxChain,           // track insert chain and sends
   Chord,             // INSTR CHORD: the chord one key plays, on a keyboard
@@ -73,6 +75,11 @@ struct InstrumentPageList {
 // In signal order: VOICE (the preset), the track's MIDI effects CHORD and ARP (not on drums), the
 // engine's parameter pages, then FX. At most 16 pages, so the CTRL page map fits the GRID.
 InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind);
+
+// The chop's pages, built for the slice the pads picked: VOICE, SAMPLE (the file and that slice's
+// start and end) and FX. The slice number changes what the SAMPLE page names, so it is passed in
+// rather than stored.
+std::array<InstrumentPage, 4> ChopPages(std::size_t slice);
 
 // The settings pages of the SETUP scene: 0 KEYS, 1 SYSTEM (scene pages kSetupKeys..).
 inline constexpr std::size_t kSettingsPageCount = 2;

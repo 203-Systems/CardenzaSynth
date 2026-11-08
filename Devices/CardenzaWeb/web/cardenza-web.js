@@ -659,8 +659,8 @@
   // AudioWorklet is unavailable (for example plain http on a LAN address).
 
   const audio = (() => {
-    const BASE_TARGET = 2048; // source frames buffered ahead (about 46 ms at 44.1 kHz)
-    const MAX_TARGET = 6144;
+    const BASE_TARGET = 4096; // source frames buffered ahead (about 93 ms at 44.1 kHz)
+    const MAX_TARGET = 12288;
     const CHUNK = 256; // one AMY block
     let context = null;
     let workletLoaded = false;
@@ -673,6 +673,14 @@
     let underruns = 0;
     let target = BASE_TARGET;
     let lastUnderrunAt = 0;
+    // How much of the wall clock the synth's own render takes: the wasm runs here, on the page's
+    // thread, so this is what the AudioWorklet in front of it has to keep up with.
+    let renderMs = 0;
+    let audioMs = 0;
+    let load = 0;
+    let losses = 0;
+    let acts = '';
+    let infoAt = 0;
     let silentClock = 0;
     let feedTimer = 0;
     // ScriptProcessor fallback state.
@@ -686,8 +694,29 @@
     }
 
     function render(frames) {
+      const started = performance.now();
       const pointer = mod._cardenza_web_render(frames) >> 2;
-      return mod.HEAPF32.subarray(pointer, pointer + frames);
+      const samples = mod.HEAPF32.subarray(pointer, pointer + frames);
+      renderMs += performance.now() - started;
+      audioMs += frames * 1000 / sourceRate;
+      return samples;
+    }
+
+    // Twice a second: what share of real time the render took, and whether the buffer ever ran dry.
+    function updateLoad() {
+      const now = performance.now();
+      if (now - infoAt < 500) return;
+      infoAt = now;
+      if (audioMs > 0.05) load = Math.round(100 * renderMs / audioMs);
+      if (typeof mod._cardenza_web_stream_losses === 'function') losses = mod._cardenza_web_stream_losses();
+      if (typeof mod._cardenza_web_track_activity === 'function') {
+        const values = [];
+        for (let track = 0; track < 6; track++) values.push(mod._cardenza_web_track_activity(track));
+        acts = values.join('/');
+      }
+      renderMs = 0;
+      audioMs = 0;
+      updateUi();
     }
 
     function feed() {
@@ -719,6 +748,7 @@
       if (running()) {
         silentClock = 0;
         if (mode === 'worklet') feed();
+        updateLoad();
         return;
       }
       renderSilently();
@@ -870,7 +900,9 @@
         ui.audioInfo.textContent = (mode === 'worklet' ? 'AudioWorklet' : 'ScriptProcessor') + ' · ' + context.sampleRate + ' Hz' +
           (context.sampleRate !== sourceRate ? ' (resampled from ' + sourceRate + ')' : '') +
           ' · buffer ' + (mode === 'worklet' ? ms(target) : ms(4096 * sourceRate / context.sampleRate)) + ' ms' +
-          (output ? ' + output ' + output + ' ms' : '') + (underruns ? ' · underruns ' + underruns : '');
+          (output ? ' + output ' + output + ' ms' : '') + ' · DSP ' + load + '%' +
+          (underruns ? ' · UNDERRUNS ' + underruns : '') + (losses ? ' · LOST ' + losses : '') +
+          (acts ? ' · METER ' + acts : '');
       } else if (mode === 'off' && !ui.audioInfo.classList.contains('err')) {
         ui.audioInfo.textContent = wanted ? '' : 'audio off';
       }
@@ -882,7 +914,8 @@
   // ---------------------------------------------------------------------------------------
   // Samples: the sampler lists WAV files from Device::Storage::SampleDirectoryPath().
 
-  const MAX_SAMPLE_FRAMES = 44100 * 5; // sampler::kMaxSampleFrames
+  // sampler::kMaxSampleFrames in SamplerWav.h: five minutes, not five seconds.
+  const MAX_SAMPLE_FRAMES = 44100 * 300;
 
   function readMonoPcm16Info(bytes) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -951,7 +984,8 @@
       for (let i = 0; i < frames; i++) mono[i] += data[i] / buffer.numberOfChannels;
     }
     const notes = ['converted to mono 16-bit 44.1 kHz'];
-    if (buffer.length > MAX_SAMPLE_FRAMES) notes.push('trimmed to 5 s');
+    if (buffer.length > MAX_SAMPLE_FRAMES) notes.push('trimmed to 5 min');
+    else notes.push((buffer.length / 44100).toFixed(2).replace(/\.?0+$/, '') + ' s');
     return { bytes: encodeMonoPcm16Wav(mono, 44100), note: notes.join(', ') };
   }
 

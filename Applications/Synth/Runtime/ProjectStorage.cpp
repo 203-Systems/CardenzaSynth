@@ -39,8 +39,13 @@ constexpr std::size_t kMaxProjectBytes = 4 * 1024 * 1024;
 // each pattern instead of the one length of the track.
 // Version 8 adds the per-note ROLL count: a seventh number on every note line (1 off, 2..4
 // retriggers inside the step). Version 7 files and older read as ROLL off.
-constexpr int kProjectVersion = 8;
-constexpr int kMaxReadProjectVersion = 8;
+// Version 9 has six tracks: files from version 8 and older hold four.
+// Version 10 refines the chop's slice positions to a two-thousandth of the file; files from 9 and older
+// hold them on the coarser scale and the chop widens them as it loads them.
+constexpr int kProjectVersion = 10;
+constexpr int kMaxReadProjectVersion = 10;
+// How many tracks a file of this version holds. Older files keep their four and the rest start empty.
+constexpr std::size_t TracksInFile(int version) { return version >= 9 ? kSynthTrackCount : 4; }
 constexpr int kMinProjectVersion = 1;
 constexpr unsigned kMaxMixerLevel = 100;
 
@@ -63,6 +68,7 @@ bool IsProjectEngineKind(int kind) {
     case static_cast<int>(SynthEngineKind::Juno):
     case static_cast<int>(SynthEngineKind::Sampler):
     case static_cast<int>(SynthEngineKind::Drums):
+    case static_cast<int>(SynthEngineKind::Chop):
       return true;
     default:
       return false;
@@ -88,7 +94,8 @@ bool ValidMetadata(const ProjectData& project) {
         state.basePresetId.empty() || !ValidText(state.basePresetId, 128) || !ValidText(state.presetId, 128) ||
         !ValidText(state.presetName, 64) || state.values.size() > 128) return false;
     const auto& sample = project.samples[track];
-    if (!sample.empty() && (project.kinds[track] != SynthEngineKind::Sampler || !ValidText(sample, 96) ||
+    if (!sample.empty() && ((project.kinds[track] != SynthEngineKind::Sampler &&
+                             project.kinds[track] != SynthEngineKind::Chop) || !ValidText(sample, 96) ||
         sample == "." || sample == ".." || sample.find_first_of("/\\:\r\n") != std::string::npos)) return false;
     for (const auto& parameter : state.values)
       if (parameter.first.empty() || !ValidText(parameter.first, 64)) return false;
@@ -287,7 +294,7 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
     unsigned master = 0, backlight = 0;
     if (!ReadExpected(file, "MASTER") || !(file >> master) || master > kMaxMixerLevel) return ProjectResult::Invalid;
     project.mixer.master = static_cast<std::uint8_t>(master);
-    for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+    for (std::size_t track = 0; track < TracksInFile(version); ++track) {
       std::size_t index = 0;
       unsigned level = 0, muted = 0, soloed = 0;
       if (!ReadExpected(file, "MIX") || !(file >> index >> level >> muted >> soloed) || index != track || level > kMaxMixerLevel ||
@@ -322,7 +329,7 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
         velocity > 127) return ProjectResult::Invalid;
     project.lock = lock;
     project.velocity = velocity;
-    for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+    for (std::size_t track = 0; track < TracksInFile(version); ++track) {
       std::size_t index = 0;
       int chord = 0, voicing = 0, mode = 0, rate = 0, octaves = 0, gate = 0, latch = 0;
       if (!ReadExpected(file, "PLAYFX") || !(file >> index >> chord >> voicing >> mode >> rate >> octaves >> gate >> latch) || index != track ||
@@ -340,10 +347,12 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
     }
     project.hasPlay = true;
   }
-  for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+  for (std::size_t track = 0; track < TracksInFile(version); ++track) {
     std::size_t index = 0, parameterCount = 0;
     int kind = 0;
     auto& state = project.engines[track];
+    // The chop's positions changed scale in version 10: it reads this to widen what older files hold.
+    state.version = version;
     if (!ReadExpected(file, "TRACK") || !(file >> index >> kind) || !ReadQuoted(file, state.basePresetId, 128) ||
         !ReadQuoted(file, state.presetId, 128) || !ReadQuoted(file, state.presetName, 64) || !ReadQuoted(file, project.samples[track], 96) ||
         index != track || !IsProjectEngineKind(kind) ||
@@ -408,7 +417,7 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
     for (std::size_t row = 0; row < length; ++row) {
       auto& songRow = project.sequence->song[row];
       if (!ReadExpected(file, "R")) return ProjectResult::Invalid;
-      for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+      for (std::size_t track = 0; track < TracksInFile(version); ++track) {
         int pattern = 0;
         if (!(file >> pattern) || pattern < -1 || pattern >= static_cast<int>(project.sequence->tracks[track].patternCount)) return ProjectResult::Invalid;
         songRow.patterns[track] = static_cast<std::int8_t>(pattern);

@@ -23,6 +23,7 @@
 #include "Applications/Synth/UI/Groove/GrooveHost.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
 #include "Devices/Device.h"
+#include "Library/Synth/Audio/SampleStream.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "Library/Synth/Core/SynthStorage.h"
 #include "OS/Storage/Settings.h"
@@ -133,6 +134,21 @@ EMSCRIPTEN_KEEPALIVE const std::uint16_t* cardenza_web_framebuffer()
 EMSCRIPTEN_KEEPALIVE const std::uint8_t* cardenza_web_leds() { return g_ledSnapshot.data(); }
 
 EMSCRIPTEN_KEEPALIVE int cardenza_web_sample_rate() { return static_cast<int>(synth::audio::kSampleRate); }
+
+// One track's meter value, in percent: what the MIX page draws. Diagnostic while the sample tracks'
+// meters are being brought in line.
+EMSCRIPTEN_KEEPALIVE int cardenza_web_track_activity(int track)
+{
+  if (track < 0) return 0;
+  return static_cast<int>(synth::audio::TrackActivity(static_cast<std::size_t>(track)) * 100.0f + 0.5f);
+}
+
+// Sample cache blocks taken back while a voice was reading them (SampleStream.h): moments of another
+// stream's audio, so the page shows the count rather than the sound.
+EMSCRIPTEN_KEEPALIVE int cardenza_web_stream_losses()
+{
+  return static_cast<int>(synth::audio::g_streamBlockLosses.load(std::memory_order_relaxed));
+}
 
 // Samples/ of the storage protocol (docs/app-storage-protocol.md): "Load WAV" writes here and
 // every app's sample browser reads it.

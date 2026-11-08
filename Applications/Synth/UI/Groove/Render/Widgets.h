@@ -11,6 +11,10 @@ namespace groove::widgets {
 
 // Rect of GRID cell (row, column), or a span of cells.
 Rect Cell(std::size_t row, std::size_t column);
+// One cell per track: the same rows as Cell(), the content width split across kSynthTrackCount.
+// The key grid is still four wide (it follows the physical keys), so a screen that shows tracks
+// uses this instead.
+Rect TrackCell(std::size_t row, std::size_t column);
 Rect CellSpan(std::size_t row, std::size_t column, std::size_t rows, std::size_t columns);
 
 enum class CellStyle : std::uint8_t { Normal, Focused, Disabled };
@@ -35,7 +39,15 @@ void FilterCurve(Gfx& g, const Rect& rect, float cutoff, float resonance, Color 
 // A negative `pulseWidth` leaves the pulse wave out.
 void OscillatorScope(Gfx& g, const Rect& rect, bool saw, float pulseWidth, float sub, float noise, float lfoRate, Color color,
                      float phase = 0.0f);
-void Waveform(Gfx& g, const Rect& rect, const float* bins, std::size_t count, float start, float end, float cursor, bool cursorVisible);
+// `curve` bends the bar heights: 1 is the raw peak, below 1 lifts quiet material so a loop that is
+// mostly space still shows its shape between the hits.
+void Waveform(Gfx& g, const Rect& rect, const float* bins, std::size_t count, float start, float end, float cursor,
+              bool cursorVisible, float curve = 1.0f);
+// The same picture seen through a window: only the bins between `viewStart` and `viewEnd` (0..1 of the
+// file) are drawn, stretched across the rect, so the window is magnified without new data. No trim
+// marks - a chop has none - and `cursor` is left out when it falls outside the window.
+void WaveformWindow(Gfx& g, const Rect& rect, const float* bins, std::size_t count, float viewStart, float viewEnd,
+                    float cursor, bool cursorVisible, float curve = 1.0f);
 // With `activity` > 0 signal dots flow along the routing toward the carriers.
 void Dx7Algorithm(Gfx& g, const Rect& rect, int algorithm, int highlightOperator, int feedback, float activity = 0.0f,
                   std::uint32_t now = 0);

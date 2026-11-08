@@ -1,5 +1,7 @@
 #include "Applications/Synth/UI/Groove/GrooveTypes.h"
 
+#include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
+
 #include <algorithm>
 #include <string>
 
@@ -29,13 +31,25 @@ int ScaleDegreeOffset(std::uint16_t mask, std::size_t degree)
 
 }  // namespace
 
-bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std::size_t row, std::size_t column, int& note)
+bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std::size_t row, std::size_t column, int& note,
+             std::size_t chopSlices)
 {
   if (row >= kRows || column < kPadFirstColumn || column >= kPadFirstColumn + kPadColumns) return false;
   const std::size_t x = column - kPadFirstColumn;
   if (kind == synth::SynthEngineKind::Drums)
   {
     note = kDrumNotes[x];
+    return true;
+  }
+  if (kind == synth::SynthEngineKind::Chop)
+  {
+    // The right four columns of the block, read left to right and top to bottom: 4x4 for sixteen
+    // slices, 4x2 for eight. Nothing else on the pad area is a key on a chop.
+    const std::size_t slices = chopSlices == 0 ? synth::kChopSliceCount : chopSlices;
+    if (column < kPadFirstColumn + 4) return false;
+    const std::size_t slice = row * 4 + (column - (kPadFirstColumn + 4));
+    if (slice >= slices) return false;
+    note = static_cast<int>(synth::kChopFirstNote) + static_cast<int>(slice);
     return true;
   }
   const std::size_t y = kRows - 1 - row;  // bottom row is lowest
@@ -158,6 +172,7 @@ std::string_view EngineShortName(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return "JUNO";
     case synth::SynthEngineKind::Sampler: return "SAMPLER";
     case synth::SynthEngineKind::Drums: return "DRUMS";
+    case synth::SynthEngineKind::Chop: return "CHOP";
     case synth::SynthEngineKind::None:
     default: return "---";
   }
@@ -171,6 +186,7 @@ std::string_view EngineCode(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return "JUN";
     case synth::SynthEngineKind::Sampler: return "SMP";
     case synth::SynthEngineKind::Drums: return "DRM";
+    case synth::SynthEngineKind::Chop: return "CHP";
     case synth::SynthEngineKind::None:
     default: return "---";
   }

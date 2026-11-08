@@ -31,7 +31,9 @@ namespace {
 constexpr std::uint32_t kMaxRamRecordSeconds = 5;
 constexpr std::size_t kInputReadFrames = 512;
 constexpr std::uint32_t kRecordingWaveformWindowMs = 750;
-constexpr std::size_t kWaveformProbeFrames = 512;
+// What a file too long to scan looks at per bin. With 256 bins the chop's 4x window is a quarter of
+// the file, so the probe has to be long enough for a hit to fall inside it.
+constexpr std::size_t kWaveformProbeFrames = 1024;
 
 std::string TakeFilePath(std::size_t trackIndex)
 {
@@ -184,6 +186,23 @@ bool IsRegularFile(const std::string& path)
   return stat(path.c_str(), &info) == 0 && (info.st_mode & S_IFMT) == S_IFREG;
 }
 
+bool IsDirectory(const std::string& path)
+{
+  struct stat info{};
+  return stat(path.c_str(), &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR;
+}
+
+// One folder, no nesting: the only one this file needs is the converted-sample cache.
+bool EnsureDirectory(const std::string& path)
+{
+  if (IsDirectory(path)) return true;
+#if defined(_WIN32)
+  return _mkdir(path.c_str()) == 0 || IsDirectory(path);
+#else
+  return mkdir(path.c_str(), 0775) == 0 || IsDirectory(path);
+#endif
+}
+
 bool SameSampleFile(std::string_view left, std::string_view right)
 {
   // Firmware storage is FAT; keep reference handling consistent on host filesystems.
@@ -291,7 +310,7 @@ void SamplerManager::OnTrackEngineChanged(std::size_t trackIndex, SynthEngineKin
   }
 
   TrackState& state = tracks_[trackIndex];
-  state.isSampler = kind == SynthEngineKind::Sampler;
+  state.isSampler = kind == SynthEngineKind::Sampler || kind == SynthEngineKind::Chop;
   if (!state.isSampler)
   {
     if (activeRecordingTrack_ == static_cast<int>(trackIndex))
@@ -707,8 +726,16 @@ bool SamplerManager::PrepareSample(std::string_view id, PreparedSample& sample)
 {
   PreparedSample prepared;
   prepared.fileName = SampleFileName(id);
-  if (prepared.fileName.empty() || !sampler::ReadMono16Wav(
-          JoinPath(storage::SampleDirectory(), prepared.fileName), prepared.frames, prepared.sampleRate))
+  if (prepared.fileName.empty())
+  {
+    return false;
+  }
+  // A stereo or 24-bit file is converted once into this folder and the copy is what plays; the folder
+  // is not a sample folder, so it stays out of the browser's list.
+  const std::string monoDirectory = JoinPath(storage::SampleDirectory(), "Mono");
+  (void)EnsureDirectory(monoDirectory);
+  if (!sampler::ReadMono16Wav(JoinPath(storage::SampleDirectory(), prepared.fileName), prepared.frames,
+                              prepared.sampleRate, monoDirectory))
   {
     return false;
   }
@@ -888,7 +915,7 @@ bool SamplerManager::ValidateSampleReference(std::string_view id)
   }
   std::ifstream file(JoinPath(storage::SampleDirectory(), name), std::ios::binary);
   sampler::WavInfo info;
-  return file && sampler::InspectMono16Wav(file, info);
+  return file && sampler::InspectWav(file, info);
 }
 
 bool SamplerManager::IsValidSamplerTrack(std::size_t trackIndex) const

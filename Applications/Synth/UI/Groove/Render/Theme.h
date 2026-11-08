@@ -29,13 +29,15 @@ inline constexpr Color kRec = Rgb565(255, 52, 68);
 
 // One color per track, everywhere a track is named or drawn (header, TAB strip, maps, MIX, SENDS,
 // TAPE rows). Kept apart from the four left-key colors and from play green / record red.
-inline constexpr Color kTrackColors[4] = {
+inline constexpr Color kTrackColors[6] = {
     Rgb565(255, 92, 176),   // T1 pink
     Rgb565(72, 152, 255),   // T2 blue
     Rgb565(176, 236, 56),   // T3 lime
     Rgb565(255, 164, 40),   // T4 amber
+    Rgb565(196, 132, 255),  // T5 violet
+    Rgb565(96, 240, 200),   // T6 mint
 };
-inline constexpr Color TrackColor(std::size_t track) { return kTrackColors[track & 3u]; }
+inline constexpr Color TrackColor(std::size_t track) { return kTrackColors[track % 6u]; }
 
 // Ordered dither densities (0..16 of a 4x4 Bayer cell).
 inline constexpr int kDitherIdle = 3;

@@ -12,6 +12,8 @@ enum class SynthEngineKind {
   Juno,
   Sampler,
   Drums = 4,
+  // One sample chopped into sixteen slices: the pads play parts of the file, not pitches.
+  Chop = 5,
 };
 
 enum class OverlayPage {
@@ -35,7 +37,7 @@ enum class UiModifier {
   Other,
 };
 
-constexpr std::size_t kSynthTrackCount = 4;
+constexpr std::size_t kSynthTrackCount = 6;
 // The track a fresh start, a new project and a loaded one open on: T1, the drum machine.
 constexpr std::size_t kDefaultActiveTrack = 0;
 constexpr std::size_t kKeyboardMatrixRows = 4;
@@ -53,6 +55,11 @@ constexpr std::size_t kSequencerStepCount = kKeyboardMatrixRows * kSequencerStep
 // A pattern is up to this long, shown and stored one page at a time.
 constexpr std::size_t kSequencerMaxSteps = 256;
 constexpr std::size_t kSequencerMaxStepPages = kSequencerMaxSteps / kSequencerStepCount;
+// The widest page a track can put on screen at once. A lane track (drums, chop) shows thirty-two: its
+// steps live on the 4x8 pad block, one key a step. A melodic track keeps the GRID's sixteen, because
+// its pads are a keyboard. The storage page (PatternData) stays sixteen either way - this is only how
+// much of the pattern one screen shows.
+constexpr std::size_t kSequencerMaxViewSteps = kSequencerStepCount * 2;
 constexpr std::size_t kSequencerMaxPatternCount = 16;
 constexpr std::uint16_t kSequencerPulsesPerQuarter = 96;
 constexpr std::uint16_t kSequencerPulsesPerStep = 24;

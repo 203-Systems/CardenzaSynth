@@ -7,6 +7,7 @@
 
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
+#include "Library/Synth/Core/SynthTypes.h"
 
 namespace groove::widgets {
 
@@ -22,6 +23,11 @@ constexpr std::array<std::array<std::uint8_t, 4>, 4> kBayer = {{
 }};
 
 constexpr int kGridOffsetX = kContentX + (kContentWidth - (4 * kCellWidth + 3 * kCellGap)) / 2;
+// Tracks are not the key grid: they get one column each, however many there are.
+constexpr int kTrackColumns = static_cast<int>(synth::kSynthTrackCount);
+constexpr int kTrackCellWidth = (kContentWidth - (kTrackColumns - 1) * kCellGap) / kTrackColumns;
+constexpr int kTrackOffsetX =
+    kContentX + (kContentWidth - (kTrackColumns * kTrackCellWidth + (kTrackColumns - 1) * kCellGap)) / 2;
 constexpr int kGridOffsetY = kContentY + (kContentHeight - (4 * kCellHeight + 3 * kCellGap)) / 2;
 
 int Clamp(int value, int low, int high) { return std::max(low, std::min(high, value)); }
@@ -51,6 +57,12 @@ Rect Cell(std::size_t row, std::size_t column)
 {
   return Rect{kGridOffsetX + static_cast<int>(column) * (kCellWidth + kCellGap),
               kGridOffsetY + static_cast<int>(row) * (kCellHeight + kCellGap), kCellWidth, kCellHeight};
+}
+
+Rect TrackCell(std::size_t row, std::size_t column)
+{
+  return Rect{kTrackOffsetX + static_cast<int>(column) * (kTrackCellWidth + kCellGap),
+              kGridOffsetY + static_cast<int>(row) * (kCellHeight + kCellGap), kTrackCellWidth, kCellHeight};
 }
 
 Rect CellSpan(std::size_t row, std::size_t column, std::size_t rows, std::size_t columns)
@@ -234,7 +246,8 @@ void OscillatorScope(Gfx& g, const Rect& rect, bool saw, float pulseWidth, float
   }
 }
 
-void Waveform(Gfx& g, const Rect& rect, const float* bins, std::size_t count, float start, float end, float cursor, bool cursorVisible)
+void Waveform(Gfx& g, const Rect& rect, const float* bins, std::size_t count, float start, float end, float cursor,
+              bool cursorVisible, float curve)
 {
   const int mid = rect.y + rect.height / 2;
   g.DottedHLine(rect.x, mid, rect.width, kFaint, 3);
@@ -244,7 +257,8 @@ void Waveform(Gfx& g, const Rect& rect, const float* bins, std::size_t count, fl
   for (int column = 0; column < rect.width; ++column)
   {
     const std::size_t bin = std::min(count - 1, static_cast<std::size_t>(column) * count / static_cast<std::size_t>(rect.width));
-    const int half = static_cast<int>(Clamp01(bins[bin]) * static_cast<float>(rect.height / 2 - 1));
+    const float level = curve == 1.0f ? Clamp01(bins[bin]) : std::pow(Clamp01(bins[bin]), curve);
+    const int half = static_cast<int>(level * static_cast<float>(rect.height / 2 - 1));
     const int x = rect.x + column;
     const bool inside = x >= startX && x <= endX;
     g.Dither(Rect{x, mid - half, 1, half * 2 + 1}, inside ? kInk : kFaint, inside ? kDitherLevelOn : 8);
@@ -256,6 +270,33 @@ void Waveform(Gfx& g, const Rect& rect, const float* bins, std::size_t count, fl
   if (cursorVisible)
   {
     const int cx = rect.x + static_cast<int>(Clamp01(cursor) * static_cast<float>(rect.width - 1));
+    g.VLine(cx, rect.y, rect.height, kPlay);
+  }
+}
+
+void WaveformWindow(Gfx& g, const Rect& rect, const float* bins, std::size_t count, float viewStart, float viewEnd,
+                    float cursor, bool cursorVisible, float curve)
+{
+  const int mid = rect.y + rect.height / 2;
+  g.DottedHLine(rect.x, mid, rect.width, kFaint, 3);
+  if (bins == nullptr || count == 0) return;
+  viewStart = Clamp01(viewStart);
+  viewEnd = Clamp01(viewEnd);
+  if (viewEnd <= viewStart) return;
+  const float span = viewEnd - viewStart;
+  for (int column = 0; column < rect.width; ++column)
+  {
+    // Each column asks for the bin under it: at 4x one bin covers several columns, and the blocks
+    // read as the waveform rather than as a bar chart of the whole file.
+    const float fraction = viewStart + span * (static_cast<float>(column) + 0.5f) / static_cast<float>(rect.width);
+    const std::size_t bin = std::min(count - 1, static_cast<std::size_t>(fraction * static_cast<float>(count)));
+    const float level = curve == 1.0f ? Clamp01(bins[bin]) : std::pow(Clamp01(bins[bin]), curve);
+    const int half = static_cast<int>(level * static_cast<float>(rect.height / 2 - 1));
+    g.Dither(Rect{rect.x + column, mid - half, 1, half * 2 + 1}, kInk, kDitherLevelOn);
+  }
+  if (cursorVisible && cursor >= viewStart && cursor <= viewEnd)
+  {
+    const int cx = rect.x + static_cast<int>((cursor - viewStart) / span * static_cast<float>(rect.width - 1));
     g.VLine(cx, rect.y, rect.height, kPlay);
   }
 }

@@ -70,9 +70,14 @@ struct WavInfo {
   std::uint32_t sampleRate = 0;
   std::uint32_t frameCount = 0;
   std::uint64_t dataOffset = 0;
+  std::uint16_t channels = 1;
+  std::uint16_t bitsPerSample = 16;
+  std::uint16_t bytesPerFrame = 2;
 };
 
-inline bool InspectMono16Wav(std::ifstream& file, WavInfo& info)
+// Reads the header of any PCM wav the card may hold: mono or stereo, 16 or 24 bit. The engine itself
+// plays one channel of 16-bit frames, so anything else is converted once on the way in.
+inline bool InspectWav(std::ifstream& file, WavInfo& info)
 {
   file.seekg(0, std::ios::end);
   const std::streamoff length = file.tellg();
@@ -126,9 +131,15 @@ inline bool InspectMono16Wav(std::ifstream& file, WavInfo& info)
       const std::uint32_t byteRate = ReadU32(file);
       const std::uint16_t alignment = ReadU16(file);
       const std::uint16_t bits = ReadU16(file);
-      if (!file || format != 1 || channels != 1 || bits != 16 || alignment != 2 ||
-          parsed.sampleRate < kMinSampleRate || parsed.sampleRate > kMaxSampleRate ||
-          byteRate != parsed.sampleRate * 2)
+      if (!file || format != 1 || (channels != 1 && channels != 2) || (bits != 16 && bits != 24) ||
+          parsed.sampleRate < kMinSampleRate || parsed.sampleRate > kMaxSampleRate)
+      {
+        return false;
+      }
+      parsed.channels = channels;
+      parsed.bitsPerSample = bits;
+      parsed.bytesPerFrame = static_cast<std::uint16_t>(channels * (bits / 8));
+      if (alignment != parsed.bytesPerFrame || byteRate != parsed.sampleRate * parsed.bytesPerFrame)
       {
         return false;
       }
@@ -136,12 +147,14 @@ inline bool InspectMono16Wav(std::ifstream& file, WavInfo& info)
     }
     else if (chunk == "data")
     {
-      if (foundData || size == 0 || (size & 1u) != 0 || size / 2 > kMaxSampleFrames)
+      if (foundData || size == 0 || (size & 1u) != 0 || parsed.bytesPerFrame == 0 ||
+          size % parsed.bytesPerFrame != 0 || size / parsed.bytesPerFrame > kMaxSampleFrames)
       {
         return false;
       }
       parsed.dataOffset = dataOffset;
-      parsed.frameCount = size / 2;
+      // Every frame the data chunk holds: the file is never cut short to fit a buffer.
+      parsed.frameCount = size / parsed.bytesPerFrame;
       foundData = true;
     }
     offset = next;
@@ -154,13 +167,121 @@ inline bool InspectMono16Wav(std::ifstream& file, WavInfo& info)
   return true;
 }
 
-inline bool ReadMono16Wav(const std::string& path, audio::SharedSampleBuffer& frames, std::uint32_t& sampleRate)
+// Where a converted copy of `source` lives: beside it, named for the source and its length, so a
+// second load finds it and a replaced source gets a new one.
+inline std::string ConvertedMonoPath(const std::string& directory, const std::string& source, std::size_t frameCount)
+{
+  const std::size_t slash = source.find_last_of("/\\");
+  const std::string name = slash == std::string::npos ? source : source.substr(slash + 1);
+  const std::size_t dot = name.find_last_of('.');
+  const std::string stem = dot == std::string::npos ? name : name.substr(0, dot);
+  return directory + "/" + stem + "-" + std::to_string(frameCount) + ".mono.wav";
+}
+
+// Stereo and 24-bit files become one channel of 16-bit frames, all of it: the engine plays a single
+// channel, and converting beats refusing the file. Written through small buffers, so a five-minute
+// take converts without ever being held in memory.
+inline bool ConvertWavToMono16(const std::string& source, const WavInfo& info, const std::string& destination)
+{
+  const std::size_t expected = 44 + info.frameCount * sizeof(std::int16_t);
+  {
+    std::ifstream probe(destination, std::ios::binary | std::ios::ate);
+    if (probe && static_cast<std::size_t>(probe.tellg()) == expected) return true;
+  }
+
+  std::ifstream in(source, std::ios::binary);
+  if (!in) return false;
+  in.seekg(static_cast<std::streamoff>(info.dataOffset));
+  if (!in) return false;
+
+  std::ofstream out(destination, std::ios::binary | std::ios::trunc);
+  if (!out) return false;
+
+  const auto put16 = [&out](std::uint16_t value) {
+    const char bytes[2] = {static_cast<char>(value), static_cast<char>(value >> 8)};
+    out.write(bytes, sizeof(bytes));
+  };
+  const auto put32 = [&out](std::uint32_t value) {
+    const char bytes[4] = {static_cast<char>(value), static_cast<char>(value >> 8),
+                           static_cast<char>(value >> 16), static_cast<char>(value >> 24)};
+    out.write(bytes, sizeof(bytes));
+  };
+  const std::uint32_t dataBytes = static_cast<std::uint32_t>(info.frameCount * sizeof(std::int16_t));
+  out.write("RIFF", 4);
+  put32(36 + dataBytes);
+  out.write("WAVE", 4);
+  out.write("fmt ", 4);
+  put32(16);
+  put16(1);
+  put16(1);
+  put32(info.sampleRate);
+  put32(info.sampleRate * 2);
+  put16(2);
+  put16(16);
+  out.write("data", 4);
+  put32(dataBytes);
+
+  constexpr std::size_t kFramesPerChunk = 512;
+  const std::size_t chunkBytes = kFramesPerChunk * info.bytesPerFrame;
+  std::unique_ptr<unsigned char[]> raw(new (std::nothrow) unsigned char[chunkBytes]);
+  std::unique_ptr<std::int16_t[]> mono(new (std::nothrow) std::int16_t[kFramesPerChunk]);
+  const auto abandoned = [&]() {
+    out.close();
+    std::remove(destination.c_str());
+    return false;
+  };
+  if (!raw || !mono || !out) return abandoned();
+
+  for (std::size_t done = 0; done < info.frameCount;)
+  {
+    const std::size_t frames = (std::min)(kFramesPerChunk, static_cast<std::size_t>(info.frameCount) - done);
+    const std::size_t want = frames * info.bytesPerFrame;
+    in.read(reinterpret_cast<char*>(raw.get()), static_cast<std::streamsize>(want));
+    if (!in || static_cast<std::size_t>(in.gcount()) != want) return abandoned();
+    for (std::size_t frame = 0; frame < frames; ++frame)
+    {
+      int sum = 0;
+      for (std::uint16_t channel = 0; channel < info.channels; ++channel)
+      {
+        const unsigned char* at = raw.get() + frame * info.bytesPerFrame + channel * (info.bitsPerSample / 8);
+        if (info.bitsPerSample == 24)
+        {
+          int value = static_cast<int>(at[0] | (at[1] << 8) | (at[2] << 16));
+          if ((value & 0x800000) != 0) value -= 0x1000000;
+          sum += value >> 8;
+        }
+        else
+        {
+          sum += static_cast<std::int16_t>(at[0] | (at[1] << 8));
+        }
+      }
+      mono[frame] = static_cast<std::int16_t>(sum / info.channels);
+    }
+    out.write(reinterpret_cast<const char*>(mono.get()), static_cast<std::streamsize>(frames * sizeof(std::int16_t)));
+    if (!out) return abandoned();
+    done += frames;
+  }
+  out.flush();
+  return static_cast<bool>(out);
+}
+
+inline bool ReadMono16Wav(const std::string& path, audio::SharedSampleBuffer& frames, std::uint32_t& sampleRate,
+                          const std::string& convertDirectory = std::string())
 {
   std::ifstream file(path, std::ios::binary);
   WavInfo info;
-  if (!file || !InspectMono16Wav(file, info))
+  if (!file || !InspectWav(file, info))
   {
     return false;
+  }
+  if (info.channels != 1 || info.bitsPerSample != 16)
+  {
+    // Anything that is not already one channel of 16-bit frames is converted beside the original and
+    // the copy is loaded: the whole file, from first frame to last.
+    if (convertDirectory.empty()) return false;
+    const std::string converted = ConvertedMonoPath(convertDirectory, path, info.frameCount);
+    if (!ConvertWavToMono16(path, info, converted)) return false;
+    return ReadMono16Wav(converted, frames, sampleRate);
   }
   auto loaded = info.frameCount <= RamSampleFrameLimit() ? AllocateFrames(info.frameCount) : nullptr;
   if (!loaded)

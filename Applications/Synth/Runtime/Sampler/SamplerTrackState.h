@@ -7,7 +7,10 @@
 
 namespace synth {
 
-inline constexpr std::size_t kSamplerWaveformBinCount = 32;
+// Peaks per file. A whole file needs 240 or so to fill the screen; the chop's SAMPLE page magnifies
+// four times, so the same picture is asked for a quarter of the file and needs a few more than that to
+// stay a shape rather than a row of blocks.
+inline constexpr std::size_t kSamplerWaveformBinCount = 256;
 
 enum class SamplerTrackPhase {
   Empty,

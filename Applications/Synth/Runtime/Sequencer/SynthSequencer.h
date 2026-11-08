@@ -175,9 +175,14 @@ public:
   std::size_t TrackStepCount(std::size_t track) const;
   std::size_t PatternStepCount(std::size_t track, std::size_t pattern) const;
 
-  // The GRID shows one page (16 steps) of the current pattern. While playing it follows the
-  // playhead until the page is flipped by hand; Play goes back to following.
+  // The GRID shows one page of the current pattern - 16 steps, or 32 on a track whose steps live on
+  // the pad block. While playing it follows the playhead until the page is flipped by hand; Play goes
+  // back to following.
   void SetViewPage(std::size_t track, std::size_t page);
+  // How many steps one page holds for this track (kSequencerStepCount or kSequencerMaxViewSteps). The
+  // page index above is counted in these, so changing it re-reads the current page from step zero of
+  // the page it lands in.
+  void SetViewSteps(std::size_t track, std::size_t steps);
   std::size_t ViewFirstStep(std::size_t track) const;
 
   // True once after a write found no memory for a new page of steps (the write was dropped).
@@ -196,7 +201,13 @@ public:
   bool ToggleNotesOnSelectedSteps(const std::uint8_t* notes, std::size_t count, std::uint8_t velocity = 0);
   void SetEditLane(SequencerEditLane lane);
   void CycleEditLane();
+  // The order the note scope walks in, when pitch order is not the screen order: a drum kit's
+  // pads from the bottom row up, so ADD / SUB move one visible row at a time. Empty on a melodic
+  // track, where the piano roll already reads low to high.
+  void SetScopePitchOrder(const std::uint8_t* pitches, std::size_t count);
+  // Walks the note scope: +1 for ADD, -1 for SUB. The order is ALL, then the step's notes.
   void CycleNoteScope();
+  void CycleNoteScope(int delta);
   // Relative edit of the current lane for the scoped note (or every note) of each selected
   // step. Returns true when any value changed.
   bool AdjustSelectedSteps(int delta, bool coarse);
@@ -460,6 +471,7 @@ private:
   void ClearStepLocked(StepData& step);
   void QuantizeStepLocked(StepData& step, std::size_t stepIndex);
   void CycleNoteScopeLocked();
+  void CycleNoteScopeLocked(int delta);
   void NormalizeScopeLocked();
   void PopulateEditValueStateLocked(SequencerUiState& state, const StepData* step) const;
   PatternData& ActivePatternLocked(TrackData& track);
@@ -475,6 +487,7 @@ private:
 
   static std::size_t TrackStepCountOf(const TrackData& track);
   std::size_t ViewPageLocked(std::size_t trackIndex) const;
+  std::size_t ViewStepsLocked(std::size_t trackIndex) const;
   std::uint16_t SwingDelayPulsesLocked() const;
   std::uint16_t NoteOffsetPulsesLocked(std::size_t stepIndex, std::uint8_t microstep) const;
   void FireStepNotesLocked(std::size_t trackIndex,
@@ -542,13 +555,18 @@ private:
   std::array<bool, kSequencerMaxSteps> heldSteps_{};
   // The page of each track's pattern the UI state's steps come from (see ViewPageLocked).
   mutable std::array<std::uint8_t, kSynthTrackCount> viewPage_{};
+  // Steps a page holds, per track: 16 until a caller asks for 32 (see SetViewSteps).
+  std::array<std::uint8_t, kSynthTrackCount> viewSteps_{};
   mutable std::array<std::uint8_t, kSynthTrackCount> viewPattern_{};
-  std::array<bool, kSynthTrackCount> viewFollow_{{true, true, true, true}};
+  std::array<bool, kSynthTrackCount> viewFollow_{{true, true, true, true, true, true}};
   std::array<bool, kKeyboardMatrixRows> heldEditLanes_{};
   std::array<PlaybackNote, kMaxPlaybackNotes> playbackNotes_{};
   std::size_t activeTrack_ = 0;
   SequencerEditLane editLane_ = SequencerEditLane::Note;
   int noteScopeIndex_ = -1;
+  // The scope's walk order when the host has one (see SetScopePitchOrder); empty means by pitch.
+  std::array<std::uint8_t, 8> scopeOrder_{};
+  std::size_t scopeOrderCount_ = 0;
   bool playing_ = false;
   std::size_t playbackStep_ = 0;
   std::uint64_t absolutePulse_ = 0;

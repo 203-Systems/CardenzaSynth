@@ -1397,9 +1397,10 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
   const StepData* primaryHeldStep = nullptr;
   if (track != nullptr)
   {
+    state.viewSteps = ViewStepsLocked(activeTrack);
     state.viewPage = ViewPageLocked(activeTrack);
-    state.viewPageCount = (TrackStepCountOf(*track) + kSequencerStepCount - 1) / kSequencerStepCount;
-    state.firstViewStep = state.viewPage * kSequencerStepCount;
+    state.viewPageCount = (TrackStepCountOf(*track) + state.viewSteps - 1) / state.viewSteps;
+    state.firstViewStep = state.viewPage * state.viewSteps;
     state.viewFollow = viewFollow_[activeTrack];
   }
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
@@ -1412,7 +1413,14 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
         if (note.active && (state.primaryLowestNote < 0 || note.note < state.primaryLowestNote)) state.primaryLowestNote = note.note;
     break;
   }
-  for (std::size_t cellIndex = 0; cellIndex < state.steps.size(); ++cellIndex)
+  // Only the cells this page actually holds, and never past the end of the pattern: the steps of a
+  // page are read through the pattern's own store, which allocates a page the first time one is
+  // written.
+  const std::size_t trackSteps = track != nullptr ? TrackStepCountOf(*track) : 0;
+  const std::size_t viewCells = trackSteps > state.firstViewStep
+      ? std::min(state.steps.size(), std::min(state.viewSteps, trackSteps - state.firstViewStep))
+      : 0;
+  for (std::size_t cellIndex = 0; cellIndex < viewCells; ++cellIndex)
   {
     const std::size_t stepIndex = state.firstViewStep + cellIndex;
     const StepData* step = track != nullptr ? &ActivePatternLocked(*track).steps[stepIndex] : nullptr;
@@ -1455,7 +1463,7 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     if (slot < primaryHeldStep->notes.size())
     {
       state.scopedNote = primaryHeldStep->notes[slot].note;
-      for (std::size_t cellIndex = 0; cellIndex < state.steps.size(); ++cellIndex)
+      for (std::size_t cellIndex = 0; cellIndex < viewCells; ++cellIndex)
       {
         if (heldSteps_[state.firstViewStep + cellIndex])
         {
@@ -1928,11 +1936,31 @@ std::size_t SynthSequencer::ViewPageLocked(std::size_t trackIndex) const
     viewPage_[trackIndex] = 0;
   }
   const std::size_t stepCount = TrackStepCountOf(track);
-  const std::size_t pageCount = (stepCount + kSequencerStepCount - 1) / kSequencerStepCount;
+  const std::size_t perPage = ViewStepsLocked(trackIndex);
+  const std::size_t pageCount = (stepCount + perPage - 1) / perPage;
   // The page stays put while steps are selected, so an edit never moves away under the fingers.
   if (playing_ && viewFollow_[trackIndex] && std::none_of(heldSteps_.begin(), heldSteps_.end(), [](bool held) { return held; }))
-    viewPage_[trackIndex] = static_cast<std::uint8_t>(std::min<std::size_t>(trackCurrentPulse_[trackIndex] / kSequencerPulsesPerStep, stepCount - 1) / kSequencerStepCount);
+    viewPage_[trackIndex] = static_cast<std::uint8_t>(std::min<std::size_t>(trackCurrentPulse_[trackIndex] / kSequencerPulsesPerStep, stepCount - 1) / perPage);
   return std::min<std::size_t>(viewPage_[trackIndex], pageCount - 1);
+}
+
+std::size_t SynthSequencer::ViewStepsLocked(std::size_t trackIndex) const
+{
+  if (trackIndex >= viewSteps_.size()) return kSequencerStepCount;
+  const std::size_t steps = viewSteps_[trackIndex];
+  return std::clamp<std::size_t>(steps == 0 ? kSequencerStepCount : steps, kSequencerStepCount, kSequencerMaxViewSteps);
+}
+
+void SynthSequencer::SetViewSteps(std::size_t trackIndex, std::size_t steps)
+{
+  if (trackIndex >= tracks_.size()) return;
+  const std::size_t wanted = std::clamp<std::size_t>(steps, kSequencerStepCount, kSequencerMaxViewSteps);
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (ViewStepsLocked(trackIndex) == wanted) return;
+  const std::size_t first = ViewPageLocked(trackIndex) * ViewStepsLocked(trackIndex);
+  viewSteps_[trackIndex] = static_cast<std::uint8_t>(wanted);
+  // The page the track was on is kept: the window opens on the step it already showed.
+  viewPage_[trackIndex] = static_cast<std::uint8_t>(std::min<std::size_t>(first / wanted, kSequencerMaxStepPages - 1));
 }
 
 void SynthSequencer::SetViewPage(std::size_t trackIndex, std::size_t page)
@@ -1948,7 +1976,7 @@ std::size_t SynthSequencer::ViewFirstStep(std::size_t trackIndex) const
 {
   if (trackIndex >= tracks_.size()) return 0;
   std::lock_guard<std::mutex> lock(mutex_);
-  return ViewPageLocked(trackIndex) * kSequencerStepCount;
+  return ViewPageLocked(trackIndex) * ViewStepsLocked(trackIndex);
 }
 
 void SynthSequencer::SetStepSelected(std::size_t stepIndex, bool selected)
@@ -2121,10 +2149,26 @@ void SynthSequencer::CycleDefaultRoll()
   roll = static_cast<std::uint8_t>(roll >= kSequencerMaxRoll ? 1 : roll + 1);
 }
 
+void SynthSequencer::SetScopePitchOrder(const std::uint8_t* pitches, std::size_t count)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  scopeOrderCount_ = pitches != nullptr ? std::min(count, scopeOrder_.size()) : 0;
+  for (std::size_t index = 0; index < scopeOrderCount_; ++index)
+  {
+    scopeOrder_[index] = pitches[index];
+  }
+}
+
 void SynthSequencer::CycleNoteScope()
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  CycleNoteScopeLocked();
+  CycleNoteScopeLocked(1);
+}
+
+void SynthSequencer::CycleNoteScope(int delta)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  CycleNoteScopeLocked(delta);
 }
 
 bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
@@ -3097,6 +3141,11 @@ void SynthSequencer::QuantizeStepLocked(StepData& step, std::size_t stepIndex)
 
 void SynthSequencer::CycleNoteScopeLocked()
 {
+  CycleNoteScopeLocked(1);
+}
+
+void SynthSequencer::CycleNoteScopeLocked(int delta)
+{
   const StepData* primaryStep = nullptr;
   if (activeTrack_ < tracks_.size())
   {
@@ -3118,17 +3167,23 @@ void SynthSequencer::CycleNoteScopeLocked()
     return;
   }
 
+  const int count = static_cast<int>(noteCount);
+  if (delta == 0)
+  {
+    return;
+  }
   if (noteScopeIndex_ < 0)
   {
-    noteScopeIndex_ = 0;
+    // From the whole step: ADD starts at the first note, SUB at the last one.
+    noteScopeIndex_ = delta > 0 ? 0 : count - 1;
     return;
   }
 
-  ++noteScopeIndex_;
-  if (noteScopeIndex_ >= static_cast<int>(noteCount))
-  {
-    noteScopeIndex_ = -1;
-  }
+  // ALL sits at both ends of the walk, so the count is the ring's length.
+  int next = noteScopeIndex_ + (delta > 0 ? 1 : -1);
+  if (next >= count) next = -1;
+  if (next < -1) next = count - 1;
+  noteScopeIndex_ = next;
 }
 
 void SynthSequencer::NormalizeScopeLocked()
@@ -3219,6 +3274,18 @@ std::size_t SynthSequencer::ScopedNoteSlot(const StepData& step) const
       slots[slotCount++] = slot;
     }
   }
+  // The walk follows the screen, not MIDI: the host hands over the kit's pads in the order the
+  // matrix draws them from the bottom row up, so ADD / SUB move one visible row at a time instead
+  // of jumping when a pad's pitch disagrees with its row (CP is 39, CH is 42). A melodic track
+  // hands over nothing and pitch order is the screen order anyway.
+  const auto rank = [this](std::uint8_t pitch) {
+    for (std::size_t index = 0; index < scopeOrderCount_; ++index)
+    {
+      if (scopeOrder_[index] == pitch) return static_cast<int>(index);
+    }
+    return static_cast<int>(scopeOrderCount_) + static_cast<int>(pitch);
+  };
+
   // GCC's small-range std::sort expansion probes its 16-item insertion-sort
   // threshold and triggers -Warray-bounds for this fixed 8-item buffer on
   // Xtensa. An explicit insertion sort keeps every access visibly bounded.
@@ -3226,7 +3293,7 @@ std::size_t SynthSequencer::ScopedNoteSlot(const StepData& step) const
   {
     const std::size_t slot = slots[index];
     std::size_t insertionIndex = index;
-    while (insertionIndex > 0 && step.notes[slot].note < step.notes[slots[insertionIndex - 1]].note)
+    while (insertionIndex > 0 && rank(step.notes[slot].note) < rank(step.notes[slots[insertionIndex - 1]].note))
     {
       slots[insertionIndex] = slots[insertionIndex - 1];
       --insertionIndex;

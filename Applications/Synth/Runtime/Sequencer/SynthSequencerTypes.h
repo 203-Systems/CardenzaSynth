@@ -25,10 +25,10 @@ inline constexpr std::uint8_t kSongMaxRepeats = 16;
 inline constexpr std::size_t kSongBarSteps = 16;
 inline constexpr std::uint32_t kSongBarPulses = static_cast<std::uint32_t>(kSongBarSteps) * kSequencerPulsesPerStep;
 
-static_assert(kSynthTrackCount == 4, "SongRow lists one default pattern per track.");
+static_assert(kSynthTrackCount == 6, "SongRow lists one default pattern per track.");
 
 struct SongRow {
-  std::array<std::int8_t, kSynthTrackCount> patterns{{0, 0, 0, 0}};  // -1 = track silent in this row, else pattern index
+  std::array<std::int8_t, kSynthTrackCount> patterns{{0, 0, 0, 0, 0, 0}};  // -1 = track silent in this row, else pattern index
   std::uint8_t repeats = 1;  // length in bars, 1..kSongMaxRepeats
 };
 
@@ -177,9 +177,11 @@ struct SequencerUiState {
   bool hasCopySource = false;
   bool copySourceIsPattern = false;
   std::size_t copySourceIndex = 0;
-  // One GRID page of the pattern (SetViewPage): steps[i] is step firstViewStep + i of
-  // viewPageCount pages. currentStep and primaryHeldStep count from the start of the pattern.
-  std::array<SequencerStepUiState, kSequencerStepCount> steps{};
+  // One page of the pattern (SetViewPage): steps[i] is step firstViewStep + i of viewPageCount pages,
+  // and viewSteps of them make a page (16 on a melodic track, 32 on a drum or chop one). currentStep
+  // and primaryHeldStep count from the start of the pattern.
+  std::array<SequencerStepUiState, kSequencerMaxViewSteps> steps{};
+  std::size_t viewSteps = kSequencerStepCount;
   std::size_t firstViewStep = 0;
   std::size_t viewPage = 0;
   std::size_t viewPageCount = 1;

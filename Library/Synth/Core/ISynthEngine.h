@@ -70,6 +70,9 @@ struct SynthEngineState {
   std::string presetId;
   std::string presetName;
   std::map<std::string, int> values;
+  // The project file version these values were read from, or 0 when they did not come from a file. An
+  // engine whose parameter scale changed between versions reads this instead of guessing from values.
+  int version = 0;
 };
 
 class ISynthEngine {

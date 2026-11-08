@@ -26,12 +26,25 @@
 
 namespace synth::audio {
 
+// Blocks the cache took back while a voice was inside one (SampleStream.h): a moment of another
+// stream's audio, so it belongs at zero. Declared here, outside the pool's own namespace, so the
+// render path and the web page can read it.
+std::atomic<std::uint32_t> g_streamBlockLosses{0};
+
 namespace {
 
 constexpr std::size_t kMaxStreams = 8;       // four tracks, plus a project being loaded over them
 constexpr std::size_t kMaxOpenFiles = 2;     // the card driver has five file slots for everything
+// Eight blocks a stream (a quarter of a second of look-ahead, enough for a card that stalls a little),
+// and enough of them for several streams at once: two streams used to be all a project could have.
 constexpr std::size_t kBlocksPerStream = 8;
-constexpr std::size_t kMaxBlocks = 16;
+#if defined(ESP_PLATFORM)
+// Internal RAM, the only kind the card can read into: 24 blocks are 48 KB of the 280 KB heap, three
+// streams with their look-ahead. More streams than that share the cache and re-read.
+constexpr std::size_t kMaxBlocks = 24;
+#else
+constexpr std::size_t kMaxBlocks = 40;
+#endif
 constexpr std::size_t kMinBlocks = 4;
 // The blocks stay in internal RAM, which the card reads into by DMA (into PSRAM the driver would fetch
 // one sector per command). They stop where internal RAM is down to this.
@@ -55,23 +68,8 @@ struct StreamState {
   bool failed = false;
 };
 
-// A block's key in 32 bits: the stream's id above, the block's index + 1 below. Atomics of 64 bits are
-// library calls on this chip (with PSRAM even a load is one), behind a single lock with interrupts off
-// that both cores share: the worker's and the voices' lookups with 64-bit keys kept the worker busy
-// for seconds, above the UI on its core (the stress test, 2026-11-04). 32-bit loads and stores are
-// plain instructions.
-constexpr unsigned kKeyBlockBits = 15;  // 32767 blocks, 12 minutes at 44.1 kHz
-constexpr std::uint32_t kKeyBlockMask = (1u << kKeyBlockBits) - 1;
-constexpr std::uint32_t kMaxStreamId = (1u << (32 - kKeyBlockBits)) - 1;
-
-std::uint32_t BlockKey(std::uint32_t id, std::uint32_t block)
-{
-  return (id << kKeyBlockBits) | (block + 1);
-}
-
-std::uint32_t KeyStream(std::uint32_t key) { return key >> kKeyBlockBits; }
-std::uint32_t KeyBlock(std::uint32_t key) { return (key & kKeyBlockMask) - 1; }
-
+// A block's key in 32 bits: the stream's id above, the block's index + 1 below (BlockKey and
+// friends are in the header - a voice checks its block against them on every sample it reads).
 // Deliberately never destroyed: the worker runs for as long as the program.
 struct Pool {
   std::recursive_mutex io;
@@ -419,6 +417,7 @@ bool SampleStream::FindBlock(StreamCursor& cursor, std::uint32_t index) const
   Pool& pool = ThePool();
   const std::uint32_t key = BlockKey(id_, index);
   cursor.block = nullptr;
+  cursor.key = nullptr;
   cursor.blockIndex = index;
 #if defined(__EMSCRIPTEN__)
   // No threads in the browser, and its files are in memory: read on the spot.
@@ -432,6 +431,7 @@ bool SampleStream::FindBlock(StreamCursor& cursor, std::uint32_t index) const
       if (block != nullptr && block->key.load(std::memory_order_acquire) == key)
       {
         cursor.block = block->frames.data();
+        cursor.key = &block->key;
         return true;
       }
     }
