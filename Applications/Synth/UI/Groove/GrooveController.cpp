@@ -1176,7 +1176,24 @@ AdjustMeaning Controller::AdjustKeysMean() const
   switch (state_.scene)
   {
     case Scene::Instrument:
-      return CurrentInstrumentPage()->graphic == PageGraphic::Voice ? AdjustMeaning::List : AdjustMeaning::Value;
+    {
+      // A position in the file - a chop slice's start or end, or the trim - is moved along the
+      // waveform, which reads sideways: the upper key goes back, the lower one on, and the glyphs
+      // beside them turn round with it. Everything else on these pages is a number or a list.
+      const InstrumentPage* page = CurrentInstrumentPage();
+      const char* id = page != nullptr ? page->slots[InstrumentFocus()].id : nullptr;
+      if (id != nullptr)
+      {
+        const std::string_view slot{id};
+        const bool trim = slot == synth::kChopSampleStartId || slot == synth::kChopSampleEndId;
+        const bool point =
+            slot.rfind("slice.", 0) == 0 &&
+            ((slot.size() > 6 && slot.compare(slot.size() - 6, 6, ".start") == 0) ||
+             (slot.size() > 4 && slot.compare(slot.size() - 4, 4, ".end") == 0));
+        if (trim || point) return AdjustMeaning::Sideways;
+      }
+      return page != nullptr && page->graphic == PageGraphic::Voice ? AdjustMeaning::List : AdjustMeaning::Value;
+    }
     case Scene::Sequence:
       // The note page with nothing selected: ADD / SUB flip the GRID's page.
       if (CurrentPage() == 0 && !host_.Sequencer().HasHeldSteps()) return AdjustMeaning::Sideways;
