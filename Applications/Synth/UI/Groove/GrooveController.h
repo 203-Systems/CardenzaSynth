@@ -636,11 +636,6 @@ private:
   synth::SynthEngineKind scopeOrderEngine_{};
   bool scopeOrderPadOrder_ = false;
   bool scopeOrderSynced_ = false;
-  // How many steps the roll shows at once for the current track: sixteen on a melodic track, thirty-
-  // two on a lane one, whose steps sit on the pad block.
-  std::size_t viewStepsTrack_ = 0;
-  std::size_t viewStepsValue_ = 0;
-  bool viewStepsSynced_ = false;
   // Input routing
   void PressLeft(std::size_t row);
   void ReleaseLeft(std::size_t row);

@@ -930,9 +930,9 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   // write sixteen steps at a time: the page moves, the screen does not.
   const std::size_t length = std::max<std::size_t>(1, seq.tracks[state.track].stepCount);
   const std::size_t first = seq.firstViewStep;
-  // A page is as wide as the keys that hold its steps: thirty-two on a lane track, sixteen on a
-  // melodic one. A pattern may end before the page does.
-  const std::size_t page = std::clamp<std::size_t>(length > first ? length - first : 1, 1, synth::kSequencerMaxViewSteps);
+  // A page is what the keys reach: sixteen steps on every track. The lane roll draws the page after it
+  // as well (see `span`), dimmed, but that half is not part of what is being edited.
+  const std::size_t page = std::clamp<std::size_t>(length > first ? length - first : 1, 1, kGridCount);
   const Color trackColor = TrackColor(state.track);
   constexpr int kGutter = 20;
   const int x0 = kContentX + kGutter;
@@ -1232,6 +1232,24 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       const Rect bar = lanes ? noteBar(room, note.velocity) : VelocityBar(room, note.velocity);
       drawBar(bar, seq.steps[step].held, scopedNote(step, note.note), pressed[note.note & 0x7F] != 0);
       DrawRollNotches(g, bar, note.roll);
+    }
+  }
+  // The page after this one, drawn in the same grid but dimmed: the keys only reach sixteen steps, so
+  // the second sixteen on screen are a guide to what is coming, not something to edit. Past the end of
+  // the pattern the grid stays empty.
+  for (std::size_t after = 0; lanes && kGridCount + after < span; ++after)
+  {
+    const std::size_t slot = kGridCount + after;
+    if (first + slot >= length) break;
+    for (std::size_t index = 0; index < counts[slot]; ++index)
+    {
+      const auto& note = notes[slot][index];
+      if (note.note < low || note.note > high) continue;
+      const int x = x0 + static_cast<int>(slot) * column +
+                    static_cast<int>(note.microstep) * column / synth::kSequencerMicrostepCount + 1;
+      const int width = std::max(1, static_cast<int>(note.lengthPulses) * column / synth::kSequencerPulsesPerStep - 1);
+      const Rect bar{x, rowY(note.note) + 1, std::max(1, std::min(width, x0 + fullWidth - 1 - x)), std::max(1, rowHeight - 2)};
+      g.Dither(bar, kDim, 6);
     }
   }
   if (seq.playing)

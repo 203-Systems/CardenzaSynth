@@ -995,21 +995,6 @@ void Controller::Tick(std::uint32_t nowMs)
     scopeOrderPadOrder_ = padOrder;
     SyncScopeOrder();
   }
-  // The roll's page is as wide as the keys that hold its steps: a lane track puts thirty-two on the
-  // pad block, a melodic one keeps the GRID's sixteen. Told once per track and engine change.
-  {
-    const synth::SynthEngineKind kind = ActiveKind();
-    const std::size_t viewSteps =
-        (kind == synth::SynthEngineKind::Drums || kind == synth::SynthEngineKind::Chop) ? synth::kSequencerMaxViewSteps
-                                                                                         : synth::kSequencerStepCount;
-    if (!viewStepsSynced_ || viewStepsTrack_ != state_.track || viewStepsValue_ != viewSteps)
-    {
-      viewStepsSynced_ = true;
-      viewStepsTrack_ = state_.track;
-      viewStepsValue_ = viewSteps;
-      host_.Sequencer().SetViewSteps(state_.track, viewSteps);
-    }
-  }
   OkTick();
   if (CellPickerActive()) ShowCellHud();
   if (synth::SynthSequencer::ConsumePatternMemoryFull()) ShowToast("MEMORY FULL - NOTE NOT WRITTEN", ToastKind::Error);
