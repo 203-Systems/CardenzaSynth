@@ -1479,15 +1479,18 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       // On the beat it fills the step; off it, a sliver where in the step it falls.
       const Rect room = lanes ? Rect{x, y + 2, late == 0 ? kColumn - 1 : 2, std::max(2, rowHeight - 5)}
                               : Rect{x, y, late == 0 ? kColumn - 1 : 2, std::max(2, rowHeight - 1)};
-      // Same language as the piano roll: how hard, by how tall, never under two pixels.
-      const Rect mark = VelocityBar(room, note.velocity);
+      // Same language as the piano roll: how hard, by how tall, never under two pixels. A chop's
+      // matrix is only the map of where its slices fall - a hit fills its row top to bottom, the
+      // same block however hard it was struck, since how hard and how often are the GRID's story
+      // and the rows here are too thin to tell them.
+      const Rect mark = chop ? room : VelocityBar(room, note.velocity);
       const std::uint8_t held = heldVelocity[note.note & 0x7F];
       const bool strong = held != 0 || row == chosen || seq.steps[static_cast<std::size_t>(step)].held;
       if (strong) g.Fill(Rect{mark.x - 1, mark.y - 1, mark.width + 2, mark.height + 2}, kBlack);
       if (scopedNow(static_cast<std::size_t>(step), note.note)) g.Fill(mark, kInk);
       else if (head) g.Fill(mark, kPlay);
       else g.Fill(mark, trackColor);
-      DrawRollNotches(g, mark, note.roll);
+      if (!chop) DrawRollNotches(g, mark, note.roll);
     }
   }
   if (playingHere)
@@ -1527,6 +1530,38 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       }
     const bool marked = info.held;  // selected: inverse
     const float flash = info.playing ? fx::Decay(now, animator.StepPlayedAt(index), kStepFlashMs) : 0.0f;
+    if (chop)
+    {
+      // A chop's square carries the two readings its matrix gives up: how hard, by how tall the bar
+      // stands on the floor of the square, and ROLL, by that bar cut into the two, three or four
+      // repeats the slice fires on. Where in the step a hit falls is left out - the cuts already
+      // crowd it, and TIME has the hardware's own page.
+      if (marked) g.Fill(cell, kInk);
+      if (velocity != 0)
+      {
+        // The number keeps the top of the square, so the bar stops under it: a glyph half on the bar
+        // and half on the black above it reads as neither.
+        const int cap = std::max(3, cell.height - 10);
+        // The square's whole height under the number, not a share of it: the loudest hit still stands
+        // tallest instead of flattening against the cap.
+        const int height = 3 + (cap - 3) * static_cast<int>(velocity) / 127;
+        const Rect bar{cell.x + 1, cell.y + cell.height - 1 - height, cell.width - 2, height};
+        g.Fill(bar, marked ? kBlack : trackColor);
+        for (int part = 1; part < roll; ++part)
+        {
+          const int x = bar.x + bar.width * part / roll;
+          if (x <= bar.x || x >= bar.x + bar.width) continue;
+          g.Fill(Rect{x, bar.y, 1, bar.height}, marked ? kInk : kBlack);
+        }
+      }
+      else if (info.hasEvents) g.Fill(Rect{cell.x, cell.y + cell.height - 2, cell.width, 2}, kDim);
+      if (info.playing && !marked) g.Stroke(cell, kPlay);
+      else if (!marked && velocity == 0) g.DottedHLine(cell.x, cell.y + cell.height - 1, cell.width, index % 4 == 0 ? kDim : kFaint, 1);
+      // The number reads on the black above the bar, black on the square when the step is selected.
+      g.Text(cell.x + 2, cell.y + 2, Pad2(step + 1),
+             marked ? kBlack : (velocity != 0 || index % 4 == 0 ? kDim : kFaint), Font::Micro);
+      continue;
+    }
     // A hit fills the square whole — whether there is one is the GRID's question, how hard it was is
     // the step machine's and the piano roll's. ROLL reads as dots in the corner instead of cuts.
     if (marked) g.Fill(cell, kInk);
