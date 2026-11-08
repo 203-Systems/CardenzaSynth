@@ -1405,7 +1405,14 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
       const std::uint32_t pressed = state_.keyPressedAt[index];
       if (pressed != 0 && state_.now - pressed < kLedPressFlashMs) set(index, kLedFull);
     }
-    if (state_.repeat.down && state_.repeat.quickId == nullptr) set(state_.repeat.direction > 0 ? addKey : subKey, kLedFull);
+    if (state_.repeat.down && state_.repeat.quickId == nullptr)
+    {
+      // The sideways maps swap the direction on the way in, so the key actually held is the other one:
+      // light the key under the finger, not the direction it carries.
+      const bool sideways = AdjustKeysMean() == AdjustMeaning::Sideways;
+      const bool upper = sideways ? state_.repeat.direction < 0 : state_.repeat.direction > 0;
+      set(upper ? addKey : subKey, kLedFull);
+    }
     for (std::size_t row = 0; row < kRows; ++row)
       if (state_.left[row].down) set(KeyIndex(row, 0), kLedFull);
   };
