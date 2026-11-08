@@ -80,14 +80,10 @@ void GridRipple(Gfx& g, Animator& animator, std::size_t index, Color color)
 constexpr std::array<int, 4> kDrumDensity{{16, 8, 4, 2}};
 int DrumDensity(std::uint8_t velocity) { return kDrumDensity[DrumRowForVelocity(velocity)]; }
 
-// The kit's pads from the top row down: the pad order read backwards, so pad 1 (BD) is the bottom
-// row. The matrix then reads like the piano roll -- low at the bottom -- without moving any key:
-// pad 1 is still BD, and the columns of keys are untouched.
-//
-// The note scope walks by MIDI pitch, which is NOT this order (CP is 39, below CH's 42), so the
-// walk and the rows disagree on CP / OH / TM. That is a known trade: the screen follows the hands,
-// the scope follows the notes.
-constexpr std::array<std::size_t, 8> kDrumRowPad{{7, 6, 5, 4, 3, 2, 1, 0}};
+// The kit's rows read in pad order: pad 1 (BD) is the top row of both the matrix and the roll, the
+// same order the pads are laid out in. The note scope walks by MIDI pitch, which is NOT this order
+// (CP is 39, below CH's 42), so the walk and the rows disagree on CP / OH / TM. That is a known
+// trade: the screen follows the hands, the scope follows the notes.
 
 
 // Velocity is height now that ROLL cuts the bar: as tall as it is loud, standing on the bottom of
@@ -1111,12 +1107,12 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       const int lane = note - static_cast<int>(synth::kChopFirstNote);
       return lane >= 0 && lane < lanes_ ? lane : -1;
     }
-    for (std::size_t lane = 0; lane < kDrumRowPad.size(); ++lane)
-      if (kDrumNotes[kDrumRowPad[lane]] == note) return static_cast<int>(lane);
+    for (std::size_t lane = 0; lane < kDrumNotes.size(); ++lane)
+      if (kDrumNotes[lane] == note) return static_cast<int>(lane);
     return -1;
   };
   const auto laneNote = [&](int row) {
-    return chop ? static_cast<int>(synth::kChopFirstNote) + row : static_cast<int>(kDrumNotes[kDrumRowPad[static_cast<std::size_t>(row)]]);
+    return chop ? static_cast<int>(synth::kChopFirstNote) + row : static_cast<int>(kDrumNotes[static_cast<std::size_t>(row)]);
   };
   auto rowY = [&](int note) {
     if (lanes)
@@ -1453,13 +1449,13 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       return slice;
     }
     if (!drums) return note < low || note > high ? -1 : high - note;
-    for (std::size_t row = 0; row < kDrumRowPad.size(); ++row)
-      if (kDrumNotes[kDrumRowPad[row]] == note) return static_cast<int>(row);
+    for (std::size_t row = 0; row < kDrumNotes.size(); ++row)
+      if (kDrumNotes[row] == note) return static_cast<int>(row);
     return -1;
   };
   const auto noteOf = [&](int row) {
     if (chop) return static_cast<int>(synth::kChopFirstNote) + row;
-    return drums ? static_cast<int>(kDrumNotes[kDrumRowPad[static_cast<std::size_t>(row)]]) : high - row;
+    return drums ? static_cast<int>(kDrumNotes[static_cast<std::size_t>(row)]) : high - row;
   };
   const int chosen = picked >= 0 ? rowOf(picked) : -1;
 
@@ -1542,7 +1538,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       // which step is which, so no dots are needed to read an empty lane.
       if (lit) g.Fill(Rect{kContentX, y, label - 2, rowHeight - 1}, kInk);
       // The name sits where the roll's does: hard against the gutter, on the lane's middle.
-      g.Text(kContentX, y + rowHeight / 2 - 4, kDrumNames[kDrumRowPad[static_cast<std::size_t>(row)]], lit ? kBlack : kDim, Font::Micro);
+      g.Text(kContentX, y + rowHeight / 2 - 4, kDrumNames[static_cast<std::size_t>(row)], lit ? kBlack : kDim, Font::Micro);
       continue;
     }
     if (!lit && note % 12 != 0) continue;
