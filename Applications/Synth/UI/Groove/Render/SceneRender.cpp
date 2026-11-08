@@ -134,13 +134,20 @@ void DrawRollNotches(Gfx& g, const Rect& bar, int roll)
   }
 }
 
+// How tall a bar stands in a room this high: as loud as it is tall, two pixels at the least so a soft
+// hit is still a hit. A lane of six pixels reads as three heights, a lane of twelve as ten - the bar
+// fills whatever room the screen gives it, and a small sample's fat rows do not hold a thin note.
+int BarHeight(int room, std::uint8_t velocity)
+{
+  if (room <= 0) return 0;
+  return std::clamp((room * static_cast<int>(velocity) + 63) / 127, std::min(2, room), room);
+}
+
 // A chop's hit on the step matrix: the cell's whole width (TIME stays the GRID's business) and as
-// tall as the hit is hard, standing on the cell's floor. The same three heights the lane roll uses -
-// quiet three, normal four, loud five - so a note reads the same on both screens.
+// tall as the hit is hard, standing on the cell's floor.
 Rect ChopBar(const Rect& cell, std::uint8_t velocity)
 {
-  const int wanted = velocity >= 100 ? 5 : velocity >= 61 ? 4 : 3;
-  const int height = std::clamp(wanted, 1, (std::max)(1, cell.height));
+  const int height = BarHeight(cell.height, velocity);
   return Rect{cell.x, cell.y + cell.height - height, cell.width, height};
 }
 
@@ -1086,12 +1093,10 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   // note would be - so the numbers read the way the pads are laid out. Everything else keeps high
   // notes at the top.
   auto rowY = [&](int note) { return y0 + (chop ? note - low : high - note) * rowHeight; };
-  // A lane is six pixels, which leaves room for three heights of bar rather than a continuum: quiet
-  // is three, normal four, loud five. What a bar reaches is read at a glance, and every note of the
-  // same velocity lines up to the pixel.
+  // A lane is as tall as the rows allow, and a bar fills it as far as the hit is hard: a six-pixel
+  // lane reads as three heights, an eight-slice track's fat rows as ten, and both agree.
   const auto noteBar = [](const Rect& room, std::uint8_t velocity) {
-    const int wanted = velocity >= 100 ? 5 : velocity >= 61 ? 4 : 3;
-    const int height = std::clamp(wanted, 1, (std::max)(1, room.height));
+    const int height = BarHeight((std::max)(1, room.height), velocity);
     return Rect{room.x, room.y + room.height - height, room.width, height};
   };
   // The lane roll's frame carries the same white rule as the four-lane dividers, so its grid is closed
@@ -1267,7 +1272,7 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       const int x = x0 + static_cast<int>(slot) * column +
                     static_cast<int>(note.microstep) * column / synth::kSequencerMicrostepCount + (lanes ? 1 : 0);
       const int width = std::max(1, static_cast<int>(note.lengthPulses) * column / synth::kSequencerPulsesPerStep - 1);
-      const Rect room{x, rowY(note.note), std::min(width, fullWidth - (lanes ? 1 : 0) - x), std::max(1, rowHeight - 1)};
+      const Rect room{x, rowY(note.note), std::min(width, x0 + fullWidth - (lanes ? 1 : 0) - x), std::max(1, rowHeight - 1)};
       const Rect bar = lanes ? noteBar(room, note.velocity) : VelocityBar(room, note.velocity);
       drawBar(bar, seq.steps[step].held, scopedNote(step, note.note), pressed[note.note & 0x7F] != 0);
       DrawRollNotches(g, bar, note.roll);
@@ -1431,7 +1436,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   const int x0 = kContentX + label;
   const int column = std::max(3, (left - 5 - x0) / static_cast<int>(kGridCount));
   const int matrixWidth = column * static_cast<int>(kGridCount);
-  const int rowHeight = std::max(2, kContentHeight / rows);
+  const int rowHeight = std::max(2, (kSquare * 4 + 3 * kGap) / rows);
   const int matrixHeight = rowHeight * rows;
   const int top = kContentY + (kContentHeight - matrixHeight) / 2;
   const int steps = static_cast<int>(std::min<std::size_t>(kGridCount, length > first ? length - first : 0));
