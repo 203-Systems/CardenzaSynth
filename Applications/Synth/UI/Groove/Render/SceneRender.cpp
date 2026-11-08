@@ -903,6 +903,9 @@ void DrawSlotPage(Gfx& g, const Controller& controller, Animator& animator, cons
   {
     const Slot& slot = page.slots[slotIndex];
     const Rect cell = Cell(slotIndex / kGridColumns, slotIndex % kGridColumns);
+    // The chop's magnifier is a shortcut, not a cell: its three keys sit over the waveform the page is
+    // read for, so they keep the LEDs and draw nothing at all.
+    if (slot.action == SlotAction::ChopZoom1 || slot.action == SlotAction::ChopZoom2 || slot.action == SlotAction::ChopZoom4) continue;
     if (slot.IsAction())
     {
       widgets::ActionCell(g, cell, slot.label, current && state.gridDown[slotIndex], kDim);
