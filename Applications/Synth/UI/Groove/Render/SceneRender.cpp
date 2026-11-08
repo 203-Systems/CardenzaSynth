@@ -143,6 +143,13 @@ int BarHeight(int room, std::uint8_t velocity)
   return std::clamp((room * static_cast<int>(velocity) + 63) / 127, std::min(2, room), room);
 }
 
+// The GRID beside a step matrix: four squares, a name line above them. The matrix takes its rows from
+// the same band, and so does the lane roll, so the two screens show the same slice at the same height.
+constexpr int kStepGap = 2;
+constexpr int kStepNameHeight = 10;
+constexpr int kStepSquare = (kContentHeight - kStepNameHeight - 3 * kStepGap) / 4;
+constexpr int kStepBand = kStepSquare * 4 + 3 * kStepGap;
+
 // A chop's hit on the step matrix: the cell's whole width (TIME stays the GRID's business) and as
 // tall as the hit is hard, standing on the cell's floor.
 Rect ChopBar(const Rect& cell, std::uint8_t velocity)
@@ -1086,9 +1093,11 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   low = std::max(0, low);
   high = std::min(127, high);
   const int rows = high - low + 1;
-  const int rowHeight = std::max(2, (bottom - top) / rows);
+  // A lane roll keeps to the four-square GRID's band, the one the step matrix's rows also take: a
+  // chop shows the same slice at the same height on both screens. The piano roll keeps its own area.
+  const int rowHeight = std::max(2, (lanes ? kStepBand : bottom - top) / rows);
   const int height = rowHeight * rows;
-  const int y0 = top + (bottom - top - height) / 2;
+  const int y0 = lanes ? kContentY + (kContentHeight - height) / 2 : top + (bottom - top - height) / 2;
   // A chop counts its slices down the page - slice 1 is the first row, where a piano roll's highest
   // note would be - so the numbers read the way the pads are laid out. Everything else keeps high
   // notes at the top.
@@ -1429,14 +1438,14 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   const int label = drums ? 14 : 20;
   // The GRID on the right decides the split: it is four squares again, and what it leaves the matrix
   // has. A square is the width the cells had, less three.
-  constexpr int kGap = 2;
-  constexpr int kNameHeight = 10;
-  constexpr int kSquare = (kContentHeight - kNameHeight - 3 * kGap) / 4;
-  const int left = kContentRight - (kSquare * 4 + 3 * kGap);
+  constexpr int kGap = kStepGap;
+  constexpr int kNameHeight = kStepNameHeight;
+  constexpr int kSquare = kStepSquare;
+  const int left = kContentRight - kStepBand;
   const int x0 = kContentX + label;
   const int column = std::max(3, (left - 5 - x0) / static_cast<int>(kGridCount));
   const int matrixWidth = column * static_cast<int>(kGridCount);
-  const int rowHeight = std::max(2, (kSquare * 4 + 3 * kGap) / rows);
+  const int rowHeight = std::max(2, kStepBand / rows);
   const int matrixHeight = rowHeight * rows;
   const int top = kContentY + (kContentHeight - matrixHeight) / 2;
   const int steps = static_cast<int>(std::min<std::size_t>(kGridCount, length > first ? length - first : 0));
@@ -1567,7 +1576,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   const int cellWidth = kSquare;
   const int cellHeight = kSquare;
   // Centred on the same band as the matrix, so no edge of one side hangs below the other.
-  const int gridTop = chop ? kContentY + (kContentHeight - (kSquare * 4 + 3 * kGap)) / 2 : kContentY + kNameHeight;
+  const int gridTop = chop ? kContentY + (kContentHeight - kStepBand) / 2 : kContentY + kNameHeight;
   const std::string chosenName = picked < 0 ? std::string("PADS: A NOTE") : drums ? std::string(kDrumNames[controller.DrumLane()]) : NoteName(picked);
   if (!chop) g.TextFit(left, kContentY + 1, kContentRight - left, chosenName, picked < 0 ? kFaint : kInk, picked < 0 ? Font::Micro : Font::Small);
   for (std::size_t index = 0; index < kGridCount; ++index)
