@@ -1060,7 +1060,10 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   const int rowHeight = std::max(2, (bottom - top) / rows);
   const int height = rowHeight * rows;
   const int y0 = top + (bottom - top - height) / 2;
-  auto rowY = [&](int note) { return y0 + (high - note) * rowHeight; };
+  // A chop counts its slices down the page - slice 1 is the first row, where a piano roll's highest
+  // note would be - so the numbers read the way the pads are laid out. Everything else keeps high
+  // notes at the top.
+  auto rowY = [&](int note) { return y0 + (chop ? note - low : high - note) * rowHeight; };
   // A lane is six pixels, which leaves room for three heights of bar rather than a continuum: quiet
   // is three, normal four, loud five. What a bar reaches is read at a glance, and every note of the
   // same velocity lines up to the pixel.
@@ -1094,14 +1097,20 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
     {
       // The grid is lines, not a halftone: a hairline under every lane, a bright white one every fourth
       // to group them. The page being edited is drawn brighter than the half that is only context.
-      const bool divider = laneStart(note) % 4 == 0;
+      // A chop counts down the page, so its groups start at slice 1 (row one) and close under slice 4;
+      // the drums count up from the floor and keep their own way.
+      const int lane = laneStart(note);
+      const bool divider = chop ? lane % 4 == 3 : lane % 4 == 0;
+      const bool counted = chop ? lane % 4 == 0 : divider;
       const Color hairline = divider ? kInk : kFaint;
       g.HLine(x0, lineY, fullWidth, divider ? kInk : kShade);
       g.HLine(brightX0, lineY, brightWidth, hairline);
       // The gutter is a ruler beside it: a tick a lane, a longer one where the counting lands.
       g.HLine(x0 - (divider ? 6 : 3), lineY, divider ? 7 : 4, divider ? kDim : kFaint);
       // Lanes are counted - 1 5 9 13 up sixteen slices - instead of named, a note meaning nothing there.
-      if (divider && rowHeight * 4 >= 10) g.Text(kContentX, y + rowHeight / 2 - 4, laneLabel(note), kFaint, Font::Micro);
+      if (counted && rowHeight * 4 >= 10) g.Text(kContentX, y + rowHeight / 2 - 4, laneLabel(note), kFaint, Font::Micro);
+      // A chop's first slice opens the ruler, so its top edge closes the grid like the rules below.
+      if (chop && lane == 0 && y - 1 >= kContentY) g.HLine(x0 - 6, y - 1, fullWidth + 6, kInk);
       continue;
     }
     // The piano roll: black keys shaded, every C named.
@@ -1376,9 +1385,10 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   const auto rowOf = [&](int note) {
     if (chop)
     {
+      // Slice 1 is the first row: the counting runs down the page, the way the pads are laid out.
       const int slice = note - static_cast<int>(synth::kChopFirstNote);
       if (slice < 0 || slice >= rows) return -1;
-      return rows - 1 - slice;
+      return slice;
     }
     if (!drums) return note < low || note > high ? -1 : high - note;
     for (std::size_t row = 0; row < kDrumRowPad.size(); ++row)
@@ -1386,7 +1396,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     return -1;
   };
   const auto noteOf = [&](int row) {
-    if (chop) return static_cast<int>(synth::kChopFirstNote) + (rows - 1 - row);
+    if (chop) return static_cast<int>(synth::kChopFirstNote) + row;
     return drums ? static_cast<int>(kDrumNotes[kDrumRowPad[static_cast<std::size_t>(row)]]) : high - row;
   };
   const int chosen = picked >= 0 ? rowOf(picked) : -1;
@@ -1415,14 +1425,15 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     const int pitch = note % 12;
     if (chop)
     {
-      // The roll's ruler, turned on its side: a hairline a slice, a mid-gray one every fourth, and
-      // the slice number where the counting lands - 1, 5, 9, 13 reading up.
+      // The roll's ruler, turned on its side: a hairline a slice, a white one every fourth, and the
+      // slice number where the counting lands - 1, 5, 9, 13 reading down, a group starting where its
+      // number is and closing under the fourth slice.
       const int lineY = y + rowHeight - 1;
-      const bool divider = (rows - row) % 4 == 1;
-      g.HLine(x0, lineY, matrixWidth, divider ? kDim : kFaint);
-      g.HLine(x0 - (divider ? 6 : 3), lineY, divider ? 7 : 4, divider ? kDim : kFaint);
-      if (divider && rowHeight * 4 >= 10)
-        g.Text(kContentX, y + rowHeight / 2 - 4, std::to_string(rows - row), kDim, Font::Micro);
+      const bool divider = row % 4 == 3;
+      const bool counted = row % 4 == 0;
+      g.HLine(x0, lineY, matrixWidth, divider ? kInk : kFaint);
+      g.HLine(x0 - (divider ? 6 : 3), lineY, divider ? 7 : 4, divider ? kInk : kFaint);
+      if (counted && rowHeight * 4 >= 10) g.Text(kContentX, y + rowHeight / 2 - 4, std::to_string(row + 1), kDim, Font::Micro);
       if (held != 0) g.Dither(Rect{x0, y, matrixWidth, rowHeight - 1}, kInk, 8);
       else if (row == chosen) g.Dither(Rect{x0, y, matrixWidth, rowHeight - 1}, kShade, 8);
       continue;
@@ -1440,13 +1451,16 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   for (int step = 0; step < steps; ++step)
     if (seq.steps[static_cast<std::size_t>(step)].held) g.Dither(Rect{x0 + step * column, top, column, matrixHeight}, kInk, 3);
   // A chop's matrix is a grid, not a set of lanes: the steps run down the screen too, so a hit is a
-  // cell filled and the counting reads at a glance. The top edge closes the grid, one pixel above the
-  // first row so that row is as tall as the rest and the columns have a line to stand on.
+  // cell filled and the counting reads at a glance. The ruler's five white lines - above slice 1
+  // where the counting opens, and under the four slices it lands on - go down last, over the columns,
+  // so a crossing does not cut them.
   if (chop)
   {
-    g.HLine(x0, top - 1, matrixWidth, kDim);
     for (int step = 0; step <= steps; ++step)
       g.VLine(x0 + step * column, top - 1, matrixHeight + 1, step % 4 == 0 ? kDim : kFaint);
+    for (int row = 0; row < rows; ++row)
+      if (row % 4 == 3) g.HLine(x0 - 6, top + row * rowHeight + rowHeight - 1, matrixWidth + 6, kInk);
+    g.HLine(x0 - 6, top - 1, matrixWidth + 6, kInk);
   }
   // Names: every drum; a melodic track's C rows, and the chosen and held notes inverse.
   for (int row = 0; row < rows; ++row)
@@ -1475,9 +1489,9 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   // The scoped note blinks in reverse here too: on the matrix that is the row of the one piece
   // ADD / SUB will edit, which the strip below does not say. Two blinks a second.
   const bool scopeBlink = ((animator.Now() / 250u) & 1u) == 0;
+  const bool scoping = seq.hasHeldSteps && seq.scopedNote >= 0;
   const auto scopedNow = [&](std::size_t step, int note) {
-    return scopeBlink && seq.hasHeldSteps && seq.scopedNote >= 0 &&
-           first + step == seq.primaryHeldStep && note == seq.scopedNote;
+    return scopeBlink && scoping && first + step == seq.primaryHeldStep && note == seq.scopedNote;
   };
   // The hits, in the track's color: on a lit or chosen row cut out of its light and stronger.
   for (int step = 0; step < steps; ++step)
@@ -1493,10 +1507,9 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       const int cellX = x0 + step * column;
       const int x = cellX + late * (column - 3) / (synth::kSequencerMicrostepCount - 1);
       // On the beat it fills the step; off it, a sliver where in the step it falls. A chop's block
-      // sits inside the grid's cell, one pixel in on every side, so the counting stays visible
-      // around it.
-      const Rect room = chop ? Rect{cellX + 1 + late * (column - 3) / (synth::kSequencerMicrostepCount - 1), y + 1,
-                                    late == 0 ? column - 2 : 2, std::max(2, rowHeight - 2)}
+      // fills the grid's cell - the lines are its frame, so it runs from one to the next.
+      const Rect room = chop ? Rect{cellX + 1 + late * (column - 3) / (synth::kSequencerMicrostepCount - 1), y,
+                                    late == 0 ? column - 1 : 2, std::max(2, rowHeight - 1)}
                              : lanes ? Rect{x, y + 2, late == 0 ? column - 1 : 2, std::max(2, rowHeight - 5)}
                                      : Rect{x, y, late == 0 ? column - 1 : 2, std::max(2, rowHeight - 1)};
       // Same language as the piano roll: how hard, by how tall, never under two pixels. A chop's
@@ -1505,9 +1518,14 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       // already frames every cell.
       const Rect mark = chop ? room : VelocityBar(room, note.velocity);
       const std::uint8_t held = heldVelocity[note.note & 0x7F];
-      const bool strong = held != 0 || row == chosen || seq.steps[static_cast<std::size_t>(step)].held;
+      const bool heldStep = seq.steps[static_cast<std::size_t>(step)].held;
+      const bool strong = held != 0 || row == chosen || heldStep;
       if (strong && !chop) g.Fill(Rect{mark.x - 1, mark.y - 1, mark.width + 2, mark.height + 2}, kBlack);
+      // The roll's two whites, on the matrix too: every note of a selected step is white and stays
+      // white, and the one the scope is on blinks between that white and its own colour. Scope
+      // narrows it - with a note scoped, the rest of the column goes back to the track's colour.
       if (scopedNow(static_cast<std::size_t>(step), note.note)) g.Fill(mark, kInk);
+      else if (lanes && heldStep && !scoping) g.Fill(mark, kInk);
       else if (head) g.Fill(mark, kPlay);
       else g.Fill(mark, trackColor);
       if (!chop) DrawRollNotches(g, mark, note.roll);
@@ -1567,7 +1585,9 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
         g.Fill(bar, trackColor);
         for (int part = 1; part < roll; ++part)
         {
-          const int x = bar.x + bar.width * part / roll;
+          // Three in a bar this narrow land as 7 - 6 - 6: the first cut a pixel left makes the
+          // three parts the same width, the outer two matching.
+          const int x = bar.x + bar.width * part / roll - (roll == 3 && part == 1 ? 1 : 0);
           if (x <= bar.x || x >= bar.x + bar.width) continue;
           g.Fill(Rect{x, bar.y, 1, bar.height}, kBlack);
         }
