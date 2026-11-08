@@ -1056,7 +1056,8 @@ void Controller::FlipStepPage(int delta)
   if (count > 1) sequencer.SetViewPage(state_.track, static_cast<std::size_t>(page));
   // A selection out of sight would take the pads for nothing visible.
   if (!state_.keyboard.multiSelect) sequencer.ClearSelectedSteps();
-  ShowHud("PAGE", std::to_string(page + 1) + "/" + std::to_string(count), static_cast<float>(page) / static_cast<float>(std::max(1, count - 1)));
+  // No banner for the page: the roll's own corner already reads "2/4", and the half that lights up
+  // says which page of the two the keys are on.
 }
 
 // The length of the current pattern. A big step lands on the page boundaries (and 1, 2, 4, 8).
