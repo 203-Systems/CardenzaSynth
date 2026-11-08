@@ -1142,7 +1142,9 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   {
     const int lane = lanes ? row : 0;
     const int note = lanes ? laneNote(row) : low + row;
-    const int y = lanes ? rowY(note) : y0 + row * rowHeight;
+    // A lane counts down the page (row 0 at the top); the piano roll still puts the high note there,
+    // so rowY decides in both cases -- the rows are walked in order, the place they land is not.
+    const int y = rowY(note);
     const int lineY = y + rowHeight - 1;
     if (lanes)
     {
@@ -1183,7 +1185,7 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
     const int note = lanes ? laneNote(row) : low + row;
     const std::uint8_t held = pressed[static_cast<std::size_t>(note)];
     if (held == 0) continue;
-    const int y = lanes ? rowY(note) : y0 + row * rowHeight;
+    const int y = rowY(note);
     g.Dither(Rect{brightX0, y, brightWidth, rowHeight}, kInk, drums ? DrumDensity(held) : 8);
     const int labelY = std::clamp(y + rowHeight / 2 - 4, top, bottom - 8);
     const std::string_view drum = drums ? DrumName(note) : std::string_view{};
