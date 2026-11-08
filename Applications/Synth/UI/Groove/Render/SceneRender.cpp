@@ -1311,6 +1311,11 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   const std::size_t first = seq.firstViewStep;
   const Color trackColor = TrackColor(state.track);
   const bool drums = controller.DrumTrack();
+  // A chop's rows are its slices, not pitches: it gets the drum machine's compact rows and the roll's
+  // lane ruler down the side (1 5 9 13), so both screens count the same way.
+  const bool chop = controller.HostView().EngineKind(state.track) == synth::SynthEngineKind::Chop;
+  const bool lanes = drums || chop;
+  const std::size_t sliceCount = chop ? std::max<std::size_t>(1, controller.ChopSliceCount()) : 0;
   const bool playingHere = seq.playing && seq.currentStep >= first && seq.currentStep < first + kGridCount;
 
   // How hard each note is held on the pads (0: not held), chord tones too.
@@ -1332,8 +1337,8 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   // The rows. A melodic track's: from the highest pitch down, the pads' range at this octave widened
   // for notes of the page, held and chosen notes outside it; at most 41 rows, around the pads' middle.
   int low = 0, high = 0;
-  int rows = static_cast<int>(kDrumNotes.size());
-  if (!drums)
+  int rows = drums ? static_cast<int>(kDrumNotes.size()) : static_cast<int>(sliceCount);
+  if (!lanes)
   {
     int padLow = 128, padHigh = -1;
     for (std::size_t row = 0; row < kRows; ++row)
@@ -1369,12 +1374,19 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     rows = high - low + 1;
   }
   const auto rowOf = [&](int note) {
+    if (chop)
+    {
+      const int slice = note - static_cast<int>(synth::kChopFirstNote);
+      if (slice < 0 || slice >= rows) return -1;
+      return rows - 1 - slice;
+    }
     if (!drums) return note < low || note > high ? -1 : high - note;
     for (std::size_t row = 0; row < kDrumRowPad.size(); ++row)
       if (kDrumNotes[kDrumRowPad[row]] == note) return static_cast<int>(row);
     return -1;
   };
   const auto noteOf = [&](int row) {
+    if (chop) return static_cast<int>(synth::kChopFirstNote) + (rows - 1 - row);
     return drums ? static_cast<int>(kDrumNotes[kDrumRowPad[static_cast<std::size_t>(row)]]) : high - row;
   };
   const int chosen = picked >= 0 ? rowOf(picked) : -1;
@@ -1382,7 +1394,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   const int label = drums ? 14 : 20;
   constexpr int kColumn = 5;
   constexpr int kMatrixWidth = kColumn * static_cast<int>(kGridCount);
-  const int rowHeight = drums ? kContentHeight / static_cast<int>(kDrumNotes.size()) : std::max(2, kContentHeight / rows);
+  const int rowHeight = std::max(2, kContentHeight / rows);
   const int matrixHeight = rowHeight * rows;
   const int x0 = kContentX + label;
   const int top = kContentY + (kContentHeight - matrixHeight) / 2;
@@ -1395,6 +1407,20 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     const int note = noteOf(row);
     const std::uint8_t held = heldVelocity[static_cast<std::size_t>(note)];
     const int pitch = note % 12;
+    if (chop)
+    {
+      // The roll's ruler, turned on its side: a hairline a slice, a white one every fourth, and the
+      // slice number where the counting lands - 1, 5, 9, 13 reading up.
+      const int lineY = y + rowHeight - 1;
+      const bool divider = (rows - row) % 4 == 1;
+      g.HLine(x0, lineY, kMatrixWidth, divider ? kInk : kFaint);
+      g.HLine(x0 - (divider ? 6 : 3), lineY, divider ? 7 : 4, divider ? kDim : kFaint);
+      if (divider && rowHeight * 4 >= 10)
+        g.Text(kContentX, y + rowHeight / 2 - 4, std::to_string(rows - row), kFaint, Font::Micro);
+      if (held != 0) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight - 1}, kInk, 8);
+      else if (row == chosen) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight - 1}, kShade, 8);
+      continue;
+    }
     if (!drums && (pitch == 1 || pitch == 3 || pitch == 6 || pitch == 8 || pitch == 10)) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight}, kShade, 3);
     // Lit across: a drum as dense as its pad hits (the four pad rows), a note a checker.
     if (held != 0) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight - (drums ? 1 : 0)}, kInk, drums ? DrumDensity(held) : 8);
@@ -1402,7 +1428,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     if (!drums && pitch == 0) g.DottedHLine(x0, y + rowHeight - 1, kMatrixWidth, kShade, 2);
   }
   // Beats (melodic: the rows are too thin for the dots of the drum rows), the selected steps' columns.
-  if (!drums)
+  if (!lanes)
     for (int step = 0; step <= steps; step += 4)
       for (int y = top; y < top + matrixHeight; y += 2) g.Pixel(x0 + step * kColumn, y, step % 16 == 0 ? kDim : kShade);
   for (int step = 0; step < steps; ++step)
@@ -1413,6 +1439,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     const int y = top + row * rowHeight;
     const int note = noteOf(row);
     const bool lit = row == chosen || heldVelocity[static_cast<std::size_t>(note)] != 0;
+    if (chop) continue;
     if (drums)
     {
       if (lit) g.Fill(Rect{kContentX, y, label - 2, rowHeight - 1}, kInk);
@@ -1450,7 +1477,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       const int late = note.microstep;
       const int x = x0 + step * kColumn + late * (kColumn - 3) / (synth::kSequencerMicrostepCount - 1);
       // On the beat it fills the step; off it, a sliver where in the step it falls.
-      const Rect room = drums ? Rect{x, y + 2, late == 0 ? kColumn - 1 : 2, std::max(2, rowHeight - 5)}
+      const Rect room = lanes ? Rect{x, y + 2, late == 0 ? kColumn - 1 : 2, std::max(2, rowHeight - 5)}
                               : Rect{x, y, late == 0 ? kColumn - 1 : 2, std::max(2, rowHeight - 1)};
       // Same language as the piano roll: how hard, by how tall, never under two pixels.
       const Rect mark = VelocityBar(room, note.velocity);
