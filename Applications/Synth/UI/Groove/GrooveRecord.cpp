@@ -296,13 +296,18 @@ void Controller::OkTick()
   OpenRecord();
 }
 
-// The two views draw the same steps and take the same keys; the selection stays as it is. Drum and
-// melodic tracks each keep their own.
+// The two views draw the same steps and take the same keys; the selection stays as it is. Drum, chop
+// and melodic tracks each keep their own.
 void Controller::ToggleSeqView()
 {
-  SeqView& view = DrumTrack() ? state_.record.drumView : state_.record.noteView;
+  SeqView& view = DrumTrack()                       ? state_.record.drumView
+                  : ActiveKind() == synth::SynthEngineKind::Chop ? state_.record.chopView
+                                                                 : state_.record.noteView;
   view = view == SeqView::Roll ? SeqView::Step : SeqView::Roll;
-  ShowHud("VIEW", ViewName(view, DrumTrack()));
+  // A chop has no piano roll, its roll being the same slices blown up: naming it so would send the
+  // hand looking for a keyboard that is not there.
+  if (ActiveKind() == synth::SynthEngineKind::Chop) ShowHud("VIEW", view == SeqView::Roll ? "SLICE ROLL" : "SLICE GRID");
+  else ShowHud("VIEW", ViewName(view, DrumTrack()));
 }
 
 // ---------------------------------------------------------------------------------------------

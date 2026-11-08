@@ -339,6 +339,7 @@ inline constexpr std::array<FnQuickControl, 3> kFnQuickControls{{
 struct RecordState {
   SeqView noteView = SeqView::Roll;  // the view of melodic tracks
   SeqView drumView = SeqView::Step;  // the view of drum tracks (STEP: the drum machine)
+  SeqView chopView = SeqView::Step;  // the view of chop tracks (STEP: the slice matrix)
   bool snap = true;               // placing a take snaps its notes to whole steps
   std::uint8_t focus = kRecordFirstTake;  // RECORD panel GRID focus
   std::uint8_t takeBar = 0;       // which bar of the focused take goes into a pattern
@@ -569,8 +570,14 @@ public:
   // The menu kept open by a tap on FN (a modal).
   bool MenuOpen() const { return TopModal() != nullptr && TopModal()->kind == ModalKind::Menu; }
   bool RecordOpen() const { return TopModal() != nullptr && TopModal()->kind == ModalKind::Record; }
-  // The current track's note page view (drum and melodic tracks keep one each).
-  SeqView View() const { return DrumTrack() ? state_.record.drumView : state_.record.noteView; }
+  // The current track's note page view (drum, chop and melodic tracks keep one each). A chop opens
+  // on STEP: its matrix of slices is where a pattern is read at a glance, the roll being a blow-up
+  // of the same steps. OK still switches it, and each track remembers its own.
+  SeqView View() const
+  {
+    return DrumTrack() ? state_.record.drumView
+                       : ActiveKind() == synth::SynthEngineKind::Chop ? state_.record.chopView : state_.record.noteView;
+  }
 
   // Captured takes, newest first (order 0). Null past the last take.
   struct PlacedNote {
