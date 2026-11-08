@@ -947,6 +947,13 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   const int column = (kContentWidth - kGutter) / static_cast<int>(span);
   const int pageWidth = column * static_cast<int>(page);
   const int fullWidth = column * static_cast<int>(span);
+  // A lane roll's window is two pages wide and only moves every second page. Inside it the page being
+  // edited is the bright half - the left one on pages 1, 3, 5 ..., the right one on 2, 4, 6 ... - and
+  // the other half is drawn dim: its notes stay on screen, they are just not what the keys write.
+  const std::size_t windowFirst = lanes ? (first / kGridCount / 2) * (kGridCount * 2) : first;
+  const std::size_t brightStart = lanes ? first - windowFirst : 0;
+  const int brightX0 = x0 + static_cast<int>(brightStart) * column;
+  const int brightWidth = column * static_cast<int>(page);
   const int top = kContentY + 1;
   constexpr int kStrip = 9;
   // A lane track gives the strip's nine pixels to the notes: the step the keys are on is already a lit
@@ -959,7 +966,7 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   int low = 128, high = -1;
   for (std::size_t step = 0; step < span; ++step)
   {
-    counts[step] = sequencer.StepNoteEvents(state.track, first + step, notes[step]);
+    counts[step] = sequencer.StepNoteEvents(state.track, windowFirst + step, notes[step]);
     for (std::size_t index = 0; index < counts[step]; ++index)
     {
       low = std::min<int>(low, notes[step][index].note);
@@ -969,17 +976,17 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   // Notes of the page before that still sound on this one.
   std::array<std::array<synth::SynthSequencer::StepNoteView, 8>, synth::kSequencerMaxViewSteps> carried{};
   std::array<std::size_t, synth::kSequencerMaxViewSteps> carriedCounts{};
-  if (first >= span)
+  if (windowFirst >= span)
   {
     for (std::size_t step = 0; step < span; ++step)
     {
-      const std::size_t pulseStart = (first - span + step) * synth::kSequencerPulsesPerStep;
+      const std::size_t pulseStart = (windowFirst - span + step) * synth::kSequencerPulsesPerStep;
       std::array<synth::SynthSequencer::StepNoteView, 8> before{};
-      const std::size_t count = sequencer.StepNoteEvents(state.track, first - span + step, before);
+      const std::size_t count = sequencer.StepNoteEvents(state.track, windowFirst - span + step, before);
       for (std::size_t index = 0; index < count; ++index)
       {
         const std::size_t end = pulseStart + before[index].microstep * synth::kSequencerPulsesPerMicrostep + before[index].lengthPulses;
-        if (end <= first * synth::kSequencerPulsesPerStep) continue;
+        if (end <= windowFirst * synth::kSequencerPulsesPerStep) continue;
         carried[step][carriedCounts[step]++] = before[index];
         low = std::min<int>(low, before[index].note);
         high = std::max<int>(high, before[index].note);
@@ -1089,8 +1096,8 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       // to group them. The page being edited is drawn brighter than the half that is only context.
       const bool divider = laneStart(note) % 4 == 0;
       const Color hairline = divider ? kInk : kFaint;
-      g.HLine(x0, lineY, pageWidth, hairline);
-      g.HLine(x0 + pageWidth, lineY, fullWidth - pageWidth, divider ? kInk : kShade);
+      g.HLine(x0, lineY, fullWidth, divider ? kInk : kShade);
+      g.HLine(brightX0, lineY, brightWidth, hairline);
       // The gutter is a ruler beside it: a tick a lane, a longer one where the counting lands.
       g.HLine(x0 - (divider ? 6 : 3), lineY, divider ? 7 : 4, divider ? kDim : kFaint);
       // Lanes are counted - 1 5 9 13 up sixteen slices - instead of named, a note meaning nothing there.
@@ -1115,7 +1122,7 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
     const std::uint8_t held = pressed[static_cast<std::size_t>(note)];
     if (held == 0) continue;
     const int y = rowY(note);
-    g.Dither(Rect{x0, y, pageWidth, rowHeight}, kInk, drums ? DrumDensity(held) : 8);
+    g.Dither(Rect{brightX0, y, brightWidth, rowHeight}, kInk, drums ? DrumDensity(held) : 8);
     const int labelY = std::clamp(y + rowHeight / 2 - 4, top, bottom - 8);
     const std::string_view drum = drums ? DrumName(note) : std::string_view{};
     g.Fill(Rect{kContentX, labelY, kGutter - 2, 8}, kInk);
@@ -1127,15 +1134,15 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   {
     for (std::size_t step = 0; step <= span; ++step)
     {
-      const bool inside = step <= page;
-      const bool beat = step % 4 == 0;
+      const bool inside = step >= brightStart && step <= brightStart + page;
+      const bool beat = (windowFirst + step) % 4 == 0;
       const Color color = inside ? (beat ? kDim : kFaint) : (beat ? kFaint : kShade);
       // One pixel higher than the rows: that is what breaks the frame line into the same dashes as the
       // dividers (a column line through a white rule, a gap where the rule shows through).
       g.VLine(x0 + static_cast<int>(step) * column, y0 - 1, height + 1, color);
     }
     for (std::size_t step = 0; step < page; ++step)
-      if (seq.steps[step].held) g.Dither(Rect{x0 + static_cast<int>(step) * column + 1, y0, column - 1, height}, kInk, 3);
+      if (seq.steps[step].held) g.Dither(Rect{brightX0 + static_cast<int>(step) * column + 1, y0, column - 1, height}, kInk, 3);
   }
   else
   {
@@ -1225,8 +1232,8 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       if (note.note < low || note.note > high) continue;
       // On a lane roll a bar sits inside its cell, one pixel in, so the grid's lines stay the box it
       // fills; the piano roll's bars keep their old place on the column.
-      const int x = x0 + static_cast<int>(step) * column + static_cast<int>(note.microstep) * column / synth::kSequencerMicrostepCount +
-                    (lanes ? 1 : 0);
+      const int x = x0 + static_cast<int>(lanes ? brightStart + step : step) * column +
+                    static_cast<int>(note.microstep) * column / synth::kSequencerMicrostepCount + (lanes ? 1 : 0);
       const int width = std::max(1, static_cast<int>(note.lengthPulses) * column / synth::kSequencerPulsesPerStep - 1);
       const Rect room{x, rowY(note.note), std::min(width, fullWidth - (lanes ? 1 : 0) - x), std::max(1, rowHeight - 1)};
       const Rect bar = lanes ? noteBar(room, note.velocity) : VelocityBar(room, note.velocity);
@@ -1234,13 +1241,12 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
       DrawRollNotches(g, bar, note.roll);
     }
   }
-  // The page after this one, drawn in the same grid but dimmed: the keys only reach sixteen steps, so
-  // the second sixteen on screen are a guide to what is coming, not something to edit. Past the end of
-  // the pattern the grid stays empty.
-  for (std::size_t after = 0; lanes && kGridCount + after < span; ++after)
+  // The half that is not being edited keeps its notes, dimmed: on an odd page that is what is coming,
+  // on an even page what was just played. Past the end of the pattern the grid stays empty.
+  for (std::size_t slot = 0; lanes && slot < span; ++slot)
   {
-    const std::size_t slot = kGridCount + after;
-    if (first + slot >= length) break;
+    if (slot >= brightStart && slot < brightStart + page) continue;
+    if (windowFirst + slot >= length) break;
     for (std::size_t index = 0; index < counts[slot]; ++index)
     {
       const auto& note = notes[slot][index];
@@ -1254,7 +1260,7 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   }
   if (seq.playing)
   {
-    const float head = seq.patternProgress * static_cast<float>(length) - static_cast<float>(first);
+    const float head = seq.patternProgress * static_cast<float>(length) - static_cast<float>(windowFirst);
     if (head >= 0.0f && head < static_cast<float>(span)) g.VLine(x0 + static_cast<int>(head * static_cast<float>(column)), y0, height, kPlay);
   }
   // The GRID strip: the piano roll keeps it (the step cells under the notes), a lane roll does not.
@@ -1276,7 +1282,7 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   // An empty pattern says how to fill it, unless a held note's row is to be seen.
   if (seq.populatedStepCount == 0 && pressedHigh < 0)
   {
-    const Rect band{x0, y0 + height / 2 - 10, pageWidth, 20};
+    const Rect band{brightX0, y0 + height / 2 - 10, brightWidth, 20};
     g.Fill(band, kBlack);
     g.TextAligned(Rect{band.x, band.y, band.width, 10}, "HOLD A PAD + TAP STEPS", kDim, Font::Micro, Align::Center);
     g.TextAligned(Rect{band.x, band.y + 10, band.width, 10}, "TAP AGAIN = ROLL   FN CLEARS", (now / 600) % 2 ? kFaint : kShade, Font::Micro, Align::Center);
