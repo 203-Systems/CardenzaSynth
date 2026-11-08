@@ -259,10 +259,15 @@ std::array<InstrumentPage, 4> ChopPages(std::size_t slice)
       // the file - one may want to be darker, another to stop shorter.
       Slot{cutoffId.c_str(), "CUTOFF", SlotAction::None},
       Slot{releaseId.c_str(), "RELEASE", SlotAction::None},
-      E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}};
-  // The pads carry the slices, so the waveform sits under the parameter rows.
+      E(), E(), E(), E(), E(), E(),
+      // The magnifier sits on the GRID's bottom row now that every pad is a slice: three cells for
+      // the three steps, around the picked slice.
+      A(SlotAction::ChopZoom1, "X1"), A(SlotAction::ChopZoom2, "X2"), A(SlotAction::ChopZoom4, "X4"),
+      E()}};
+  // The pads carry the slices, so the waveform sits under the parameter rows - one row of cells high,
+  // since the GRID's last row is the magnifier's now and a graph drawn under it would read as keys.
   sample.graphic = PageGraphic::Waveform;
-  sample.area = GraphicArea{2, 0, 2, 4};
+  sample.area = GraphicArea{2, 0, 1, 4};
   sample.op = 0;
 
   // The file itself: loading it and recording into it, and the trim every slice lives inside. The

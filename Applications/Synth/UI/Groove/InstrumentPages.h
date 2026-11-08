@@ -17,6 +17,9 @@ enum class SlotAction : std::uint8_t {
   SampleFile,
   SampleRecord,
   SamplePreview,
+  ChopZoom1,  // the SLICES page's magnifier, on the GRID's bottom row
+  ChopZoom2,
+  ChopZoom4,
 };
 
 // A GRID slot on an INSTR page: an engine parameter id, a "keys.*" keyboard setting, or an action.

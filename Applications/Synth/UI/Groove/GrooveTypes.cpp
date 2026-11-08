@@ -45,8 +45,8 @@ bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std:
   {
     // Eight slices or fewer lie across the eight pad columns, a slice a column, so the four rows are
     // the four velocities - the drum kit's own layout, and a hit's height reads the same way. A
-    // longer chop takes the pad area's right four columns and reads 4x4, a slice a key; nothing else
-    // on the pad area is a key on a chop.
+    // longer chop takes the middle four columns, centred in the block, and reads 4x4, a slice a key;
+    // nothing else on the pad area is a key on a chop.
     const std::size_t slices = chopSlices == 0 ? synth::kChopSliceCount : chopSlices;
     if (slices <= kPadColumns)
     {
@@ -54,8 +54,8 @@ bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std:
       note = static_cast<int>(synth::kChopFirstNote) + static_cast<int>(x);
       return true;
     }
-    if (column < kPadFirstColumn + 4) return false;
-    const std::size_t slice = row * 4 + (column - (kPadFirstColumn + 4));
+    if (column < kChopBlockFirstColumn || column >= kChopBlockFirstColumn + 4) return false;
+    const std::size_t slice = row * 4 + (column - kChopBlockFirstColumn);
     if (slice >= slices) return false;
     note = static_cast<int>(synth::kChopFirstNote) + static_cast<int>(slice);
     return true;

@@ -16,6 +16,9 @@ inline constexpr std::size_t kColumns = synth::kKeyboardMatrixColumns;
 inline constexpr std::size_t kKeyCount = kRows * kColumns;
 inline constexpr std::size_t kPadColumns = synth::kHomePerformanceColumnCount;
 inline constexpr std::size_t kPadFirstColumn = synth::kHomePerformanceFirstColumn;
+// A chop of more than eight slices takes four columns of the pad block, centred: a free column either
+// side, so the 4x4 sits in the middle of the block rather than against its right edge.
+inline constexpr std::size_t kChopBlockFirstColumn = kPadFirstColumn + (kPadColumns - 4) / 2;
 // The last six of the left pads (columns 3..8) stand in for track columns on MIX, SENDS and the TAB
 // overlay: one key per track, so a six-track screen needs no paging. The two keys to their left keep
 // playing notes.

@@ -823,6 +823,17 @@ void Controller::RunSlotAction(SlotAction action)
       break;
     }
     case SlotAction::SamplePreview: host_.PreviewSample(state_.track); break;
+    case SlotAction::ChopZoom1:
+    case SlotAction::ChopZoom2:
+    case SlotAction::ChopZoom4:
+    {
+      // The magnifier, on the SLICES page's GRID: the whole trim, or a 2x / 4x window around the
+      // point the page edits (the picked slice's start, or its end while that cell has the focus).
+      const std::uint8_t zoom = action == SlotAction::ChopZoom4 ? 2 : (action == SlotAction::ChopZoom2 ? 1 : 0);
+      state_.chopZoom[state_.track] = zoom;
+      ShowToast("ZOOM X" + std::to_string(1 << zoom), ToastKind::Ok);
+      break;
+    }
     case SlotAction::None:
     default: break;
   }

@@ -443,39 +443,27 @@ void Controller::KeyEvent(std::size_t row, std::size_t column, bool pressed, std
   }
 
   // The chop's SAMPLE page hands the whole pad block to the slices: eight slices or fewer lie across
-  // all eight columns, and a longer chop takes the right four and reads 4x4. The page has no use for
-  // a keyboard. A press picks the slice the page edits and plays it whole, so a start can be adjusted
-  // and heard without leaving the page. The chop is monophonic, so a second press cuts the first: hit
-  // the same pad twice and the slice simply starts again.
+  // all eight columns, and a longer chop takes the block's middle four and reads 4x4. The page has no
+  // use for a keyboard. A press picks the slice the page edits and plays it whole, so a start can be
+  // adjusted and heard without leaving the page. The chop is monophonic, so a second press cuts the
+  // first: hit the same pad twice and the slice simply starts again.
   // A held modifier or an open browser takes the block back first, as it does on every other page: FN
   // runs the pad's letter, ESC / TAB / CTRL keep the pads quiet while the GRID chooses (TAB shows the
   // track overlay there), and a search field types. Only a bare pad picks a slice.
   if (role == KeyRole::Pad && column >= kPadFirstColumn && column < kPadFirstColumn + kPadColumns && ChopSlicePads() &&
       TopModal() == nullptr && !ModifierHeld())
   {
-    // The three keys in the block's top left corner are the magnifier, numbered as they are laid out:
-    // the first shows the whole file, the second 2x, the third 4x around the picked slice.
-    if (ChopSliceMarkers() && row == 0 && column < kPadFirstColumn + 3)
-    {
-      if (pressed)
-      {
-        state_.chopZoom[state_.track] = static_cast<std::uint8_t>(column - kPadFirstColumn);
-        ShowToast("ZOOM X" + std::to_string(1 << (column - kPadFirstColumn)), ToastKind::Ok);
-      }
-      return;
-    }
     const std::size_t slots = ChopSliceCount();
     std::size_t slot = slots;
     if (slots <= kPadColumns)
     {
-      // A slice a column, so every row is the same slice at another velocity: the top row's first
-      // three keys are the magnifier, so those three slices are reached from the rows below.
+      // A slice a column, so every row is the same slice at another velocity.
       const std::size_t index = column - kPadFirstColumn;
       if (index < slots) slot = index;
     }
-    else if (column >= kPadFirstColumn + 4)
+    else if (column >= kChopBlockFirstColumn && column < kChopBlockFirstColumn + 4)
     {
-      slot = row * 4 + (column - (kPadFirstColumn + 4));
+      slot = row * 4 + (column - kChopBlockFirstColumn);
     }
     if (pressed && slot < slots)
     {
@@ -1686,21 +1674,15 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
         continue;
       }
       // A chop has no keyboard on any page: eight slices or fewer lie across all eight columns - a
-      // slice a column, the four rows its four velocities - and a longer chop takes the right four
-      // columns and reads 4x4. The rest of the block is not a key at all. Where the page picks a
+      // slice a column, the four rows its four velocities - and a longer chop takes the block's
+      // middle four and reads 4x4. The rest of the block is not a key at all. Where the page picks a
       // slice, the picked one is full; elsewhere a slice's key is lit while it is down.
       if (kind == synth::SynthEngineKind::Chop)
       {
         const std::size_t slots = ChopSliceCount();
-        // The magnifier keys: the one in use is lit, the other two wait.
-        if (ChopSliceMarkers() && row == 0 && column < kPadFirstColumn + 3)
-        {
-          set(index, choice(static_cast<std::size_t>(ChopZoom()) == column - kPadFirstColumn));
-          continue;
-        }
         std::size_t slot = slots;
         if (slots <= kPadColumns) slot = column - kPadFirstColumn;
-        else if (column >= kPadFirstColumn + 4) slot = row * 4 + (column - (kPadFirstColumn + 4));
+        else if (column >= kChopBlockFirstColumn && column < kChopBlockFirstColumn + 4) slot = row * 4 + (column - kChopBlockFirstColumn);
         if (slot >= slots)
         {
           set(index, kLedOff);
@@ -1760,12 +1742,16 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
   {
     case Scene::Instrument:
     {
-      // Parameters and actions half, the focused parameter full, empty slots off.
+      // Parameters and actions half, the focused parameter full, empty slots off. The chop's
+      // magnifier cells say which step is on, not that they are actions.
       const InstrumentPage* instrumentPage = CurrentInstrumentPage();
       for (std::size_t index = 0; index < kGridCount; ++index)
       {
         const Slot& slot = instrumentPage->slots[index];
-        if (slot.IsAction()) setGrid(index, kLedHalf);
+        if (slot.action == SlotAction::ChopZoom1) setGrid(index, choice(ChopZoom() == 0));
+        else if (slot.action == SlotAction::ChopZoom2) setGrid(index, choice(ChopZoom() == 1));
+        else if (slot.action == SlotAction::ChopZoom4) setGrid(index, choice(ChopZoom() == 2));
+        else if (slot.IsAction()) setGrid(index, kLedHalf);
         // HOLD is a performance switch: on shows on, wherever the focus is.
         else if (slot.IsParameter()) setGrid(index, choice(index == InstrumentFocus() || (std::string_view(slot.id) == "arp.latch" && sequencer.GetArpSettings(state_.track).latch)));
       }
