@@ -134,8 +134,8 @@ pending edits: for tests, not for a card coming back.
 | Key | Meaning |
 |---|---|
 | `protocol` | storage protocol version of the card: 2 |
-| `sys.volume` | output volume 0–100 (0 mute, 1–100 = about −20–0 dB, 50 = about −10.5 dB), default 50 |
-| `sys.volume.rev` | when this is below 2, `sys.volume` was saved before the output got louder (the 0.1.0 release's curve, for one) and goes back to the default, once |
+| `sys.volume` | output volume 0–100 by ear: 0 mutes, v is −60 (1 − v/100)^1.5 dB (about −59 dB at 1, −21 dB at 50, −10 dB at 70, 0 dB at 100; `Device::Audio::SetOutputVolume`), default 70 |
+| `sys.volume.rev` | the meaning `sys.volume` was saved under, now 3; below that the volume goes back to the default, once (2: the output got louder, the 0.1.0 release saved below it; 3: the 60 dB curve, 2026-11-06, which replaced a −20–0 dB scale) |
 | `sys.led` | key LED master brightness 0–15, default 15 |
 | `sys.screen` | screen backlight 10–255, default 180 |
 | `sys.log` | `1` writes the console log to `Logs/` (OS/System/Log.h), `0` stops it; default 1 |
