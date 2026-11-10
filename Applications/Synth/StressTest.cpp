@@ -94,7 +94,7 @@ static_assert(std::is_trivially_default_constructible_v<Persist>, "a constructor
 constexpr std::uint32_t kMagic = 0x53545231u;  // "STR1"
 RTC_NOINIT_ATTR Persist g_persist;
 
-enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
+enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst, Mic };
 enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns };
 
 struct Scenario {
@@ -372,6 +372,10 @@ std::vector<Scenario> BuildScenarios()
   add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
   add("ui-storm", Kind::UiStorm, Variant::JunoPads, 30);
   add("worst", Kind::Worst, Variant::FxMax, 40);
+  // Not in a plain run (it silences the speaker while it records): `STRESS_ONLY=mic`.
+#if defined(CARDENZA_STRESS_ONLY)
+  add("mic", Kind::Mic, Variant::None, 26);
+#endif
   for (const std::string& name : synth::ListProjects())
   {
     if (name.rfind(kPrefix, 0) == 0) continue;
@@ -896,6 +900,263 @@ void LiveOperation(GrooveApp& app)
   }
 }
 
+// ---------------------------------------------------------------------------------------------------
+// The microphone (`STRESS_ONLY=mic`): four takes through the device layer (StartInput, ReadInputFrames,
+// StopInput), each measured (the rate the frames come at, level, DC, how noise-like it is, frames
+// that stick, overflows) and followed by a pause in which the speaker must play again; then one take
+// through the app (the sampler's recorder on T4, a file on the card), discarded after. Sound near the
+// board (a clap, a voice) shows in each take's envelope: 12 values, the RMS of 250 ms each in dBFS.
+
+struct MicTake {
+  std::uint32_t frames = 0;
+  std::uint32_t overflows = 0;
+  std::uint32_t zeros = 0;
+  std::uint32_t clipped = 0;
+  std::uint32_t longestRun = 0;   // the longest run of one value
+  std::uint32_t run = 0;
+  std::int16_t last = 0;
+  std::int16_t low = 32767, high = -32768;
+  double sum = 0.0, squares = 0.0, diffSquares = 0.0;
+  std::int32_t startPeak = 0;     // the first 100 ms, apart: the filter settling
+  std::int32_t peak = 0;
+  double windowSquares = 0.0;
+  std::uint32_t windowFrames = 0;
+  std::array<float, 12> envelope{};
+  std::size_t envelopeCount = 0;
+};
+
+struct MicTest {
+  enum class Phase : std::uint8_t { Start, Record, Gap, AppStart, AppRecord, AppGap, Done };
+  Phase phase = Phase::Start;
+  int cycle = 0;
+  std::uint32_t phaseMs = 0;
+  std::uint32_t startedMs = 0;
+  Device::Audio::RenderTiming before{};
+  std::uint32_t recordBlocks = 0;
+  MicTake take;
+  int passed = 0;
+  int failed = 0;
+  bool speakerBack = true;
+  std::string why;
+};
+MicTest g_mic;
+
+constexpr int kMicCycles = 4;
+constexpr std::uint32_t kMicTakeMs = 3000;
+constexpr std::uint32_t kMicGapMs = 1500;
+constexpr std::uint32_t kMicSettleFrames = 4410;  // 100 ms at 44.1 kHz
+constexpr std::uint32_t kMicWindowFrames = 11025;  // 250 ms
+
+float Dbfs(double rms) { return rms > 0.0 ? static_cast<float>(20.0 * std::log10(rms / 32768.0)) : -120.0f; }
+
+void MicRead(MicTake& take)
+{
+  std::array<std::int16_t, 512> frames{};
+  for (int reads = 0; reads < 64; ++reads)
+  {
+    std::size_t count = 0;
+    const Device::Audio::InputStatus status = Device::Audio::ReadInputFrames(frames.data(), frames.size(), count, 0);
+    if (status == Device::Audio::InputStatus::Overflow) ++take.overflows;
+    if (count == 0) return;
+    for (std::size_t index = 0; index < count; ++index)
+    {
+      const std::int16_t value = frames[index];
+      const std::uint32_t at = take.frames++;
+      const std::int32_t magnitude = value < 0 ? -static_cast<std::int32_t>(value) : value;
+      if (at < kMicSettleFrames)
+      {
+        take.startPeak = (std::max)(take.startPeak, magnitude);
+        take.last = value;
+        continue;
+      }
+      take.run = value == take.last ? take.run + 1 : 1;
+      take.longestRun = (std::max)(take.longestRun, take.run);
+      const double difference = static_cast<double>(value) - take.last;
+      take.diffSquares += difference * difference;
+      take.last = value;
+      take.sum += value;
+      take.squares += static_cast<double>(value) * value;
+      take.peak = (std::max)(take.peak, magnitude);
+      take.low = (std::min)(take.low, value);
+      take.high = (std::max)(take.high, value);
+      if (value == 0) ++take.zeros;
+      if (magnitude >= 32700) ++take.clipped;
+      take.windowSquares += static_cast<double>(value) * value;
+      if (++take.windowFrames == kMicWindowFrames)
+      {
+        if (take.envelopeCount < take.envelope.size()) take.envelope[take.envelopeCount++] = Dbfs(std::sqrt(take.windowSquares / kMicWindowFrames));
+        take.windowSquares = 0.0;
+        take.windowFrames = 0;
+      }
+    }
+  }
+}
+
+// One line for the take and whether it looks like a microphone: the rate within 1 %, no overflow, a
+// signal (not silent, not stuck), and sound rather than noise from a wrong clock (noise has as much
+// energy in sample-to-sample steps as in the signal: hf near 1.4; room sound is mostly low, under 1).
+bool MicReport(int cycle, const MicTake& take, std::uint32_t elapsedMs)
+{
+  const std::uint32_t measured = take.frames > kMicSettleFrames ? take.frames - kMicSettleFrames : 0;
+  const double mean = measured != 0 ? take.sum / measured : 0.0;
+  const double variance = measured != 0 ? take.squares / measured - mean * mean : 0.0;
+  const double rms = variance > 0.0 ? std::sqrt(variance) : 0.0;
+  const double hf = rms > 0.0 && measured > 1 ? std::sqrt(take.diffSquares / (measured - 1)) / rms : 0.0;
+  const unsigned rate = elapsedMs != 0 ? static_cast<unsigned>(static_cast<std::uint64_t>(take.frames) * 1000u / elapsedMs) : 0u;
+  char envelope[96] = {};
+  std::size_t used = 0;
+  for (std::size_t index = 0; index < take.envelopeCount && used + 6 < sizeof(envelope); ++index)
+    used += static_cast<std::size_t>(std::snprintf(envelope + used, sizeof(envelope) - used, " %d", static_cast<int>(std::lround(take.envelope[index]))));
+  std::printf("mic: take %d: %u frames in %u ms = %u Hz, overflow %u | peak %.1f dBFS (first 100 ms %.1f), rms %.1f dBFS, dc %.0f, range %d..%d, "
+              "hf %.2f, zeros %u, clipped %u, longest run %u | env%s\n",
+              cycle, static_cast<unsigned>(take.frames), static_cast<unsigned>(elapsedMs), rate, static_cast<unsigned>(take.overflows),
+              Dbfs(take.peak), Dbfs(take.startPeak), Dbfs(rms), mean, take.low, take.high, hf, static_cast<unsigned>(take.zeros),
+              static_cast<unsigned>(take.clipped), static_cast<unsigned>(take.longestRun), envelope);
+  std::string why;
+  const unsigned expected = Device::Audio::InputInfo().sampleRate;
+  if (rate * 100u < expected * 99u || rate * 100u > expected * 101u) why += " rate";
+  if (take.overflows != 0) why += " overflow";
+  if (measured == 0 || rms < 1.0 || take.high == take.low) why += " silent";
+  if (take.longestRun > 2205) why += " stuck";
+  if (hf > 1.2) why += " noise";
+  if (rms > 16000.0) why += " full-scale";
+  if (!why.empty()) std::printf("mic: take %d looks wrong:%s\n", cycle, why.c_str());
+  return why.empty();
+}
+
+void MicSetUp()
+{
+  g_mic = MicTest{};
+  g_mic.phaseMs = NowMs();
+  std::printf("mic: %d takes of %u ms through the device layer, then one through the sampler; input %u Hz, %u channel(s), %u bit\n", kMicCycles,
+              static_cast<unsigned>(kMicTakeMs), static_cast<unsigned>(Device::Audio::InputInfo().sampleRate),
+              static_cast<unsigned>(Device::Audio::InputInfo().channelCount), static_cast<unsigned>(Device::Audio::InputInfo().bitsPerSample));
+}
+
+void MicTick(GrooveApp& app, std::uint32_t now)
+{
+  MicTest& mic = g_mic;
+  const std::uint32_t inPhase = now - mic.phaseMs;
+  const auto next = [&](MicTest::Phase phase) {
+    mic.phase = phase;
+    mic.phaseMs = NowMs();
+    mic.before = Device::Audio::Timing();
+  };
+  switch (mic.phase)
+  {
+    case MicTest::Phase::Start:
+    {
+      mic.take = MicTake{};
+      const std::uint32_t start = NowMs();
+      const Device::Audio::InputStatus status = Device::Audio::StartInput();
+      std::printf("mic: take %d: StartInput %s in %u ms\n", mic.cycle + 1, status == Device::Audio::InputStatus::Ready ? "ready" : "FAILED",
+                  static_cast<unsigned>(NowMs() - start));
+      if (status != Device::Audio::InputStatus::Ready)
+      {
+        ++mic.failed;
+        mic.why += " start";
+        next(MicTest::Phase::Gap);
+        break;
+      }
+      next(MicTest::Phase::Record);
+      mic.startedMs = mic.phaseMs;
+      break;
+    }
+    case MicTest::Phase::Record:
+      MicRead(mic.take);
+      if (inPhase < kMicTakeMs) break;
+      {
+        MicRead(mic.take);
+        const std::uint32_t elapsed = NowMs() - mic.startedMs;
+        mic.recordBlocks = Device::Audio::Timing().blocks - mic.before.blocks;
+        const std::uint32_t start = NowMs();
+        Device::Audio::StopInput();
+        const std::uint32_t stopMs = NowMs() - start;
+        if (MicReport(mic.cycle + 1, mic.take, elapsed)) ++mic.passed;
+        else
+        {
+          ++mic.failed;
+          mic.why += " take" + std::to_string(mic.cycle + 1);
+        }
+        std::printf("mic: take %d: StopInput in %u ms; %u blocks rendered while it recorded\n", mic.cycle + 1, static_cast<unsigned>(stopMs),
+                    static_cast<unsigned>(mic.recordBlocks));
+        next(MicTest::Phase::Gap);
+      }
+      break;
+    case MicTest::Phase::Gap:
+      if (inPhase < kMicGapMs) break;
+      {
+        // The speaker again: a block is 1024 / 5.94 s, so the pause has about 250 of them.
+        const Device::Audio::RenderTiming timing = Device::Audio::Timing();
+        const std::uint32_t blocks = timing.blocks - mic.before.blocks;
+        const std::uint32_t expected = static_cast<std::uint32_t>(static_cast<std::uint64_t>(inPhase) * 1024u / 5940u);
+        const bool back = blocks * 10u >= expected * 8u;
+        mic.speakerBack = mic.speakerBack && back;
+        std::printf("mic: after take %d the output rendered %u blocks in %u ms (about %u expected), underruns +%u: speaker %s\n", mic.cycle + 1,
+                    static_cast<unsigned>(blocks), static_cast<unsigned>(inPhase), static_cast<unsigned>(expected),
+                    static_cast<unsigned>(timing.underruns - mic.before.underruns), back ? "back" : "NOT BACK");
+        if (++mic.cycle < kMicCycles) next(MicTest::Phase::Start);
+        else next(MicTest::Phase::AppStart);
+      }
+      break;
+    case MicTest::Phase::AppStart:
+    {
+      synth::SamplerManager& sampler = app.Sampler();
+      const bool started = app.EngineKind(3) == SynthEngineKind::Sampler && sampler.BeginRecord(3, true);
+      std::printf("mic: sampler take on T4: %s (%s)\n", started ? "recording" : "FAILED to start",
+                  sampler.BuildUiState(3).statusText.c_str());
+      if (!started)
+      {
+        ++mic.failed;
+        mic.why += " sampler";
+        next(MicTest::Phase::Done);
+        break;
+      }
+      next(MicTest::Phase::AppRecord);
+      break;
+    }
+    case MicTest::Phase::AppRecord:
+      // The app ticks the sampler after this (it pumps the microphone into the take).
+      if (inPhase < kMicTakeMs) break;
+      {
+        synth::SamplerManager& sampler = app.Sampler();
+        const bool stopped = sampler.StopRecord(3);
+        const synth::SamplerTrackUiState ui = sampler.BuildUiState(3);
+        float wave = 0.0f;
+        for (const float bin : ui.waveform) wave = (std::max)(wave, bin);
+        const bool ok = stopped && ui.hasDraft && ui.frameCount > ui.sampleRate * 2u && wave > 0.0f;
+        std::printf("mic: sampler take: stop %s, %u frames at %u Hz, waveform peak %.3f, \"%s\": %s\n", stopped ? "ok" : "FAILED",
+                    static_cast<unsigned>(ui.frameCount), static_cast<unsigned>(ui.sampleRate), wave, ui.statusText.c_str(), ok ? "ok" : "WRONG");
+        if (ok) ++mic.passed;
+        else
+        {
+          ++mic.failed;
+          mic.why += " sampler";
+        }
+        sampler.DiscardDraftTake(3);
+        next(MicTest::Phase::AppGap);
+      }
+      break;
+    case MicTest::Phase::AppGap:
+      if (inPhase < kMicGapMs) break;
+      {
+        const std::uint32_t blocks = Device::Audio::Timing().blocks - mic.before.blocks;
+        const std::uint32_t expected = static_cast<std::uint32_t>(static_cast<std::uint64_t>(inPhase) * 1024u / 5940u);
+        const bool back = blocks * 10u >= expected * 8u;
+        mic.speakerBack = mic.speakerBack && back;
+        std::printf("mic: after the sampler take the output rendered %u blocks (about %u expected): speaker %s\n", static_cast<unsigned>(blocks),
+                    static_cast<unsigned>(expected), back ? "back" : "NOT BACK");
+        if (!mic.speakerBack) mic.why += " speaker";
+        std::printf("mic: verdict: %d of %d takes look right, speaker %s%s%s\n", mic.passed, kMicCycles + 1, mic.speakerBack ? "back each time" : "NOT BACK",
+                    mic.why.empty() ? "" : "; wrong:", mic.why.c_str());
+        next(MicTest::Phase::Done);
+      }
+      break;
+    case MicTest::Phase::Done:
+      break;
+  }
+}
+
 bool SetUp(GrooveApp& app, const Scenario& scenario, Result& result)
 {
   std::string message;
@@ -903,7 +1164,9 @@ bool SetUp(GrooveApp& app, const Scenario& scenario, Result& result)
   switch (scenario.kind)
   {
     case Kind::Idle:
+    case Kind::Mic:
     {
+      if (scenario.kind == Kind::Mic) MicSetUp();
       groove::ProjectUiSettings settings;
       if (!app.NewProject(settings, message))
       {
@@ -1131,6 +1394,13 @@ void StressTestTick(GrooveApp& app)
     runner.nextOpMs = NowMs() + 1500;
   }
   if (scenario.kind == Kind::UiStorm || scenario.kind == Kind::Worst) KeyStorm(app, now);
+  if (scenario.kind == Kind::Mic)
+  {
+    MicTick(app, now);
+    // The speaker is paused while it records (underruns are expected then): the takes decide.
+    if (g_mic.phase != MicTest::Phase::Done) return;
+    runner.endMs = now;
+  }
   if (scenario.kind == Kind::Worst && now >= runner.nextOpMs)
   {
     // A lighter set of operations on top: engine switches and autosaves.
@@ -1151,7 +1421,14 @@ void StressTestTick(GrooveApp& app)
 #if CARDENZA_STRESS_HEAP_TRACE
   if (Traced(index)) TraceFinish();
 #endif
+  if (scenario.kind == Kind::Mic && (g_mic.failed != 0 || !g_mic.speakerBack)) CopyNote(result, "mic:" + g_mic.why);
   FinishWindow(app, index);
+  if (scenario.kind == Kind::Mic)
+  {
+    // Underruns while recording are the speaker standing aside, not a failure.
+    result.ok = g_mic.failed == 0 && g_mic.speakerBack && result.note[0] == 0 ? 1 : 0;
+    std::printf("stress: mic %s\n", result.ok ? "ok" : "FAIL");
+  }
   runner.active = false;
   ++g_persist.next;
 #if CARDENZA_STRESS_HEAP_TRACE
