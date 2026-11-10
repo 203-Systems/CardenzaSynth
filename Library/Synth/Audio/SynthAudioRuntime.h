@@ -27,6 +27,9 @@ void EnsureEngine(std::size_t engineIndex, SynthEngineKind kind);
 void SetEnginePreset(std::size_t engineIndex, std::string_view presetId);
 void SetEngineParameter(std::size_t engineIndex, std::string_view parameterId, int value);
 void SetSamplerFrames(std::size_t engineIndex, SharedSampleBuffer frames, std::uint32_t sampleRate);
+// A sample from the card on a drum pad (0..7), in place of its built-in sound; null takes it off. The
+// frames must be in RAM (`frames`, mono); the pad holds them while it plays them.
+void SetDrumPadSample(std::size_t engineIndex, std::size_t pad, SharedSampleBuffer frames, std::uint32_t sampleRate);
 // Sound from outside the synth (a computer playing over USB), mixed in before the output stage at
 // unity gain: interleaved stereo int16 frames, the number given back. Null for none.
 using LineInput = std::size_t (*)(std::int16_t* stereoFrames, std::size_t frameCount);

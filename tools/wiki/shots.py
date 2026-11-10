@@ -131,8 +131,8 @@ def shot_script():
     s.track(3)
     for index, name in [(0, "voice"), (3, "algo"), (4, "levels"), (5, "op1"), (11, "lfo")]:
         s.page(index).shot(f"instr-dx7-{name}")
-    # T1 drums (VOICE, KIT, FX), T4 sampler (VOICE, CHORD, ARP, SAMPLE, TONE, FX).
-    s.track(1).page(1).shot("instr-drums-kit")
+    # T1 drums (VOICE, PAD, KIT, FX), T4 sampler (VOICE, CHORD, ARP, SAMPLE, TONE, FX).
+    s.track(1).page(2).shot("instr-drums-kit")
     s.track(4).page(3).shot("instr-sampler-sample")
     s.act(f"tap {grid_key(0)}").shot("sampler-files", 30).act("tap esc").wait(30)
     s.act(f"tap {grid_key(1)}").shot("sampler-rec", 30).act("tap esc").wait(30)

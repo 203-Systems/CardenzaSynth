@@ -391,9 +391,9 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
       std::string scope = seq.scopeLabel;
       if (controller.HostView().EngineKind(state.track) == synth::SynthEngineKind::Drums)
       {
-        notes = seq.primaryLowestNote >= 0 ? std::string(DrumName(seq.primaryLowestNote)) : std::string{};
+        notes = seq.primaryLowestNote >= 0 ? controller.DrumNoteLabel(seq.primaryLowestNote) : std::string{};
         if (seq.noteCount > 1) notes += "+" + std::to_string(seq.noteCount - 1);
-        if (scope != "ALL" && seq.scopedNote >= 0 && !DrumName(seq.scopedNote).empty()) scope = std::string(DrumName(seq.scopedNote));
+        if (scope != "ALL" && seq.scopedNote >= 0 && !controller.DrumNoteLabel(seq.scopedNote).empty()) scope = controller.DrumNoteLabel(seq.scopedNote);
       }
       std::string detail = seq.valueLabel.empty() ? notes : seq.valueLabel;
       if (seq.editLane == synth::SequencerEditLane::Note && !scope.empty()) detail = scope + " " + notes;

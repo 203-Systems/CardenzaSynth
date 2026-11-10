@@ -10,6 +10,7 @@
 #include "CardenzaBuildInfo.h"
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
+#include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
 #include "Applications/Synth/UI/Groove/Render/Widgets.h"
 
 namespace groove::render {
@@ -80,7 +81,7 @@ int DrumDensity(std::uint8_t velocity) { return kDrumDensity[DrumRowForVelocity(
 // With fill (VOICE) they take the whole area, as the keyboard of a melodic track does, less the room
 // a hit kicks them up; otherwise (the KIT page's graphic) a strip of at most 24 px in its middle.
 void DrawPads(Gfx& g, const Controller& controller, Animator& animator, const Rect& area, const synth::ISynthEngine* engine,
-              bool fill = false)
+              bool fill = false, int selected = -1)
 {
   constexpr int kGap = 2;
   constexpr int kKickRoom = 3;  // how far a hit kicks a pad up, at most
@@ -106,12 +107,15 @@ void DrawPads(Gfx& g, const Controller& controller, Animator& animator, const Re
     g.Dither(Rect{body.x + 1, body.y + body.height - 1 - filled, body.width - 2, filled}, kFaint, 4);
     if (held) g.Dither(body, kInk, density);
     else if (hit > 0.0f) g.Dither(body, kInk, static_cast<int>(hit * static_cast<float>(density)));
-    g.Stroke(body, held || hit > 0.0f ? kInk : kFaint);
-    // The name stays readable on any density.
-    const int nameWidth = Gfx::Measure(kDrumNames[pad]);
+    const bool chosen = static_cast<int>(pad) == selected;
+    g.Stroke(body, held || hit > 0.0f ? kInk : chosen ? TrackColor(controller.State().track) : kFaint);
+    // The name (what the pad plays) stays readable on any density; the chosen pad's is inverse.
+    const std::string name = controller.DrumLabel(pad);
+    const int nameWidth = Gfx::Measure(name);
     const int nameX = body.x + (body.width - nameWidth) / 2;
-    if (held || hit > 0.0f) g.Fill(Rect{nameX - 1, body.y + 2, nameWidth + 2, 9}, kBlack);
-    g.Text(nameX, body.y + 3, kDrumNames[pad], kInk);
+    if (chosen) g.Fill(Rect{nameX - 1, body.y + 2, nameWidth + 2, 9}, kInk);
+    else if (held || hit > 0.0f) g.Fill(Rect{nameX - 1, body.y + 2, nameWidth + 2, 9}, kBlack);
+    g.Text(nameX, body.y + 3, name, chosen ? kBlack : kInk);
     if (hit > 0.0f) fx::Ripple(g, body, 1.0f - hit, kInk);
   }
 }
@@ -570,6 +574,25 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
     case PageGraphic::DrumPads:
       DrawPads(g, controller, animator, area, engine);
       break;
+    case PageGraphic::PadSound:
+    {
+      // The chosen pad: what it plays and from where, over the eight pads.
+      const std::size_t lane = controller.DrumLane();
+      const char* source = "KIT";
+      const std::string name = controller.DrumSoundName(lane, &source);
+      std::string tune;
+      if (engine != nullptr)
+      {
+        synth::SynthParameterInfo info;
+        if (engine->GetParameterInfo(synth::kDrumTuneIds[lane], info) && info.value != 0) tune = (info.value > 0 ? "+" : "") + std::to_string(info.value);
+      }
+      const std::string line = std::string(source) + (tune.empty() ? "" : "  " + tune);
+      const int lineWidth = Gfx::Measure(line);
+      g.TextFit(area.x + 2, area.y + 1, area.width - lineWidth - 8, name, kInk, Font::Small);
+      g.Text(area.x + area.width - lineWidth - 2, area.y + 2, line, std::string(source) == "CARD" ? TrackColor(track) : kDim);
+      DrawPads(g, controller, animator, Rect{area.x, area.y + 14, area.width, area.height - 14}, engine, false, static_cast<int>(lane));
+      break;
+    }
     case PageGraphic::None:
     default:
       break;
@@ -631,7 +654,7 @@ void InstrumentScene(Gfx& g, const Controller& controller, Animator& animator, s
   const std::size_t index = std::min<std::size_t>(pageIndex, list.count - 1);
   const UiState& state = controller.State();
   const std::uint8_t focus = state.instrumentFocus[std::min<std::size_t>(index, state.instrumentFocus.size() - 1)];
-  DrawSlotPage(g, controller, animator, list.pages[index], focus, index == controller.CurrentPage(),
+  DrawSlotPage(g, controller, animator, controller.InstrumentPageAt(index), focus, index == controller.CurrentPage(),
                Animator::Key("instr-focus", static_cast<std::uint32_t>(state.track) * 16u + static_cast<std::uint32_t>(index)));
 }
 
@@ -782,7 +805,7 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
     const int y = rowY(note);
     g.Dither(Rect{x0, y, column * static_cast<int>(steps), rowHeight}, kInk, drums ? DrumDensity(held) : 8);
     const int labelY = std::clamp(y + rowHeight / 2 - 4, top, bottom - 8);
-    const std::string_view drum = drums ? DrumName(note) : std::string_view{};
+    const std::string drum = drums ? controller.DrumNoteLabel(note) : std::string{};
     g.Fill(Rect{kContentX, labelY, kGutter - 2, 8}, kInk);
     g.Text(kContentX + 1, labelY + 1, drum.empty() ? NoteName(note) : std::string(drum), kBlack, Font::Micro);
   }
@@ -979,7 +1002,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     if (drums)
     {
       if (lit) g.Fill(Rect{kContentX, y, label - 2, rowHeight - 1}, kInk);
-      g.Text(kContentX + 1, y + (rowHeight - 6) / 2, kDrumNames[static_cast<std::size_t>(row)], lit ? kBlack : kDim, Font::Micro);
+      g.Text(kContentX + 1, y + (rowHeight - 6) / 2, controller.DrumLabel(static_cast<std::size_t>(row)), lit ? kBlack : kDim, Font::Micro);
       for (int step = 0; step < steps; ++step)
       {
         bool hit = false;
@@ -1029,7 +1052,7 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   const int nameHeight = 11;
   const int gridTop = kContentY + nameHeight;
   const int cellHeight = (kContentBottom - gridTop - 3 * kGap) / 4;
-  const std::string chosenName = picked < 0 ? std::string("PADS: A NOTE") : drums ? std::string(kDrumNames[controller.DrumLane()]) : NoteName(picked);
+  const std::string chosenName = picked < 0 ? std::string("PADS: A NOTE") : drums ? controller.DrumLabel(controller.DrumLane()) : NoteName(picked);
   g.TextFit(left, kContentY + 1, kContentRight - left, chosenName, picked < 0 ? kFaint : kInk, picked < 0 ? Font::Micro : Font::Small);
   for (std::size_t index = 0; index < kGridCount; ++index)
   {

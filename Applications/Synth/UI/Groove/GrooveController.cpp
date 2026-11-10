@@ -1,5 +1,7 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
 
+#include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -122,7 +124,81 @@ const InstrumentPage* Controller::CurrentInstrumentPage() const
 {
   const InstrumentPageList list = InstrumentPages();
   const std::size_t page = std::min<std::size_t>(state_.page[static_cast<std::size_t>(Scene::Instrument)], list.count - 1);
-  return list.pages + page;
+  if (ActiveKind() != synth::SynthEngineKind::Drums) return list.pages + page;
+  resolvedPage_ = InstrumentPageAt(page);
+  return &resolvedPage_;
+}
+
+InstrumentPage Controller::InstrumentPageAt(std::size_t index) const
+{
+  const InstrumentPageList list = InstrumentPages();
+  InstrumentPage page = list.pages[std::min(index, list.count - 1)];
+  if (ActiveKind() != synth::SynthEngineKind::Drums) return page;
+  // The chosen pad's parameters, and every pad's level under what it plays.
+  const std::size_t lane = std::min<std::size_t>(DrumLane(), synth::kDrumNotes.size() - 1);
+  for (Slot& slot : page.slots)
+  {
+    if (slot.id == nullptr) continue;
+    const std::string_view id = slot.id;
+    if (id == "pad.sound") slot.id = synth::kDrumSoundIds[lane];
+    else if (id == "pad.tune") slot.id = synth::kDrumTuneIds[lane];
+    else if (id == "pad.level") slot.id = synth::kDrumParameterIds[lane];
+    else
+      for (std::size_t pad = 0; pad < synth::kDrumParameterIds.size(); ++pad)
+        if (id == synth::kDrumParameterIds[pad])
+        {
+          drumLabels_[pad] = DrumLabel(pad);
+          slot.label = drumLabels_[pad].c_str();
+        }
+  }
+  return page;
+}
+
+std::string Controller::DrumSoundName(std::size_t lane, const char** source) const
+{
+  if (source != nullptr) *source = "KIT";
+  if (lane >= synth::kDrumNotes.size()) return {};
+  const std::string sample = host_.PadSample(state_.track, lane);
+  if (!sample.empty())
+  {
+    if (source != nullptr) *source = "CARD";
+    std::string name = sample.substr(0, sample.rfind('.'));
+    for (char& c : name) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return name;
+  }
+  synth::SynthParameterInfo info;
+  const synth::ISynthEngine* engine = ActiveEngine();
+  if (engine == nullptr || !engine->GetParameterInfo(synth::kDrumSoundIds[lane], info)) return kDrumNames[lane];
+  return synth::drums::Sound(static_cast<std::size_t>(info.value)).name;
+}
+
+std::string Controller::DrumNoteLabel(int note) const
+{
+  for (std::size_t lane = 0; lane < synth::kDrumNotes.size(); ++lane)
+    if (synth::kDrumNotes[lane] == note) return DrumLabel(lane);
+  return {};
+}
+
+std::string Controller::DrumLabel(std::size_t lane) const
+{
+  if (lane >= synth::kDrumNotes.size()) return {};
+  if (ActiveKind() != synth::SynthEngineKind::Drums) return kDrumNames[lane];
+  const std::string sample = host_.PadSample(state_.track, lane);
+  if (!sample.empty())
+  {
+    // A sample: its first two letters (or digits).
+    std::string label;
+    for (const char c : sample)
+    {
+      if (c == '.') break;
+      if (std::isalnum(static_cast<unsigned char>(c)) && label.size() < 2) label += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    return label.empty() ? std::string("SM") : label;
+  }
+  synth::SynthParameterInfo info;
+  const synth::ISynthEngine* engine = ActiveEngine();
+  if (engine == nullptr || !engine->GetParameterInfo(synth::kDrumSoundIds[lane], info)) return kDrumNames[lane];
+  return synth::drums::Sound(static_cast<std::size_t>(info.value)).label;
 }
 
 std::uint8_t Controller::InstrumentFocus() const
@@ -569,6 +645,8 @@ void Controller::PressPad(std::size_t row, std::size_t column)
   // Selected steps (held or tapped) turn the pads into a note editor for them; on the drum machine a
   // drum goes in as hard as the pad's row, and the pad becomes the drum its GRID view shows.
   bool editing = false;
+  // On the sound pages a drum pad is also the one PAD edits.
+  if (drums && state_.scene == Scene::Instrument && TopModal() == nullptr) state_.drumLane[state_.track] = static_cast<std::uint8_t>(column - kPadFirstColumn);
   if (state_.scene == Scene::Sequence && CurrentPage() == 0 && TopModal() == nullptr)
   {
     if (drums)
@@ -842,6 +920,16 @@ void Controller::Tick(std::uint32_t nowMs)
   // The record modal follows the sampler's own state machine.
   const Modal* modal = TopModal();
   // The microphone takes the speaker's clock pin, so it never runs without its screen.
+  if (const PadRecordState pad = host_.PadRecording(); pad.active)
+  {
+    if (modal == nullptr || modal->kind != ModalKind::PadRecord || state_.track != pad.track)
+    {
+      host_.CancelPadRecord();
+      ShowToast("RECORDING CANCELLED");
+    }
+    // The two seconds are full: kept as if ENTER had stopped it.
+    else if (!pad.recording) PadRecordEnter();
+  }
   if (const int recording = host_.Sampler().RecordingTrack();
       recording >= 0 && (modal == nullptr || modal->kind != ModalKind::SampleRecord || state_.track != static_cast<std::size_t>(recording)))
   {
@@ -989,6 +1077,8 @@ AdjustMeaning Controller::AdjustKeysMean() const
       case ModalKind::Record:
       case ModalKind::SampleRecord:
         return AdjustMeaning::Value;
+      case ModalKind::PadRecord:
+        return AdjustMeaning::None;
       default:
         return AdjustMeaning::None;
     }

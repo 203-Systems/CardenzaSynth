@@ -16,6 +16,7 @@
 
 #include "Applications/Synth/GrooveApp.h"
 #include "Applications/Synth/Runtime/ProjectStorage.h"
+#include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
 #include "Library/Synth/Core/SynthStorage.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
@@ -2086,6 +2087,129 @@ void TestDrumPads(Harness& h)
 
 // Holding a parameter's GRID cell turns the pads into its values: lit where there is a value, the
 // current one full, a press sets it. A tap on the cell still does what it did, and the pads play again.
+// The drum machine's PAD page edits the pad last played: its sound from AMY's banks (ADD / SUB, or the
+// list ENTER opens, which plays each sound as the cursor comes to it and gives the old one back on
+// ESC), its pitch and level; a WAV from the card or the microphone plays in its place, the project
+// keeps it, and the sound chosen again takes it off.
+void TestPadSounds(Harness& h)
+{
+  namespace sim = CardenzaSim::Input;
+  namespace fs = std::filesystem;
+  auto& app = h.App();
+  const std::size_t track = synth::kDefaultActiveTrack;
+  h.Chord(kTab, Grid(track));
+  assert(app.EngineKind(track) == synth::SynthEngineKind::Drums);
+  assert(app.Ui().PageTab(Scene::Instrument, 1) == "PAD" && app.Ui().PageTab(Scene::Instrument, 2) == "KIT");
+  GoToInstrumentPage(h, "PAD");
+  h.Render();
+  // A pad chooses the pad the page edits, and plays.
+  h.Tap(Key{3, 4});
+  assert(app.Ui().DrumLane() == 3);
+  assert(std::string(app.Ui().CurrentInstrumentPage()->slots[0].id) == "pad4.sound");
+  assert(std::string(app.Ui().CurrentInstrumentPage()->slots[2].id) == "open_hat.level");
+  assert(app.Ui().DrumLabel(3) == "OH");
+  const int before = ParameterValue(app, track, "pad4.sound");
+  h.Tap(kAdd);
+  assert(ParameterValue(app, track, "pad4.sound") == before + 1);
+  h.Render();
+
+  // The list opens on the pad's sound; each sound plays as the cursor reaches it; ESC gives it back.
+  h.Tap(kEnter);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::PresetBrowser && h.Modal()->payload == "sounds");
+  assert(h.Modal()->Count() == synth::drums::SoundCount() && h.Modal()->cursor == static_cast<std::size_t>(before + 1));
+  h.Render();
+  h.Tap(kSub);
+  h.Tap(kSub);
+  assert(ParameterValue(app, track, "pad4.sound") == before + 3);
+  h.Tap(kEsc);
+  assert(h.Modal() == nullptr && ParameterValue(app, track, "pad4.sound") == before + 1);
+  h.Tap(kEnter);
+  h.Tap(kSub);
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && ParameterValue(app, track, "pad4.sound") == before + 2);
+  assert(app.Ui().DrumLabel(3) == synth::drums::Sound(static_cast<std::size_t>(before + 2)).label);
+
+  // A WAV from the card on the pad: three seconds, of which the pad holds two.
+  const fs::path file = fs::path(synth::storage::SampleDirectory()) / "PAD_HIT.wav";
+  {
+    std::vector<std::int16_t> frames(44100 * 3);
+    for (std::size_t index = 0; index < frames.size(); ++index) frames[index] = static_cast<std::int16_t>((index % 64) * 300 - 9000);
+    assert(synth::sampler::WriteMono16Wav(file.string(), frames.data(), frames.size(), 44100));
+  }
+  h.Tap(Grid(4));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::SampleBrowser && h.Modal()->payload == "pad");
+  for (std::size_t tries = 0; tries < 32 && h.Modal()->Row(h.Modal()->cursor)->id != "PAD_HIT.wav"; ++tries) h.Tap(kSub);
+  h.Render();
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && app.PadSample(track, 3) == "PAD_HIT.wav");
+  assert(app.Ui().DrumLabel(3) == "PA" && app.Ui().DrumSoundName(3) == "PAD_HIT");
+  h.Render();
+  // The sampler's browser does not delete or rename it from under the pad.
+  if (app.EngineKind(3) == synth::SynthEngineKind::Sampler)
+  {
+    assert(!app.Sampler().DeleteBrowserSample(3, "PAD_HIT.wav") && !app.Sampler().DeleteBrowserSample(3, "PAD_HIT.wav"));
+    assert(!app.Sampler().RenameBrowserSample(3, "PAD_HIT.wav", "OTHER"));
+    assert(fs::exists(file));
+  }
+  // The project keeps it.
+  groove::ProjectUiSettings settings = app.Ui().Settings();
+  std::string message;
+  assert(app.SaveProject("PADS", true, settings, message) == groove::SaveResult::Ok);
+  assert(app.NewProject(settings, message));
+  assert(app.PadSample(track, 3).empty());
+  assert(app.LoadProject("PADS", settings, message));
+  app.Ui().Restore(settings, "PADS");
+  assert(app.PadSample(track, 3) == "PAD_HIT.wav" && ParameterValue(app, track, "pad4.sound") == before + 2);
+  // Without the file the project does not load.
+  fs::rename(file, file.string() + ".away");
+  assert(!app.LoadProject("PADS", settings, message) && message == "SAMPLE MISSING");
+  fs::rename(file.string() + ".away", file);
+  GoToInstrumentPage(h, "PAD");
+  h.Tap(Key{3, 4});
+  // The sound chosen again takes the sample off.
+  h.Tap(kAdd);
+  assert(app.PadSample(track, 3).empty() && ParameterValue(app, track, "pad4.sound") == before + 2);
+
+  // The microphone on the pad: ENTER records, ENTER keeps it as a WAV on the card and on the pad.
+  sim::SetMicrophonePresent(true);
+  h.Tap(Grid(5));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::PadRecord);
+  h.Render();
+  h.Tap(kEnter);
+  assert(app.PadRecording().recording && app.PadRecording().pad == 3);
+  for (int frame = 0; frame < 12; ++frame)
+  {
+    sim::FeedMicrophone(735);
+    h.Frames();
+    h.Render();
+  }
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && !app.PadRecording().active);
+  const std::string take = app.PadSample(track, 3);
+  assert(take.rfind("TAKE_", 0) == 0 && fs::exists(fs::path(synth::storage::SampleDirectory()) / take));
+  // Two seconds full: kept by itself.
+  h.Tap(Grid(5));
+  h.Tap(kEnter);
+  sim::FeedMicrophone(44100 * 2);
+  h.Frames(3);
+  assert(h.Modal() == nullptr && !app.PadRecording().active && app.PadSample(track, 3) != take);
+  // Leaving the screen stops the microphone and keeps nothing.
+  const std::string kept = app.PadSample(track, 3);
+  h.Tap(Grid(5));
+  h.Tap(kEnter);
+  assert(app.PadRecording().recording);
+  h.Chord(kEsc, Grid(2));
+  h.Wait(100);
+  assert(!app.PadRecording().active && app.PadSample(track, 3) == kept);
+  sim::SetMicrophonePresent(false);
+  // Another engine on the track takes the samples off its pads.
+  GoToScene(h, 1);
+  assert(app.SwitchEngine(track, synth::SynthEngineKind::Juno, message) && app.PadSample(track, 3).empty());
+  assert(app.SwitchEngine(track, synth::SynthEngineKind::Drums, message));
+  assert(ParameterValue(app, track, "pad4.sound") == synth::drums::Kit(0).pads[3].sound);
+  h.Wait(100);
+}
+
 void TestCellPicker(Harness& h)
 {
   auto& app = h.App();
@@ -2488,7 +2612,7 @@ void TestReleaseProjects(Harness& h)
   assert(app.Sequencer().StepNoteEvents(0, 4, notes) == 1 && notes[0].note == 39);
   // Saving it writes it in place, in the current format, and the list shows it once.
   h.Chord(kFn, Key{2, 3});  // S
-  assert(read(ours / "DEMO-1.ccproj").rfind("CARDENZA_PROJECT 7\n", 0) == 0);
+  assert(read(ours / "DEMO-1.ccproj").rfind("CARDENZA_PROJECT 8\n", 0) == 0);
   { const auto all = app.ListProjects(); assert(std::count(all.begin(), all.end(), std::string("DEMO-1")) == 1); }
   assert(read(ours / "DEMO-2.ccproj") == kReleaseProject);
   // A new project goes there too.
@@ -3024,6 +3148,7 @@ int main()
   TestLoadWithoutMemory(h);
   TestAdjustIcons(h);
   TestDrumPads(h);
+  TestPadSounds(h);
   TestCellPicker(h);
   TestHeldNotesEnd(h);
   TestNoStuckNotes(h);

@@ -816,6 +816,12 @@ bool SamplerManager::RenameBrowserSample(std::size_t trackIndex, std::string_vie
   const std::string fileName = SampleFileName(id);
   if (fileName.empty()) return false;
   TrackState& state = tracks_[trackIndex];
+  // A drum pad names it: the pad would lose it.
+  if (otherUses_ && otherUses_(fileName))
+  {
+    state.ui.statusText = "FILE IN USE";
+    return false;
+  }
   const std::string renamedName = SanitizedSampleName(newName);
   // Preserve the extension for a no-op rename, including imported uppercase .WAV.
   const std::string destinationName = renamedName == FileStem(fileName) ? fileName : renamedName + ".wav";
@@ -910,6 +916,7 @@ bool SamplerManager::CanReplaceSample(std::size_t trackIndex)
 
 bool SamplerManager::FileUsedByOtherTrack(std::size_t trackIndex, std::string_view fileName) const
 {
+  if (otherUses_ && otherUses_(fileName)) return true;
   for (std::size_t index = 0; index < tracks_.size(); ++index)
   {
     if (index != trackIndex && tracks_[index].ui.hasSample && SameSampleFile(tracks_[index].ui.sampleFileName, fileName))

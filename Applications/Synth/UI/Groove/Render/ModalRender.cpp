@@ -9,6 +9,7 @@
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Applications/Synth/UI/Groove/Render/Widgets.h"
+#include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
 
 namespace groove::render {
 
@@ -227,6 +228,37 @@ void DrawSampleRecord(Gfx& g, const Controller& controller, Animator& animator)
   if (sampler.phase == synth::SamplerTrackPhase::Error) g.TextFit(kContentX, kContentY + 78, kContentWidth, sampler.statusText, kRec);
 }
 
+// A drum pad from the microphone: ready, then the two seconds filling (the waveform as it comes).
+void DrawPadRecord(Gfx& g, const Controller& controller, Animator& animator)
+{
+  const UiState& state = controller.State();
+  const PadRecordState recording = controller.HostView().PadRecording();
+  const double maxSeconds = static_cast<double>(synth::sampler::PadSampleFrameLimit()) / synth::audio::kSampleRate;
+  const Rect wave = CellSpan(2, 0, 2, 4);
+  if (recording.active)
+  {
+    const bool blink = (state.now / 300) % 2 == 0;
+    const float breath = 0.5f + 0.5f * std::sin(static_cast<float>(animator.Now()) / 110.0f);
+    g.Dither(Rect{kContentX - 2, kContentY + 2, 9, 11}, kRec, static_cast<int>(breath * 8.0f));
+    g.DrawGlyph(kContentX, kContentY + 4, Glyph::Rec, blink ? kRec : kFaint);
+    g.Text(kContentX + 10, kContentY + 2, "RECORDING PAD " + std::to_string(recording.pad + 1), kRec, Font::Small);
+    char time[24];
+    std::snprintf(time, sizeof(time), "%.1f / %.1fS", static_cast<double>(recording.progress) * maxSeconds, maxSeconds);
+    g.Text(kContentX, kContentY + 18, time, kInk, Font::Large);
+    g.Text(kContentX, kContentY + 38, "INPUT", kDim);
+    widgets::LevelBar(g, Rect{kContentX + 36, kContentY + 39, kContentWidth - 36, 5}, recording.level, recording.level > 0.95f ? kRec : kPlay, kFaint);
+    widgets::Waveform(g, Rect{wave.x, wave.y + 4, wave.width, wave.height - 4}, recording.waveform.data(), recording.waveform.size(), 0.0f, 1.0f,
+                      recording.progress, true);
+    return;
+  }
+  Title(g, "RECORD PAD " + std::to_string(controller.DrumLane() + 1) + "  T" + std::to_string(state.track + 1), kTab);
+  g.Text(kContentX, kContentY + 18, "READY", kInk, Font::Large);
+  char limit[40];
+  std::snprintf(limit, sizeof(limit), "MIC  %.1fS MAX  SILENCE CUT", maxSeconds);
+  g.Text(kContentX, kContentY + 40, limit, kDim);
+  g.TextFit(kContentX, kContentY + 52, kContentWidth, "SAVED TO SAMPLES, ON THE PAD", kDim);
+}
+
 // RECORD (hold OK in SEQ): the record settings on row 0, the captured takes on rows 1 and 2 (newest
 // first) and below them the bar of the chosen take that OK would put into a pattern.
 void DrawRecord(Gfx& g, const Controller& controller, Animator& animator)
@@ -351,6 +383,7 @@ void ModalContent(Gfx& g, const Controller& controller, Animator& animator, cons
     case ModalKind::SampleOptions: DrawList(g, controller, animator, modal, false); break;
     case ModalKind::EnginePicker: DrawEnginePicker(g, controller, animator, modal); break;
     case ModalKind::SampleRecord: DrawSampleRecord(g, controller, animator); break;
+    case ModalKind::PadRecord: DrawPadRecord(g, controller, animator); break;
     case ModalKind::Menu: MenuContent(g, controller, animator, 1.0f); break;
     case ModalKind::Record: DrawRecord(g, controller, animator); break;
     case ModalKind::None:
@@ -366,8 +399,12 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
     case ModalKind::Confirm:
       if (modal.confirmPurpose == ConfirmPurpose::Notice) return "ENTER OR ESC CLOSES";
       return modal.danger ? "ENTER CONFIRM   ESC KEEP" : "ENTER YES   ESC NO";
-    case ModalKind::PresetBrowser: return "ENTER LOAD   FN+F SEARCH   ESC BACK";
-    case ModalKind::SampleBrowser: return "ENTER LOAD  FN+F SEARCH  FN+ENTER EDIT";
+    case ModalKind::PresetBrowser:
+      if (modal.payload == "sounds") return "ENTER KEEP   FN+F SEARCH   ESC UNDO";
+      return "ENTER LOAD   FN+F SEARCH   ESC BACK";
+    case ModalKind::SampleBrowser:
+      if (modal.payload == "pad") return "ENTER LOAD   FN+F SEARCH   ESC BACK";
+      return "ENTER LOAD  FN+F SEARCH  FN+ENTER EDIT";
     case ModalKind::SampleOptions: return "ENTER CHOOSE   ESC BACK";
     case ModalKind::EnginePicker: return "GRID OR SUB ADD   ENTER SWITCH";
     case ModalKind::Menu: return "GRID RUNS   FN OR ESC CLOSES";
@@ -379,6 +416,8 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
       if (sampler.hasDraft) return "SUB ADD TRIM   ENTER START/END   ESC DISCARD";
       return "ENTER RECORD   ESC CLOSE";
     }
+    case ModalKind::PadRecord:
+      return controller.HostView().PadRecording().active ? "ENTER KEEP   ESC CANCEL" : "ENTER RECORD   ESC CLOSE";
     case ModalKind::None:
     default: return "";
   }

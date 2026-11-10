@@ -1,4 +1,5 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
+#include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
 #include "OS/Storage/DeviceSettings.h"
 
 #include <algorithm>
@@ -71,6 +72,10 @@ bool Controller::SlotValue(const Slot& slot, synth::SynthParameterInfo& info, st
   const synth::ISynthEngine* engine = ActiveEngine();
   if (engine == nullptr || !engine->GetParameterInfo(slot.id, info)) return false;
   text = engine->DescribeParameterValue(slot.id);
+  // A pad that plays a sample from the card shows the sample in place of its sound.
+  if (const int pad = synth::DrumPadOfParameter(slot.id); pad >= 0 && ActiveKind() == synth::SynthEngineKind::Drums &&
+                                                         std::strcmp(slot.id + 5, "sound") == 0)
+    text = DrumSoundName(static_cast<std::size_t>(pad));
   return true;
 }
 
@@ -665,9 +670,21 @@ void Controller::InstrumentAdjust(int delta, bool coarse)
   synth::ISynthEngine* engine = ActiveEngine();
   synth::SynthParameterInfo info;
   if (engine == nullptr || !engine->GetParameterInfo(slot.id, info)) return;
+  const int pad = ActiveKind() == synth::SynthEngineKind::Drums ? synth::DrumPadOfParameter(slot.id) : -1;
+  // A pad's sound, while a sample plays in its place: the first press gives the sound back.
+  if (pad >= 0 && std::strcmp(slot.id + 5, "sound") == 0 && !host_.PadSample(state_.track, static_cast<std::size_t>(pad)).empty())
+  {
+    ClearPadSample();
+    return;
+  }
   int scaled = delta;
   if (coarse) scaled *= info.maxValue - info.minValue >= 40 ? 10 : 3;
-  if (engine->AdjustParameterValue(slot.id, scaled)) MarkDirty();
+  if (engine->AdjustParameterValue(slot.id, scaled))
+  {
+    MarkDirty();
+    // A pad's sound or pitch is heard as it changes.
+    if (pad >= 0) AuditionPad();
+  }
 }
 
 void Controller::InstrumentEnter()
@@ -682,6 +699,12 @@ void Controller::InstrumentEnter()
   synth::SynthParameterInfo info;
   std::string text;
   if (!SlotValue(slot, info, text)) return;
+  // A drum pad's sound: the list of all of them.
+  if (ActiveKind() == synth::SynthEngineKind::Drums && synth::DrumPadOfParameter(slot.id) >= 0 && std::strcmp(slot.id + 5, "sound") == 0)
+  {
+    OpenSoundBrowser();
+    return;
+  }
   // ENTER steps switches and choices; continuous values stay on SUB / ADD.
   if (info.kind == synth::SynthParameterKind::Toggle) InstrumentAdjust(info.value == info.maxValue ? -1 : 1, false);
   else if (info.kind == synth::SynthParameterKind::Choice)
@@ -776,6 +799,8 @@ void Controller::RunSlotAction(SlotAction action)
       break;
     }
     case SlotAction::SamplePreview: host_.PreviewSample(state_.track); break;
+    case SlotAction::PadFile: OpenPadSampleBrowser(); break;
+    case SlotAction::PadRecord: OpenPadRecord(); break;
     case SlotAction::None:
     default: break;
   }
@@ -1619,6 +1644,16 @@ MenuItems Controller::Menu() const
         put(9, MenuAction::SampleRecord, "RECORD", "SAMPLE");
         put(10, MenuAction::SamplePreview, "PREVIEW", "SAMPLE");
       }
+      if (ActiveKind() == synth::SynthEngineKind::Drums)
+      {
+        // The pad last played: its sound from the list, a sample from the card or the microphone, and
+        // its sound back from a sample.
+        const std::string pad = "PAD " + std::to_string(DrumLane() + 1);
+        put(8, MenuAction::PadSounds, "SOUNDS", pad);
+        put(9, MenuAction::PadFiles, "SAMPLES", pad);
+        put(10, MenuAction::PadRecord, "RECORD", pad);
+        put(11, MenuAction::PadSound, "SOUND", "BACK", nullptr, !host_.PadSample(state_.track, DrumLane()).empty());
+      }
       break;
     }
     case Scene::Sequence:
@@ -1750,6 +1785,10 @@ void Controller::RunMenuAction(const MenuItem& item)
     case MenuAction::SampleFiles: RunSlotAction(SlotAction::SampleFile); break;
     case MenuAction::SampleRecord: RunSlotAction(SlotAction::SampleRecord); break;
     case MenuAction::SamplePreview: RunSlotAction(SlotAction::SamplePreview); break;
+    case MenuAction::PadSounds: OpenSoundBrowser(); break;
+    case MenuAction::PadFiles: RunSlotAction(SlotAction::PadFile); break;
+    case MenuAction::PadRecord: RunSlotAction(SlotAction::PadRecord); break;
+    case MenuAction::PadSound: ClearPadSample(); break;
     case MenuAction::Default:
     case MenuAction::Scope:
     case MenuAction::Capture:

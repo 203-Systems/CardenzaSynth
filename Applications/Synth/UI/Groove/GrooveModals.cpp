@@ -1,5 +1,7 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
 
+#include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -128,6 +130,23 @@ void Controller::RefreshPresetBrowser()
   Modal* modal = Top();
   const synth::ISynthEngine* engine = ActiveEngine();
   if (modal == nullptr || engine == nullptr) return;
+  if (modal->payload == "sounds")
+  {
+    // The drum sounds that match, the cursor on the pad's.
+    synth::SynthParameterInfo info;
+    const std::size_t lane = DrumLane();
+    const int current = engine->GetParameterInfo(synth::kDrumSoundIds[lane], info) ? info.value : 0;
+    modal->presets.clear();
+    modal->cursor = 0;
+    for (std::size_t index = 0; index < synth::drums::SoundCount(); ++index)
+    {
+      if (!Matches(synth::drums::Sound(index).name, modal->search)) continue;
+      if (static_cast<int>(index) == current) modal->cursor = modal->presets.size();
+      modal->presets.push_back(static_cast<std::uint16_t>(index));
+    }
+    FillSoundRows(*modal);
+    return;
+  }
   const bool reopened = modal->cursor < modal->presets.size();
   const std::size_t previous = reopened ? modal->presets[modal->cursor] : 0;
   modal->presets.clear();
@@ -163,6 +182,110 @@ void Controller::FillPresetRows(Modal& modal) const
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Drum pads: a sound from the list, a sample from the card, the microphone
+
+void Controller::FillSoundRows(Modal& modal) const
+{
+  synth::SynthParameterInfo info;
+  const synth::ISynthEngine* engine = ActiveEngine();
+  const int current = engine != nullptr && engine->GetParameterInfo(synth::kDrumSoundIds[DrumLane()], info) ? info.value : -1;
+  const bool sample = !host_.PadSample(state_.track, DrumLane()).empty();
+  modal.items.clear();
+  modal.itemCount = modal.presets.size();
+  modal.firstItem = ListFirstRow(modal.cursor);
+  for (std::size_t index = modal.firstItem; index < modal.firstItem + kListVisibleRows && index < modal.presets.size(); ++index)
+  {
+    const std::uint16_t sound = modal.presets[index];
+    modal.items.push_back({std::to_string(sound), synth::drums::Sound(sound).name, !sample && sound == current});
+  }
+}
+
+void Controller::OpenSoundBrowser()
+{
+  synth::ISynthEngine* engine = ActiveEngine();
+  synth::SynthParameterInfo info;
+  if (ActiveKind() != synth::SynthEngineKind::Drums || engine == nullptr || !engine->GetParameterInfo(synth::kDrumSoundIds[DrumLane()], info)) return;
+  Modal modal;
+  modal.kind = ModalKind::PresetBrowser;
+  modal.payload = "sounds";
+  modal.title = "P" + std::to_string(DrumLane() + 1) + " SOUND";
+  modal.restoreValue = info.value;
+  modal.detail = host_.PadSample(state_.track, DrumLane());
+  OpenModal(std::move(modal));
+  RefreshPresetBrowser();
+}
+
+// The chosen pad plays `sound` now (a sample on it comes off), and is heard.
+void Controller::PreviewPadSound(int sound)
+{
+  synth::ISynthEngine* engine = ActiveEngine();
+  if (engine == nullptr || ActiveKind() != synth::SynthEngineKind::Drums) return;
+  const std::size_t lane = DrumLane();
+  std::string message;
+  if (!host_.PadSample(state_.track, lane).empty()) (void)host_.SetPadSample(state_.track, lane, "", message);
+  if (engine->SetParameterValue(synth::kDrumSoundIds[lane], sound)) MarkDirty();
+  AuditionPad();
+}
+
+void Controller::AuditionPad()
+{
+  if (ActiveKind() != synth::SynthEngineKind::Drums) return;
+  const std::uint8_t note = synth::kDrumNotes[std::min<std::size_t>(DrumLane(), synth::kDrumNotes.size() - 1)];
+  host_.NoteOn(state_.track, note, kDrumRowVelocity[1]);
+  host_.NoteOff(state_.track, note);
+}
+
+void Controller::ClearPadSample()
+{
+  if (ActiveKind() != synth::SynthEngineKind::Drums || host_.PadSample(state_.track, DrumLane()).empty()) return;
+  std::string message;
+  if (!host_.SetPadSample(state_.track, DrumLane(), "", message)) return;
+  MarkDirty();
+  ShowToast("PAD " + std::to_string(DrumLane() + 1) + ": " + DrumSoundName(DrumLane()));
+  AuditionPad();
+}
+
+void Controller::OpenPadSampleBrowser()
+{
+  if (ActiveKind() != synth::SynthEngineKind::Drums) return;
+  Modal modal;
+  modal.kind = ModalKind::SampleBrowser;
+  modal.payload = "pad";
+  modal.title = "P" + std::to_string(DrumLane() + 1) + " SAMPLE";
+  OpenModal(std::move(modal));
+  RefreshSampleBrowser();
+}
+
+void Controller::OpenPadRecord()
+{
+  if (ActiveKind() != synth::SynthEngineKind::Drums) return;
+  Modal modal;
+  modal.kind = ModalKind::PadRecord;
+  modal.title = "RECORD PAD " + std::to_string(DrumLane() + 1);
+  OpenModal(std::move(modal));
+}
+
+// ENTER on the pad's recording: starts it, and stops and keeps it (also at the end of the two seconds).
+void Controller::PadRecordEnter()
+{
+  const PadRecordState recording = host_.PadRecording();
+  std::string message;
+  if (!recording.active)
+  {
+    if (!host_.BeginPadRecord(state_.track, DrumLane(), message)) ShowToast(message, ToastKind::Error);
+    return;
+  }
+  if (host_.FinishPadRecord(message))
+  {
+    if (Top() != nullptr && Top()->kind == ModalKind::PadRecord) CloseModal();
+    MarkDirty();
+    ShowToast(message + " ON PAD " + std::to_string(recording.pad + 1), ToastKind::Ok);
+    return;
+  }
+  ShowToast(message, ToastKind::Error);
+}
+
 void Controller::OpenEnginePicker()
 {
   Modal modal;
@@ -193,7 +316,7 @@ void Controller::RefreshSampleBrowser()
 {
   Modal* modal = Top();
   if (modal == nullptr) return;
-  const std::string current = host_.Sampler().BuildUiState(state_.track).sampleFileName;
+  const std::string current = modal->payload == "pad" ? host_.PadSample(state_.track, DrumLane()) : host_.Sampler().BuildUiState(state_.track).sampleFileName;
   modal->items.clear();
   for (const std::string& file : host_.ListSamples())
     if (Matches(file, modal->search)) modal->items.push_back({file, Upper(file), file == current});
@@ -232,8 +355,15 @@ void Controller::ModalAdjust(int delta, bool coarse)
       // picker is a row: ADD moves right.
       const int direction = modal->kind == ModalKind::EnginePicker ? delta : -delta;
       const int step = direction * (coarse ? 8 : 1);
+      const std::size_t before = modal->cursor;
       modal->cursor = static_cast<std::size_t>(std::clamp(static_cast<int>(modal->cursor) + step, 0, count - 1));
-      if (modal->kind == ModalKind::PresetBrowser) FillPresetRows(*modal);
+      if (modal->kind == ModalKind::PresetBrowser && modal->payload == "sounds")
+      {
+        // Each sound is heard on the pad as the cursor comes to it.
+        if (modal->cursor != before) PreviewPadSound(modal->presets[modal->cursor]);
+        FillSoundRows(*modal);
+      }
+      else if (modal->kind == ModalKind::PresetBrowser) FillPresetRows(*modal);
       return;
     }
     case ModalKind::SampleRecord:
@@ -269,6 +399,17 @@ void Controller::ModalEnter()
       synth::ISynthEngine* engine = ActiveEngine();
       const ListItem* row = modal->Row(modal->cursor);
       if (engine == nullptr || row == nullptr) return;
+      if (modal->payload == "sounds")
+      {
+        // The one under the cursor stays (it already plays, unless ENTER came before any move).
+        const int sound = std::stoi(row->id);
+        synth::SynthParameterInfo info;
+        const bool sample = !host_.PadSample(state_.track, DrumLane()).empty();
+        if (sample || !engine->GetParameterInfo(synth::kDrumSoundIds[DrumLane()], info) || info.value != sound) PreviewPadSound(sound);
+        CloseModal();
+        ShowToast("PAD " + std::to_string(DrumLane() + 1) + ": " + row->label);
+        return;
+      }
       const std::string id = row->id;
       // The current preset too: loading it again drops its edits.
       if (ConfirmLosingEdits(ConfirmPurpose::ChangePreset, "LOAD " + row->label + "?", id)) return;
@@ -296,6 +437,19 @@ void Controller::ModalEnter()
     {
       if (modal->items.empty()) return;
       const std::string id = modal->items[modal->cursor].id;
+      if (modal->payload == "pad")
+      {
+        std::string message;
+        if (host_.SetPadSample(state_.track, DrumLane(), id, message))
+        {
+          CloseModal();
+          MarkDirty();
+          ShowToast(Upper(id.substr(0, id.rfind('.'))) + " ON PAD " + std::to_string(DrumLane() + 1), ToastKind::Ok);
+          AuditionPad();
+        }
+        else ShowToast(message, ToastKind::Error);
+        return;
+      }
       auto& sampler = host_.Sampler();
       if (sampler.SelectBrowserSample(state_.track, id))
       {
@@ -323,6 +477,9 @@ void Controller::ModalEnter()
     case ModalKind::SampleRecord:
       SampleRecordEnter();
       return;
+    case ModalKind::PadRecord:
+      PadRecordEnter();
+      return;
     case ModalKind::TextEntry:
       CommitText();
       return;
@@ -347,7 +504,8 @@ void Controller::ModalFnEnter()
     RecordFnEnter();
     return;
   }
-  if (modal == nullptr || modal->kind != ModalKind::SampleBrowser || modal->items.empty()) return;
+  // A pad's list only chooses: renaming and deleting are in the sampler's.
+  if (modal == nullptr || modal->kind != ModalKind::SampleBrowser || modal->items.empty() || modal->payload == "pad") return;
   Modal options;
   options.kind = ModalKind::SampleOptions;
   options.title = modal->items[modal->cursor].label;
@@ -396,6 +554,24 @@ void Controller::ModalCancel()
         modal->search.clear();
         modal->kind == ModalKind::PresetBrowser ? RefreshPresetBrowser() : RefreshSampleBrowser();
         return;
+      }
+      if (modal->payload == "sounds")
+      {
+        // The pad gets back what it played before the list opened.
+        const int sound = modal->restoreValue;
+        const std::string sample = modal->detail;
+        CloseModal();
+        std::string message;
+        if (synth::ISynthEngine* engine = ActiveEngine(); engine != nullptr && sound >= 0) (void)engine->SetParameterValue(synth::kDrumSoundIds[DrumLane()], sound);
+        if (!sample.empty() && host_.PadSample(state_.track, DrumLane()).empty()) (void)host_.SetPadSample(state_.track, DrumLane(), sample, message);
+        return;
+      }
+      break;
+    case ModalKind::PadRecord:
+      if (host_.PadRecording().active)
+      {
+        host_.CancelPadRecord();
+        ShowToast("RECORDING CANCELLED");
       }
       break;
     case ModalKind::SampleRecord:

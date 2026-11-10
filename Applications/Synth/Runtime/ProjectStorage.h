@@ -8,6 +8,7 @@
 
 #include "Applications/Synth/Runtime/Sequencer/SynthSequencer.h"
 #include "Library/Synth/Audio/SynthFx.h"
+#include "Library/Synth/Core/Engines/Drums/DrumSounds.h"
 #include "Library/Synth/Core/ISynthEngine.h"
 
 namespace synth {
@@ -42,6 +43,9 @@ struct ProjectData {
   std::array<SynthEngineKind, kSynthTrackCount> kinds{};
   std::array<SynthEngineState, kSynthTrackCount> engines{};
   std::array<std::string, kSynthTrackCount> samples{};
+  // A drum track's pads that play a sample from the card in place of their sound (version 8): the
+  // file in Samples, empty for a pad that plays its sound.
+  std::array<std::array<std::string, drums::kPadCount>, kSynthTrackCount> padSamples{};
   std::unique_ptr<SynthSequencer::ProjectState> sequence;
   std::size_t activeTrack = kDefaultActiveTrack;
   int octave = 0;

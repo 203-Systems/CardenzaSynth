@@ -1310,6 +1310,54 @@ std::string WithOneLengthPerTrack(const std::string& text) {
   return out;
 }
 
+// The file as versions before 8 wrote it: no PADS lines.
+std::string WithoutPads(const std::string& text) {
+  std::string out;
+  std::size_t at = 0;
+  while (at < text.size()) {
+    const std::size_t end = std::min(text.find('\n', at), text.size());
+    const std::string line = text.substr(at, end - at);
+    if (line.rfind("PADS", 0) != 0) out += line + '\n';
+    at = end + 1;
+  }
+  return out;
+}
+
+// Version 8: a drum track's pads name the samples they play from the card; version 7 files load
+// with none, and a pad sample on another engine's track or a path in a name is refused.
+void TestProjectPadSamples() {
+  using namespace synth;
+  ProjectData project;
+  project.sequence = std::make_unique<SynthSequencer>()->CaptureState();
+  for (std::size_t i = 0; i < kSynthTrackCount; ++i) {
+    project.kinds[i] = i == 1 ? SynthEngineKind::Drums : SynthEngineKind::Juno;
+    project.engines[i] = {i == 1 ? "drums.909" : "factory.2", "", "Kit", {}};
+  }
+  project.engines[1].values = {{"pad3.sound", 40}, {"pad3.tune", -5}};
+  project.padSamples[1][2] = "MY HAT.wav";
+  project.padSamples[1][7] = "TAKE_01.wav";
+  assert(SaveProjectFile("pads trip", project, true) == ProjectResult::Ok);
+  const auto path = projectDirectory / "pads trip.ccproj";
+  const std::string valid = ReadText(path);
+  assert(valid.find("\nPADS \"\" \"\" \"MY HAT.wav\" \"\" \"\" \"\" \"\" \"TAKE_01.wav\"\n") != std::string::npos);
+  ProjectData loaded;
+  assert(LoadProjectFile("pads trip", loaded) == ProjectResult::Ok);
+  assert(loaded.padSamples == project.padSamples && loaded.engines[1].values.at("pad3.tune") == -5);
+  // As version 7 wrote it: no PADS lines, no pad samples.
+  std::string v7 = WithoutPads(valid);
+  v7.replace(0, std::string("CARDENZA_PROJECT 8").size(), "CARDENZA_PROJECT 7");
+  WriteText(path, v7);
+  ProjectData old;
+  assert(LoadProjectFile("pads trip", old) == ProjectResult::Ok);
+  assert(old.padSamples[1][2].empty() && old.engines[1].values.at("pad3.sound") == 40);
+  project.padSamples[0][0] = "ON JUNO.wav";
+  assert(SaveProjectFile("pads trip", project, true) == ProjectResult::Invalid);
+  project.padSamples[0][0].clear();
+  project.padSamples[1][0] = "../KICK.wav";
+  assert(SaveProjectFile("pads trip", project, true) == ProjectResult::Invalid);
+  std::filesystem::remove(path);
+}
+
 void TestProjectVersion2() {
   using namespace synth;
   auto sequencer = std::make_unique<SynthSequencer>();
@@ -1342,7 +1390,9 @@ void TestProjectVersion2() {
   assert(SaveProjectFile("v2 trip", project, false) == ProjectResult::Ok);
   const auto path = projectDirectory / "v2 trip.ccproj";
   const std::string valid = ReadText(path);
-  assert(valid.find("CARDENZA_PROJECT 7\nBUILD CardenzaSynth 1\nUI ") == 0);
+  assert(valid.find("CARDENZA_PROJECT 8\nBUILD CardenzaSynth 1\nUI ") == 0);
+  // Version 8: every track names the samples its pads play (none here).
+  assert(valid.find("\nPADS \"\" \"\" \"\" \"\" \"\" \"\" \"\" \"\"\n") != std::string::npos);
   assert(valid.find("\nSYSTEM 7\nFX 12 11 56 72 100 76 52 36 0 0 64 64 127\nKEYS 2 90\nPLAYFX 0 0 0 0 3 1 50 0\n") != std::string::npos);
   assert(valid.find("\nPLAYFX 3 5 2 5 5 4 100 1\nTRACK 0 ") != std::string::npos);
   assert(valid.find("\nMIX 0 10 1 0\n") != std::string::npos && valid.find("\nSEQ 120 66\n") != std::string::npos);
@@ -1369,7 +1419,10 @@ void TestProjectVersion2() {
     assert(LoadProjectFile("v2 trip", loaded) == ProjectResult::Invalid);
     assert(loaded.sequence.get() == old && loaded.backlight == 7);
   };
-  reject("CARDENZA_PROJECT 7", "CARDENZA_PROJECT 8");
+  reject("CARDENZA_PROJECT 8", "CARDENZA_PROJECT 9");
+  // A pad's sample on a track that is no drum machine, or a path, is refused.
+  reject("\nPADS \"\" ", "\nPADS \"KICK.wav\" ");
+  reject("\nPADS \"\" ", "\nPADS ");
   reject("\nKEYS 2 90\n", "\nKEYS 3 90\n");
   reject("\nKEYS 2 90\n", "\nKEYS 2 0\n");
   reject("\nPLAYFX 3 5 2 5 5 4 100 1\n", "\nPLAYFX 3 11 2 5 5 4 100 1\n");
@@ -1383,8 +1436,9 @@ void TestProjectVersion2() {
     const auto keys = valid.find("\nKEYS ");
     const auto track = valid.find("\nTRACK 0 ");
     std::string v5 = valid.substr(0, keys + 1) + "PLAY 4 2 1 96 3 5 2 75 1\n" + valid.substr(track + 1);
-    v5.replace(0, std::string("CARDENZA_PROJECT 7").size(), "CARDENZA_PROJECT 5");
-    reject("CARDENZA_PROJECT 7", "CARDENZA_PROJECT 5");  // a version 5 file needs its PLAY line
+    v5.replace(0, std::string("CARDENZA_PROJECT 8").size(), "CARDENZA_PROJECT 5");
+    v5 = WithoutPads(v5);
+    reject("CARDENZA_PROJECT 8", "CARDENZA_PROJECT 5");  // a version 5 file needs its PLAY line
     WriteText(path, v5);
     ProjectData fromV5;
     assert(LoadProjectFile("v2 trip", fromV5) == ProjectResult::Ok);
@@ -1392,7 +1446,7 @@ void TestProjectVersion2() {
     assert(fromV5.masterFx == project.masterFx && fromV5.mixer.level == project.mixer.level && fromV5.engines[2].values.at("vcf.cutoff") == 40);
     assert(SaveProjectFile("v2 trip", fromV5, true) == ProjectResult::Ok);
     const std::string resaved = ReadText(path);
-    assert(resaved.find("CARDENZA_PROJECT 7\n") == 0 && resaved.find("\nPLAY ") == std::string::npos);
+    assert(resaved.find("CARDENZA_PROJECT 8\n") == 0 && resaved.find("\nPLAY ") == std::string::npos);
     WriteText(path, valid);
   }
   reject("\nFX 12 11 ", "\nFX 12 12 ");  // Delay time past the last division.
@@ -1481,7 +1535,7 @@ void TestProjectVersion2() {
   assert(legacy.sequence->songLength == 0 && legacy.sequence->songLoop);
   // Re-saving upgrades it to the current version with the same content.
   assert(SaveProjectFile("legacy", legacy, true) == ProjectResult::Ok);
-  assert(ReadText(projectDirectory / "legacy.ccproj").find("CARDENZA_PROJECT 7\n") == 0);
+  assert(ReadText(projectDirectory / "legacy.ccproj").find("CARDENZA_PROJECT 8\n") == 0);
   ProjectData upgraded;
   assert(LoadProjectFile("legacy", upgraded) == ProjectResult::Ok);
   assert(upgraded.masterFx == ProjectData::DefaultMasterFx());
@@ -1544,7 +1598,7 @@ void TestProjectSong() {
   const auto path = projectDirectory / "song trip.ccproj";
   const std::string valid = ReadText(path);
   const std::string section = "SONG 2 0\nR 0 2 -1 0 4\nR -1 0 0 0 16\n";
-  assert(valid.find("CARDENZA_PROJECT 7\n") == 0 && valid.find("\n" + section + "END\n") != std::string::npos);
+  assert(valid.find("CARDENZA_PROJECT 8\n") == 0 && valid.find("\n" + section + "END\n") != std::string::npos);
 
   ProjectData loaded;
   assert(LoadProjectFile("song trip", loaded) == ProjectResult::Ok);
@@ -1587,8 +1641,8 @@ void TestProjectSong() {
   const auto fxLine = valid.find("\nFX ");
   std::string v3 = valid;
   v3.erase(fxLine + 1, valid.find("\nTRACK 0 ") - fxLine);
-  v3.replace(0, std::string("CARDENZA_PROJECT 7").size(), "CARDENZA_PROJECT 3");
-  v3 = WithOneLengthPerTrack(v3);
+  v3.replace(0, std::string("CARDENZA_PROJECT 8").size(), "CARDENZA_PROJECT 3");
+  v3 = WithOneLengthPerTrack(WithoutPads(v3));
   WriteText(path, v3);
   assert(LoadProjectFile("song trip", loaded) == ProjectResult::Ok && loaded.masterFx == ProjectData::DefaultMasterFx());
 
@@ -1635,6 +1689,7 @@ int main() {
   TestSongPlayback();
   TestSongCueAndToggle();
   TestProjectVersion2();
+  TestProjectPadSamples();
   TestLargestProject();
   TestProjectSong();
   Output output; // Outlives the sequencer's final stop callback.

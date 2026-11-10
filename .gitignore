@@ -10,6 +10,8 @@
 **/dist/
 
 # CMake and local build trees
+# Generated at configure time (tools/audio/drum_sounds.py)
+Library/Synth/Core/Engines/Drums/generated/
 build/
 build-cardenza/
 out/
