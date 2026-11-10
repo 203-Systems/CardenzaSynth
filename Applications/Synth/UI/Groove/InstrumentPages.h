@@ -47,6 +47,9 @@ enum class PageGraphic : std::uint8_t {
   Arp,               // INSTR ARP: the order the track's arpeggiator plays a chord in
   Keys,              // SETUP KEYS: the scale on a keyboard
   System,            // SETUP SYSTEM: storage, memory and audio status
+  Route,             // INSTR ROUTE: the track and the computer on USB, a lane per connection
+  Controllers,       // EMPTY MIDI: the eight controllers' values, by number
+  ControllerMap,     // EMPTY CC: which controller each one is, by name
 };
 
 struct GraphicArea {
@@ -71,7 +74,7 @@ struct InstrumentPageList {
 };
 
 // In signal order: VOICE (the preset), the track's MIDI effects CHORD and ARP (not on drums), the
-// engine's parameter pages, then FX. At most 16 pages, so the CTRL page map fits the GRID.
+// engine's parameter pages, FX, then ROUTE (USB). At most 16 pages, so the CTRL page map fits the GRID.
 InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind);
 
 // The settings pages of the SETUP scene: 0 KEYS, 1 SYSTEM (scene pages kSetupKeys..).

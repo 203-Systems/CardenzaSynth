@@ -151,10 +151,12 @@ void DrawConfirm(Gfx& g, Animator& animator, const Modal& modal)
 void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, const Modal& modal)
 {
   Title(g, "ENGINE  T" + std::to_string(controller.State().track + 1), kTab);
-  static constexpr std::array<const char*, 4> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT"}};
-  for (std::size_t index = 0; index < modal.items.size() && index < 4; ++index)
+  static constexpr std::array<const char*, 5> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT",
+                                                       "NO SOUND: USB MIDI, PC AUDIO"}};
+  // Four to a row, each above the GRID key one row up that picks it.
+  for (std::size_t index = 0; index < modal.items.size() && index < kDetails.size(); ++index)
   {
-    const Rect cell = Cell(1, index);
+    const Rect cell = Cell(1 + index / 4, index % 4);
     const bool selected = index == modal.cursor;
     const auto& item = modal.items[index];
     if (selected)
@@ -166,8 +168,9 @@ void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, 
     g.TextFit(cell.x + 3, cell.y + 3, cell.width - 5, item.label, selected ? kBlack : kInk, Font::Small);
     if (item.marked) g.Text(cell.x + 3, cell.y + 15, "NOW", selected ? kBlack : kTab);
   }
+  const int detailX = Cell(2, 1).x + 2;
   if (modal.cursor < kDetails.size())
-    fx::DecodeText(g, Cell(2, 0).x, Cell(2, 0).y + 6, kDetails[modal.cursor], kDim, Font::Micro,
+    fx::DecodeText(g, detailX, Cell(2, 0).y + 3, kDetails[modal.cursor], kDim, Font::Micro,
                    fx::Progress(animator.Now(), animator.ModalOpenedAt(), 400), static_cast<std::uint32_t>(modal.cursor) + animator.Now() / 50);
   g.Text(Cell(3, 0).x, Cell(3, 0).y + 6, "THE TRACK SOUND IS REPLACED", kFaint);
 }

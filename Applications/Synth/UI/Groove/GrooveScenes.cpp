@@ -1,4 +1,5 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
+#include "Library/Synth/Core/Engines/Empty/EmptySynthEngine.h"
 #include "OS/Storage/DeviceSettings.h"
 
 #include <algorithm>
@@ -64,6 +65,21 @@ bool Controller::SlotHasValue(const Slot& slot) const
   return slot.IsParameter();
 }
 
+// A slot's name on its cell. The empty instrument's controller values are named by their number, which
+// the CC page sets ("CC 74"); every other slot by its page.
+std::string Controller::SlotLabel(const Slot& slot) const
+{
+  if (slot.id == nullptr || ActiveKind() != synth::SynthEngineKind::Empty) return slot.label != nullptr ? slot.label : "";
+  for (std::size_t index = 0; index < synth::empty::kControllerCount; ++index)
+  {
+    if (std::strcmp(slot.id, synth::empty::kControllerValueIds[index]) != 0) continue;
+    synth::SynthParameterInfo number;
+    const synth::ISynthEngine* engine = ActiveEngine();
+    if (engine != nullptr && engine->GetParameterInfo(synth::empty::kControllerNumberIds[index], number)) return "CC " + std::to_string(number.value);
+  }
+  return slot.label != nullptr ? slot.label : "";
+}
+
 bool Controller::SlotValue(const Slot& slot, synth::SynthParameterInfo& info, std::string& text) const
 {
   if (!slot.IsParameter()) return false;
@@ -82,8 +98,27 @@ namespace {
 
 bool IsSetting(const char* id)
 {
-  return StartsWith(id, "keys.") || StartsWith(id, "chord.") || StartsWith(id, "arp.") || StartsWith(id, "proj.") || StartsWith(id, "sys.");
+  return StartsWith(id, "keys.") || StartsWith(id, "chord.") || StartsWith(id, "arp.") || StartsWith(id, "proj.") || StartsWith(id, "sys.") ||
+         StartsWith(id, "route.") || StartsWith(id, "usb.");
 }
+
+// ROUTE's choices as the page shows them (synth::TrackRouting counts them the same way).
+std::string MidiInName(std::uint8_t value)
+{
+  if (value == synth::kMidiInOff) return "OFF";
+  if (value == synth::kMidiInAuto) return "AUTO";
+  if (value == synth::kMidiInAll) return "ALL";
+  return "CH " + std::to_string(value - synth::kMidiInFirstChannel + 1);
+}
+
+std::string MidiOutName(std::uint8_t value)
+{
+  if (value == synth::kMidiOutOff) return "OFF";
+  if (value == synth::kMidiOutAuto) return "AUTO";
+  return "CH " + std::to_string(value - synth::kMidiOutFirstChannel + 1);
+}
+
+constexpr std::array<const char*, synth::kAudioInChoices> kAudioInNames{{"OFF", "L+R", "L", "R"}};
 
 bool Is(const char* id, const char* name)
 {
@@ -159,6 +194,45 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
     choice(host_.Logging() ? 1 : 0, 2, os::storage::kDefaultLogEnabled ? 1 : 0, host_.Logging() ? "ON" : "OFF");
     info.kind = synth::SynthParameterKind::Toggle;
   }
+  else if (Is(id, "usb.clock"))
+  {
+    choice(host_.MidiClockOut() ? 1 : 0, 2, 0, host_.MidiClockOut() ? "ON" : "OFF");
+    info.kind = synth::SynthParameterKind::Toggle;
+  }
+  else if (StartsWith(id, "route."))
+  {
+    // The current track's connections to a computer on USB.
+    const synth::TrackRouting routing = host_.Routing(state_.track);
+    std::string name;
+    if (Is(id, "route.midi_in"))
+    {
+      name = MidiInName(routing.midiIn);
+      choice(routing.midiIn, synth::kMidiInChoices, synth::kMidiInAuto, "");
+    }
+    else if (Is(id, "route.midi_out"))
+    {
+      name = MidiOutName(routing.midiOut);
+      choice(routing.midiOut, synth::kMidiOutChoices, synth::kMidiOutAuto, "");
+    }
+    else if (Is(id, "route.audio_in"))
+    {
+      name = kAudioInNames[static_cast<std::size_t>(routing.audioIn)];
+      choice(static_cast<int>(routing.audioIn), synth::kAudioInChoices, 0, "");
+    }
+    else if (Is(id, "route.gain"))
+    {
+      name = (routing.inputGainDb > 0 ? "+" : "") + std::to_string(routing.inputGainDb) + " DB";
+      number(routing.inputGainDb, synth::kMinInputGainDb, synth::kMaxInputGainDb, 0, "");
+    }
+    else if (Is(id, "route.audio_out"))
+    {
+      name = routing.audioOut ? "ON" : "OFF";
+      choice(routing.audioOut ? 1 : 0, 2, 1, "");
+      info.kind = synth::SynthParameterKind::Toggle;
+    }
+    else return false;
+    text = name;
+  }
   else return false;
   return true;
 }
@@ -204,12 +278,23 @@ void Controller::AdjustSetting(const char* id, int delta)
   else if (Is(id, "sys.led")) host_.SetLedBrightness(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.screen")) host_.SetBacklight(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.log")) host_.SetLogging(value != 0);
+  else if (Is(id, "usb.clock")) host_.SetMidiClockOut(value != 0);
+  else if (StartsWith(id, "route."))
+  {
+    synth::TrackRouting routing = host_.Routing(state_.track);
+    if (Is(id, "route.midi_in")) routing.midiIn = static_cast<std::uint8_t>(value);
+    else if (Is(id, "route.midi_out")) routing.midiOut = static_cast<std::uint8_t>(value);
+    else if (Is(id, "route.audio_in")) routing.audioIn = static_cast<synth::audio::LineChannels>(value);
+    else if (Is(id, "route.gain")) routing.inputGainDb = static_cast<std::int8_t>(value);
+    else if (Is(id, "route.audio_out")) routing.audioOut = value != 0;
+    host_.SetRouting(state_.track, routing);
+  }
   // The key range moves under held pads: let them go before they map to other notes.
   if (Is(id, "keys.layout") || Is(id, "keys.octave")) ReleaseAllPads();
   // Only project data makes the project unsaved: the keyboard, the tracks' chords and arpeggiators,
   // tempo, swing and steps. SELECT is an app setting, the rest are performance or device settings.
-  if ((StartsWith(id, "keys.") && !Is(id, "keys.select")) || StartsWith(id, "chord.") || StartsWith(id, "arp.") || Is(id, "proj.bpm") ||
-      Is(id, "proj.swing") || Is(id, "proj.steps"))
+  if ((StartsWith(id, "keys.") && !Is(id, "keys.select")) || StartsWith(id, "chord.") || StartsWith(id, "arp.") || StartsWith(id, "route.") ||
+      Is(id, "proj.bpm") || Is(id, "proj.swing") || Is(id, "proj.steps"))
     MarkDirty();
 }
 
@@ -529,7 +614,7 @@ bool Controller::CellParameter(std::size_t index, std::string& label, synth::Syn
   if (slot != nullptr)
   {
     if (!slot->IsParameter() || !SlotValue(*slot, info, text)) return false;
-    label = slot->label;
+    label = SlotLabel(*slot);
     return true;
   }
   if (state_.scene == Scene::Setup && CurrentPage() == kSetupProject && (index == kProjectBpm || index == kProjectSwing))

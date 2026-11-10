@@ -62,6 +62,7 @@ const char* EngineName(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return "JUNO";
     case synth::SynthEngineKind::Dx7: return "DX7";
     case synth::SynthEngineKind::Sampler: return "SAMPLER";
+    case synth::SynthEngineKind::Empty: return "EMPTY";
     default: return "ENGINE";
   }
 }

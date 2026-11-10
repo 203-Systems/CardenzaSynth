@@ -11,6 +11,7 @@
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Applications/Synth/UI/Groove/Render/Widgets.h"
+#include "Library/Synth/Core/Engines/Empty/EmptySynthEngine.h"
 
 namespace groove::render {
 
@@ -323,6 +324,144 @@ void DrawFxChain(Gfx& g, const Controller& controller, Animator& animator, const
 
 void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, const Rect& panel);
 
+// Dots running along a lane while something goes through it, towards `toRight` or the other way.
+void LaneDots(Gfx& g, int x0, int x1, int y, bool toRight, std::uint32_t now, Color color)
+{
+  const float travel = static_cast<float>(now % 900) / 900.0f;
+  for (int dot = 0; dot < 3; ++dot)
+  {
+    const float position = std::fmod(travel + static_cast<float>(dot) / 3.0f, 1.0f);
+    const float along = toRight ? position : 1.0f - position;
+    const int x = x0 + static_cast<int>(along * static_cast<float>(x1 - x0));
+    g.Fill(Rect{x - 1, y - 1, 3, 3}, color);
+  }
+}
+
+// One connection between the computer (left) and the track (right): its name and setting next to where
+// it starts, then a line with an arrowhead where it arrives; dotted and faint while it is off.
+void RouteLane(Gfx& g, int left, int right, int y, bool toTrack, bool on, const std::string& text)
+{
+  const Color ink = on ? kInk : kFaint;
+  const int width = Gfx::Measure(text);
+  const int textX = toTrack ? left + 2 : right - width - 2;
+  g.Text(textX, y - 3, text, on ? kDim : kFaint);
+  const int lineFrom = toTrack ? textX + width + 4 : left;
+  const int lineTo = toTrack ? right : textX - 4;
+  if (lineTo - lineFrom < 6) return;
+  if (on) g.HLine(lineFrom, y, lineTo - lineFrom, ink);
+  else g.DottedHLine(lineFrom, y, lineTo - lineFrom, ink);
+  const int tip = toTrack ? lineTo - 1 : lineFrom;
+  const int back = toTrack ? -1 : 1;
+  for (int step = 1; step <= 2; ++step) g.VLine(tip + back * step, y - step, 2 * step + 1, ink);
+}
+
+// INSTR ROUTE: the computer on USB at the left, the track at the right, a lane for each connection:
+// notes coming in, notes going out, the computer's sound coming in (with its level) and the track going
+// into what the computer records. Dots run while something goes through.
+void DrawRoute(Gfx& g, const Controller& controller, Animator& animator, const Rect& area)
+{
+  const Host& host = controller.HostView();
+  const std::size_t track = controller.State().track;
+  const synth::TrackRouting routing = host.Routing(track);
+  const bool connected = host.ComputerConnected();
+  const std::uint32_t now = animator.Now();
+  const Color trackColor = TrackColor(track);
+  const Rect pc{area.x, area.y + 1, 26, area.height - 2};
+  const Rect own{area.x + area.width - 28, area.y + 1, 28, area.height - 2};
+  g.Stroke(pc, connected ? kDim : kFaint);
+  g.TextAligned(Rect{pc.x, pc.y + 8, pc.width, 9}, "USB", connected ? kInk : kFaint, Font::Micro, Align::Center);
+  g.TextAligned(Rect{pc.x, pc.y + 24, pc.width, 9}, connected ? "PC" : "--", connected ? kDim : kFaint, Font::Micro, Align::Center);
+  g.Stroke(own, trackColor);
+  g.TextAligned(Rect{own.x, own.y + 8, own.width, 9}, "T" + std::to_string(track + 1), trackColor, Font::Micro, Align::Center);
+  g.TextAligned(Rect{own.x, own.y + 24, own.width, 9}, std::string(EngineCode(host.EngineKind(track))), kDim, Font::Micro, Align::Center);
+
+  const int left = pc.x + pc.width + 3;
+  const int right = own.x - 3;
+  const int pitch = area.height / 4;
+  const int firstY = area.y + pitch / 2 + 1;
+  const auto channelText = [&](int channel) { return channel < 0 ? std::string("OFF") : "CH " + std::to_string(channel + 1); };
+  // MIDI in: AUTO is the track's own channel (and, while it is the current track, the ones nobody takes).
+  std::string in = "MIDI OFF";
+  if (routing.midiIn == synth::kMidiInAll) in = "MIDI ALL";
+  else if (routing.midiIn == synth::kMidiInAuto) in = "MIDI CH " + std::to_string(track + 1) + "+";
+  else if (routing.midiIn >= synth::kMidiInFirstChannel) in = "MIDI CH " + std::to_string(routing.midiIn - synth::kMidiInFirstChannel + 1);
+  RouteLane(g, left, right, firstY, true, routing.midiIn != synth::kMidiInOff, in);
+  const int outChannel = synth::MidiOutChannel(routing, track);
+  RouteLane(g, left, right, firstY + pitch, false, outChannel >= 0, "MIDI " + channelText(outChannel));
+  static constexpr std::array<const char*, 4> kChannels{{"OFF", "L+R", "L", "R"}};
+  const bool audioIn = routing.audioIn != synth::audio::LineChannels::Off;
+  std::string audio = std::string("AUDIO ") + kChannels[static_cast<std::size_t>(routing.audioIn)];
+  if (audioIn && routing.inputGainDb != 0) audio += (routing.inputGainDb > 0 ? " +" : " ") + std::to_string(routing.inputGainDb) + "DB";
+  RouteLane(g, left, right, firstY + 2 * pitch, true, audioIn, audio);
+  RouteLane(g, left, right, firstY + 3 * pitch, false, routing.audioOut, routing.audioOut ? "AUDIO" : "AUDIO OFF");
+
+  // What goes through now.
+  const float activity = host.TrackActivity(track);
+  if (connected && outChannel >= 0 && activity > 0.02f) LaneDots(g, left + 4, right - 70, firstY + pitch, false, now, trackColor);
+  const float level = host.TrackLineLevel(track);
+  if (audioIn && level > 0.002f)
+  {
+    // The computer's level, at the end of its lane.
+    const int meterWidth = 24;
+    const Rect meter{right - meterWidth - 6, firstY + 2 * pitch - 2, meterWidth, 5};
+    g.Fill(meter, kBlack);
+    widgets::LevelBar(g, meter, std::min(1.0f, std::sqrt(level)), level > 0.95f ? kRec : kPlay, kFaint);
+  }
+  if (connected && routing.audioOut && activity > 0.02f) LaneDots(g, left + 4, right - 40, firstY + 3 * pitch, false, now + 300, kTab);
+}
+
+// EMPTY MIDI, under the patch: where it goes and what was sent, or why nothing goes.
+void DrawControllers(Gfx& g, const Controller& controller, const Rect& area)
+{
+  namespace empty = synth::empty;
+  const Host& host = controller.HostView();
+  const std::size_t track = controller.State().track;
+  const auto* engine = host.Engine(track);
+  const int channel = synth::MidiOutChannel(host.Routing(track), track);
+  const int y = area.y + 3;
+  if (channel < 0)
+  {
+    g.TextFit(area.x + 2, y, area.width - 4, "MIDI OUT IS OFF: SEE ROUTE", kRec);
+    return;
+  }
+  std::string line = "TO CH " + std::to_string(channel + 1);
+  const int program = EngineRaw(engine, empty::kProgramId, empty::kOff);
+  const int msb = EngineRaw(engine, empty::kBankMsbId, empty::kOff);
+  const int lsb = EngineRaw(engine, empty::kBankLsbId, empty::kOff);
+  if (program != empty::kOff) line += "  PROGRAM " + std::to_string(program + 1);
+  if (msb != empty::kOff || lsb != empty::kOff)
+    line += "  BANK " + (msb == empty::kOff ? std::string("-") : std::to_string(msb)) + ":" + (lsb == empty::kOff ? std::string("-") : std::to_string(lsb));
+  int controllers = 0;
+  for (const char* id : empty::kControllerValueIds) controllers += EngineRaw(engine, id, empty::kOff) != empty::kOff;
+  if (controllers > 0) line += "  " + std::to_string(controllers) + " CC";
+  g.TextFit(area.x + 2, y, area.width - 4, line, kInk);
+  g.TextFit(area.x + 2, y + 10, area.width - 4, host.ComputerConnected() ? "SENT AS IT CHANGES" : "NO COMPUTER: SENT WHEN ONE CONNECTS",
+            host.ComputerConnected() ? kFaint : kDim);
+}
+
+// EMPTY CC: each controller's number, what it usually does, and its value (from MIDI).
+void DrawControllerMap(Gfx& g, const Controller& controller, const Rect& area)
+{
+  namespace empty = synth::empty;
+  const Host& host = controller.HostView();
+  const auto* engine = host.Engine(controller.State().track);
+  const int columnWidth = area.width / 2;
+  const int pitch = area.height / 4;
+  for (std::size_t index = 0; index < empty::kControllerCount; ++index)
+  {
+    const int x = area.x + 2 + static_cast<int>(index / 4) * columnWidth;
+    const int y = area.y + 2 + static_cast<int>(index % 4) * pitch;
+    const int number = EngineRaw(engine, empty::kControllerNumberIds[index], 0);
+    const int value = EngineRaw(engine, empty::kControllerValueIds[index], empty::kOff);
+    const char letter[2] = {static_cast<char>('A' + index), 0};
+    g.Text(x, y, letter, kDim);
+    const std::string_view name = empty::ControllerName(number);
+    g.TextFit(x + 9, y, columnWidth - 34, std::to_string(number) + (name.empty() ? "" : " " + std::string(name)), value == empty::kOff ? kDim : kInk);
+    const std::string shown = value == empty::kOff ? "--" : std::to_string(value);
+    g.Text(x + columnWidth - 8 - Gfx::Measure(shown), y, shown, value == empty::kOff ? kFaint : kInk);
+  }
+}
+
 void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const InstrumentPage& page)
 {
   const Host& host = controller.HostView();
@@ -570,6 +709,15 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
     case PageGraphic::DrumPads:
       DrawPads(g, controller, animator, area, engine);
       break;
+    case PageGraphic::Route:
+      DrawRoute(g, controller, animator, area);
+      break;
+    case PageGraphic::Controllers:
+      DrawControllers(g, controller, area);
+      break;
+    case PageGraphic::ControllerMap:
+      DrawControllerMap(g, controller, area);
+      break;
     case PageGraphic::None:
     default:
       break;
@@ -605,7 +753,7 @@ void DrawSlotPage(Gfx& g, const Controller& controller, Animator& animator, cons
     if (fraction >= 0.0f)
       fraction = animator.Smooth(Animator::Key(slot.id, static_cast<std::uint32_t>(state.track) * 31u + 7u), fraction, 60.0f);
     const float flash = current ? fx::Decay(now, animator.ValueChangedAt(slotIndex), 320) : 0.0f;
-    widgets::ParamCell(g, cell, slot.label, text, fraction, slotIndex == focus ? CellStyle::Focused : CellStyle::Normal, flash, now, false);
+    widgets::ParamCell(g, cell, controller.SlotLabel(slot), text, fraction, slotIndex == focus ? CellStyle::Focused : CellStyle::Normal, flash, now, false);
     if (current) GridRipple(g, animator, slotIndex, kInk);
   }
   // The focus frame glides from cell to cell instead of jumping.

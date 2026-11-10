@@ -196,6 +196,8 @@ enum class PendingEventType {
   SetTrackGain,
   SetTrackMuted,
   SetMasterFx,
+  SetTrackLine,
+  SetTrackToComputer,
 };
 
 struct PendingEvent {
@@ -345,7 +347,13 @@ struct FxState {
 FxState g_fx;
 // Render hook plan for the AMY block being rendered (all null outside the effects path).
 std::array<FxHookTrack, kSynthTrackCount> g_fxHook{};
-float g_outputGain = kOutputGain;  // The limiter's current gain.
+// The output stage's state (LimitOutputNoLock): the limiter's current gain and the level rider in
+// front of it. One for the output, one for a computer mix of its own (LineCore).
+struct OutputStage {
+  float gain = kOutputGain;
+  float rider = 1.0f;
+};
+OutputStage g_outputStage;
 float g_fxVoiceScale = 0.0f;  // AMY voice sample (S8.23) to mix units, for the block being rendered.
 
 template <std::size_t... Index>
@@ -359,6 +367,37 @@ std::array<std::atomic<int>, fx::kMasterParamCount> g_publishedMasterFx = MakePu
 std::atomic<float> g_fxTempo{120.0f};
 std::array<std::atomic<float>, fx::kBusCount> g_fxReturnLevel{};
 std::array<std::atomic<bool>, fx::kBusCount> g_fxBusFailed{};
+
+// A track's connections to a computer on USB (SetTrackLineInput, SetTrackToComputer), render thread.
+// The computer's sound joins a track like its engine's, on the effects path (FxFloatPathWantedNoLock):
+// mixed with the track's gain and through its inserts (on its bus when it has effects) and sends. A
+// track left out of the computer's mix renders on its bus whenever a computer listens, so its share can
+// be taken out of the mix that goes there.
+struct TrackRoute {
+  LineChannels line = LineChannels::Off;
+  float lineGain = 1.0f;     // the input gain asked for
+  float appliedGain = 0.0f;  // input gain times the track gain, ramping per frame
+  float linePeak = 0.0f;     // meter, decaying per block
+  bool toComputer = true;
+};
+std::array<TrackRoute, kSynthTrackCount> g_routes{};
+std::array<std::atomic<float>, kSynthTrackCount> g_publishedLineLevel{};
+std::array<std::atomic<bool>, kSynthTrackCount> g_publishedToComputer{{true, true, true, true}};
+bool g_computerListening = false;  // the last RenderFrames was asked for a computer mix
+bool g_computerMixed = false;      // ... and it got one of its own (some track left out)
+
+// The line input's frames for the current AMY block and the computer's own mix: about 4.6 KB of internal
+// RAM, taken on the render thread when a track first takes the line input or is left out of the
+// computer's mix, and given back with the effects (SuspendEffects).
+struct LineCore {
+  std::array<std::int16_t, 2 * kAmyFramesPerBlock> line{};  // interleaved stereo
+  std::size_t lineRead = 0;                                   // frames of the block read so far
+  std::array<float, kAmyFramesPerBlock> leftOut{};            // tracks left out of the computer's mix
+  std::array<float, kAmyFramesPerBlock> computerMix{};
+  fx::dsp::MasterChain master;
+  OutputStage stage;
+};
+std::unique_ptr<LineCore> g_line;
 
 struct AmyShutdown {
   ~AmyShutdown()
@@ -1327,6 +1366,44 @@ bool TrackFxRequested(std::size_t track)
   return !fx::dsp::IsNeutral(params.inserts) || params.delaySend > 0 || params.reverbSend > 0;
 }
 
+std::atomic<LineInput> g_lineInput{nullptr};
+
+// The track takes the computer's sound (and there is one to take).
+bool TrackTakesLineNoLock(std::size_t track)
+{
+  return g_routes[track].line != LineChannels::Off && g_engines[track].configured && g_lineInput.load(std::memory_order_relaxed) != nullptr;
+}
+
+// The track is to be taken out of the mix a computer records from the device.
+bool TrackLeftOutNoLock(std::size_t track)
+{
+  return g_computerListening && !g_routes[track].toComputer && g_engines[track].configured;
+}
+
+bool AnyTrackTakesLineNoLock()
+{
+  for (std::size_t track = 0; track < kSynthTrackCount; ++track)
+    if (TrackTakesLineNoLock(track)) return true;
+  return false;
+}
+
+bool AnyTrackLeftOutNoLock()
+{
+  for (std::size_t track = 0; track < kSynthTrackCount; ++track)
+    if (TrackLeftOutNoLock(track)) return true;
+  return false;
+}
+
+// A track renders on its own bus while it has effects, and an engine's voices also while the track is
+// left out of the computer's mix (they are mixed elsewhere otherwise). The line input alone needs no bus.
+bool TrackNeedsBusNoLock(std::size_t track)
+{
+  const EngineState& engine = g_engines[track];
+  if (!engine.configured) return false;
+  if (engine.kind == SynthEngineKind::Empty) return TrackFxRequested(track);
+  return (UsesAmy(engine.kind) || engine.kind == SynthEngineKind::Sampler) && (TrackFxRequested(track) || TrackLeftOutNoLock(track));
+}
+
 // Back to the defaults; the engine re-sends every non-default value right after.
 void ResetTrackFxNoLock(std::size_t track, int chorus)
 {
@@ -1381,7 +1458,8 @@ void UpdateFxNoLock()
   }
   g_fx.dirty = false;
 
-  bool anyTrack = false;
+  const bool lineWanted = AnyTrackTakesLineNoLock() || AnyTrackLeftOutNoLock();
+  bool anyTrack = lineWanted;
   bool delaySends = false;
   bool reverbSends = false;
   for (std::size_t track = 0; track < g_fx.tracks.size(); ++track)
@@ -1409,6 +1487,7 @@ void UpdateFxNoLock()
   }
 
   FxCore& core = *g_fx.core;
+  if (lineWanted && !g_line && FxRoom(sizeof(LineCore))) g_line.reset(new (std::nothrow) LineCore());
   if (delayWanted)
   {
     // The long line only when the delay time needs it: it costs twice the memory.
@@ -1428,10 +1507,7 @@ void UpdateFxNoLock()
     }
     // Every track with effects renders into its bus; without the memory an AMY track still gets its
     // sends (from AMY's mix), only its inserts are lost.
-    const EngineState& engine = g_engines[track];
-    const bool needsBus = engine.configured && (UsesAmy(engine.kind) || engine.kind == SynthEngineKind::Sampler) &&
-                          TrackFxRequested(track);
-    if (needsBus && !g_fx.bus[track] && FxRoom(kAmyFramesPerBlock * sizeof(float)))
+    if (TrackNeedsBusNoLock(track) && !g_fx.bus[track] && FxRoom(kAmyFramesPerBlock * sizeof(float)))
     {
       g_fx.bus[track].reset(new (std::nothrow) float[kAmyFramesPerBlock]);
     }
@@ -1460,13 +1536,18 @@ void UpdateTrackRoutingNoLock()
     const bool hasBus = g_fx.bus[track] != nullptr;
     bool inserts = false;
     bool sends = false;
-    if (engine.configured && engine.kind == SynthEngineKind::Sampler)
+    const bool leftOut = TrackLeftOutNoLock(track) && g_line != nullptr;
+    if (engine.configured && engine.kind == SynthEngineKind::Empty)
     {
       inserts = hasBus && (insertsWanted || sendsWanted);
     }
+    else if (engine.configured && engine.kind == SynthEngineKind::Sampler)
+    {
+      inserts = hasBus && (insertsWanted || sendsWanted || leftOut);
+    }
     else if (engine.configured && UsesAmy(engine.kind))
     {
-      inserts = hasBus && (insertsWanted || sendsWanted);
+      inserts = hasBus && (insertsWanted || sendsWanted || leftOut);
       sends = !inserts && sendsWanted;
     }
     g_fx.insertRouted[track] = inserts;
@@ -1481,6 +1562,7 @@ bool FxFloatPathWantedNoLock()
     return false;
   }
   const FxCore& core = *g_fx.core;
+  if (g_line && (AnyTrackTakesLineNoLock() || AnyTrackLeftOutNoLock())) return true;
   return std::any_of(g_fx.routed.begin(), g_fx.routed.end(), [](bool routed) { return routed; }) ||
          !MasterFxNeutral(g_fx.master) || !core.master.Bypassed() ||
          (core.buses.DelayAllocated() && !core.buses.DelayIdle()) || (core.buses.ReverbAllocated() && !core.buses.ReverbIdle());
@@ -1497,11 +1579,15 @@ float ReverbSendTarget(std::size_t track)
 }
 
 // Runs a routed track's samples through its inserts and adds them to the mix and, post-fader
-// (the track gain is already in the samples), to the sends, in one pass.
-SYNTH_FX_HOT void MixRoutedTrackNoLock(std::size_t track, float* samples, float* mix, float* delaySend, float* reverbSend, std::size_t frames)
+// (the track gain is already in the samples), to the sends, in one pass. A track left out of the
+// computer's mix also adds them to `leftOut` (null otherwise).
+SYNTH_FX_HOT void MixRoutedTrackNoLock(std::size_t track, float* samples, float* mix, float* delaySend, float* reverbSend, std::size_t frames,
+                                       float* leftOut = nullptr)
 {
   FxCore& core = *g_fx.core;
   core.inserts[track].Process(samples, frames, g_fx.tracks[track].inserts);
+  if (leftOut != nullptr)
+    for (std::size_t index = 0; index < frames; ++index) leftOut[index] += samples[index];
   const float delayFrom = core.delayGain[track];
   const float delayTo = DelaySendTarget(track);
   const float reverbFrom = core.reverbGain[track];
@@ -1536,6 +1622,100 @@ SYNTH_FX_HOT void MixRoutedTrackNoLock(std::size_t track, float* samples, float*
     mix[index] += sample;
     delaySend[index] += sample * delayGain;
     reverbSend[index] += sample * reverbGain;
+  }
+}
+
+// The line input at unity on the output: a full-scale input comes out at full scale (the output gain
+// is taken out first).
+constexpr float kLineToMix = 1.0f / 32768.0f / kOutputGain;
+
+// Where a track left out of the computer's mix also adds its share in the current block, or null.
+float* LeftOutNoLock(std::size_t track, std::size_t from)
+{
+  return g_line && TrackLeftOutNoLock(track) ? g_line->leftOut.data() + from : nullptr;
+}
+
+// Lines that went onto an AMY track's bus with its voices this block (PrepareFxAmyBlockNoLock).
+std::array<bool, kSynthTrackCount> g_lineOnBus{};
+
+// Starts the line input's share of a block: frames [from, to) of it, read now when any track takes it
+// (silence where the computer has none), and nothing left out of the computer's mix yet.
+void BeginLineBlockNoLock(std::size_t from, std::size_t to)
+{
+  g_lineOnBus.fill(false);
+  if (!g_line) return;
+  LineCore& core = *g_line;
+  std::fill(core.leftOut.begin() + static_cast<std::ptrdiff_t>(from), core.leftOut.begin() + static_cast<std::ptrdiff_t>(to), 0.0f);
+  std::size_t at = from;
+  const LineInput input = g_lineInput.load(std::memory_order_relaxed);
+  if (input != nullptr && AnyTrackTakesLineNoLock())
+  {
+    while (at < to)
+    {
+      const std::size_t got = (std::min)(input(core.line.data() + 2 * at, to - at), to - at);
+      if (got == 0) break;
+      at += got;
+    }
+  }
+  std::fill(core.line.begin() + static_cast<std::ptrdiff_t>(2 * at), core.line.begin() + static_cast<std::ptrdiff_t>(2 * to), std::int16_t{0});
+  core.lineRead = to;
+}
+
+// Adds what the track takes of the line input, frames [from, from + frames) of the block, to `out`: at
+// its input gain times the track's gain (ramping, so a fader, a mute or a new gain never clicks), metered.
+SYNTH_FX_HOT void AddTrackLineNoLock(std::size_t track, float* out, std::size_t from, std::size_t frames)
+{
+  TrackRoute& route = g_routes[track];
+  const std::int16_t* line = g_line->line.data() + 2 * from;
+  const float left = route.line == LineChannels::Right ? 0.0f : route.line == LineChannels::Both ? 0.5f : 1.0f;
+  const float right = route.line == LineChannels::Left ? 0.0f : route.line == LineChannels::Both ? 0.5f : 1.0f;
+  const float target = route.lineGain * EffectiveTrackGain(g_trackMix[track]);
+  float gain = route.appliedGain;
+  float peak = 0.0f;
+  for (std::size_t frame = 0; frame < frames; ++frame)
+  {
+    const float sample = static_cast<float>(line[2 * frame]) * left + static_cast<float>(line[2 * frame + 1]) * right;
+    peak = (std::max)(peak, std::fabs(sample));
+    if (gain != target) gain = ApproachGain(gain, target, kTrackGainStepPerFrame);
+    out[frame] += sample * gain * kLineToMix;
+  }
+  route.appliedGain = gain;
+  const float level = peak / 32768.0f;
+  route.linePeak = (std::max)(route.linePeak, level);
+  TrackMixState& mix = g_trackMix[track];
+  mix.activity = (std::max)(mix.activity, Clamp01(level * gain));
+}
+
+// The tracks whose line input is not on a bus of an AMY block (empty instruments, AMY tracks without
+// effects); sampler tracks add theirs in RenderFxSamplerTracksNoLock.
+void RenderFxLineTracksNoLock(float* mix, float* delaySend, float* reverbSend, std::size_t base, std::size_t frames)
+{
+  if (!g_line) return;
+  for (std::size_t track = 0; track < g_engines.size(); ++track)
+  {
+    if (!TrackTakesLineNoLock(track) || g_lineOnBus[track] || g_engines[track].kind == SynthEngineKind::Sampler) continue;
+    float* leftOut = LeftOutNoLock(track, base);
+    if (g_engines[track].kind == SynthEngineKind::Empty && g_fx.insertRouted[track])
+    {
+      float* bus = g_fx.bus[track].get();
+      std::fill_n(bus, frames, 0.0f);
+      AddTrackLineNoLock(track, bus, base, frames);
+      MixRoutedTrackNoLock(track, bus, mix, delaySend, reverbSend, frames, leftOut);
+      continue;
+    }
+    if (leftOut == nullptr)
+    {
+      AddTrackLineNoLock(track, mix, base, frames);
+      continue;
+    }
+    // Without effects: what it adds to the mix is also its share to take out of the computer's.
+    std::array<float, kAmyFramesPerBlock> own{};
+    AddTrackLineNoLock(track, own.data(), base, frames);
+    for (std::size_t index = 0; index < frames; ++index)
+    {
+      mix[index] += own[index];
+      leftOut[index] += own[index];
+    }
   }
 }
 
@@ -1702,6 +1882,12 @@ void ApplyPendingEvent(const PendingEvent& event)
       {
         return;
       }
+      // The empty instrument sounds elsewhere (its notes go out over MIDI): only its meter moves.
+      if (engine.kind == SynthEngineKind::Empty)
+      {
+        if (event.velocity != 0) BumpTrackActivityNoLock(event.engineIndex, static_cast<float>(event.velocity) / 127.0f);
+        return;
+      }
 
       if (UsesAmy(engine.kind))
       {
@@ -1745,7 +1931,7 @@ void ApplyPendingEvent(const PendingEvent& event)
       }
       break;
     case PendingEventType::NoteOff:
-      if (engine.kind == SynthEngineKind::Drums) return;
+      if (engine.kind == SynthEngineKind::Drums || engine.kind == SynthEngineKind::Empty) return;
       if (UsesAmy(engine.kind))
       {
         SendAmyNoteEventNoLock(engine, event.note, 0.0f);
@@ -1756,6 +1942,7 @@ void ApplyPendingEvent(const PendingEvent& event)
       ReleaseSamplerNoteNoLock(engine, event.note);
       break;
     case PendingEventType::AllNotesOff:
+      if (engine.kind == SynthEngineKind::Empty) return;
       if (UsesAmy(engine.kind))
       {
         ReleaseAllAmyNotesNoLock(engine);
@@ -1780,6 +1967,20 @@ void ApplyPendingEvent(const PendingEvent& event)
         g_fx.master[event.note] = event.value;
         g_fx.dirty = true;
       }
+      break;
+    case PendingEventType::SetTrackLine:
+    {
+      TrackRoute& route = g_routes[event.engineIndex];
+      route.line = static_cast<LineChannels>(event.value);
+      route.lineGain = event.gain;
+      // Taken again later, it fades in from silence.
+      if (route.line == LineChannels::Off) route.appliedGain = 0.0f;
+      g_fx.dirty = true;
+      break;
+    }
+    case PendingEventType::SetTrackToComputer:
+      g_routes[event.engineIndex].toComputer = event.value != 0;
+      g_fx.dirty = true;
       break;
   }
 }
@@ -1998,6 +2199,10 @@ void UpdateMetersNoLock(const std::int16_t* destination, std::size_t frameCount)
       mix.activity = 0.0f;
     }
     g_publishedMix[index].activity.store(mix.activity, std::memory_order_relaxed);
+    TrackRoute& route = g_routes[index];
+    route.linePeak *= decay;
+    if (route.linePeak < kMeterFloor || route.line == LineChannels::Off) route.linePeak = 0.0f;
+    g_publishedLineLevel[index].store(route.linePeak, std::memory_order_relaxed);
   }
 }
 
@@ -2068,11 +2273,18 @@ SYNTH_FX_HOT void PrepareFxAmyBlockNoLock(const std::array<FxHookTrack, kSynthTr
     core.delaySend.fill(0.0f);
     core.reverbSend.fill(0.0f);
   }
+  // A fresh block starts at 0; one joined in the middle (no effects before) where the output is.
+  BeginLineBlockNoLock(rendered ? 0 : g_amyBlockCursor, kAmyFramesPerBlock);
   for (std::size_t track = 0; track < plan.size(); ++track)
   {
     if (plan[track].bus != nullptr)
     {
-      MixRoutedTrackNoLock(track, plan[track].bus, mix, core.delaySend.data(), core.reverbSend.data(), kAmyFramesPerBlock);
+      if (g_line && TrackTakesLineNoLock(track))
+      {
+        AddTrackLineNoLock(track, plan[track].bus, 0, kAmyFramesPerBlock);
+        g_lineOnBus[track] = true;
+      }
+      MixRoutedTrackNoLock(track, plan[track].bus, mix, core.delaySend.data(), core.reverbSend.data(), kAmyFramesPerBlock, LeftOutNoLock(track, 0));
     }
   }
   g_fx.blockPrepared = true;
@@ -2181,8 +2393,8 @@ constexpr float kHeavyWaitBudgetShare = 0.6f;  // while a heavy event waits for 
 constexpr float kHelperShareMicros = 0.45f * kBlockMicros;
 // How long after the audio core the helper starts on the voices (woken through a task notification).
 constexpr float kHelperStartMicros = 150.0f;
-constexpr std::size_t kKindCount = 5;  // SynthEngineKind None..Drums
-std::array<float, kKindCount> g_runCostMicros{50.0f, 700.0f, 650.0f, 200.0f, 150.0f};
+constexpr std::size_t kKindCount = 6;  // SynthEngineKind None..Empty
+std::array<float, kKindCount> g_runCostMicros{50.0f, 700.0f, 650.0f, 200.0f, 150.0f, 0.0f};
 std::array<std::array<float, kKindCount>, AMY_MAX_CORES> g_runCostSum{};
 std::array<std::array<std::uint16_t, kKindCount>, AMY_MAX_CORES> g_runCostCount{};
 float g_overheadMicros = 1500.0f;  // the rest of a block: deltas, effects, output
@@ -2631,7 +2843,7 @@ void FetchAmyBlockNoLock(bool effects = false)
 
 // Sampler tracks on the effects path: the legacy per-frame gain ramp and voice mix, with routed
 // tracks summed into their bus first and then run through their inserts.
-void RenderFxSamplerTracksNoLock(float* mix, float* delaySend, float* reverbSend, std::size_t frames,
+void RenderFxSamplerTracksNoLock(float* mix, float* delaySend, float* reverbSend, std::size_t base, std::size_t frames,
                                  const std::array<float, kSynthTrackCount>& targets)
 {
   for (std::size_t track = 0; track < g_engines.size(); ++track)
@@ -2643,7 +2855,8 @@ void RenderFxSamplerTracksNoLock(float* mix, float* delaySend, float* reverbSend
     }
     TrackMixState& trackMix = g_trackMix[track];
     const bool routed = g_fx.insertRouted[track];
-    if (!routed && !HasActiveSamplerVoices(engine))
+    const bool line = g_line && TrackTakesLineNoLock(track);
+    if (!routed && !HasActiveSamplerVoices(engine) && !line)
     {
       for (std::size_t frame = 0; frame < frames; ++frame)
       {
@@ -2661,9 +2874,10 @@ void RenderFxSamplerTracksNoLock(float* mix, float* delaySend, float* reverbSend
       std::fill_n(out, frames, 0.0f);
     }
     RenderSamplerTrackNoLock(engine, trackMix, targets[track], out, frames);
+    if (line) AddTrackLineNoLock(track, out, base, frames);
     if (routed)
     {
-      MixRoutedTrackNoLock(track, out, mix, delaySend, reverbSend, frames);
+      MixRoutedTrackNoLock(track, out, mix, delaySend, reverbSend, frames, LeftOutNoLock(track, base));
     }
   }
 }
@@ -2672,7 +2886,6 @@ void RenderFxSamplerTracksNoLock(float* mix, float* delaySend, float* reverbSend
 // sample that would go over and the gain the loudest one needs, and is there in time instead of
 // clipping and reacting afterwards: polyphony gets a little quieter rather than distorted, for one
 // pass over the block.
-std::atomic<LineInput> g_lineInput{nullptr};
 
 // The level rider in front of the limiter. When the limiter has to hold a dense mix well below the
 // output gain block after block, every drum hit pumps everything else down and the sustained tracks
@@ -2681,15 +2894,14 @@ std::atomic<LineInput> g_lineInput{nullptr};
 // back up slowly (0.5 dB a second) once the limiter is nearly idle again, never below -6 dB, at once in
 // silence. The limiter is left with the peaks;
 // the balance between the tracks does not change, and a sparse mix never moves it.
-float g_levelRider = 1.0f;
 constexpr float kRiderFloor = 0.5f;
 constexpr float kRiderDownPerFrame = 5.2e-6f;  // -2 dB a second
 constexpr float kRiderUpPerFrame = 1.3e-6f;    // +0.5 dB a second
 constexpr float kRiderSilence = 0.001f;        // the block's loudest output below -60 dB
 
-SYNTH_FX_HOT void LimitOutputNoLock(const float* mix, std::int16_t* out, std::size_t frames)
+SYNTH_FX_HOT void LimitOutputNoLock(OutputStage& stage, const float* mix, std::int16_t* out, std::size_t frames)
 {
-  float gain = g_outputGain;
+  float gain = stage.gain;
   const float wouldClip = kOutputCeiling / gain;
   float peak = 0.0f;
   std::size_t firstOver = frames;
@@ -2704,17 +2916,17 @@ SYNTH_FX_HOT void LimitOutputNoLock(const float* mix, std::int16_t* out, std::si
   }
   // Silent even at full gain: the rider and the limiter are back where they rest, which nobody hears.
   const bool silent = peak * kOutputGain < kRiderSilence;
-  if (silent) g_levelRider = 1.0f;
-  const float target = kOutputGain * g_levelRider;
+  if (silent) stage.rider = 1.0f;
+  const float target = kOutputGain * stage.rider;
   float next = silent ? kOutputGain : (std::min)(target, gain + gain * kLimiterReleasePerFrame * static_cast<float>(frames));
   if (peak * next > kOutputCeiling)
   {
     next = kOutputCeiling / peak;
   }
   if (!silent && next < target * 0.84f)  // the limiter holds it more than 1.5 dB down
-    g_levelRider = (std::max)(kRiderFloor, g_levelRider * (1.0f - kRiderDownPerFrame * static_cast<float>(frames)));
+    stage.rider = (std::max)(kRiderFloor, stage.rider * (1.0f - kRiderDownPerFrame * static_cast<float>(frames)));
   else if (!silent && next > target * 0.97f)  // a quarter of a decibel
-    g_levelRider = (std::min)(1.0f, g_levelRider * (1.0f + kRiderUpPerFrame * static_cast<float>(frames)));
+    stage.rider = (std::min)(1.0f, stage.rider * (1.0f + kRiderUpPerFrame * static_cast<float>(frames)));
   const std::size_t ramp = next < gain ? (std::min)(frames, (std::max)(firstOver, kLimiterShortestAttackFrames)) : frames;
   const float step = ramp > 0 ? (next - gain) / static_cast<float>(ramp) : 0.0f;
   for (std::size_t offset = 0; offset < ramp; ++offset)
@@ -2726,38 +2938,16 @@ SYNTH_FX_HOT void LimitOutputNoLock(const float* mix, std::int16_t* out, std::si
   {
     out[offset] = FloatToInt16(mix[offset] * next);
   }
-  g_outputGain = next;
+  stage.gain = next;
 }
 
-// Every render path ends here: the line input joins the mix (at unity on the output: the output gain is
-// taken out first), then the output gain and the limiter. Nothing after this clips.
+// Every render path ends here: the output gain and the limiter. Nothing after this clips.
 void WriteOutputNoLock(const float* mix, std::int16_t* out, std::size_t frames)
 {
-  const LineInput line = g_lineInput.load(std::memory_order_relaxed);
-  if (line == nullptr)
-  {
-    LimitOutputNoLock(mix, out, frames);
-    return;
-  }
-  constexpr std::size_t kChunk = 256;
-  constexpr float kLineToMix = 0.5f / 32768.0f / kOutputGain;  // both channels, then to mix units
-  std::array<std::int16_t, 2 * kChunk> stereo;
-  std::array<float, kChunk> joined;
-  for (std::size_t done = 0; done < frames;)
-  {
-    const std::size_t count = (std::min)(frames - done, kChunk);
-    const std::size_t got = (std::min)(line(stereo.data(), count), count);
-    for (std::size_t frame = 0; frame < count; ++frame)
-    {
-      const float input = frame < got ? (static_cast<float>(stereo[2 * frame]) + static_cast<float>(stereo[2 * frame + 1])) * kLineToMix : 0.0f;
-      joined[frame] = mix[done + frame] + input;
-    }
-    LimitOutputNoLock(joined.data(), out + done, count);
-    done += count;
-  }
+  LimitOutputNoLock(g_outputStage, mix, out, frames);
 }
 
-void RenderFxFramesNoLock(std::int16_t* destination, std::size_t frameCount, bool hasAmyEngines)
+void RenderFxFramesNoLock(std::int16_t* destination, std::size_t frameCount, bool hasAmyEngines, std::int16_t* computer)
 {
   FxCore& core = *g_fx.core;
   std::array<float, kSynthTrackCount> samplerTargets{};
@@ -2802,14 +2992,28 @@ void RenderFxFramesNoLock(std::int16_t* destination, std::size_t frameCount, boo
       std::fill_n(core.delaySend.data(), frames, 0.0f);
       std::fill_n(core.reverbSend.data(), frames, 0.0f);
       g_fx.blockPrepared = false;
+      BeginLineBlockNoLock(0, frames);
     }
 
     float* mix = core.mix.data() + base;
     float* delaySend = core.delaySend.data() + base;
     float* reverbSend = core.reverbSend.data() + base;
     UpdateTrackRoutingNoLock();
-    RenderFxSamplerTracksNoLock(mix, delaySend, reverbSend, frames, samplerTargets);
+    RenderFxSamplerTracksNoLock(mix, delaySend, reverbSend, base, frames, samplerTargets);
+    RenderFxLineTracksNoLock(mix, delaySend, reverbSend, base, frames);
     core.buses.Process(delaySend, reverbSend, mix, frames, buses);
+    // The computer's own mix: everything but the tracks left out of it, through a master chain and an
+    // output stage of its own (the returns of the sends are in both).
+    if (computer != nullptr && g_line && AnyTrackLeftOutNoLock())
+    {
+      float* own = g_line->computerMix.data();
+      const float* leftOut = g_line->leftOut.data() + base;
+      for (std::size_t index = 0; index < frames; ++index) own[index] = mix[index] - leftOut[index];
+      g_line->master.Process(own, frames, value(fx::MasterParam::EqLow), value(fx::MasterParam::EqHigh), value(fx::MasterParam::Compressor),
+                             value(fx::MasterParam::Tape));
+      LimitOutputNoLock(g_line->stage, own, computer + frameIndex, frames);
+      g_computerMixed = true;
+    }
     core.master.Process(mix, frames, value(fx::MasterParam::EqLow), value(fx::MasterParam::EqHigh), value(fx::MasterParam::Compressor),
                         value(fx::MasterParam::Tape));
     WriteOutputNoLock(mix, destination + frameIndex, frames);
@@ -2850,11 +3054,17 @@ void RenderAmyOnlyFramesNoLock(std::int16_t* destination, std::size_t frameCount
   }
 }
 
-std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount)
+std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount, std::int16_t* computer)
 {
   if (destination == nullptr)
   {
     return 0;
+  }
+  g_computerMixed = false;
+  if ((computer != nullptr) != g_computerListening)
+  {
+    g_computerListening = computer != nullptr;
+    g_fx.dirty = true;  // tracks left out of the computer's mix need their buses, or not any more
   }
 
   (void)DrainPendingEvents(kEventBlockMicros, HeavyEventFitsNoLock());
@@ -2879,7 +3089,7 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
   }
   if (g_fx.floatPath)
   {
-    RenderFxFramesNoLock(destination, frameCount, hasAmyEngines);
+    RenderFxFramesNoLock(destination, frameCount, hasAmyEngines, computer);
     UpdateMetersNoLock(destination, frameCount);
     return frameCount;
   }
@@ -3163,6 +3373,7 @@ void SuspendEffects()
   g_fx.insertRouted.fill(false);
   for (auto& bus : g_fx.bus) bus.reset();
   g_fx.core.reset();
+  g_line.reset();
 }
 
 void ResumeEffects()
@@ -3202,7 +3413,7 @@ void WarmUp()
 #else
   std::array<std::int16_t, kAmyFramesPerBlock> scratch{};
   std::lock_guard<std::mutex> lock(g_renderMutex);
-  (void)RenderFramesNoLock(scratch.data(), scratch.size());
+  (void)RenderFramesNoLock(scratch.data(), scratch.size(), nullptr);
 #endif
 }
 
@@ -3311,7 +3522,7 @@ void ReleaseOrphanVoicesNoLock()
 
 }  // namespace
 
-std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
+std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount, std::int16_t* computer)
 {
 #if defined(ESP_PLATFORM)
   const std::int64_t asked = RenderClockMicros();
@@ -3319,6 +3530,7 @@ std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
   {
     // A project is being built: silence, without the render lock; it costs nothing, so the queue fills.
     std::fill_n(destination, frameCount, std::int16_t{0});
+    if (computer != nullptr) std::fill_n(computer, frameCount, std::int16_t{0});
     g_outputAheadMicros = kOutputQueueMicros;
     return frameCount;
   }
@@ -3326,7 +3538,7 @@ std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
   std::lock_guard<std::mutex> lock(g_renderMutex);
 
   const std::int64_t start = RenderClockMicros();
-  const std::size_t rendered = RenderFramesNoLock(destination, frameCount);
+  const std::size_t rendered = RenderFramesNoLock(destination, frameCount, computer);
 
 
   const std::int64_t elapsed = RenderClockMicros() - start;
@@ -3357,10 +3569,14 @@ std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
     {
       const std::int32_t weight = static_cast<std::int32_t>(holdWanted ? rendered - frame : frame);
       destination[frame] = static_cast<std::int16_t>(static_cast<std::int32_t>(destination[frame]) * weight / static_cast<std::int32_t>(rendered));
+      if (computer != nullptr && g_computerMixed)
+        computer[frame] = static_cast<std::int16_t>(static_cast<std::int32_t>(computer[frame]) * weight / static_cast<std::int32_t>(rendered));
     }
     g_outputHeld.store(holdWanted, std::memory_order_release);
   }
 #endif
+  // Nothing left out: the computer gets what plays.
+  if (computer != nullptr && !g_computerMixed) std::copy_n(destination, rendered, computer);
   return rendered;
 }
 
@@ -3384,7 +3600,41 @@ void ReleaseOutput()
 
 void SetLineInput(LineInput input)
 {
+  std::lock_guard<std::mutex> lock(g_renderMutex);
   g_lineInput.store(input, std::memory_order_relaxed);
+  g_fx.dirty = true;
+}
+
+void SetTrackLineInput(std::size_t engineIndex, LineChannels channels, float gain)
+{
+  if (engineIndex >= g_engines.size()) return;
+  PendingEvent event;
+  event.type = PendingEventType::SetTrackLine;
+  event.engineIndex = engineIndex;
+  event.value = static_cast<int>(channels);
+  event.gain = gain > 0.0f ? (std::min)(gain, 4.0f) : 0.0f;
+  QueuePendingEvent(std::move(event));
+}
+
+float TrackLineLevel(std::size_t engineIndex)
+{
+  return engineIndex < g_publishedLineLevel.size() ? g_publishedLineLevel[engineIndex].load(std::memory_order_relaxed) : 0.0f;
+}
+
+void SetTrackToComputer(std::size_t engineIndex, bool included)
+{
+  if (engineIndex >= g_engines.size()) return;
+  PendingEvent event;
+  event.type = PendingEventType::SetTrackToComputer;
+  event.engineIndex = engineIndex;
+  event.value = included ? 1 : 0;
+  std::lock_guard<std::mutex> lock(g_pendingEventMutex);
+  if (g_publishedToComputer[engineIndex].exchange(included, std::memory_order_relaxed) != included) g_pendingEvents.push_back(std::move(event));
+}
+
+bool TrackToComputer(std::size_t engineIndex)
+{
+  return engineIndex >= g_publishedToComputer.size() || g_publishedToComputer[engineIndex].load(std::memory_order_relaxed);
 }
 
 bool ShedVoice()

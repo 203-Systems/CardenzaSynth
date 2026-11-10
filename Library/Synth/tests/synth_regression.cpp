@@ -1280,13 +1280,13 @@ int main()
         flat += std::abs(static_cast<int>(sample)) >= 32767 ? 1 : 0;
       }
     }
-    assert(highest > 25000 && flat == 0 && g_outputGain < kOutputGain);
+    assert(highest > 25000 && flat == 0 && g_outputStage.gain < kOutputGain);
     for (const std::size_t track : {std::size_t{1}, std::size_t{2}, std::size_t{3}})
     {
       for (const std::uint8_t note : {48, 55, 60, 64, 67, 72}) NoteOff(track, note);
     }
     waitForSilence();
-    assert(g_outputGain == kOutputGain);  // Recovered once it has gone quiet.
+    assert(g_outputStage.gain == kOutputGain);  // Recovered once it has gone quiet.
   }
 
   // A voice stays whole. Its first oscillator holds the filter and the envelope: with the filter shut
@@ -1418,5 +1418,99 @@ int main()
     assert(std::all_of(held.begin(), held.end(), [](std::uint32_t word) { return word == 0; }));
   }
 
-  std::cout << "Synth regression passed: sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters.\n";
+  // The computer's sound on a track (the line input, here a 441 Hz tone on the left channel only) and
+  // the mix a recording computer gets.
+  {
+    static std::uint32_t linePhase = 0;
+    SetLineInput([](std::int16_t* frames, std::size_t count) {
+      for (std::size_t frame = 0; frame < count; ++frame, ++linePhase)
+      {
+        frames[2 * frame] = static_cast<std::int16_t>(12000.0f * std::sin(2.0f * 3.14159265f * 441.0f * static_cast<float>(linePhase % 100) / 44100.0f));
+        frames[2 * frame + 1] = 0;
+      }
+      return count;
+    });
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track)
+    {
+      EnsureEngine(track, SynthEngineKind::Empty);
+      SetTrackGain(track, 1.0f);
+      SetTrackMuted(track, false);
+    }
+    std::array<std::int16_t, 256> out{}, computer{};
+    const auto peakOf = [](const std::array<std::int16_t, 256>& frames) {
+      int peak = 0;
+      for (const std::int16_t sample : frames) peak = (std::max)(peak, std::abs(static_cast<int>(sample)));
+      return peak;
+    };
+    // Renders a while (ramps, tails) and gives the last block's peaks.
+    const auto settle = [&](int blocks, bool withComputer) {
+      for (int block = 0; block < blocks; ++block) RenderFrames(out.data(), out.size(), withComputer ? computer.data() : nullptr);
+      return peakOf(out);
+    };
+    // The empty instrument makes no sound of its own; its notes only move its meter.
+    assert(settle(400, false) == 0);
+    NoteOn(0, 60, 127);
+    assert(settle(1, false) == 0 && TrackActivity(0) > 0.5f);
+    NoteOff(0, 60);
+    // Nothing reads the line while no track takes it.
+    const std::uint32_t phaseBefore = linePhase;
+    (void)settle(4, false);
+    assert(linePhase == phaseBefore);
+    SetTrackLineInput(0, LineChannels::Left, 1.0f);
+    int peak = settle(16, false);
+    assert(peak > 11500 && peak < 12500 && linePhase > phaseBefore);  // unity: full scale in, full scale out
+    assert(TrackLineLevel(0) > 0.33f && TrackLineLevel(0) < 0.4f && TrackLineLevel(1) == 0.0f && TrackActivity(0) > 0.3f);
+    SetTrackLineInput(0, LineChannels::Right, 1.0f);
+    assert(settle(16, false) < 50);
+    SetTrackLineInput(0, LineChannels::Both, 1.0f);
+    peak = settle(16, false);
+    assert(peak > 5700 && peak < 6300);
+    SetTrackLineInput(0, LineChannels::Left, 2.0f);
+    peak = settle(16, false);
+    assert(peak > 23000 && peak < 25000);
+    // The track's fader and mute act on it, as on an engine.
+    SetTrackLineInput(0, LineChannels::Left, 1.0f);
+    SetTrackGain(0, 0.5f);
+    peak = settle(16, false);
+    assert(peak > 5700 && peak < 6300);
+    SetTrackMuted(0, true);
+    assert(settle(16, false) < 50);
+    SetTrackMuted(0, false);
+    SetTrackGain(0, 1.0f);
+    // Through the track's inserts, on its bus: a low-pass well below the tone takes most of it away.
+    SetEngineParameter(0, "fx.filter", 10);
+    peak = settle(64, false);
+    assert(g_fx.insertRouted[0] && peak < 4000);
+    SetEngineParameter(0, "fx.filter", fx::kFilterCenter);
+    peak = settle(64, false);
+    assert(peak > 11500 && peak < 12500);
+    // The computer gets what plays, unless the track is left out of its mix: then everything else.
+    assert(settle(4, true) > 11500 && std::equal(out.begin(), out.end(), computer.begin()));
+    SetTrackToComputer(0, false);
+    assert(!TrackToComputer(0));
+    peak = settle(16, true);
+    assert(peak > 11500 && peakOf(computer) < 50);
+    EnsureEngine(3, SynthEngineKind::Drums);
+    (void)settle(4, true);
+    NoteOn(3, 36, 127);
+    int drumOut = 0, drumComputer = 0;
+    for (int block = 0; block < 12; ++block)
+    {
+      RenderFrames(out.data(), out.size(), computer.data());
+      drumOut = (std::max)(drumOut, peakOf(out));
+      drumComputer = (std::max)(drumComputer, peakOf(computer));
+    }
+    assert(drumComputer > 2000 && drumOut > drumComputer);
+    SetTrackToComputer(0, true);
+    (void)settle(4, true);
+    assert(std::equal(out.begin(), out.end(), computer.begin()));
+    // A track that stops taking it fades out; the line is not read any more.
+    SetTrackLineInput(0, LineChannels::Off, 1.0f);
+    (void)settle(200, false);
+    const std::uint32_t phaseAfter = linePhase;
+    assert(settle(4, false) < 50 && linePhase == phaseAfter && TrackLineLevel(0) == 0.0f);
+    SetLineInput(nullptr);
+  }
+
+  std::cout << "Synth regression passed: sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters, the line input on tracks and the computer's mix.\n";
 }

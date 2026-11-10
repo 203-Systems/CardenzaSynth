@@ -8,7 +8,9 @@ namespace device {
 
 inline constexpr std::uint32_t kDefaultSynthAudioSampleRate = 44100;
 
-using SynthAudioRenderCallback = std::size_t (*)(std::int16_t* destination, std::size_t frameCount);
+// Renders `frameCount` mono frames into `destination`; `computer`, when not null (a computer records from
+// the device over USB), receives what it is to get: the same sound or a mix of its own.
+using SynthAudioRenderCallback = std::size_t (*)(std::int16_t* destination, std::size_t frameCount, std::int16_t* computer);
 
 struct SynthAudioRenderProvider {
   std::uint32_t sampleRate = kDefaultSynthAudioSampleRate;

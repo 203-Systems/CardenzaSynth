@@ -11,6 +11,7 @@ enum class SynthEngineKind {
   Juno,
   Sampler,
   Drums = 4,
+  Empty = 5,  // no sound of its own: USB MIDI out, the computer's audio in (EmptySynthEngine)
 };
 
 enum class OverlayPage {

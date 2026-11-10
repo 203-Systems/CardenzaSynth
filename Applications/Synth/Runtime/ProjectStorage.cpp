@@ -36,9 +36,13 @@ constexpr std::size_t kMaxProjectBytes = 4 * 1024 * 1024;
 // one PLAYFX line per track (chord, voicing, arp mode, rate, octaves, gate, latch); the UI line's
 // octave, root, scale and layout are the project's keyboard.
 // Version 7 gives every pattern its own length, up to 256 steps: the T line ends with the length of
-// each pattern instead of the one length of the track. The next format change takes 8.
-constexpr int kProjectVersion = 7;
-constexpr int kMaxReadProjectVersion = 7;
+// each pattern instead of the one length of the track.
+// Version 8 adds each track's USB routing: a ROUTE line per track after the PLAYFX lines (MIDI in,
+// MIDI out, audio in, input gain in dB, audio out; TrackRouting), and the empty instrument (engine
+// kind 5). Older files load with the default routing, what every track did before. The next format
+// change takes 9.
+constexpr int kProjectVersion = 8;
+constexpr int kMaxReadProjectVersion = 8;
 constexpr int kMinProjectVersion = 1;
 constexpr unsigned kMaxMixerLevel = 100;
 
@@ -61,6 +65,7 @@ bool IsProjectEngineKind(int kind) {
     case static_cast<int>(SynthEngineKind::Juno):
     case static_cast<int>(SynthEngineKind::Sampler):
     case static_cast<int>(SynthEngineKind::Drums):
+    case static_cast<int>(SynthEngineKind::Empty):
       return true;
     default:
       return false;
@@ -79,6 +84,8 @@ bool ValidMetadata(const ProjectData& project) {
         play.arp.octaves > kArpMaxOctaves || play.arp.gate < kArpMinGate || play.arp.gate > kArpMaxGate) return false;
   for (std::size_t index = 0; index < fx::kMasterParamCount; ++index)
     if (project.masterFx[index] < fx::kMasterParams[index].minValue || project.masterFx[index] > fx::kMasterParams[index].maxValue) return false;
+  for (const auto& routing : project.routing)
+    if (!ValidRouting(routing)) return false;
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
     if (project.mixer.level[track] > kMaxMixerLevel) return false;
     const auto& state = project.engines[track];
@@ -172,6 +179,11 @@ void WriteProjectText(std::ostream& file, const ProjectData& project) {
     file << "PLAYFX " << track << ' ' << play.chord << ' ' << play.voicing << ' ' << static_cast<int>(play.arp.mode) << ' '
          << static_cast<int>(play.arp.rate) << ' ' << static_cast<int>(play.arp.octaves) << ' ' << static_cast<int>(play.arp.gate) << ' '
          << (play.arp.latch ? 1 : 0) << '\n';
+  }
+  for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+    const auto& routing = project.routing[track];
+    file << "ROUTE " << track << ' ' << static_cast<int>(routing.midiIn) << ' ' << static_cast<int>(routing.midiOut) << ' '
+         << static_cast<int>(routing.audioIn) << ' ' << static_cast<int>(routing.inputGainDb) << ' ' << (routing.audioOut ? 1 : 0) << '\n';
   }
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
     const auto& state = project.engines[track];
@@ -336,6 +348,21 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
       play.arp.latch = latch != 0;
     }
     project.hasPlay = true;
+  }
+  if (version >= 8) {
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
+      std::size_t index = 0;
+      int midiIn = 0, midiOut = 0, audioIn = 0, gain = 0, audioOut = 0;
+      if (!ReadExpected(file, "ROUTE") || !(file >> index >> midiIn >> midiOut >> audioIn >> gain >> audioOut) || index != track || midiIn < 0 ||
+          midiIn >= kMidiInChoices || midiOut < 0 || midiOut >= kMidiOutChoices || audioIn < 0 || audioIn >= kAudioInChoices ||
+          gain < kMinInputGainDb || gain > kMaxInputGainDb || audioOut < 0 || audioOut > 1) return ProjectResult::Invalid;
+      auto& routing = project.routing[track];
+      routing.midiIn = static_cast<std::uint8_t>(midiIn);
+      routing.midiOut = static_cast<std::uint8_t>(midiOut);
+      routing.audioIn = static_cast<audio::LineChannels>(audioIn);
+      routing.inputGainDb = static_cast<std::int8_t>(gain);
+      routing.audioOut = audioOut != 0;
+    }
   }
   for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
     std::size_t index = 0, parameterCount = 0;

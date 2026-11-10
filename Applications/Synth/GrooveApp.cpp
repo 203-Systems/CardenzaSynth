@@ -29,6 +29,7 @@
 #include "Devices/Device.h"
 #include "Devices/LedLight.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Core/Engines/Empty/EmptySynthEngine.h"
 #include "OS/MIDI/MIDI.h"
 #include "OS/Storage/DeviceSettings.h"
 #include "OS/Storage/Settings.h"
@@ -88,6 +89,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return 6 * 1024;
     case synth::SynthEngineKind::Sampler: return 6 * 1024;
     case synth::SynthEngineKind::Drums: return 4 * 1024;
+    case synth::SynthEngineKind::Empty: return 3 * 1024;
     case synth::SynthEngineKind::None:
     default: return 0;
   }
@@ -96,7 +98,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
 std::size_t KindIndex(synth::SynthEngineKind kind)
 {
   const auto index = static_cast<std::size_t>(kind);
-  return index < 5 ? index : 0;
+  return index < 6 ? index : 0;
 }
 
 os::storage::Settings& AppSettings()
@@ -165,12 +167,11 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
   (void)args;
   if (initialized_) return;
   os::midi::Initialize();
-  // What a computer plays over USB is not heard for now: the device is its microphone only (the user,
-  // 2026-11-06; mixed in, it also came back in what the computer recorded). The channel stays, the
-  // device drops what nobody reads; synth::audio::SetLineInput(&Device::Audio::ReadComputerAudio)
-  // would mix it in at unity.
-  synth::audio::SetLineInput(nullptr);
+  // What a computer plays over USB is heard only on a track that takes it (its ROUTE page's AUDIO IN,
+  // off by default: the user, 2026-11-10); otherwise nothing reads it and the device drops it.
+  synth::audio::SetLineInput(&Device::Audio::ReadComputerAudio);
   sequencer_.SetMidiSink(&GrooveApp::SendSequencerMidi, this);
+  sequencer_.SetRealtimeSink(&GrooveApp::SendRealtimeMidi, this);
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
     rack_.AttachEngine(track, kDefaultKinds[track]);
@@ -178,6 +179,7 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
   }
   storageReady_ = synth::storage::EnsureLayout();
   ApplyMix();
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) ApplyRouting(track);
   ApplyMasterFx(synth::ProjectData::DefaultMasterFx());
   // Volume, key LEDs and screen are device settings: the system applied them at boot.
   RestorePlaySettings();
@@ -223,12 +225,18 @@ void GrooveApp::RestorePlaySettings()
   // only start a session that has no project of its own (the session file overrides them).
   controller_.Restore(ui, "");
   storedMultiSelect_ = keys.multiSelect;
+  midiClockOut_ = storedMidiClockOut_ = settings.GetInt("usb.clock", 0, 0, 1) != 0;
 }
 
 void GrooveApp::StorePlaySettings()
 {
   // Polled every tick. The system writes the file a second after the last change, and when the app
   // is suspended.
+  if (midiClockOut_ != storedMidiClockOut_)
+  {
+    AppSettings().SetInt("usb.clock", midiClockOut_ ? 1 : 0);
+    storedMidiClockOut_ = midiClockOut_;
+  }
   const bool multiSelect = controller_.Settings().keyboard.multiSelect;
   if (multiSelect == storedMultiSelect_) return;
   AppSettings().SetInt("keys.select", multiSelect ? 1 : 0);
@@ -572,6 +580,7 @@ void GrooveApp::Tick()
   ReadComputerMidi();
   sampler_.Tick();
   rack_.DispatchPendingMessages();
+  SyncExternalPatches();
   SyncSamplerTrim();
   // The delay time follows the sequencer tempo.
   const std::uint16_t bpm = sequencer_.Tempo();
@@ -611,6 +620,26 @@ void GrooveApp::EndOrphanNotes(std::uint32_t now)
     controller_.AddHeldPadNotes(track, owned);
     sequencer_.AddSoundingNotes(track, owned);
     for (std::size_t word = 0; word < owned.size(); ++word) owned[word] |= computerNotes_[track][word];
+    // The same for what went out to the computer: a note nobody sounds any more gets its note-off there.
+    {
+      std::lock_guard<std::mutex> lock(midiOutMutex_);
+      const int channel = sentChannel_[track];
+      for (std::size_t word = 0; word < owned.size(); ++word)
+      {
+        const std::uint32_t orphans = sentNotes_[track][word] & ~owned[word];
+        for (std::size_t bit = 0; confirming && channel >= 0 && bit < 32; ++bit)
+        {
+          if ((orphans & orphanSent_[track][word] & (1u << bit)) == 0) continue;
+          const std::uint8_t packet[4] = {0x08, static_cast<std::uint8_t>(0x80 | channel), static_cast<std::uint8_t>(word * 32 + bit), 0};
+          (void)Device::USB::WriteMidi(packet);
+          sentNotes_[track][word] &= ~(1u << bit);
+          ++endedOrphanNotes_;
+          printf("Groove: ended a note nobody held at the computer: track %u note %u\n", static_cast<unsigned>(track), static_cast<unsigned>(word * 32 + bit));
+        }
+        orphanSent_[track][word] = confirming ? 0u : orphans;
+        orphanCandidates_ = orphanCandidates_ || (!confirming && orphans != 0);
+      }
+    }
     // A sample preview plays the sample's root note, whichever that is.
     const bool preview = sampler_.Previewing(track);
     for (std::size_t word = 0; word < held.size(); ++word)
@@ -814,15 +843,170 @@ void GrooveApp::NoteOff(std::size_t track, std::uint8_t note)
   SendComputerMidi(0x80, track, note, 0);
 }
 
-// What the device plays goes out to a computer on USB too: track n on MIDI channel n.
+// What a track plays goes out to a computer on USB too, on its MIDI OUT channel (by default track n on
+// channel n; TrackRouting). The notes still on are remembered, so that a channel change, a panic or a
+// note nobody sounds any more (EndOrphanNotes) can end them over there.
 void GrooveApp::SendComputerMidi(std::uint8_t status, std::size_t track, std::uint8_t data1, std::uint8_t data2)
 {
-  const std::uint8_t packet[4] = {static_cast<std::uint8_t>(status >> 4), static_cast<std::uint8_t>(status | (track & 0x0F)), data1, data2};
+  if (track >= synth::kSynthTrackCount || data1 > 127) return;
+  std::lock_guard<std::mutex> lock(midiOutMutex_);
+  const int channel = synth::MidiOutChannel(routing_[track], track);
+  if (channel < 0) return;
+  const std::uint8_t packet[4] = {static_cast<std::uint8_t>(status >> 4), static_cast<std::uint8_t>(status | channel), data1, data2};
+  const bool sent = Device::USB::WriteMidi(packet);
+  std::uint32_t& word = sentNotes_[track][data1 / 32];
+  const std::uint32_t bit = 1u << (data1 % 32);
+  if (status == 0x90 && data2 != 0)
+  {
+    if (sent) word |= bit;
+    sentChannel_[track] = channel;
+  }
+  else if (status == 0x80 || status == 0x90)
+  {
+    word &= ~bit;
+  }
+}
+
+void GrooveApp::EndSentNotesLocked(std::size_t track)
+{
+  const int channel = sentChannel_[track];
+  for (std::size_t word = 0; word < sentNotes_[track].size(); ++word)
+    for (std::size_t bit = 0; channel >= 0 && bit < 32; ++bit)
+    {
+      if ((sentNotes_[track][word] & (1u << bit)) == 0) continue;
+      const std::uint8_t packet[4] = {0x08, static_cast<std::uint8_t>(0x80 | channel), static_cast<std::uint8_t>(word * 32 + bit), 0};
+      (void)Device::USB::WriteMidi(packet);
+    }
+  sentNotes_[track] = {};
+  orphanSent_[track] = {};
+}
+
+// The sequencer's transport as MIDI real-time messages (clock, start, continue, stop), while CLOCK is on.
+void GrooveApp::SendRealtimeMidi(void* context, std::uint8_t message)
+{
+  auto* app = static_cast<GrooveApp*>(context);
+  if (app == nullptr || !app->midiClockOut_) return;
+  const std::uint8_t packet[4] = {0x0F, message, 0, 0};
   (void)Device::USB::WriteMidi(packet);
 }
 
-// A computer plays the device over USB: MIDI channels 1-4 are tracks 1-4, any other channel the current
-// track. Its notes are owned here (EndOrphanNotes) and end when it disconnects.
+void GrooveApp::SetMidiClockOut(bool on)
+{
+  if (on == midiClockOut_) return;
+  // A computer following the clock stops with it.
+  if (!on && sequencer_.Playing())
+  {
+    const std::uint8_t packet[4] = {0x0F, 0xFC, 0, 0};
+    (void)Device::USB::WriteMidi(packet);
+  }
+  midiClockOut_ = on;
+}
+
+bool GrooveApp::ComputerConnected() const
+{
+  return computerConnected_;
+}
+
+// An empty instrument's patch goes to the synth it plays: bank and program, then each controller with
+// a value, whenever one of them changes (an edit, a preset, a project), the track's channel does, or a
+// computer connects. The engine keeps the values; this sends what differs from what was sent last.
+void GrooveApp::SyncExternalPatches()
+{
+  namespace empty = synth::empty;
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    SentPatch& sent = sentPatches_[track];
+    const synth::ISynthEngine* engine = rack_.Slot(track).kind == synth::SynthEngineKind::Empty ? Engine(track) : nullptr;
+    int channel = -1;
+    {
+      std::lock_guard<std::mutex> lock(midiOutMutex_);
+      channel = synth::MidiOutChannel(routing_[track], track);
+    }
+    if (engine == nullptr || channel < 0 || !computerConnected_)
+    {
+      sent = SentPatch{};
+      continue;
+    }
+    if (sent.channel != channel) sent = SentPatch{};
+    sent.channel = channel;
+    const auto value = [&](const char* id) {
+      synth::SynthParameterInfo info;
+      return engine->GetParameterInfo(id, info) ? info.value : empty::kOff;
+    };
+    const auto send = [&](std::uint8_t status, std::uint8_t data1, std::uint8_t data2) {
+      std::lock_guard<std::mutex> lock(midiOutMutex_);
+      const std::uint8_t packet[4] = {static_cast<std::uint8_t>(status >> 4), static_cast<std::uint8_t>(status | channel), data1, data2};
+      (void)Device::USB::WriteMidi(packet);
+    };
+    const int program = value(empty::kProgramId);
+    const int bankMsb = value(empty::kBankMsbId);
+    const int bankLsb = value(empty::kBankLsbId);
+    // A bank takes effect with the next program change: the three go together.
+    if (program != sent.program || bankMsb != sent.bankMsb || bankLsb != sent.bankLsb)
+    {
+      if (bankMsb != empty::kOff) send(0xB0, 0, static_cast<std::uint8_t>(bankMsb));
+      if (bankLsb != empty::kOff) send(0xB0, 32, static_cast<std::uint8_t>(bankLsb));
+      if (program != empty::kOff) send(0xC0, static_cast<std::uint8_t>(program), 0);
+      sent.program = program;
+      sent.bankMsb = bankMsb;
+      sent.bankLsb = bankLsb;
+    }
+    for (std::size_t index = 0; index < empty::kControllerCount; ++index)
+    {
+      const int number = value(empty::kControllerNumberIds[index]);
+      const int controller = value(empty::kControllerValueIds[index]);
+      if (number == sent.numbers[index] && controller == sent.controllers[index]) continue;
+      if (controller != empty::kOff && number >= 0 && number <= empty::kMaxControllerNumber)
+        send(0xB0, static_cast<std::uint8_t>(number), static_cast<std::uint8_t>(controller));
+      sent.numbers[index] = number;
+      sent.controllers[index] = controller;
+    }
+  }
+}
+
+synth::TrackRouting GrooveApp::Routing(std::size_t track) const
+{
+  std::lock_guard<std::mutex> lock(midiOutMutex_);
+  return track < synth::kSynthTrackCount ? routing_[track] : synth::TrackRouting{};
+}
+
+void GrooveApp::SetRouting(std::size_t track, const synth::TrackRouting& routing)
+{
+  if (track >= synth::kSynthTrackCount || !synth::ValidRouting(routing)) return;
+  bool listensElsewhere = false;
+  {
+    std::lock_guard<std::mutex> lock(midiOutMutex_);
+    const synth::TrackRouting old = routing_[track];
+    if (old == routing) return;
+    // Notes on at the computer end on the channel they started on.
+    if (synth::MidiOutChannel(old, track) != synth::MidiOutChannel(routing, track)) EndSentNotesLocked(track);
+    listensElsewhere = old.midiIn != routing.midiIn;
+    routing_[track] = routing;
+  }
+  // Notes the computer started on the track would not find it for their note-off any more.
+  if (listensElsewhere) ReleaseComputerNotes(track);
+  ApplyRouting(track);
+}
+
+void GrooveApp::ApplyRouting(std::size_t track)
+{
+  const synth::TrackRouting routing = Routing(track);
+  synth::audio::SetTrackLineInput(track, routing.audioIn, synth::InputGain(routing));
+  synth::audio::SetTrackToComputer(track, routing.audioOut);
+  // An empty instrument's patch goes out again, on the channel it has now.
+  sentPatches_[track] = SentPatch{};
+}
+
+float GrooveApp::TrackLineLevel(std::size_t track) const
+{
+  return synth::audio::TrackLineLevel(track);
+}
+
+// A computer plays the device over USB. A track takes the channels its MIDI IN names (TrackRouting: by
+// default its own, track n on channel n), and a channel no track takes plays the current track while its
+// MIDI IN is AUTO. Notes play the track's engine and, with REC on while playing, are recorded into its
+// pattern like the pads; they are not sent back to the computer. They are owned here (EndOrphanNotes)
+// and end when the computer disconnects or the track stops listening.
 void GrooveApp::ReadComputerMidi()
 {
   const bool connected = Device::USB::Connected();
@@ -832,29 +1016,54 @@ void GrooveApp::ReadComputerMidi()
   for (int count = 0; count < 64 && Device::USB::ReadMidi(packet); ++count)
   {
     const std::uint8_t status = packet[1] & 0xF0;
-    const std::uint8_t channel = packet[1] & 0x0F;
-    const std::size_t track = channel < synth::kSynthTrackCount ? channel : controller_.State().track;
+    if (status < 0x80 || status == 0xF0) continue;  // system and real-time messages
+    const int channel = packet[1] & 0x0F;
     const std::uint8_t data1 = packet[2] & 0x7F;
     const std::uint8_t data2 = packet[3] & 0x7F;
-    auto& held = computerNotes_[track][data1 / 32];
+    std::array<bool, synth::kSynthTrackCount> listening{};
+    {
+      std::lock_guard<std::mutex> lock(midiOutMutex_);
+      bool any = false;
+      for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+        any = (listening[track] = synth::MidiInListens(routing_[track], track, channel)) || any;
+      const std::size_t current = controller_.State().track;
+      if (!any && current < synth::kSynthTrackCount && routing_[current].midiIn == synth::kMidiInAuto) listening[current] = true;
+    }
+    const bool noteOn = status == 0x90 && data2 != 0;
+    const bool noteOff = status == 0x80 || (status == 0x90 && data2 == 0);
     const std::uint32_t bit = 1u << (data1 % 32);
-    if (status == 0x90 && data2 != 0)
+    for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
     {
-      synth::audio::NoteOn(track, data1, data2);
-      held |= bit;
-    }
-    else if (status == 0x80 || status == 0x90)
-    {
-      synth::audio::NoteOff(track, data1);
-      held &= ~bit;
-    }
-    else if (status == 0xB0 && (data1 == 120 || data1 == 123))
-    {
-      ReleaseComputerNotes(track);
-    }
-    else if (status == 0xB0)
-    {
-      os::midi::Send(midi::MidiPacket::ControlChange(0, data1, data2), rack_.PortForTrack(track));
+      auto& held = computerNotes_[track][data1 / 32];
+      if (noteOff && (listening[track] || (held & bit) != 0))
+      {
+        // Wherever the computer started the note: the current track may have changed since.
+        synth::audio::NoteOff(track, data1);
+        sequencer_.RecordNoteOff(track, data1);
+        held &= ~bit;
+        continue;
+      }
+      if (!listening[track]) continue;
+      if (noteOn)
+      {
+        synth::audio::NoteOn(track, data1, data2);
+        held |= bit;
+        if (sequencer_.RecordArmed() && sequencer_.Playing())
+        {
+          sequencer_.RecordNoteOn(track, data1, data2);
+          controller_.MarkProjectChanged();
+          if (!sessionChanged_) sessionChangedAt_ = NowMs();
+          sessionChanged_ = true;
+        }
+      }
+      else if (status == 0xB0 && (data1 == 120 || data1 == 123))
+      {
+        ReleaseComputerNotes(track);
+      }
+      else if (status == 0xB0)
+      {
+        os::midi::Send(midi::MidiPacket::ControlChange(0, data1, data2), rack_.PortForTrack(track));
+      }
     }
   }
 }
@@ -876,22 +1085,32 @@ void GrooveApp::Panic()
   sequencer_.Stop();
   sequencer_.SetRecordArmed(false);
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) synth::audio::AllNotesOff(track);
+  // The synths on the computer stop too: every note that went there, then all notes off on each channel.
+  std::lock_guard<std::mutex> lock(midiOutMutex_);
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    EndSentNotesLocked(track);
+    const int channel = synth::MidiOutChannel(routing_[track], track);
+    if (channel < 0) continue;
+    const std::uint8_t packet[4] = {0x0B, static_cast<std::uint8_t>(0xB0 | channel), 123, 0};
+    (void)Device::USB::WriteMidi(packet);
+  }
 }
 
 void GrooveApp::SendSequencerMidi(void* context, std::size_t trackIndex, const midi::MidiPacket& packet)
 {
-  (void)context;
-  if (trackIndex >= synth::kSynthTrackCount) return;
+  auto* app = static_cast<GrooveApp*>(context);
+  if (trackIndex >= synth::kSynthTrackCount || app == nullptr) return;
   // Bypass the UI queue: the audio runtime synchronizes stable track indices.
   if (packet.status == midi::MidiStatus::NoteOn && packet.data[2] != 0)
   {
     synth::audio::NoteOn(trackIndex, packet.data[1], packet.data[2]);
-    SendComputerMidi(0x90, trackIndex, packet.data[1], packet.data[2]);
+    app->SendComputerMidi(0x90, trackIndex, packet.data[1], packet.data[2]);
   }
   else if (packet.status == midi::MidiStatus::NoteOff || packet.status == midi::MidiStatus::NoteOn)
   {
     synth::audio::NoteOff(trackIndex, packet.data[1]);
-    SendComputerMidi(0x80, trackIndex, packet.data[1], 0);
+    app->SendComputerMidi(0x80, trackIndex, packet.data[1], 0);
   }
   else if (packet.status == midi::MidiStatus::ControlChange && (packet.data[1] == 120 || packet.data[1] == 123))
     synth::audio::AllNotesOff(trackIndex);
@@ -1099,6 +1318,7 @@ bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth:
   project.mixer.level = levels_;
   project.mixer.muted = muted_;
   project.mixer.soloed = soloed_;
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) project.routing[track] = Routing(track);
   for (std::size_t param = 0; param < synth::fx::kMasterParamCount; ++param)
     project.masterFx[param] = static_cast<std::uint8_t>(MasterFx(param));
   return true;
@@ -1362,6 +1582,7 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   muted_ = project.mixer.muted;
   soloed_ = project.mixer.soloed;
   ApplyMix();
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) SetRouting(track, project.routing[track]);
   ApplyMasterFx(project.masterFx);
   pendingSamples_ = std::move(pending);
   return true;
