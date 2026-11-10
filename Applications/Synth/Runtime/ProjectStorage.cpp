@@ -36,9 +36,11 @@ constexpr std::size_t kMaxProjectBytes = 4 * 1024 * 1024;
 // one PLAYFX line per track (chord, voicing, arp mode, rate, octaves, gate, latch); the UI line's
 // octave, root, scale and layout are the project's keyboard.
 // Version 7 gives every pattern its own length, up to 256 steps: the T line ends with the length of
-// each pattern instead of the one length of the track. The next format change takes 8.
-constexpr int kProjectVersion = 7;
-constexpr int kMaxReadProjectVersion = 7;
+// each pattern instead of the one length of the track.
+// Version 8 lets a drum pad play a sample from the card: a PADS line after each track's parameters
+// names one file per pad (empty: the pad plays its sound, padN.sound). The next format change takes 9.
+constexpr int kProjectVersion = 8;
+constexpr int kMaxReadProjectVersion = 8;
 constexpr int kMinProjectVersion = 1;
 constexpr unsigned kMaxMixerLevel = 100;
 
@@ -90,6 +92,9 @@ bool ValidMetadata(const ProjectData& project) {
         sample == "." || sample == ".." || sample.find_first_of("/\\:\r\n") != std::string::npos)) return false;
     for (const auto& parameter : state.values)
       if (parameter.first.empty() || !ValidText(parameter.first, 64)) return false;
+    for (const auto& pad : project.padSamples[track])
+      if (!pad.empty() && (project.kinds[track] != SynthEngineKind::Drums || !ValidText(pad, 96) || pad == "." || pad == ".." ||
+                           pad.find_first_of("/\\:\r\n") != std::string::npos)) return false;
   }
   return true;
 }
@@ -179,6 +184,9 @@ void WriteProjectText(std::ostream& file, const ProjectData& project) {
          << std::quoted(state.presetId) << ' ' << std::quoted(state.presetName) << ' ' << std::quoted(project.samples[track]) << '\n';
     file << "PARAM " << state.values.size() << '\n';
     for (const auto& parameter : state.values) file << std::quoted(parameter.first) << ' ' << parameter.second << '\n';
+    file << "PADS";
+    for (const auto& pad : project.padSamples[track]) file << ' ' << std::quoted(pad);
+    file << '\n';
   }
   file << "SEQ " << project.sequence->bpm << ' ' << static_cast<int>(project.sequence->swing) << '\n';
   for (const auto& track : project.sequence->tracks) {
@@ -350,6 +358,11 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
       std::string id;
       int value = 0;
       if (!ReadQuoted(file, id, 64) || !(file >> value) || !state.values.emplace(id, value).second) return ProjectResult::Invalid;
+    }
+    if (version >= 8) {
+      if (!ReadExpected(file, "PADS")) return ProjectResult::Invalid;
+      for (auto& pad : project.padSamples[track])
+        if (!ReadQuoted(file, pad, 96)) return ProjectResult::Invalid;
     }
   }
   unsigned bpm = 0, swing = 50;

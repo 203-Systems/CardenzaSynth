@@ -45,7 +45,8 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
   card with only the groovebox has no `Apps/` folder.
 - Ownership: only the OS writes `Settings/system.cfg` and `Logs/`. An app writes its own settings and
   folders, and `Samples/`, which every app shares: renaming or deleting a sample affects every project
-  that names it.
+  that names it (a sampler track's sample, a drum pad's). A drum pad recorded from the microphone is
+  written there as `TAKE_nn.wav`, like a sampler take that is saved.
 - FAT long file names are required (`CardenzaSynth`, `.ccproj`, `.ccpreset`, `.bak` / `.tmp` files).
   File names the user sees stay ASCII.
 
@@ -54,7 +55,7 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 | Content | Format | Compatibility |
 |---|---|---|
 | `Settings/*.cfg` | ASCII text, `key=value` lines | Unknown keys survive a read / write cycle |
-| `Projects/*.ccproj`, `Session/autosave.ccproj` | Text beginning with `CARDENZA_PROJECT 7` | Reads v1–v7; writes v7 |
+| `Projects/*.ccproj`, `Session/autosave.ccproj` | Text beginning with `CARDENZA_PROJECT 8` | Reads v1–v8; writes v8 |
 | `Session/autosave.txt`, `Session/restoring.txt` | `key=value` lines | Written whole by the groovebox; other keys are not kept |
 | `Presets/<engine>/user.ccpreset` | Text beginning with `CARDENZA_PRESETS 1 "<engine-id>"` | Preset format 1 |
 | `Samples/*.wav`, `Session/take-*.wav` | Mono PCM16 WAV | File names and project references stay valid |
@@ -62,9 +63,10 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 
 Storage protocol 2 describes the layout and how settings are kept; it does not version the project,
 preset or WAV formats. Project format 6 added the keyboard and each track's chord and arpeggiator;
-format 7 gives every pattern its own length (up to 256 steps). Version 5 was only written by
-unreleased development builds (its `PLAY` line is skipped). The next project format change takes
-version 8. The 0.1.0 release reads formats 1–6: a project saved by this firmware is format 7.
+format 7 gives every pattern its own length (up to 256 steps); format 8 names, per track, the file in
+`Samples/` each drum pad plays (a `PADS` line). Version 5 was only written by unreleased development
+builds (its `PLAY` line is skipped). The next project format change takes version 9. The 0.1.0
+release reads formats 1–6: a project saved by this firmware is format 8.
 
 ### Settings syntax
 

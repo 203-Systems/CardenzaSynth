@@ -529,7 +529,7 @@ int main()
 
   DrumsSynthEngine drums;
   assert(drums.Init({0, 0x4104, "regression-drums"}));
-  assert(drums.ListParameters({0, 32}).totalCount == 16); // 8 kit levels, master and 7 track effects.
+  assert(drums.ListParameters({0, 40}).totalCount == 32); // 8 pads' sound, tune and level, master and 7 track effects.
   assert(drums.CurrentPresetId() == "drums.808");
   const auto stopDrums = [&]() {
     AllNotesOff(0);
@@ -605,6 +605,82 @@ int main()
   assert(restoredDrums.LoadPreset("drums.808"));
   RenderFrames(pcm.data(), pcm.size());
   assert(energy() == 0 && g_engines[0].drumMaster == 100 && g_engines[0].drumLevels[0] == 100);
+
+  // Kits and pads: every kit's pads sound, its kick unlike the 808's; a pad's tune moves it; a sample
+  // from the card plays in a pad's place, from where it is, until it is taken off the pad.
+  {
+    const auto firstBlock = [&](std::uint8_t note) {
+      stopDrums();
+      NoteOn(0, note, 127);
+      RenderFrames(pcm.data(), pcm.size());
+      return pcm;
+    };
+    assert(drums::KitCount() >= 6 && drums::SoundCount() > 100);
+    std::vector<std::array<std::int16_t, 2048>> kicks;
+    for (std::size_t kit = 0; kit < drums::KitCount(); ++kit)
+    {
+      assert(restoredDrums.LoadPreset(drums::Kit(kit).id));
+      RenderFrames(pcm.data(), pcm.size());
+      for (std::size_t pad = 0; pad < kDrumNotes.size(); ++pad)
+      {
+        assert(g_engines[0].drumPads[pad].sound == drums::Kit(kit).pads[pad].sound);
+        const auto block = firstBlock(kDrumNotes[pad]);
+        pcm = block;
+        assert(energy() > 0);
+      }
+      kicks.push_back(firstBlock(kDrumNotes[0]));
+    }
+    for (std::size_t kit = 1; kit < kicks.size(); ++kit) assert(kicks[kit] != kicks[0]);
+    // Back to the 808: its kick is the ROM sample as it always was.
+    assert(restoredDrums.LoadPreset("drums.808"));
+    RenderFrames(pcm.data(), pcm.size());
+    assert(firstBlock(kDrumNotes[0]) == kicks[0]);
+    assert(g_engines[0].drumPads[0].preset == drums::Sound(0).romPreset);
+    // An embedded sound is played from the table, in place.
+    assert(restoredDrums.SetParameterValue("pad1.sound", 26));  // 909 KICK
+    RenderFrames(pcm.data(), pcm.size());
+    std::uint32_t frames = 0;
+    assert(amy_embed::pcm_get_memory_preset(g_engines[0].drumPads[0].preset, &frames, nullptr, nullptr, nullptr) == drums::SoundFrames(drums::Sound(26)));
+    assert(frames == drums::Sound(26).length);
+    const auto kick909 = firstBlock(kDrumNotes[0]);
+    assert(restoredDrums.SetParameterValue("pad1.tune", 12));
+    RenderFrames(pcm.data(), pcm.size());
+    assert(firstBlock(kDrumNotes[0]) != kick909);
+    assert(restoredDrums.DescribeParameterValue("pad1.tune") == "+12" && restoredDrums.DescribeParameterValue("pad1.sound") == "909 KICK");
+    assert(restoredDrums.SetParameterValue("pad1.tune", 0));
+    // A sample from the card on the pad, and off again.
+    auto card = std::make_shared<SampleBuffer>();
+    card->frameCount = 4000;
+    card->frames.reset(new std::int16_t[card->frameCount]);
+    for (std::size_t frame = 0; frame < card->frameCount; ++frame)
+      card->frames[frame] = static_cast<std::int16_t>(12000.0 * std::sin(frame * 0.0627));
+    SharedSampleBuffer shared = std::move(card);
+    SetDrumPadSample(0, 0, shared, 44100);
+    RenderFrames(pcm.data(), pcm.size());
+    assert(shared.use_count() > 1);
+    assert(amy_embed::pcm_get_memory_preset(g_engines[0].drumPads[0].preset, nullptr, nullptr, nullptr, nullptr) == shared->frames.get());
+    const auto sampled = firstBlock(kDrumNotes[0]);
+    pcm = sampled;
+    assert(energy() > 0 && sampled != kick909);
+    // Choosing a sound leaves the sample on the pad; taking the sample off brings the sound back.
+    assert(restoredDrums.SetParameterValue("pad1.sound", 26));
+    RenderFrames(pcm.data(), pcm.size());
+    assert(firstBlock(kDrumNotes[0]) == sampled);
+    SetDrumPadSample(0, 0, nullptr, 44100);
+    RenderFrames(pcm.data(), pcm.size());
+    assert(shared.use_count() == 1);
+    assert(firstBlock(kDrumNotes[0]) == kick909);
+    // Another engine on the track takes the pads' presets with it.
+    const std::uint16_t padPreset = g_engines[0].drumPads[0].preset;
+    EnsureEngine(0, SynthEngineKind::Juno);
+    RenderFrames(pcm.data(), pcm.size());
+    assert(amy_embed::pcm_get_memory_preset(padPreset, nullptr, nullptr, nullptr, nullptr) == nullptr);
+    EnsureEngine(0, SynthEngineKind::Drums);
+    RenderFrames(pcm.data(), pcm.size());
+    assert(g_engines[0].drumPads[0].preset == drums::Sound(0).romPreset);
+    assert(restoredDrums.LoadPreset("drums.808"));
+    stopDrums();
+  }
 
   // Stress all voice-budget extremes and repeated reallocations without raising
   // the 24-voice/160-osc limits. Each track must retain its assigned voice count.

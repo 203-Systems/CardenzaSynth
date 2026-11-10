@@ -17,9 +17,12 @@ enum class SlotAction : std::uint8_t {
   SampleFile,
   SampleRecord,
   SamplePreview,
+  PadFile,    // drums: a sample from the card on the chosen pad
+  PadRecord,  // drums: the chosen pad from the microphone
 };
 
 // A GRID slot on an INSTR page: an engine parameter id, a "keys.*" keyboard setting, or an action.
+// "pad.sound", "pad.tune" and "pad.level" (drums) name the chosen pad's (Controller::CurrentInstrumentPage).
 struct Slot {
   const char* id = nullptr;
   const char* label = nullptr;
@@ -42,6 +45,7 @@ enum class PageGraphic : std::uint8_t {
   Lfo,               // LFO shape, rate and delay
   Waveform,
   DrumPads,
+  PadSound,          // drums PAD: the chosen pad, what it plays and from where, over the eight pads
   FxChain,           // track insert chain and sends
   Chord,             // INSTR CHORD: the chord one key plays, on a keyboard
   Arp,               // INSTR ARP: the order the track's arpeggiator plays a chord in

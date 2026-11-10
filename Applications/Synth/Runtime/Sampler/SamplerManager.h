@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <cstdio>
+#include <functional>
 #include <memory>
 
 namespace synth {
@@ -64,6 +65,9 @@ public:
   int RecordingTrack() const { return activeRecordingTrack_; }
   bool ConsumeTrimReset(std::size_t trackIndex);
   static bool ValidateSampleReference(std::string_view id);
+  // Who else plays files from Samples (the drum pads): such a file is not renamed, deleted or
+  // overwritten either.
+  void SetOtherUses(std::function<bool(std::string_view fileName)> inUse) { otherUses_ = std::move(inUse); }
   static bool PrepareSample(std::string_view id, PreparedSample& sample);
   bool ApplySample(std::size_t trackIndex, const PreparedSample& sample);
 
@@ -104,6 +108,7 @@ private:
   int activeRecordingTrack_ = -1;
   std::FILE* takeFile_ = nullptr;
   bool keepTakes_ = false;
+  std::function<bool(std::string_view)> otherUses_;
 };
 
 }  // namespace synth

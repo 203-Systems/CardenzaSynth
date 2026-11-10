@@ -133,9 +133,16 @@ constexpr std::array<InstrumentPage, 6> kSamplerPages{{
     kFxPage,
 }};
 
-// Drums play one drum per key: no chord, no arpeggiator.
-constexpr std::array<InstrumentPage, 3> kDrumPages{{
+// Drums play one drum per key: no chord, no arpeggiator. VOICE is the kit; PAD the pad last played: its
+// sound (a list of AMY's drum samples, ENTER opens it), pitch and level, or a sample from the card or
+// the microphone in its place.
+constexpr std::array<InstrumentPage, 4> kDrumPages{{
     kVoicePage,
+    InstrumentPage{"SOUNDS", "PAD",
+                   {{P("pad.sound", "SOUND"), P("pad.tune", "TUNE"), P("pad.level", "LEVEL"), E(),
+                     A(SlotAction::PadFile, "FILE"), A(SlotAction::PadRecord, "REC"), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::PadSound, {2, 0, 2, 4}, 0},
     InstrumentPage{"LEVELS", "KIT",
                    {{P("kick.level", "BD"), P("snare.level", "SD"), P("closed_hat.level", "CH"), P("open_hat.level", "OH"),
                      P("clap.level", "CP"), P("tom.level", "TM"), P("cowbell.level", "CB"), P("maraca.level", "MA"),

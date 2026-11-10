@@ -23,6 +23,7 @@
 #endif
 
 #include "Applications/Synth/Runtime/ProjectStorage.h"
+#include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
 #include "Applications/Synth/Runtime/SynthStorage.h"
 #include "Applications/Synth/UI/Groove/Render/Gfx.h"
 #include "Applications/Synth/UI/Groove/Render/GrooveRenderer.h"
@@ -138,11 +139,21 @@ void RegisterGrooveApplication()
   (void)registered;
 }
 
-GrooveApp::GrooveApp() : controller_(*this) {}
+GrooveApp::GrooveApp() : controller_(*this)
+{
+  // A file a drum pad plays is not renamed, deleted or overwritten from the sampler's browser.
+  sampler_.SetOtherUses([this](std::string_view fileName) {
+    for (const auto& track : padSamples_)
+      for (const std::string& pad : track)
+        if (!pad.empty() && pad == fileName) return true;
+    return false;
+  });
+}
 
 GrooveApp::~GrooveApp()
 {
   // Silence the engines and hand the sample memory back before the next app starts.
+  padRecorder_.Cancel();
   sampler_.KeepTakesOnCard();
   sequencer_.ArpReleaseAll();
   sequencer_.Stop();
@@ -200,6 +211,7 @@ void GrooveApp::Suspend()
   // A lesson's practice project is never kept: the user's working state comes back first.
   ExitGuide();
   StorePlaySettings();
+  padRecorder_.Cancel();
   sampler_.KeepTakesOnCard();
   (void)SaveSessionState();
 }
@@ -310,7 +322,10 @@ void GrooveApp::CheckCard(std::uint32_t now)
   // Looking for a card that is not there takes a moment: only for something that waits for it (a
   // sample, the autosave), and only when nobody is playing.
   const bool waiting = sessionChanged_ ||
-                       std::any_of(pendingSamples_.begin(), pendingSamples_.end(), [](const std::string& name) { return !name.empty(); });
+                       std::any_of(pendingSamples_.begin(), pendingSamples_.end(), [](const std::string& name) { return !name.empty(); }) ||
+                       std::any_of(pendingPadSamples_.begin(), pendingPadSamples_.end(), [](const auto& pads) {
+                         return std::any_of(pads.begin(), pads.end(), [](const std::string& name) { return !name.empty(); });
+                       });
   if (!cardWasMounted_ && waiting && Quiet(now) && now - lastCardProbeAt_ >= kCardProbeMs)
   {
     lastCardProbeAt_ = now;
@@ -345,6 +360,13 @@ void GrooveApp::ApplyPendingSamples()
     // The engine already carries the saved trim.
     (void)sampler_.ConsumeTrimReset(track);
   }
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+    for (std::size_t pad = 0; pad < synth::drums::kPadCount; ++pad)
+    {
+      const std::string name = pendingPadSamples_[track][pad];
+      if (name.empty() || rack_.Slot(track).kind != synth::SynthEngineKind::Drums) continue;
+      if (synth::SamplerManager::ValidateSampleReference(name)) (void)LoadPadSample(track, pad, name);
+    }
 }
 
 namespace {
@@ -530,7 +552,7 @@ void GrooveApp::KeepSessionCurrent(std::uint32_t now)
   CheckCardSession(now);
   // The guide's practice project is not the working state, and a recording keeps its own file. A run
   // without a card keeps nothing.
-  if (guide_ || sampler_.RecordingTrack() >= 0 || !sessionChanged_ || os::storage::CardMissingThisRun()) return;
+  if (guide_ || sampler_.RecordingTrack() >= 0 || padRecorder_.Recording() || !sessionChanged_ || os::storage::CardMissingThisRun()) return;
   // Settled: the keys have rested a moment, none held, playing or not (the card is written on the
   // background task). Keys that keep coming, or a sample played from the card (writing slows its
   // reading), put it off only so long.
@@ -571,6 +593,7 @@ void GrooveApp::Tick()
   os::storage::SetCardStreaming(synth::audio::SampleStreamsReading());
   ReadComputerMidi();
   sampler_.Tick();
+  padRecorder_.Tick();
   rack_.DispatchPendingMessages();
   SyncSamplerTrim();
   // The delay time follows the sequencer tempo.
@@ -792,6 +815,8 @@ bool GrooveApp::SwitchEngine(std::size_t track, synth::SynthEngineKind kind, std
   }
   synth::audio::AllNotesOff(track);
   sampler_.OnTrackEngineChanged(track, synth::SynthEngineKind::None);
+  if (padRecorder_.Active() && padRecorder_.Track() == track) padRecorder_.Cancel();
+  ClearPadSamples(track);
   engine->ReplaceBinding(*slot.engine);
   std::swap(slot.engine, engine);
   DropEngine(engine, slot.kind);
@@ -909,6 +934,142 @@ void GrooveApp::PreviewSample(std::size_t track)
     if (engine->GetParameterInfo("sample.root", root)) note = static_cast<std::uint8_t>(std::clamp(root.value, 0, 127));
   }
   (void)sampler_.PreviewCurrentSample(track, note);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Drum pads from the card and the microphone
+
+bool GrooveApp::LoadPadSample(std::size_t track, std::size_t pad, const std::string& fileName)
+{
+  // Up to what a pad holds (two seconds with PSRAM): a longer file plays its start.
+  synth::audio::SharedSampleBuffer frames;
+  std::uint32_t rate = synth::audio::kSampleRate;
+  const std::string path = synth::storage::SampleDirectory() + "/" + fileName;
+  if (!synth::sampler::ReadMono16WavHead(path, synth::sampler::PadSampleFrameLimit(), frames, rate)) return false;
+  synth::audio::SetDrumPadSample(track, pad, std::move(frames), rate);
+  padSamples_[track][pad] = fileName;
+  pendingPadSamples_[track][pad].clear();
+  return true;
+}
+
+void GrooveApp::ClearPadSamples(std::size_t track)
+{
+  for (std::size_t pad = 0; pad < synth::drums::kPadCount; ++pad)
+  {
+    if (!padSamples_[track][pad].empty()) synth::audio::SetDrumPadSample(track, pad, nullptr, 0);
+    padSamples_[track][pad].clear();
+    pendingPadSamples_[track][pad].clear();
+  }
+}
+
+bool GrooveApp::SetPadSample(std::size_t track, std::size_t pad, const std::string& fileName, std::string& message)
+{
+  if (track >= synth::kSynthTrackCount || pad >= synth::drums::kPadCount) return false;
+  if (rack_.Slot(track).kind != synth::SynthEngineKind::Drums)
+  {
+    message = "NOT DRUMS";
+    return false;
+  }
+  if (fileName.empty())
+  {
+    if (!padSamples_[track][pad].empty()) synth::audio::SetDrumPadSample(track, pad, nullptr, 0);
+    padSamples_[track][pad].clear();
+    pendingPadSamples_[track][pad].clear();
+    return true;
+  }
+  if (!synth::SamplerManager::ValidateSampleReference(fileName))
+  {
+    message = "SAMPLE MISSING";
+    return false;
+  }
+  if (!LoadPadSample(track, pad, fileName))
+  {
+    message = "NO MEMORY";
+    return false;
+  }
+  return true;
+}
+
+std::string GrooveApp::PadSample(std::size_t track, std::size_t pad) const
+{
+  if (track >= synth::kSynthTrackCount || pad >= synth::drums::kPadCount) return {};
+  return padSamples_[track][pad].empty() ? pendingPadSamples_[track][pad] : padSamples_[track][pad];
+}
+
+bool GrooveApp::BeginPadRecord(std::size_t track, std::size_t pad, std::string& message)
+{
+  if (track >= synth::kSynthTrackCount || pad >= synth::drums::kPadCount || rack_.Slot(track).kind != synth::SynthEngineKind::Drums)
+  {
+    message = "NOT DRUMS";
+    return false;
+  }
+  // The take goes to the card as a sample of its own.
+  if (os::storage::CardMissingThisRun())
+  {
+    message = "NO SD CARD";
+    return false;
+  }
+  if (!storageReady_) storageReady_ = synth::storage::EnsureLayout();
+  if (!storageReady_)
+  {
+    message = "SD CARD ERROR";
+    return false;
+  }
+  if (sampler_.RecordingTrack() >= 0)
+  {
+    message = "BUSY";
+    return false;
+  }
+  // The speaker stands aside while the microphone has its pin: nothing should be playing into silence.
+  sequencer_.ArpReleaseAll();
+  synth::audio::AllNotesOff(track);
+  return padRecorder_.Begin(track, pad, message);
+}
+
+bool GrooveApp::FinishPadRecord(std::string& message)
+{
+  if (!padRecorder_.Active())
+  {
+    message = "NOT RECORDING";
+    return false;
+  }
+  const std::size_t track = padRecorder_.Track();
+  const std::size_t pad = padRecorder_.Pad();
+  const std::string name = sampler_.FreeTakeName();
+  const std::string fileName = name + ".wav";
+  if (!padRecorder_.Finish(synth::storage::SampleDirectory() + "/" + fileName, message))
+  {
+    if (message == "SAVE ERR") os::storage::ReportCardIoError();
+    return false;
+  }
+  // A key or the end of the buffer finished it: either way the project changed.
+  if (!sessionChanged_) sessionChangedAt_ = NowMs();
+  sessionChanged_ = true;
+  if (rack_.Slot(track).kind != synth::SynthEngineKind::Drums || !LoadPadSample(track, pad, fileName))
+  {
+    message = "NO MEMORY";
+    return false;
+  }
+  message = name;
+  return true;
+}
+
+void GrooveApp::CancelPadRecord()
+{
+  padRecorder_.Cancel();
+}
+
+groove::PadRecordState GrooveApp::PadRecording() const
+{
+  groove::PadRecordState state;
+  state.active = padRecorder_.Active();
+  state.recording = padRecorder_.Recording();
+  state.track = padRecorder_.Track();
+  state.pad = padRecorder_.Pad();
+  state.level = padRecorder_.Level();
+  state.progress = padRecorder_.Progress();
+  state.waveform = padRecorder_.Waveform();
+  return state;
 }
 
 std::vector<std::string> GrooveApp::ListSamples() const
@@ -1070,6 +1231,9 @@ bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth:
     project.samples[track] = sample.sampleFileName;
     // Still waiting for the card it is on.
     if (forSession && sample.sampleFileName.empty() && slot.kind == synth::SynthEngineKind::Sampler) project.samples[track] = pendingSamples_[track];
+    // A pad keeps naming its file while it waits for it (the card, memory): saving never drops it.
+    for (std::size_t pad = 0; pad < synth::drums::kPadCount; ++pad)
+      project.padSamples[track][pad] = slot.kind == synth::SynthEngineKind::Drums ? PadSample(track, pad) : std::string();
   }
   project.sequence = sequencer_.CaptureState();
   if (!project.sequence)
@@ -1322,6 +1486,21 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
       return false;
     }
   }
+  // The drum pads' files: there, or (the working state) waiting for the card.
+  PadSamples pendingPads{};
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+    for (std::size_t pad = 0; pad < synth::drums::kPadCount; ++pad)
+    {
+      std::string& name = project.padSamples[track][pad];
+      if (name.empty() || synth::SamplerManager::ValidateSampleReference(name)) continue;
+      if (!workingState)
+      {
+        message = "SAMPLE MISSING";
+        return false;
+      }
+      pendingPads[track][pad] = name;
+      name.clear();
+    }
 
   // Nothing that can fail for a reason other than memory remains, and memory was checked: swap the
   // engines track by track. The arpeggiator goes first so no arp note fires while they change.
@@ -1330,6 +1509,8 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   sequencer_.SetRecordArmed(false);
   sequencer_.ClearSelectedSteps();
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) sampler_.OnTrackEngineChanged(track, synth::SynthEngineKind::None);
+  padRecorder_.Cancel();
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) ClearPadSamples(track);
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
     auto& slot = rack_.Slot(track);
@@ -1364,6 +1545,17 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   ApplyMix();
   ApplyMasterFx(project.masterFx);
   pendingSamples_ = std::move(pending);
+  // After its engine: the pads' samples replace the sounds the engine's state gave them.
+  pendingPadSamples_ = pendingPads;
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+    for (std::size_t pad = 0; pad < synth::drums::kPadCount; ++pad)
+    {
+      const std::string& name = project.padSamples[track][pad];
+      if (name.empty() || rack_.Slot(track).kind != synth::SynthEngineKind::Drums || LoadPadSample(track, pad, name)) continue;
+      // No room for it now: the pad plays its sound and keeps naming the file.
+      std::printf("Groove: track %u pad %u: %s not loaded (memory)\n", static_cast<unsigned>(track + 1), static_cast<unsigned>(pad + 1), name.c_str());
+      pendingPadSamples_[track][pad] = name;
+    }
   return true;
 }
 

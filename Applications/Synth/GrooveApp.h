@@ -8,6 +8,7 @@
 #include "Applications/Application.h"
 #include "Applications/Synth/Runtime/SessionStore.h"
 #include "Applications/Synth/Runtime/ProjectStorage.h"
+#include "Applications/Synth/Runtime/Sampler/PadRecorder.h"
 #include "Applications/Synth/Runtime/Sampler/SamplerManager.h"
 #include "Applications/Synth/Runtime/Sequencer/SynthSequencer.h"
 #include "Applications/Synth/Runtime/SynthRack.h"
@@ -69,6 +70,12 @@ public:
   const synth::SamplerManager& Sampler() const override { return sampler_; }
   void PreviewSample(std::size_t track) override;
   std::vector<std::string> ListSamples() const override;
+  bool SetPadSample(std::size_t track, std::size_t pad, const std::string& fileName, std::string& message) override;
+  std::string PadSample(std::size_t track, std::size_t pad) const override;
+  bool BeginPadRecord(std::size_t track, std::size_t pad, std::string& message) override;
+  bool FinishPadRecord(std::string& message) override;
+  void CancelPadRecord() override;
+  groove::PadRecordState PadRecording() const override;
   void SetTrackLevel(std::size_t track, std::uint8_t level) override;
   std::uint8_t TrackLevel(std::size_t track) const override;
   void SetTrackMuted(std::size_t track, bool muted) override;
@@ -162,6 +169,10 @@ private:
   bool Quiet(std::uint32_t now) const;
   void CheckCard(std::uint32_t now);
   void ApplyPendingSamples();
+  // The pads' samples into the audio runtime (SetPadSample without the checks), and off a track that
+  // is no drum machine any more.
+  bool LoadPadSample(std::size_t track, std::size_t pad, const std::string& fileName);
+  void ClearPadSamples(std::size_t track);
   static void SendSequencerMidi(void* context, std::size_t trackIndex, const midi::MidiPacket& packet);
 
   bool initialized_ = false;
@@ -183,6 +194,12 @@ private:
   bool cardWasMounted_ = false;
   int keysHeld_ = 0;
   std::array<std::string, synth::kSynthTrackCount> pendingSamples_;
+  // The file each drum pad plays from the card (empty: its sound), and those the autosave named that
+  // the card did not have yet (they load when it comes back).
+  using PadSamples = std::array<std::array<std::string, synth::drums::kPadCount>, synth::kSynthTrackCount>;
+  PadSamples padSamples_{};
+  PadSamples pendingPadSamples_{};
+  synth::PadRecorder padRecorder_;
   std::uint32_t lastKeyAt_ = 0;
   void EndOrphanNotes(std::uint32_t now);
   std::uint32_t lastOrphanCheckAt_ = 0;

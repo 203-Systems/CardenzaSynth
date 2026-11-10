@@ -54,6 +54,7 @@ enum class ModalKind : std::uint8_t {
   SampleRecord,
   Menu,    // a tap on FN: the menu of the screen underneath, kept open
   Record,  // SEQ: hold OK. Live recording, the note view and the captured takes
+  PadRecord,  // a drum pad from the microphone (Host::BeginPadRecord)
 };
 
 // SEQ note page views, for melodic and drum tracks alike: ROLL draws a piano roll, STEP a machine
@@ -150,6 +151,9 @@ struct ModalFields {
   std::uint8_t trimMarker = 0;
   // Text entry: insertion point (FN + , / move it, FN + ; . jump to the ends).
   std::size_t textCursor = 0;
+  // The drum sound list (a preset browser with payload "sounds"): the pad's sound when it opened and
+  // the sample it played instead (`detail`), both back on ESC.
+  int restoreValue = -1;
 };
 
 struct Modal : ModalFields {
@@ -287,6 +291,10 @@ enum class MenuAction : std::uint8_t {
   SampleFiles,
   SampleRecord,
   SamplePreview,
+  PadSounds,   // drums: the chosen pad's sound from the list
+  PadFiles,    // drums: a sample from the card on the chosen pad
+  PadRecord,   // drums: the chosen pad from the microphone
+  PadSound,    // drums: the chosen pad's sample off, its sound back
   // SEQ
   Copy,
   Paste,
@@ -566,12 +574,22 @@ public:
 
   std::size_t PageCount(Scene scene) const;
   std::uint8_t CurrentPage() const { return state_.page[static_cast<std::size_t>(state_.scene)]; }
+  // On a drum track the page as the chosen pad (DrumLane) makes it: "pad.*" slots name that pad's
+  // parameters, and the KIT page's levels are labelled with what each pad plays.
   const InstrumentPage* CurrentInstrumentPage() const;
+  InstrumentPage InstrumentPageAt(std::size_t index) const;
   InstrumentPageList InstrumentPages() const;
   std::uint8_t InstrumentFocus() const;
   std::string PageTab(Scene scene, std::size_t page) const;
   // Short page description for the CTRL page map.
   std::string PageName(Scene scene, std::size_t page) const;
+
+  // What a drum pad (lane 0..7) of the current track plays, in two letters (BD, CG, a sample's first
+  // two) and in full (909 KICK, TAKE_03); `source` says from where (KIT or CARD).
+  std::string DrumLabel(std::size_t lane) const;
+  std::string DrumSoundName(std::size_t lane, const char** source = nullptr) const;
+  // DrumLabel of the pad a sequencer note (a GM drum note) belongs to, empty for any other note.
+  std::string DrumNoteLabel(int note) const;
 
   bool PadNoteFor(std::size_t row, std::size_t column, int& note) const;
   bool IsPadDown(std::size_t row, std::size_t column) const;
@@ -737,6 +755,15 @@ private:
   void OpenSampleBrowser();
   void RefreshSampleBrowser();
   void OpenSampleRecord();
+  // Drum pads: the sound list, a sample from the card, the microphone, and the sample off again.
+  void OpenSoundBrowser();
+  void FillSoundRows(Modal& modal) const;
+  void PreviewPadSound(int sound);
+  void OpenPadSampleBrowser();
+  void OpenPadRecord();
+  void PadRecordEnter();
+  void ClearPadSample();
+  void AuditionPad();
   void ModalAdjust(int delta, bool coarse);
   void ModalEnter();
   void ModalFnEnter();
@@ -766,6 +793,8 @@ private:
 
   Host& host_;
   UiState state_{};
+  mutable InstrumentPage resolvedPage_{};
+  mutable std::array<std::string, 8> drumLabels_{};
 };
 
 }  // namespace groove

@@ -167,6 +167,19 @@ struct SamplerVoice {
   std::uint64_t serial = 0;
 };
 
+// A drum pad: what a hit plays. A built-in sound (DrumSounds.h) or a sample from the card in its place;
+// AMY plays a ROM sound by its preset number and the others through the pad's own memory preset
+// (DrumPadPreset), which points at the frames where they are (flash, or the sample's buffer).
+struct DrumPad {
+  std::uint16_t sound = 0;
+  int tune = 0;
+  SharedSampleBuffer sample;
+  std::uint32_t sampleRate = kSampleRate;
+  std::uint16_t preset = 0;
+  int root = 60;
+  float gain = 1.0f;
+};
+
 struct EngineState {
   SynthEngineKind kind = SynthEngineKind::None;
   bool configured = false;
@@ -180,6 +193,7 @@ struct EngineState {
   std::array<bool, 128> activeNotes{};
   std::array<int, 8> drumLevels{{100, 100, 100, 100, 100, 100, 100, 100}};
   int drumMaster = 100;
+  std::array<DrumPad, drums::kPadCount> drumPads{};
   SamplerParams sampler{};
   std::array<SamplerVoice, kSamplerVoiceCount> samplerVoices{};
   std::uint64_t nextSamplerVoiceSerial = 1;
@@ -190,6 +204,7 @@ enum class PendingEventType {
   SetPreset,
   SetParameter,
   SetSamplerFrames,
+  SetDrumPadSample,
   NoteOn,
   NoteOff,
   AllNotesOff,
@@ -707,14 +722,14 @@ void SendAmyNoteEventNoLock(const EngineState& engine, std::uint8_t note, float 
   event.velocity = velocity;
   if (engine.kind == SynthEngineKind::Drums)
   {
-    // AMY no longer maps GM drum notes to its tiny PCM kit (_SYNTH_FLAGS_MIDI_DRUMS is gone): each pad
-    // names the sample its GM note had there (808 kick, snare, closed and open hat, clap, tom, cowbell,
-    // maraca) at the sample's own pitch, which is also the note its release finds.
-    constexpr std::array<std::uint16_t, kDrumNotes.size()> kPcmPresets{{1, 2, 6, 7, 9, 8, 10, 0}};
+    // AMY no longer maps GM drum notes to a kit (_SYNTH_FLAGS_MIDI_DRUMS is gone): each pad names what
+    // it plays (ApplyDrumPadNoLock), at its own pitch moved by the pad's tune, which is also the note its
+    // release finds. Never note 0.
     const auto pad = std::find(kDrumNotes.begin(), kDrumNotes.end(), note);
     if (pad == kDrumNotes.end()) return;
-    event.preset = kPcmPresets[static_cast<std::size_t>(pad - kDrumNotes.begin())];
-    event.midi_note = amy_embed::pcm_map[event.preset].midinote;
+    const DrumPad& state = engine.drumPads[static_cast<std::size_t>(pad - kDrumNotes.begin())];
+    event.preset = state.preset;
+    event.midi_note = static_cast<std::uint16_t>(std::clamp(state.root + state.tune, 1, 127));
     event.wave = PCM;
     event.feedback = 0;
   }
@@ -1090,6 +1105,68 @@ int CachedAmyPatchNoLock(const EngineState& engine, int patch)
   return slot;
 }
 
+// Each drum track's pads have AMY memory presets of their own, clear of its ROM set (presets 0-10).
+constexpr std::uint16_t kDrumPadPresetBase = 600;
+
+std::uint16_t DrumPadPreset(const EngineState& engine, std::size_t pad)
+{
+  return static_cast<std::uint16_t>(kDrumPadPresetBase + (engine.synthId - 1) * drums::kPadCount + pad);
+}
+
+// Points the pad's preset at what it plays now. The frames stay where they are: a ROM sound needs no
+// preset of its own, an embedded one is in flash, a sample in the buffer the pad holds.
+void ApplyDrumPadNoLock(EngineState& engine, std::size_t pad)
+{
+  DrumPad& state = engine.drumPads[pad];
+  const std::uint16_t memory = DrumPadPreset(engine, pad);
+  if (state.sample && state.sample->frames && state.sample->frameCount > 0)
+  {
+    const auto frames = static_cast<std::uint32_t>(state.sample->frameCount);
+    if (amy_embed::pcm_load_external(memory, state.sample->frames.get(), frames, state.sampleRate, 1, 60.0f, 0, 0))
+    {
+      state.preset = memory;
+      state.root = 60;
+      state.gain = 1.0f;
+      return;
+    }
+  }
+  const drums::DrumSound& sound = drums::Sound(state.sound);
+  state.root = sound.root;
+  state.gain = sound.gain;
+  if (sound.romPreset != drums::kEmbedded)
+  {
+    amy_embed::pcm_unload_preset(memory);
+    state.preset = sound.romPreset;
+    return;
+  }
+  if (!amy_embed::pcm_load_external(memory, drums::SoundFrames(sound), sound.length, drums::kSoundRate, 1, static_cast<float>(sound.root), 0, 0))
+  {
+    // No room for AMY's record of it: the pad keeps sounding, as the kit's first sound.
+    state.preset = drums::Sound(0).romPreset;
+    state.root = drums::Sound(0).root;
+    state.gain = 1.0f;
+    return;
+  }
+  state.preset = memory;
+}
+
+void ResetDrumPadsNoLock(EngineState& engine)
+{
+  const drums::DrumKit& kit = drums::Kit(0);
+  for (std::size_t pad = 0; pad < drums::kPadCount; ++pad)
+  {
+    engine.drumPads[pad].sound = kit.pads[pad].sound;
+    engine.drumPads[pad].tune = kit.pads[pad].tune;
+    engine.drumPads[pad].sample.reset();
+    ApplyDrumPadNoLock(engine, pad);
+  }
+}
+
+void ReleaseDrumPadPresetsNoLock(EngineState& engine)
+{
+  for (std::size_t pad = 0; pad < drums::kPadCount; ++pad) amy_embed::pcm_unload_preset(DrumPadPreset(engine, pad));
+}
+
 void ConfigureAmySynthNoLock(EngineState& engine)
 {
   if (!UsesAmy(engine.kind))
@@ -1297,6 +1374,8 @@ void ResetEngineNoLock(EngineState& engine, std::size_t engineIndex, SynthEngine
     release.num_voices = 0;
     amy_add_event(&release);
   }
+  // The voices go before the next block renders: then nothing reads what the pads pointed at.
+  if (g_amyInitialized && engine.kind == SynthEngineKind::Drums) ReleaseDrumPadPresetsNoLock(engine);
 
   engine = EngineState{};
   engine.kind = kind;
@@ -1305,6 +1384,11 @@ void ResetEngineNoLock(EngineState& engine, std::size_t engineIndex, SynthEngine
   engine.patchNumber = DefaultPatchFor(kind);
   UpdateSamplerFilter(engine.sampler);
   RebuildAmyOscTrackMapNoLock();
+  if (kind == SynthEngineKind::Drums)
+  {
+    EnsureAmyInitialized();
+    ResetDrumPadsNoLock(engine);
+  }
 }
 
 bool MasterFxNeutral(const std::array<int, fx::kMasterParamCount>& master)
@@ -1623,8 +1707,9 @@ void ApplyPendingEvent(const PendingEvent& event)
         std::copy_n(factory::kJuno[engine.patchNumber], engine.juno.size(), engine.juno.begin());
         ConfigureAmySynthNoLock(engine);
       }
-      else if (engine.kind == SynthEngineKind::Drums && event.text == "drums.808")
+      else if (engine.kind == SynthEngineKind::Drums)
       {
+        // A kit: its pads' sounds follow as parameters.
         engine.drumLevels.fill(100);
         engine.drumMaster = 100;
         ConfigureAmySynthNoLock(engine);
@@ -1655,6 +1740,17 @@ void ApplyPendingEvent(const PendingEvent& event)
             auto update = SynthEvent(engine, 0);
             update.amp_coefs[amy_embed::COEF_CONST] = 5.0f * Normalize(engine.drumMaster, 0, 127);
             amy_add_event(&update);
+          }
+          else if (const int pad = DrumPadOfParameter(event.text); pad >= 0)
+          {
+            DrumPad& state = engine.drumPads[static_cast<std::size_t>(pad)];
+            if (event.text.compare(5, std::string::npos, "tune") == 0) state.tune = std::clamp(event.value, -drums::kMaxTune, drums::kMaxTune);
+            else
+            {
+              state.sound = static_cast<std::uint16_t>(std::clamp<int>(event.value, 0, static_cast<int>(drums::SoundCount()) - 1));
+              // A sample from the card plays in its place until it is taken off the pad.
+              if (!state.sample) ApplyDrumPadNoLock(engine, static_cast<std::size_t>(pad));
+            }
           }
           else
           {
@@ -1692,6 +1788,18 @@ void ApplyPendingEvent(const PendingEvent& event)
       // Sampler cleanup can arrive after a track switches to AMY and plays a
       // note. Only sampler voices are reset here; keep AMY's release tracking.
       break;
+    case PendingEventType::SetDrumPadSample:
+      if (engine.kind == SynthEngineKind::Drums && event.value >= 0 && static_cast<std::size_t>(event.value) < drums::kPadCount)
+      {
+        DrumPad& state = engine.drumPads[static_cast<std::size_t>(event.value)];
+        // The old buffer is let go only after the preset points elsewhere.
+        SharedSampleBuffer previous = std::move(state.sample);
+        state.sample = event.frames && event.frames->frames ? event.frames : nullptr;
+        state.sampleRate = event.sampleRate == 0 ? kSampleRate : event.sampleRate;
+        ApplyDrumPadNoLock(engine, static_cast<std::size_t>(event.value));
+        previous.reset();
+      }
+      break;
     case PendingEventType::NoteOn:
       if (!engine.configured || engine.kind == SynthEngineKind::None)
       {
@@ -1711,7 +1819,8 @@ void ApplyPendingEvent(const PendingEvent& event)
         {
           const auto drum = std::find(kDrumNotes.begin(), kDrumNotes.end(), event.note);
           if (drum == kDrumNotes.end() || event.velocity == 0) return;
-          velocity *= Normalize(engine.drumLevels[drum - kDrumNotes.begin()], 0, 127);
+          const auto lane = static_cast<std::size_t>(drum - kDrumNotes.begin());
+          velocity *= Normalize(engine.drumLevels[lane], 0, 127) * engine.drumPads[lane].gain;
           if (velocity == 0) return;
           if (event.note == 42 && engine.activeNotes[46])
           {
@@ -3000,6 +3109,22 @@ void SetSamplerFrames(std::size_t engineIndex, SharedSampleBuffer frames, std::u
   PendingEvent event;
   event.type = PendingEventType::SetSamplerFrames;
   event.engineIndex = engineIndex;
+  event.frames = std::move(frames);
+  event.sampleRate = sampleRate;
+  QueuePendingEvent(std::move(event));
+}
+
+void SetDrumPadSample(std::size_t engineIndex, std::size_t pad, SharedSampleBuffer frames, std::uint32_t sampleRate)
+{
+  if (engineIndex >= g_engines.size() || pad >= drums::kPadCount)
+  {
+    return;
+  }
+
+  PendingEvent event;
+  event.type = PendingEventType::SetDrumPadSample;
+  event.engineIndex = engineIndex;
+  event.value = static_cast<int>(pad);
   event.frames = std::move(frames);
   event.sampleRate = sampleRate;
   QueuePendingEvent(std::move(event));

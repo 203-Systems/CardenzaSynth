@@ -21,6 +21,16 @@ inline constexpr std::size_t kMaxSampleFrames = 44100 * 300;
 inline constexpr std::size_t kMaxRamSampleFrames = 8192;
 inline constexpr std::size_t kMaxSlowRamSampleFrames = 44100 * 2;
 inline std::size_t RamSampleFrameLimit() { return memory::HasSlow() ? kMaxSlowRamSampleFrames : kMaxRamSampleFrames; }
+// What a drum pad holds (in RAM: a pad plays from where its frames are): two seconds, on the board only
+// with PSRAM (hosts have the room, and the web simulator should sound like the board).
+inline std::size_t PadSampleFrameLimit()
+{
+#if defined(ESP_PLATFORM)
+  return RamSampleFrameLimit();
+#else
+  return kMaxSlowRamSampleFrames;
+#endif
+}
 // What samples leave in PSRAM for patterns and snapshots (a sample that does not fit streams).
 inline constexpr std::size_t kSampleSlowReserveBytes = 256 * 1024;
 inline constexpr std::uint32_t kMinSampleRate = 8000;
@@ -197,6 +207,56 @@ inline bool ReadMono16Wav(const std::string& path, audio::SharedSampleBuffer& fr
     std::copy(chunk.get(), chunk.get() + count, destination);
     destination += count;
     left -= static_cast<std::size_t>(count);
+  }
+  frames = std::move(loaded);
+  sampleRate = info.sampleRate;
+  return true;
+}
+
+// The start of a WAV in RAM, whatever its length: up to `maxFrames` (a drum pad's sample). A file cut
+// short fades out over its last 5 ms instead of ending in a click.
+inline bool ReadMono16WavHead(const std::string& path, std::size_t maxFrames, audio::SharedSampleBuffer& frames, std::uint32_t& sampleRate)
+{
+  std::ifstream file(path, std::ios::binary);
+  WavInfo info;
+  if (!file || !InspectMono16Wav(file, info) || info.frameCount == 0 || maxFrames == 0)
+  {
+    return false;
+  }
+  const std::size_t count = std::min<std::size_t>(info.frameCount, maxFrames);
+  auto loaded = AllocateFrames(count);
+  if (!loaded)
+  {
+    return false;
+  }
+  file.seekg(static_cast<std::streamoff>(info.dataOffset));
+  constexpr std::size_t kChunkBytes = 4096;
+  std::unique_ptr<char[]> chunk(new (std::nothrow) char[kChunkBytes]);
+  if (!chunk)
+  {
+    return false;
+  }
+  char* destination = reinterpret_cast<char*>(loaded->frames.get());
+  for (std::size_t left = count * sizeof(std::int16_t); left > 0;)
+  {
+    const auto bytes = static_cast<std::streamsize>(std::min(left, kChunkBytes));
+    file.read(chunk.get(), bytes);
+    if (!file || file.gcount() != bytes)
+    {
+      return false;
+    }
+    std::copy(chunk.get(), chunk.get() + bytes, destination);
+    destination += bytes;
+    left -= static_cast<std::size_t>(bytes);
+  }
+  if (count < info.frameCount)
+  {
+    const std::size_t fade = std::min<std::size_t>(count, info.sampleRate / 200);
+    for (std::size_t index = 0; index < fade; ++index)
+    {
+      std::int16_t& sample = loaded->frames[count - fade + index];
+      sample = static_cast<std::int16_t>(static_cast<std::int32_t>(sample) * static_cast<std::int32_t>(fade - index) / static_cast<std::int32_t>(fade));
+    }
   }
   frames = std::move(loaded);
   sampleRate = info.sampleRate;

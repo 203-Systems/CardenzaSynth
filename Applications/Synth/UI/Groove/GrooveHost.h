@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -26,6 +27,17 @@ enum class SaveResult : std::uint8_t {
   Ok,
   Exists,
   Failed,
+};
+
+// A drum pad being recorded from the microphone (Host::BeginPadRecord).
+struct PadRecordState {
+  bool active = false;     // a take is under way (recording, or full and waiting to be kept)
+  bool recording = false;  // the microphone is on
+  std::size_t track = 0;
+  std::size_t pad = 0;
+  float level = 0.0f;      // the input's peak just now, 0..1
+  float progress = 0.0f;   // of the longest take a pad holds
+  std::array<float, 32> waveform{};
 };
 
 struct SystemInfo {
@@ -60,6 +72,19 @@ public:
   // Starts the current sample at its root note.
   virtual void PreviewSample(std::size_t track) = 0;
   virtual std::vector<std::string> ListSamples() const = 0;
+
+  // A drum pad (0..7) plays a WAV from the card's Samples in place of its sound (padN.sound); an empty
+  // name gives it its sound back. False with the reason (SAMPLE MISSING, NO MEMORY, NOT DRUMS).
+  virtual bool SetPadSample(std::size_t track, std::size_t pad, const std::string& fileName, std::string& message) = 0;
+  // The file a pad plays, empty when it plays its sound.
+  virtual std::string PadSample(std::size_t track, std::size_t pad) const = 0;
+  // A drum pad from the microphone: up to two seconds, then (FinishPadRecord) the silence is cut off,
+  // it goes to the card as TAKE_nn.wav and onto the pad. The speaker is silent while it records.
+  virtual bool BeginPadRecord(std::size_t track, std::size_t pad, std::string& message) = 0;
+  // Keeps the take: `message` is then the file's name, otherwise the reason (TOO QUIET, SAVE ERR).
+  virtual bool FinishPadRecord(std::string& message) = 0;
+  virtual void CancelPadRecord() = 0;
+  virtual PadRecordState PadRecording() const = 0;
 
   // Mixer. Level is 0..100; solo silences every non-soloed track.
   virtual void SetTrackLevel(std::size_t track, std::uint8_t level) = 0;

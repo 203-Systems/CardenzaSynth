@@ -17,6 +17,7 @@ endfunction()
 
 function(cardenza_collect_synth_app_cpp_sources root_dir out_var)
     set(runtime_sources
+        ${root_dir}/Applications/Synth/Runtime/Sampler/PadRecorder.cpp
         ${root_dir}/Applications/Synth/Runtime/Sampler/SamplerManager.cpp
         ${root_dir}/Applications/Synth/Runtime/ProjectStorage.cpp
         ${root_dir}/Applications/Synth/Runtime/Sequencer/SynthSequencer.cpp
@@ -85,8 +86,46 @@ function(cardenza_collect_synth_runtime_cpp_sources root_dir out_var)
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
+# The drum machine's built-in sounds (Library/Synth/Core/Engines/Drums/DrumSounds.cpp): a table and
+# the frames of AMY's drum samples the firmware keeps, generated from the AMY submodule by
+# tools/audio/drum_sounds.py into generated/DrumSoundData.inc beside it (not in Git, about 4.6 MB of
+# text). Written at configure time, again when the script or AMY's samples change.
+function(cardenza_generate_drum_sounds root_dir)
+    set(script ${root_dir}/tools/audio/drum_sounds.py)
+    set(amy ${root_dir}/Library/third_party/amy)
+    set(output ${root_dir}/Library/Synth/Core/Engines/Drums/generated/DrumSoundData.inc)
+    set(inputs ${script} ${amy}/sounds/gamma9001/manifest.json ${amy}/src/pcm_tiny.h)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${inputs})
+    set(stale FALSE)
+    if(NOT EXISTS ${output})
+        set(stale TRUE)
+    else()
+        foreach(input IN LISTS inputs)
+            if(${input} IS_NEWER_THAN ${output})
+                set(stale TRUE)
+            endif()
+        endforeach()
+    endif()
+    if(NOT stale)
+        return()
+    endif()
+    find_program(CARDENZA_PYTHON NAMES python3 python py REQUIRED)
+    execute_process(
+        COMMAND ${CARDENZA_PYTHON} ${script} ${amy} ${output}
+        RESULT_VARIABLE result
+        OUTPUT_VARIABLE log
+        ERROR_VARIABLE log
+    )
+    if(NOT result EQUAL 0)
+        message(FATAL_ERROR "tools/audio/drum_sounds.py failed:\n${log}")
+    endif()
+    message(STATUS "${log}")
+endfunction()
+
 function(cardenza_collect_synth_core_cpp_sources root_dir out_var)
+    cardenza_generate_drum_sounds(${root_dir})
     set(sources
+        ${root_dir}/Library/Synth/Core/Engines/Drums/DrumSounds.cpp
         ${root_dir}/Library/Synth/Core/Engines/Drums/DrumsSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.cpp
         ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.cpp

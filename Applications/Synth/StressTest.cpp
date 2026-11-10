@@ -8,6 +8,7 @@
 #include "Devices/Device.h"
 #include "Library/Memory/Memory.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Core/Engines/Drums/DrumSounds.h"
 #include "Library/Synth/Core/SynthStorage.h"
 
 #include <algorithm>
@@ -95,7 +96,7 @@ constexpr std::uint32_t kMagic = 0x53545231u;  // "STR1"
 RTC_NOINIT_ATTR Persist g_persist;
 
 enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst, Mic };
-enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, DrumKits };
 
 struct Scenario {
   std::string name;
@@ -130,6 +131,7 @@ std::string ProjectName(Variant variant)
     case Variant::Sampler: return std::string(kPrefix) + "SAMPLER";
     case Variant::FxMax: return std::string(kPrefix) + "FXMAX";
     case Variant::MaxPatterns: return std::string(kPrefix) + "MAX";
+    case Variant::DrumKits: return std::string(kPrefix) + "KITS";
     case Variant::None: break;
   }
   return std::string(kPrefix) + "NONE";
@@ -137,6 +139,8 @@ std::string ProjectName(Variant variant)
 
 constexpr const char* kShortSample = "ZZ-ST-SHORT.wav";  // 1.5 s: read into PSRAM
 constexpr const char* kLongSample = "ZZ-ST-LONG.wav";    // 20 s: plays from the card
+// Drum pads' samples (two seconds each: the most a pad holds) on four pads of one track.
+constexpr std::array<const char*, 4> kPadSamples{{"ZZ-ST-PAD1.wav", "ZZ-ST-PAD2.wav", "ZZ-ST-PAD3.wav", "ZZ-ST-PAD4.wav"}};
 
 bool WriteSample(const char* name, std::size_t frames, float frequency)
 {
@@ -266,6 +270,16 @@ synth::ProjectData MakeProject(Variant variant)
       tracks[3] = TrackSpec{SynthEngineKind::Sampler, "sampler.empty", kLongSample, 4, 4, 192, 60};
       break;
     }
+    case Variant::DrumKits:
+    {
+      // Four drum machines on every step, each on another kit: the sounds play from flash, four pads
+      // of T3 from samples in PSRAM, and (the scenario's operations) kits and pad sounds change as it plays.
+      const char* kits[] = {"drums.909", "drums.percussion", "drums.linn", "drums.synthetics"};
+      for (std::size_t track = 0; track < tracks.size(); ++track) tracks[track] = TrackSpec{SynthEngineKind::Drums, kits[track], "", 8, 1, 12, 36, true};
+      for (std::size_t pad = 0; pad < kPadSamples.size(); ++pad) project.padSamples[2][pad] = kPadSamples[pad];
+      bpm = 220;
+      break;
+    }
     case Variant::MaxPatterns:
     {
       const SynthEngineKind kinds[] = {SynthEngineKind::Dx7, SynthEngineKind::Juno, SynthEngineKind::Dx7, SynthEngineKind::Juno};
@@ -294,6 +308,8 @@ synth::ProjectData MakeProject(Variant variant)
                      {"fx.crush", spec.crush},   {"fx.delay", spec.delay}, {"fx.reverb", spec.reverb}};
     project.samples[track] = spec.sample;
     project.play[track].arp = spec.arp;
+    if (variant == Variant::DrumKits && track == 1)
+      for (std::size_t pad = 0; pad < 8; ++pad) engine.values[std::string("pad") + std::to_string(pad + 1) + ".tune"] = static_cast<int>(pad) * 3 - 12;
     auto& data = sequence.tracks[track];
     data.patternCount = static_cast<std::size_t>(patterns);
     data.activePattern = 0;
@@ -367,6 +383,7 @@ std::vector<Scenario> BuildScenarios()
   add("drums-300bpm", Kind::Generated, Variant::DrumsFast, 25);
   add("arps-1/32", Kind::Generated, Variant::Arps, 25);
   add("sampler", Kind::Generated, Variant::Sampler, 25);
+  add("drum-kits", Kind::Generated, Variant::DrumKits, 25);
   add("fx-max", Kind::Generated, Variant::FxMax, 25);
   add("max-patterns", Kind::Generated, Variant::MaxPatterns, 25);
   add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
@@ -1197,6 +1214,13 @@ bool SetUp(GrooveApp& app, const Scenario& scenario, Result& result)
     case Kind::UiStorm:
     case Kind::Worst:
     {
+      if (scenario.variant == Variant::DrumKits)
+        for (std::size_t pad = 0; pad < kPadSamples.size(); ++pad)
+          if (!WriteSample(kPadSamples[pad], 88200, 80.0f + 60.0f * static_cast<float>(pad)))
+          {
+            CopyNote(result, "pad sample write failed");
+            return false;
+          }
       if (scenario.variant == Variant::Sampler || scenario.kind == Kind::Worst)
       {
         if (!WriteSample(kShortSample, 66150, 220.0f) || !WriteSample(kLongSample, 20 * 44100, 110.0f))
@@ -1408,6 +1432,17 @@ void StressTestTick(GrooveApp& app)
     if ((runner.op++ & 1) == 0) Operation([&] { (void)app.SwitchEngine(2, (runner.op & 2) ? SynthEngineKind::Juno : SynthEngineKind::Dx7, message); });
     else Operation([&] { app.FlushSession(); });
     runner.nextOpMs = NowMs() + 3000;
+  }
+  if (scenario.variant == Variant::DrumKits && now >= runner.nextOpMs)
+  {
+    // Another kit on T1, another sound on a pad of T2, while all four play.
+    Operation([&] {
+      if (synth::ISynthEngine* engine = app.Engine(0)) (void)engine->LoadPreset(synth::drums::Kit(runner.op % synth::drums::KitCount()).id);
+      if (synth::ISynthEngine* engine = app.Engine(1))
+        (void)engine->SetParameterValue(std::string("pad") + std::to_string(1 + Random() % 8) + ".sound", static_cast<int>(Random() % synth::drums::SoundCount()));
+    });
+    ++runner.op;
+    runner.nextOpMs = now + 1500;
   }
   if (scenario.variant == Variant::MaxPatterns && now >= runner.nextOpMs)
   {
