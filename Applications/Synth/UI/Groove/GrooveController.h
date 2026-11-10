@@ -473,6 +473,8 @@ struct UiState {
 
 class Controller {
 public:
+  // Something other than a key changed the project (notes recorded from a computer's MIDI).
+  void MarkProjectChanged() { state_.dirty = true; }
   explicit Controller(Host& host);
 
   // `dirty` restores a session that had unsaved changes (an app switch hands it back).
@@ -587,10 +589,12 @@ public:
 
   // Presentation helpers shared by renderer and LEDs. Slots are engine parameters or settings:
   // "keys.*" (layout, scale, root, octave, lock, velocity, select) for every track, "chord.*" (type,
-  // voicing) and "arp.*" (mode, rate, octaves, gate, latch) of the current track, "proj.*" (bpm,
-  // swing, mode, steps, rec) and "sys.*" (volume, led, screen, log).
+  // voicing), "arp.*" (mode, rate, octaves, gate, latch) and "route.*" (midi_in, midi_out, audio_in,
+  // gain, audio_out: synth::TrackRouting) of the current track, "proj.*" (bpm, swing, mode, steps, rec),
+  // "sys.*" (volume, led, screen, log) and "usb.clock" (MIDI clock out, an app setting).
   bool SlotHasValue(const Slot& slot) const;
   bool SlotValue(const Slot& slot, synth::SynthParameterInfo& info, std::string& text) const;
+  std::string SlotLabel(const Slot& slot) const;
   bool SettingValue(const char* id, synth::SynthParameterInfo& info, std::string& text) const;
   // The SETUP settings page on screen (KEYS, SYSTEM), or null, and its focused cell.
   const InstrumentPage* SettingsPageShown() const;

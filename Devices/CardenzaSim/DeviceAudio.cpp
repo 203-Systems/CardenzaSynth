@@ -46,7 +46,8 @@ std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
     return frameCount;
   }
 
-  return provider.renderFrames(destination, frameCount);
+  // The simulator has no USB audio: nothing records from it.
+  return provider.renderFrames(destination, frameCount, nullptr);
 }
 
 #if defined(_WIN32)

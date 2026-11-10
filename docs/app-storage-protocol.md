@@ -54,7 +54,7 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 | Content | Format | Compatibility |
 |---|---|---|
 | `Settings/*.cfg` | ASCII text, `key=value` lines | Unknown keys survive a read / write cycle |
-| `Projects/*.ccproj`, `Session/autosave.ccproj` | Text beginning with `CARDENZA_PROJECT 7` | Reads v1–v7; writes v7 |
+| `Projects/*.ccproj`, `Session/autosave.ccproj` | Text beginning with `CARDENZA_PROJECT 8` | Reads v1–v8; writes v8 |
 | `Session/autosave.txt`, `Session/restoring.txt` | `key=value` lines | Written whole by the groovebox; other keys are not kept |
 | `Presets/<engine>/user.ccpreset` | Text beginning with `CARDENZA_PRESETS 1 "<engine-id>"` | Preset format 1 |
 | `Samples/*.wav`, `Session/take-*.wav` | Mono PCM16 WAV | File names and project references stay valid |
@@ -62,9 +62,10 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 
 Storage protocol 2 describes the layout and how settings are kept; it does not version the project,
 preset or WAV formats. Project format 6 added the keyboard and each track's chord and arpeggiator;
-format 7 gives every pattern its own length (up to 256 steps). Version 5 was only written by
+format 7 gives every pattern its own length (up to 256 steps); format 8 adds each track's USB routing
+(one `ROUTE` line per track) and the empty instrument (engine kind 5). Version 5 was only written by
 unreleased development builds (its `PLAY` line is skipped). The next project format change takes
-version 8. The 0.1.0 release reads formats 1–6: a project saved by this firmware is format 7.
+version 9. The 0.1.0 release reads formats 1–6: a project saved by this firmware is format 8.
 
 ### Settings syntax
 
@@ -182,13 +183,14 @@ wrong.
 | projects `<name>.ccproj` | `Projects/` |
 | user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums}/` |
 | samples (WAV) | `Samples/` |
-| app preferences (SELECT) | `Settings/synth.cfg` |
+| app preferences (SELECT, MIDI CLK) | `Settings/synth.cfg` |
 | working state (autosave) | `Session/autosave.ccproj` and `autosave.txt` |
 | sample take | `Session/take-<track>.wav`: a sample recording in progress or not saved yet; removed when it is saved or discarded |
 | volume, key LEDs, screen | `Settings/system.cfg` (device settings) |
 
-App settings keys: `keys.select` (0 ONE, 1 MULTI: the ROLL selection mode), a preference restored at
-start and written a second after a change and on suspend. Older firmware also kept the keyboard
+App settings keys: `keys.select` (0 ONE, 1 MULTI: the ROLL selection mode) and `usb.clock` (0 / 1:
+MIDI clock, start and stop to a computer on USB while the sequencer plays; SETUP SYSTEM's MIDI CLK),
+preferences restored at start and written a second after a change and on suspend. Older firmware also kept the keyboard
 (`keys.layout`, `keys.scale`, `keys.root`, `keys.octave`, `keys.lock`, `keys.velocity`) and one
 global chord and arpeggiator (`keys.chord`, `keys.voicing`, `arp.*`) here: the keyboard values are
 still read at start (they only matter until a session or project brings its own) and nothing writes
@@ -197,8 +199,14 @@ them any more; the old chord and arp keys are ignored and kept.
 Projects keep the project: engines and sounds, samples by file name, patterns and song, tempo and
 swing, mixer levels / mute / solo, the master effects and the play settings: the keyboard (the UI
 line's octave, root, scale and layout, and a `KEYS` line with scale lock and velocity) and each
-track's chord and arpeggiator (one `PLAYFX` line per track). Loading a format 6 or 7 project applies
-them; older files have none and leave the current ones in place; NEW starts from the defaults. The UI
+track's chord and arpeggiator (one `PLAYFX` line per track). Loading a format 6 to 8 project applies
+them; older files have none and leave the current ones in place; NEW starts from the defaults.
+From format 8 each track's USB routing follows the `PLAYFX` lines: `ROUTE <track> <midi in> <midi out>
+<audio in> <input gain> <audio out>`, the MIDI values as the ROUTE page counts its choices (MIDI in:
+0 OFF, 1 AUTO, 2 ALL, 3–18 channels 1–16; MIDI out: 0 OFF, 1 AUTO, 2–17 channels 1–16), audio in 0
+OFF, 1 L+R, 2 L, 3 R, the input gain in dB (−24..12), audio out 0 / 1 (in what the computer records).
+Older files load with the routing every track had before: notes in and out on the track's own
+channel, the computer's sound not taken, the track in what the computer records. The UI
 line's LED brightness, `MASTER` and `SYSTEM` (backlight) are device settings: still written, ignored
 when a project loads. Named projects are only written by SAVE.
 

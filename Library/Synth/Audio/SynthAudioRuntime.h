@@ -27,10 +27,23 @@ void EnsureEngine(std::size_t engineIndex, SynthEngineKind kind);
 void SetEnginePreset(std::size_t engineIndex, std::string_view presetId);
 void SetEngineParameter(std::size_t engineIndex, std::string_view parameterId, int value);
 void SetSamplerFrames(std::size_t engineIndex, SharedSampleBuffer frames, std::uint32_t sampleRate);
-// Sound from outside the synth (a computer playing over USB), mixed in before the output stage at
-// unity gain: interleaved stereo int16 frames, the number given back. Null for none.
+// Sound from outside the synth (a computer playing over USB): interleaved stereo int16 frames, the
+// number given back (fewer when it has no more). Null for none. It is read only while a track takes it
+// (SetTrackLineInput); otherwise nothing asks for it.
 using LineInput = std::size_t (*)(std::int16_t* stereoFrames, std::size_t frameCount);
 void SetLineInput(LineInput input);
+// What a track takes of the line input: nothing (the default), both channels mixed to mono, or one of
+// them. It plays on the track as its engine does: through its fader, mute, inserts and sends, at unity
+// (a full-scale input is a full-scale output) times `gain` (linear, 0..4).
+enum class LineChannels : std::uint8_t { Off, Both, Left, Right };
+void SetTrackLineInput(std::size_t engineIndex, LineChannels channels, float gain);
+// Decaying (~300 ms) peak of what the track takes of the line input, before its gain, 0..1 (0 while it
+// takes nothing). For the routing page.
+float TrackLineLevel(std::size_t engineIndex);
+// Whether the track is in what the computer records (RenderFrames' `computer`), on by default. A track
+// left out is taken out of that mix before the master effects (its sends stay in both).
+void SetTrackToComputer(std::size_t engineIndex, bool included);
+bool TrackToComputer(std::size_t engineIndex);
 // Fades out (over the next block) and stops the voice that will be missed least, whole, as rendering
 // does when it cannot keep up (RenderLoad).
 bool ShedVoice();
@@ -71,7 +84,10 @@ void NoteOn(std::size_t engineIndex, std::uint8_t note, std::uint8_t velocity);
 void NoteOff(std::size_t engineIndex, std::uint8_t note);
 void AllNotesOff(std::size_t engineIndex);
 void WarmUp();
-std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount);
+// Renders the output (mono). `computer`, when given, receives what a computer recording from the device
+// gets: the same frames, or a mix without the tracks left out of it (SetTrackToComputer). Null when
+// nothing records: then nothing is mixed for it.
+std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount, std::int16_t* computer = nullptr);
 
 // Track mixer (mono output, so there is no pan). The state belongs to the track: it survives
 // engine switches and preset loads. Setters are queued like every other call above and take

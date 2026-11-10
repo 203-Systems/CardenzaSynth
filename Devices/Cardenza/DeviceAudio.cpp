@@ -66,7 +66,6 @@ void DropUnreadComputerAudio()
 
 void SendToComputer(const std::int16_t* mono, std::size_t frameCount)
 {
-  if (!CardenzaHAL::USB::AudioInputActive()) return;
   g_framesToComputer.fetch_add(static_cast<std::uint32_t>(frameCount), std::memory_order_relaxed);
   int peak = g_peakToComputer.load(std::memory_order_relaxed);
   for (std::size_t frame = 0; frame < frameCount; ++frame) peak = (std::max)(peak, std::abs(static_cast<int>(mono[frame])));
@@ -89,16 +88,17 @@ std::atomic<std::uint32_t> g_timingOverruns{0};
 std::atomic<std::uint32_t> g_timingUnderruns{0};
 std::atomic<std::uint32_t> g_timingLongestUs{0};
 
-std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
+std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount, std::int16_t* computer)
 {
   const device::SynthAudioRenderCallback renderFrames = g_audioRenderCallback.load(std::memory_order_acquire);
   if (renderFrames == nullptr)
   {
     std::fill(destination, destination + frameCount, 0);
+    if (computer != nullptr) std::fill(computer, computer + frameCount, 0);
     return frameCount;
   }
 
-  return renderFrames(destination, frameCount);
+  return renderFrames(destination, frameCount, computer);
 }
 
 constexpr std::size_t kRenderFrameCount = 256;
@@ -215,6 +215,7 @@ bool WriteOutputFrames(i2s_chan_handle_t outputChannel, const std::int16_t* samp
 void AudioRenderTask(void*)
 {
   std::array<std::int16_t, kRenderFrameCount> buffer{};
+  std::array<std::int16_t, kRenderFrameCount> computerBuffer{};  // what a recording computer gets
   std::uint32_t renderedBlocks = 0;
   int64_t maxRenderUs = 0;
   int64_t maxWriteUs = 0;
@@ -275,10 +276,12 @@ void AudioRenderTask(void*)
     }
 
     const int64_t renderStartUs = esp_timer_get_time();
-    RenderSynthFrames(buffer.data(), buffer.size());
+    // A computer recording from the device gets a mix of its own when tracks are left out of it.
+    const bool toComputer = CardenzaHAL::USB::AudioInputActive();
+    RenderSynthFrames(buffer.data(), buffer.size(), toComputer ? computerBuffer.data() : nullptr);
     DropUnreadComputerAudio();
     const int64_t renderEndUs = esp_timer_get_time();
-    SendToComputer(buffer.data(), buffer.size());
+    if (toComputer) SendToComputer(computerBuffer.data(), computerBuffer.size());
     const int64_t writeStartUs = esp_timer_get_time();
     if (held || OutputPaused()) continue;
 

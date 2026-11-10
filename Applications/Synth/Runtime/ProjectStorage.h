@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Applications/Synth/Runtime/Sequencer/SynthSequencer.h"
+#include "Applications/Synth/Runtime/TrackRouting.h"
 #include "Library/Synth/Audio/SynthFx.h"
 #include "Library/Synth/Core/ISynthEngine.h"
 
@@ -64,6 +65,8 @@ struct ProjectData {
   int lock = 0;        // 0..kProjectLockCount - 1
   int velocity = 110;  // 1..127
   std::array<TrackPlay, kSynthTrackCount> play{};
+  // Each track's USB routing (version 8; older files: the defaults).
+  std::array<TrackRouting, kSynthTrackCount> routing{};
 
   static std::array<std::uint8_t, fx::kMasterParamCount> DefaultMasterFx()
   {

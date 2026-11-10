@@ -7,6 +7,7 @@
 
 #include "Applications/Synth/Runtime/Sampler/SamplerManager.h"
 #include "Applications/Synth/Runtime/Sequencer/SynthSequencer.h"
+#include "Applications/Synth/Runtime/TrackRouting.h"
 #include "Applications/Synth/UI/Groove/GrooveTypes.h"
 #include "Library/Synth/Audio/SynthFx.h"
 #include "Library/Synth/Core/ISynthEngine.h"
@@ -74,6 +75,16 @@ public:
   virtual std::uint8_t MasterVolume() const = 0;
   virtual float TrackActivity(std::size_t track) const = 0;
   virtual float OutputPeak() const = 0;
+
+  // A track's connections to a computer on USB (INSTR ROUTE): project data, kept across engine and
+  // preset changes. TrackLineLevel meters what the track takes of the computer's sound (0..1).
+  virtual synth::TrackRouting Routing(std::size_t track) const = 0;
+  virtual void SetRouting(std::size_t track, const synth::TrackRouting& routing) = 0;
+  virtual float TrackLineLevel(std::size_t track) const = 0;
+  virtual bool ComputerConnected() const = 0;
+  // MIDI clock, start and stop to the computer while the sequencer plays (an app setting).
+  virtual void SetMidiClockOut(bool on) = 0;
+  virtual bool MidiClockOut() const = 0;
 
   // Master effects, indexed by synth::fx::MasterParam (ranges in synth::fx::kMasterParams). They
   // belong to the project. Track inserts and sends are "fx.*" parameters of each track's engine.

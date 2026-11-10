@@ -1339,12 +1339,17 @@ void TestProjectVersion2() {
   project.play[3].chord = 5;
   project.play[3].voicing = 2;
   project.play[3].arp = ArpSettings{ArpMode::Played, 5, 4, 100, true};
+  // Version 8: each track's USB routing, and the empty instrument.
+  project.routing[2] = TrackRouting{kMidiInAll, kMidiOutFirstChannel + 3, audio::LineChannels::Left, -6, false};
+  project.kinds[1] = SynthEngineKind::Empty;
+  project.engines[1] = {"empty.init", "", "Init", {{"prog.number", 4}, {"cc1.value", 90}}};
   assert(SaveProjectFile("v2 trip", project, false) == ProjectResult::Ok);
   const auto path = projectDirectory / "v2 trip.ccproj";
   const std::string valid = ReadText(path);
-  assert(valid.find("CARDENZA_PROJECT 7\nBUILD CardenzaSynth 1\nUI ") == 0);
+  assert(valid.find("CARDENZA_PROJECT 8\nBUILD CardenzaSynth 1\nUI ") == 0);
   assert(valid.find("\nSYSTEM 7\nFX 12 11 56 72 100 76 52 36 0 0 64 64 127\nKEYS 2 90\nPLAYFX 0 0 0 0 3 1 50 0\n") != std::string::npos);
-  assert(valid.find("\nPLAYFX 3 5 2 5 5 4 100 1\nTRACK 0 ") != std::string::npos);
+  assert(valid.find("\nPLAYFX 3 5 2 5 5 4 100 1\nROUTE 0 1 1 0 0 1\nROUTE 1 1 1 0 0 1\nROUTE 2 2 5 2 -6 0\nROUTE 3 1 1 0 0 1\nTRACK 0 ") != std::string::npos);
+  assert(valid.find("\nTRACK 1 5 \"empty.init\" ") != std::string::npos);
   assert(valid.find("\nMIX 0 10 1 0\n") != std::string::npos && valid.find("\nSEQ 120 66\n") != std::string::npos);
 
   ProjectData loaded;
@@ -1357,6 +1362,8 @@ void TestProjectVersion2() {
   assert(loaded.sequence->swing == 66 && loaded.sequence->tracks[1].patternSteps[0] == 7 && loaded.sequence->tracks[0].patternSteps[0] == 16);
   assert(loaded.sequence->tracks[0].patterns[0].steps[3].notes[0].active && loaded.sequence->tracks[0].patterns[0].steps[3].notes[0].note == 64);
   assert(loaded.engines[2].values.at("vcf.cutoff") == 40 && loaded.kinds[3] == SynthEngineKind::Juno);
+  assert(loaded.routing == project.routing && loaded.routing[0] == TrackRouting{});
+  assert(loaded.kinds[1] == SynthEngineKind::Empty && loaded.engines[1].values.at("prog.number") == 4 && loaded.engines[1].values.at("cc1.value") == 90);
   assert(sequencer->RestoreState(*loaded.sequence) && sequencer->Swing() == 66 && sequencer->TrackStepCount(1) == 7);
 
   auto reject = [&](const std::string& from, const std::string& to) {
@@ -1369,7 +1376,28 @@ void TestProjectVersion2() {
     assert(LoadProjectFile("v2 trip", loaded) == ProjectResult::Invalid);
     assert(loaded.sequence.get() == old && loaded.backlight == 7);
   };
-  reject("CARDENZA_PROJECT 7", "CARDENZA_PROJECT 8");
+  reject("CARDENZA_PROJECT 8", "CARDENZA_PROJECT 9");
+  reject("\nROUTE 2 2 5 2 -6 0\n", "\nROUTE 2 19 5 2 -6 0\n");  // MIDI in past channel 16
+  reject("\nROUTE 2 2 5 2 -6 0\n", "\nROUTE 2 2 18 2 -6 0\n");  // MIDI out past channel 16
+  reject("\nROUTE 2 2 5 2 -6 0\n", "\nROUTE 2 2 5 4 -6 0\n");
+  reject("\nROUTE 2 2 5 2 -6 0\n", "\nROUTE 2 2 5 2 13 0\n");
+  reject("\nROUTE 2 2 5 2 -6 0\n", "\nROUTE 2 2 5 2 -25 0\n");
+  reject("\nROUTE 2 2 5 2 -6 0\n", "\nROUTE 2 2 5 2 -6 2\n");
+  reject("\nROUTE 2 2 5 2 -6 0\n", "\nROUTE 3 2 5 2 -6 0\n");
+  reject("\nROUTE 2 2 5 2 -6 0\n", "\n");
+  reject("CARDENZA_PROJECT 8", "CARDENZA_PROJECT 7");  // a version 7 file has no ROUTE lines
+  // Version 7 files load with the routing every track had then.
+  {
+    std::string v7 = valid;
+    v7.replace(0, std::string("CARDENZA_PROJECT 8").size(), "CARDENZA_PROJECT 7");
+    for (std::size_t at = v7.find("ROUTE "); at != std::string::npos; at = v7.find("ROUTE ")) v7.erase(at, v7.find('\n', at) + 1 - at);
+    WriteText(path, v7);
+    ProjectData fromV7;
+    assert(LoadProjectFile("v2 trip", fromV7) == ProjectResult::Ok);
+    for (const auto& routing : fromV7.routing) assert(routing == TrackRouting{});
+    assert(fromV7.play[3].chord == 5);
+    WriteText(path, valid);
+  }
   reject("\nKEYS 2 90\n", "\nKEYS 3 90\n");
   reject("\nKEYS 2 90\n", "\nKEYS 2 0\n");
   reject("\nPLAYFX 3 5 2 5 5 4 100 1\n", "\nPLAYFX 3 11 2 5 5 4 100 1\n");
@@ -1383,8 +1411,8 @@ void TestProjectVersion2() {
     const auto keys = valid.find("\nKEYS ");
     const auto track = valid.find("\nTRACK 0 ");
     std::string v5 = valid.substr(0, keys + 1) + "PLAY 4 2 1 96 3 5 2 75 1\n" + valid.substr(track + 1);
-    v5.replace(0, std::string("CARDENZA_PROJECT 7").size(), "CARDENZA_PROJECT 5");
-    reject("CARDENZA_PROJECT 7", "CARDENZA_PROJECT 5");  // a version 5 file needs its PLAY line
+    v5.replace(0, std::string("CARDENZA_PROJECT 8").size(), "CARDENZA_PROJECT 5");
+    reject("CARDENZA_PROJECT 8", "CARDENZA_PROJECT 5");  // a version 5 file needs its PLAY line
     WriteText(path, v5);
     ProjectData fromV5;
     assert(LoadProjectFile("v2 trip", fromV5) == ProjectResult::Ok);
@@ -1392,7 +1420,7 @@ void TestProjectVersion2() {
     assert(fromV5.masterFx == project.masterFx && fromV5.mixer.level == project.mixer.level && fromV5.engines[2].values.at("vcf.cutoff") == 40);
     assert(SaveProjectFile("v2 trip", fromV5, true) == ProjectResult::Ok);
     const std::string resaved = ReadText(path);
-    assert(resaved.find("CARDENZA_PROJECT 7\n") == 0 && resaved.find("\nPLAY ") == std::string::npos);
+    assert(resaved.find("CARDENZA_PROJECT 8\n") == 0 && resaved.find("\nPLAY ") == std::string::npos);
     WriteText(path, valid);
   }
   reject("\nFX 12 11 ", "\nFX 12 12 ");  // Delay time past the last division.
@@ -1423,8 +1451,13 @@ void TestProjectVersion2() {
   project.sequence->swing = 80;
   assert(SaveProjectFile("v2 trip", project, true) == ProjectResult::Invalid);
   project.sequence->swing = 66;
+  const auto steps = project.sequence->tracks[2].patternSteps;
   project.sequence->tracks[2].patternSteps.fill(0);
   assert(SaveProjectFile("v2 trip", project, true) == ProjectResult::Invalid);
+  project.sequence->tracks[2].patternSteps = steps;
+  project.routing[1].midiOut = kMidiOutChoices;
+  assert(SaveProjectFile("v2 trip", project, true) == ProjectResult::Invalid);
+  project.routing[1] = TrackRouting{};
   assert(ReadText(path) == valid);
 
   // Version 7: every pattern has its own length, up to 256 steps, and notes anywhere on them.
@@ -1481,7 +1514,7 @@ void TestProjectVersion2() {
   assert(legacy.sequence->songLength == 0 && legacy.sequence->songLoop);
   // Re-saving upgrades it to the current version with the same content.
   assert(SaveProjectFile("legacy", legacy, true) == ProjectResult::Ok);
-  assert(ReadText(projectDirectory / "legacy.ccproj").find("CARDENZA_PROJECT 7\n") == 0);
+  assert(ReadText(projectDirectory / "legacy.ccproj").find("CARDENZA_PROJECT 8\n") == 0);
   ProjectData upgraded;
   assert(LoadProjectFile("legacy", upgraded) == ProjectResult::Ok);
   assert(upgraded.masterFx == ProjectData::DefaultMasterFx());
@@ -1544,7 +1577,7 @@ void TestProjectSong() {
   const auto path = projectDirectory / "song trip.ccproj";
   const std::string valid = ReadText(path);
   const std::string section = "SONG 2 0\nR 0 2 -1 0 4\nR -1 0 0 0 16\n";
-  assert(valid.find("CARDENZA_PROJECT 7\n") == 0 && valid.find("\n" + section + "END\n") != std::string::npos);
+  assert(valid.find("CARDENZA_PROJECT 8\n") == 0 && valid.find("\n" + section + "END\n") != std::string::npos);
 
   ProjectData loaded;
   assert(LoadProjectFile("song trip", loaded) == ProjectResult::Ok);
@@ -1587,7 +1620,7 @@ void TestProjectSong() {
   const auto fxLine = valid.find("\nFX ");
   std::string v3 = valid;
   v3.erase(fxLine + 1, valid.find("\nTRACK 0 ") - fxLine);
-  v3.replace(0, std::string("CARDENZA_PROJECT 7").size(), "CARDENZA_PROJECT 3");
+  v3.replace(0, std::string("CARDENZA_PROJECT 8").size(), "CARDENZA_PROJECT 3");
   v3 = WithOneLengthPerTrack(v3);
   WriteText(path, v3);
   assert(LoadProjectFile("song trip", loaded) == ProjectResult::Ok && loaded.masterFx == ProjectData::DefaultMasterFx());

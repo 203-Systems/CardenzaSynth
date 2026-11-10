@@ -24,7 +24,7 @@ constexpr std::array<InstrumentPage, kSettingsPageCount> kSettingsPages{{
                    PageGraphic::Keys, {2, 0, 2, 4}, 0},
     InstrumentPage{"DEVICE", "SYSTEM",
                    {{P("sys.volume", "VOLUME"), P("sys.led", "KEY LED"), P("sys.screen", "SCREEN"), P("sys.log", "LOG"),
-                     E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                     P("usb.clock", "MIDI CLK"), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::System, {2, 0, 2, 4}, 0},
 }};
 
@@ -51,6 +51,16 @@ constexpr InstrumentPage kFxPage{
       E(), E(), E(), E(), E(), E(), E(), E()}},
     PageGraphic::FxChain, {2, 0, 2, 4}, 0};
 
+// The track and a computer on USB, on every engine, last (after the sound is made): what plays the
+// track and where its notes go (MIDI), what it takes of the computer's sound and whether the computer
+// records it (audio). "route.*" act on the current track; they belong to the project.
+constexpr InstrumentPage kRoutePage{
+    "USB I/O", "ROUTE",
+    {{P("route.midi_in", "MIDI IN"), P("route.midi_out", "MIDI OUT"), P("route.audio_in", "AUD IN"), P("route.audio_out", "AUD OUT"),
+      E(), E(), P("route.gain", "IN GAIN"), E(),
+      E(), E(), E(), E(), E(), E(), E(), E()}},
+    PageGraphic::Route, {2, 0, 2, 4}, 0};
+
 // One page per DX7 operator: tuning on top, the envelope graph beside MODE / AMOD, then the four
 // rates over the four levels.
 #define CARDENZA_DX7_OP_PAGE(n)                                                                                      \
@@ -62,7 +72,7 @@ constexpr InstrumentPage kFxPage{
                    P("op" #n ".sustain", "L3"), P("op" #n ".level4", "L4")}},                                        \
                  PageGraphic::OperatorEnvelope, {1, 2, 1, 2}, n}
 
-constexpr std::array<InstrumentPage, 13> kDx7Pages{{
+constexpr std::array<InstrumentPage, 14> kDx7Pages{{
     kVoicePage,
     kChordPage,
     kArpPage,
@@ -87,11 +97,12 @@ constexpr std::array<InstrumentPage, 13> kDx7Pages{{
                      E(), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::Lfo, {2, 0, 2, 4}, 0},
     kFxPage,
+    kRoutePage,
 }};
 
 #undef CARDENZA_DX7_OP_PAGE
 
-constexpr std::array<InstrumentPage, 8> kJunoPages{{
+constexpr std::array<InstrumentPage, 9> kJunoPages{{
     kVoicePage,
     kChordPage,
     kArpPage,
@@ -115,9 +126,10 @@ constexpr std::array<InstrumentPage, 8> kJunoPages{{
                      E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::Lfo, {1, 0, 3, 4}, 0},
     kFxPage,
+    kRoutePage,
 }};
 
-constexpr std::array<InstrumentPage, 6> kSamplerPages{{
+constexpr std::array<InstrumentPage, 7> kSamplerPages{{
     kVoicePage,
     kChordPage,
     kArpPage,
@@ -131,10 +143,11 @@ constexpr std::array<InstrumentPage, 6> kSamplerPages{{
                      P("amp.level", "LEVEL"), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::Filter, {2, 0, 2, 4}, 0},
     kFxPage,
+    kRoutePage,
 }};
 
 // Drums play one drum per key: no chord, no arpeggiator.
-constexpr std::array<InstrumentPage, 3> kDrumPages{{
+constexpr std::array<InstrumentPage, 4> kDrumPages{{
     kVoicePage,
     InstrumentPage{"LEVELS", "KIT",
                    {{P("kick.level", "BD"), P("snare.level", "SD"), P("closed_hat.level", "CH"), P("open_hat.level", "OH"),
@@ -142,6 +155,29 @@ constexpr std::array<InstrumentPage, 3> kDrumPages{{
                      P("master.level", "MASTER"), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::DrumPads, {2, 1, 2, 3}, 0},
     kFxPage,
+    kRoutePage,
+}};
+
+// The empty instrument: no sound of its own. Its notes go out (ROUTE), with the synth's patch on the
+// MIDI page (program, bank, eight controllers) and the controllers' numbers on CC; the computer's sound
+// can come back through FX.
+constexpr std::array<InstrumentPage, 7> kEmptyPages{{
+    kVoicePage,
+    kChordPage,
+    kArpPage,
+    InstrumentPage{"PATCH", "MIDI",
+                   {{P("prog.number", "PROGRAM"), P("prog.bank_msb", "BANK MSB"), P("prog.bank_lsb", "BANK LSB"), E(),
+                     P("cc1.value", "CC A"), P("cc2.value", "CC B"), P("cc3.value", "CC C"), P("cc4.value", "CC D"),
+                     P("cc5.value", "CC E"), P("cc6.value", "CC F"), P("cc7.value", "CC G"), P("cc8.value", "CC H"),
+                     E(), E(), E(), E()}},
+                   PageGraphic::Controllers, {3, 0, 1, 4}, 0},
+    InstrumentPage{"CC MAP", "CC",
+                   {{P("cc1.number", "CC A"), P("cc2.number", "CC B"), P("cc3.number", "CC C"), P("cc4.number", "CC D"),
+                     P("cc5.number", "CC E"), P("cc6.number", "CC F"), P("cc7.number", "CC G"), P("cc8.number", "CC H"),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::ControllerMap, {2, 0, 2, 4}, 0},
+    kFxPage,
+    kRoutePage,
 }};
 
 }  // namespace
@@ -159,6 +195,7 @@ InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return {kJunoPages.data(), kJunoPages.size()};
     case synth::SynthEngineKind::Sampler: return {kSamplerPages.data(), kSamplerPages.size()};
     case synth::SynthEngineKind::Drums: return {kDrumPages.data(), kDrumPages.size()};
+    case synth::SynthEngineKind::Empty: return {kEmptyPages.data(), kEmptyPages.size()};
     case synth::SynthEngineKind::None:
     default: return {&kVoicePage, 1};
   }

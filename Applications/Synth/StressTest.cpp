@@ -95,7 +95,7 @@ constexpr std::uint32_t kMagic = 0x53545231u;  // "STR1"
 RTC_NOINIT_ATTR Persist g_persist;
 
 enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
-enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, UsbRouting };
 
 struct Scenario {
   std::string name;
@@ -130,6 +130,7 @@ std::string ProjectName(Variant variant)
     case Variant::Sampler: return std::string(kPrefix) + "SAMPLER";
     case Variant::FxMax: return std::string(kPrefix) + "FXMAX";
     case Variant::MaxPatterns: return std::string(kPrefix) + "MAX";
+    case Variant::UsbRouting: return std::string(kPrefix) + "USB";
     case Variant::None: break;
   }
   return std::string(kPrefix) + "NONE";
@@ -186,6 +187,7 @@ synth::ProjectData MakeProject(Variant variant)
   {
     case Variant::Dx7Chords:
     case Variant::FxMax:
+    case Variant::UsbRouting:
     {
       const char* presets[] = {"dx7.rom1a.01", "dx7.rom1a.11", "dx7.rom1a.04", "dx7.rom1a.20"};
       for (std::size_t track = 0; track < tracks.size(); ++track)
@@ -197,7 +199,7 @@ synth::ProjectData MakeProject(Variant variant)
         tracks[track].delay = 40;
       }
       bpm = 140;
-      if (variant == Variant::FxMax)
+      if (variant == Variant::FxMax || variant == Variant::UsbRouting)
       {
         for (auto& track : tracks)
         {
@@ -324,6 +326,16 @@ synth::ProjectData MakeProject(Variant variant)
     for (auto& pattern : sequence.song[static_cast<std::size_t>(row)].patterns) pattern = static_cast<std::int8_t>(row);
     sequence.song[static_cast<std::size_t>(row)].repeats = 1;
   }
+  if (variant == Variant::UsbRouting)
+  {
+    // Every track takes the computer's sound through its effects, track 1 is left out of what the
+    // computer records (its own mix, a second master chain), and track 2 is an empty instrument whose
+    // notes go out over MIDI from the clock task.
+    for (auto& routing : project.routing) routing.audioIn = synth::audio::LineChannels::Both;
+    project.routing[0].audioOut = false;
+    project.kinds[1] = SynthEngineKind::Empty;
+    project.engines[1] = synth::SynthEngineState{"empty.init", "", "Init", {{"prog.number", 4}, {"cc1.value", 64}, {"fx.drive", 127}, {"fx.reverb", 127}}};
+  }
   return project;
 }
 
@@ -369,6 +381,7 @@ std::vector<Scenario> BuildScenarios()
   add("sampler", Kind::Generated, Variant::Sampler, 25);
   add("fx-max", Kind::Generated, Variant::FxMax, 25);
   add("max-patterns", Kind::Generated, Variant::MaxPatterns, 25);
+  add("usb-routing", Kind::Generated, Variant::UsbRouting, 25);
   add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
   add("ui-storm", Kind::UiStorm, Variant::JunoPads, 30);
   add("worst", Kind::Worst, Variant::FxMax, 40);

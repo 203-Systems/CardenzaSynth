@@ -245,7 +245,8 @@ int Gfx::TextFit(int x, int y, int maxWidth, std::string_view text, Color color,
 {
   const int advance = Advance(font);
   if (maxWidth < advance) return x;
-  if (Measure(text, font) <= maxWidth) return Text(x, y, text, color, font);
+  // The last glyph's spacing after it is not ink: a text that ends exactly at the edge fits.
+  if (Measure(text, font) - 1 <= maxWidth) return Text(x, y, text, color, font);
   const std::size_t keep = static_cast<std::size_t>(std::max(0, maxWidth / advance - 1));
   const int end = Text(x, y, text.substr(0, keep), color, font);
   return Text(end, y, ".", color, font);

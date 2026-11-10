@@ -20,11 +20,16 @@ namespace synth {
 class SynthSequencer {
 public:
   using MidiSink = void (*)(void* context, std::size_t trackIndex, const midi::MidiPacket& packet);
+  // The transport as MIDI real-time messages, for an instrument that follows the tempo: start (0xFA)
+  // or continue (0xFB) before the first pulse, clock (0xF8) 24 times a quarter note while playing, stop
+  // (0xFC). From the clock task (stop from the caller of Stop), before that pulse's notes.
+  using RealtimeSink = void (*)(void* context, std::uint8_t message);
 
   SynthSequencer();
   ~SynthSequencer();
 
   void SetMidiSink(MidiSink sink, void* context);
+  void SetRealtimeSink(RealtimeSink sink, void* context);
   void SetActiveTrack(std::size_t trackIndex);
 
   void Play();
@@ -584,6 +589,10 @@ private:
   std::uint64_t clockStartMicros_ = 0;
   MidiSink midiSink_ = nullptr;
   void* midiSinkContext_ = nullptr;
+  RealtimeSink realtimeSink_ = nullptr;
+  void* realtimeSinkContext_ = nullptr;
+  // Start or continue, owed before the next transport pulse (0 = none).
+  std::uint8_t pendingRealtime_ = 0;
   std::atomic<bool> clockWorkerRunning_{false};
   std::atomic<std::uint32_t> clockPulses_{0};
   std::atomic<std::uint32_t> clockLatestMicros_{0};

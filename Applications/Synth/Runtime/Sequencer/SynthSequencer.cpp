@@ -316,6 +316,13 @@ void SynthSequencer::SetMidiSink(MidiSink sink, void* context)
   midiSinkContext_ = context;
 }
 
+void SynthSequencer::SetRealtimeSink(RealtimeSink sink, void* context)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  realtimeSink_ = sink;
+  realtimeSinkContext_ = context;
+}
+
 void SynthSequencer::SetActiveTrack(std::size_t trackIndex)
 {
   std::lock_guard<std::mutex> outputLock(outputMutex_);
@@ -357,6 +364,7 @@ void SynthSequencer::Play()
   // Pulse 0 is a bar line: the song, when switched on, takes over there from its start row.
   LeaveSongLocked();
   playing_ = true;
+  pendingRealtime_ = 0xFA;
   // Running arps lock onto the transport grid from its first pulse.
   AlignArpsToTransportLocked(absolutePulse_);
 }
@@ -366,10 +374,20 @@ void SynthSequencer::Stop()
   std::lock_guard<std::mutex> outputLock(outputMutex_);
   std::array<PendingMidiEvent, kMaxPendingMidiEvents> events{};
   std::size_t eventCount = 0;
+  RealtimeSink realtime = nullptr;
+  void* realtimeContext = nullptr;
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    // Only a transport that started over there stops there.
+    if (playing_ && pendingRealtime_ == 0)
+    {
+      realtime = realtimeSink_;
+      realtimeContext = realtimeSinkContext_;
+    }
+    pendingRealtime_ = 0;
     StopLocked(events, eventCount);
   }
+  if (realtime != nullptr) realtime(realtimeContext, 0xFC);
   EmitPendingMidi(events, eventCount);
 }
 
@@ -410,7 +428,11 @@ void SynthSequencer::Resume()
   std::lock_guard<std::mutex> lock(mutex_);
   const bool wasPlaying = playing_;
   playing_ = clockWorkerRunning_.load();
-  if (playing_ && !wasPlaying) AlignArpsToTransportLocked(absolutePulse_);
+  if (playing_ && !wasPlaying)
+  {
+    pendingRealtime_ = 0xFB;
+    AlignArpsToTransportLocked(absolutePulse_);
+  }
 }
 
 std::uint16_t SynthSequencer::Tempo() const
@@ -2585,6 +2607,9 @@ void SynthSequencer::ProcessPulse()
   std::lock_guard<std::mutex> outputLock(outputMutex_);
   std::array<PendingMidiEvent, kMaxPendingMidiEvents> events{};
   std::size_t eventCount = 0;
+  std::array<std::uint8_t, 3> realtime{};
+  RealtimeSink realtimeSink = nullptr;
+  void* realtimeContext = nullptr;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     const bool arpClock = AnyArpClockLocked();
@@ -2594,11 +2619,28 @@ void SynthSequencer::ProcessPulse()
     }
 
     const std::uint64_t pulse = absolutePulse_;
-    if (playing_) ProcessTransportPulseLocked(pulse, events, eventCount);
+    if (playing_ && realtimeSink_ != nullptr)
+    {
+      realtimeSink = realtimeSink_;
+      realtimeContext = realtimeSinkContext_;
+      std::size_t count = 0;
+      if (pendingRealtime_ != 0) realtime[count++] = pendingRealtime_;
+      pendingRealtime_ = 0;
+      static_assert(kSequencerPulsesPerQuarter % 24 == 0, "MIDI clock is 24 pulses a quarter note");
+      if (pulse % (kSequencerPulsesPerQuarter / 24) == 0) realtime[count++] = 0xF8;
+    }
+    if (playing_)
+    {
+      ProcessTransportPulseLocked(pulse, events, eventCount);
+      // The end of a song stops the transport here.
+      if (!playing_ && realtimeSink != nullptr) realtime[2] = 0xFC;
+    }
     if (arpClock)
       for (ArpVoice& arp : arps_)
         if (ArpClockLocked(arp)) ProcessArpPulseLocked(arp, pulse, events, eventCount);
   }
+  for (const std::uint8_t message : realtime)
+    if (message != 0) realtimeSink(realtimeContext, message);
   EmitPendingMidi(events, eventCount);
 }
 

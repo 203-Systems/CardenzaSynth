@@ -12,6 +12,7 @@
 #include <iostream>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "Applications/Synth/GrooveApp.h"
@@ -2488,7 +2489,7 @@ void TestReleaseProjects(Harness& h)
   assert(app.Sequencer().StepNoteEvents(0, 4, notes) == 1 && notes[0].note == 39);
   // Saving it writes it in place, in the current format, and the list shows it once.
   h.Chord(kFn, Key{2, 3});  // S
-  assert(read(ours / "DEMO-1.ccproj").rfind("CARDENZA_PROJECT 7\n", 0) == 0);
+  assert(read(ours / "DEMO-1.ccproj").rfind("CARDENZA_PROJECT 8\n", 0) == 0);
   { const auto all = app.ListProjects(); assert(std::count(all.begin(), all.end(), std::string("DEMO-1")) == 1); }
   assert(read(ours / "DEMO-2.ccproj") == kReleaseProject);
   // A new project goes there too.
@@ -2685,6 +2686,217 @@ void TestComputerMidi(Harness& h)
   assert(noteOn && noteOff);
   CardenzaSim::Input::SetComputerConnected(false);
   settle(4);
+}
+
+// USB routing (INSTR ROUTE, the last page of every engine) and the empty instrument: a track's notes go
+// out on its MIDI OUT channel, a channel change ends the notes on the old one, MIDI IN takes channels by
+// name, the empty instrument sends its synth's patch, the panic and the clock reach the computer, and the
+// routing is the project's.
+void TestUsbRouting(Harness& h)
+{
+  auto& app = h.App();
+  std::array<std::int16_t, 256> block{};
+  const auto settle = [&](int frames) {
+    for (int frame = 0; frame < frames; ++frame)
+    {
+      h.Frames(1);
+      synth::audio::RenderFrames(block.data(), block.size());
+    }
+  };
+  const auto held = [](std::size_t track, std::uint8_t note) {
+    return (synth::audio::HeldNotes(track)[note / 32] & (1u << (note % 32))) != 0;
+  };
+  std::vector<std::array<std::uint8_t, 4>> out;
+  const auto drain = [&]() {
+    out.clear();
+    std::uint8_t packet[4];
+    while (CardenzaSim::Input::TakeDeviceMidi(packet)) out.push_back({{packet[0], packet[1], packet[2], packet[3]}});
+  };
+  const auto sent = [&](std::uint8_t status, int data1 = -1, int data2 = -1) {
+    return std::any_of(out.begin(), out.end(), [&](const std::array<std::uint8_t, 4>& packet) {
+      return packet[1] == status && (data1 < 0 || packet[2] == data1) && (data2 < 0 || packet[3] == data2);
+    });
+  };
+  const auto sentStatus = [&](std::uint8_t status) { return sent(status); };
+  const auto midi = [&](std::uint8_t status, std::uint8_t data1, std::uint8_t data2) {
+    const std::uint8_t packet[4] = {static_cast<std::uint8_t>(status >> 4), status, data1, data2};
+    CardenzaSim::Input::SendComputerMidi(packet);
+  };
+  std::string error;
+  assert(app.EngineKind(1) == synth::SynthEngineKind::Juno || app.SwitchEngine(1, synth::SynthEngineKind::Juno, error));
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    app.SetTrackSoloed(track, false);
+    app.SetTrackMuted(track, false);
+    // Tests before walk every page, the last (ROUTE) too.
+    app.SetRouting(track, synth::TrackRouting{});
+  }
+  CardenzaSim::Input::SetComputerConnected(true);
+  settle(4);
+  drain();
+
+  // Every engine ends on ROUTE; the empty instrument is the fifth in the engine picker.
+  for (const auto kind : {synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno, synth::SynthEngineKind::Sampler,
+                          synth::SynthEngineKind::Drums, synth::SynthEngineKind::Empty})
+  {
+    const groove::InstrumentPageList pages = groove::InstrumentPagesFor(kind);
+    assert(pages.count <= 16 && std::string(pages.pages[pages.count - 1].tab) == "ROUTE");
+  }
+  GoToScene(h, 1);
+  h.Chord(kTab, Grid(1));  // T2
+  while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  h.Tap(Grid(0));  // ENGINE
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 5 &&
+         h.Modal()->items[4].label == "EMPTY");
+  h.Render();
+  h.Tap(kEsc);
+  h.Wait(400);
+
+  // T2's MIDI OUT from AUTO (channel 2) to channel 5 on its ROUTE page: its pads go out there.
+  GoToInstrumentPage(h, "ROUTE");
+  h.Render();
+  h.Tap(Grid(1));  // MIDI OUT
+  for (int step = 0; step < 5; ++step) h.Tap(kAdd);
+  assert(app.Routing(1).midiOut == synth::kMidiOutFirstChannel + 4 && h.State().dirty);
+  h.Render();
+  drain();
+  h.Down(Key{3, 1});
+  h.Up(Key{3, 1});
+  drain();
+  assert(sentStatus(0x94) && sentStatus(0x84) && !sentStatus(0x91));
+  // A note still on there ends on that channel when the channel changes.
+  h.Down(Key{3, 1});
+  drain();
+  assert(sentStatus(0x94));
+  const std::uint8_t note = out.back()[2];
+  synth::TrackRouting routing = app.Routing(1);
+  routing.midiOut = synth::kMidiOutOff;
+  app.SetRouting(1, routing);
+  drain();
+  assert(sent(0x84, note, 0));
+  h.Up(Key{3, 1});
+  drain();
+  assert(out.empty());  // OFF: nothing goes out
+
+  // MIDI IN by channel: T3 on channel 10, T4 on all of them; a channel nobody takes plays the current
+  // track (T2, AUTO); a track set OFF takes none.
+  routing = app.Routing(2);
+  routing.midiIn = synth::kMidiInFirstChannel + 9;
+  app.SetRouting(2, routing);
+  midi(0x99, 60, 100);
+  settle(4);
+  assert(held(2, 60));
+  midi(0x89, 60, 0);
+  midi(0x92, 62, 100);  // channel 3: T3 does not listen there any more, nobody does: the current track
+  settle(4);
+  assert(!held(2, 62) && held(1, 62));
+  midi(0x82, 62, 0);
+  routing = app.Routing(3);
+  routing.midiIn = synth::kMidiInAll;
+  app.SetRouting(3, routing);
+  midi(0x9D, 64, 100);  // channel 14: T4 takes every channel, so the current track does not
+  settle(4);
+  assert(held(3, 64) && !held(1, 64));
+  midi(0x8D, 64, 0);
+  settle(4);
+  assert(!held(3, 64));
+  app.SetRouting(3, synth::TrackRouting{});
+  routing = app.Routing(1);
+  routing.midiIn = synth::kMidiInOff;
+  app.SetRouting(1, routing);
+  midi(0x9D, 65, 100);
+  settle(4);
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) assert(!held(track, 65));
+  midi(0x8D, 65, 0);
+  app.SetRouting(1, synth::TrackRouting{});
+  app.SetRouting(2, synth::TrackRouting{});
+
+  // The empty instrument: no sound of its own; its synth's patch goes out on the track's channel as it
+  // changes, and again when a computer connects.
+  assert(app.SwitchEngine(1, synth::SynthEngineKind::Empty, error));
+  settle(2);
+  drain();
+  synth::ISynthEngine* empty = app.Engine(1);
+  assert(empty->CurrentPresetId() == "empty.init" && ParameterValue(app, 1, "prog.number") == -1);
+  assert(empty->SetParameterValue("prog.number", 4));
+  settle(1);
+  drain();
+  assert(sent(0xC1, 4) && out.size() == 1);
+  assert(empty->SetParameterValue("prog.bank_msb", 2));
+  settle(1);
+  drain();
+  assert(out.size() == 2 && sent(0xB1, 0, 2) && sent(0xC1, 4) && out[0][1] == 0xB1);  // the bank before the program
+  assert(empty->SetParameterValue("cc1.value", 100));
+  settle(1);
+  drain();
+  assert(out.size() == 1 && sent(0xB1, 74, 100));
+  assert(empty->SetParameterValue("cc1.number", 20));
+  settle(1);
+  drain();
+  assert(out.size() == 1 && sent(0xB1, 20, 100));
+  assert(empty->LoadPreset("empty.gm_bass"));
+  settle(1);
+  drain();
+  assert(sent(0xC1, 33) && !sent(0xB1, 0) && !sentStatus(0xB1));  // the preset's patch: no bank, no controllers
+  CardenzaSim::Input::SetComputerConnected(false);
+  settle(2);
+  CardenzaSim::Input::SetComputerConnected(true);
+  settle(2);
+  drain();
+  assert(sent(0xC1, 33));
+  // Its pages: the controllers are named by their numbers.
+  GoToInstrumentPage(h, "MIDI");
+  assert(app.Ui().SlotLabel(app.Ui().CurrentInstrumentPage()->slots[4]) == "CC 74");
+  h.Render();
+  GoToInstrumentPage(h, "CC");
+  h.Render();
+  GoToInstrumentPage(h, "ROUTE");
+  h.Render();
+  // It plays nothing here, its notes go out; the panic ends them there.
+  h.Down(Key{3, 1});
+  settle(2);
+  drain();
+  assert(sentStatus(0x91) && synth::audio::HeldNotes(1) == synth::audio::NoteSet{});
+  const std::uint8_t emptyNote = out.back()[2];
+  app.Panic();
+  drain();
+  assert(sent(0x81, emptyNote, 0) && sent(0xB1, 123, 0) && sent(0xB0, 123, 0));
+  h.Up(Key{3, 1});
+
+  // MIDI clock (SETUP SYSTEM): start, clocks and stop follow the transport while it is on.
+  assert(!app.MidiClockOut());
+  app.Sequencer().Play();
+  std::this_thread::sleep_for(std::chrono::milliseconds(120));
+  app.Sequencer().Stop();
+  drain();
+  assert(!sentStatus(0xF8) && !sentStatus(0xFA));
+  GoToSetupPage(h, groove::kSetupSystem);
+  h.Tap(Grid(4));  // MIDI CLK
+  h.Tap(Grid(4));
+  assert(app.MidiClockOut());
+  h.Render();
+  app.Sequencer().Play();
+  std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  app.Sequencer().Stop();
+  drain();
+  const auto clocks = std::count_if(out.begin(), out.end(), [](const std::array<std::uint8_t, 4>& packet) { return packet[1] == 0xF8; });
+  assert(out.front()[1] == 0xFA && clocks >= 3 && out.back()[1] == 0xFC);
+  app.SetMidiClockOut(false);
+
+  // The routing is the project's: saved, gone with NEW, back with the project.
+  routing = synth::TrackRouting{synth::kMidiInAll, synth::kMidiOutFirstChannel + 15, synth::audio::LineChannels::Right, -12, false};
+  app.SetRouting(1, routing);
+  groove::ProjectUiSettings settings = app.Ui().Settings();
+  std::string message;
+  assert(app.SaveProject("ROUTED", true, settings, message) == groove::SaveResult::Ok);
+  assert(app.NewProject(settings, message) && app.Routing(1) == synth::TrackRouting{} && app.EngineKind(1) != synth::SynthEngineKind::Empty);
+  assert(app.LoadProject("ROUTED", settings, message) && app.Routing(1) == routing && app.EngineKind(1) == synth::SynthEngineKind::Empty);
+  assert(synth::audio::TrackToComputer(1) == false);
+  assert(app.NewProject(settings, message) && synth::audio::TrackToComputer(1));
+  app.Ui().Restore(settings, "");
+  CardenzaSim::Input::SetComputerConnected(false);
+  settle(4);
+  drain();
 }
 
 // The guide: a lesson page sets the working state aside in a practice project, drives the device,
@@ -3028,6 +3240,7 @@ int main()
   TestHeldNotesEnd(h);
   TestNoStuckNotes(h);
   TestComputerMidi(h);
+  TestUsbRouting(h);
   TestGuide(h);
   TestEveryParameter(h);
   // Last: it runs every item of the SEQ menu, which changes the pattern.

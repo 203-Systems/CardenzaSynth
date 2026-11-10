@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -80,6 +81,12 @@ public:
   std::uint8_t MasterVolume() const override;
   float TrackActivity(std::size_t track) const override;
   float OutputPeak() const override;
+  synth::TrackRouting Routing(std::size_t track) const override;
+  void SetRouting(std::size_t track, const synth::TrackRouting& routing) override;
+  float TrackLineLevel(std::size_t track) const override;
+  bool ComputerConnected() const override;
+  void SetMidiClockOut(bool on) override;
+  bool MidiClockOut() const override { return midiClockOut_; }
   void SetMasterFx(std::size_t param, int value) override;
   int MasterFx(std::size_t param) const override;
   float FxReturnLevel(std::size_t bus) const override;
@@ -114,7 +121,16 @@ private:
   void SendGuideState(std::uint32_t now, bool always);
   void SendGuideLeds(std::uint32_t now);
   void ReleaseComputerNotes(std::size_t onlyTrack = synth::kSynthTrackCount);
-  static void SendComputerMidi(std::uint8_t status, std::size_t track, std::uint8_t data1, std::uint8_t data2);
+  // What a track plays goes out to a computer on USB on its MIDI OUT channel (TrackRouting); notes are
+  // remembered until their note-off (sentNotes_). Called from the UI and the sequencer's clock task.
+  void SendComputerMidi(std::uint8_t status, std::size_t track, std::uint8_t data1, std::uint8_t data2);
+  // Note-offs for every note a track still has on at the computer, on the channel it went out on.
+  void EndSentNotesLocked(std::size_t track);
+  // An empty instrument's patch (program, bank, controllers) to the computer when it changed, when the
+  // track's channel did and when a computer connects (SyncExternalPatches, every tick).
+  void SyncExternalPatches();
+  void ApplyRouting(std::size_t track);
+  static void SendRealtimeMidi(void* context, std::uint8_t message);
   std::uint32_t NowMs() const;
   void ApplyMix();
   void ApplyMasterFx(const std::array<std::uint8_t, synth::fx::kMasterParamCount>& values);
@@ -190,6 +206,27 @@ private:
   // Notes a computer plays over USB MIDI and has not let go yet.
   std::array<synth::audio::NoteSet, synth::kSynthTrackCount> computerNotes_{};
   bool computerConnected_ = false;
+  // Each track's USB routing (project data). The MIDI side is this app's; the audio side the runtime's.
+  std::array<synth::TrackRouting, synth::kSynthTrackCount> routing_{};
+  // Notes that went out to the computer and are still on, by track, and the channel they went out on.
+  // The clock task sends too: these, routing_'s MIDI OUT and the sending are under midiOutMutex_.
+  mutable std::mutex midiOutMutex_;
+  std::array<synth::audio::NoteSet, synth::kSynthTrackCount> sentNotes_{};
+  std::array<int, synth::kSynthTrackCount> sentChannel_{{-1, -1, -1, -1}};
+  std::array<synth::audio::NoteSet, synth::kSynthTrackCount> orphanSent_{};
+  // The patch of an empty instrument as last sent (-2: not sent), to send what changes only.
+  struct SentPatch {
+    int channel = -2;
+    int program = -2;
+    int bankMsb = -2;
+    int bankLsb = -2;
+    std::array<int, 8> controllers{{-2, -2, -2, -2, -2, -2, -2, -2}};
+    std::array<int, 8> numbers{{-2, -2, -2, -2, -2, -2, -2, -2}};
+  };
+  std::array<SentPatch, synth::kSynthTrackCount> sentPatches_{};
+  // MIDI clock, start and stop to the computer while the sequencer plays (an app setting, synth.cfg).
+  bool midiClockOut_ = false;
+  bool storedMidiClockOut_ = false;
   bool orphanCandidates_ = false;
   std::uint32_t endedOrphanNotes_ = 0;
   std::uint32_t sessionChangedAt_ = 0;
@@ -209,7 +246,7 @@ private:
   std::uint32_t (*clock_)() = nullptr;
   HeapProbe heapProbe_ = nullptr;
   // By SynthEngineKind: the most an engine of the kind gave back when destroyed (0 = none yet).
-  std::array<std::size_t, 5> engineBytes_{};
+  std::array<std::size_t, 6> engineBytes_{};
   synth::SynthRack rack_;
   synth::SamplerManager sampler_;
   synth::SynthSequencer sequencer_;

@@ -169,8 +169,9 @@ void Controller::OpenEnginePicker()
   modal.kind = ModalKind::EnginePicker;
   modal.title = "ENGINE";
   const auto current = ActiveKind();
-  const std::array<synth::SynthEngineKind, 4> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
-                                                      synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums}};
+  const std::array<synth::SynthEngineKind, 5> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
+                                                      synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums,
+                                                      synth::SynthEngineKind::Empty}};
   for (std::size_t index = 0; index < kinds.size(); ++index)
   {
     modal.items.push_back({std::to_string(static_cast<int>(kinds[index])), std::string(EngineShortName(kinds[index])), kinds[index] == current});
