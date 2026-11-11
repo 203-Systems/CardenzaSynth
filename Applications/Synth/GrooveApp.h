@@ -95,6 +95,8 @@ public:
   std::uint8_t Backlight() const override;
   void SetLogging(bool on) override;
   bool Logging() const override;
+  void SetScreenTheme(os::storage::Theme theme) override;
+  os::storage::Theme ScreenTheme() const override;
   groove::SystemInfo QuerySystem() const override;
 
   static constexpr std::array<synth::SynthEngineKind, synth::kSynthTrackCount> kDefaultKinds{{

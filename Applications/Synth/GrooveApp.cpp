@@ -1561,6 +1561,16 @@ bool GrooveApp::Logging() const
   return os::storage::LogEnabled();
 }
 
+void GrooveApp::SetScreenTheme(os::storage::Theme theme)
+{
+  os::storage::SetScreenTheme(theme);
+}
+
+os::storage::Theme GrooveApp::ScreenTheme() const
+{
+  return os::storage::ScreenTheme();
+}
+
 groove::SystemInfo GrooveApp::QuerySystem() const
 {
   groove::SystemInfo info;

@@ -17,7 +17,8 @@ namespace {
 
 using namespace groove::theme;
 
-constexpr std::array<Color, 4> kStripColors{{kEsc, kTab, kFn, kCtrl}};
+// The left keys' colors, read through the palette in use.
+constexpr std::array<const Color*, 4> kStripColors{{&kEsc, &kTab, &kFn, &kCtrl}};
 const Rect kContentArea{kContentX - 2, kContentY - 2, kContentWidth + 4, kContentHeight + 4};
 
 Rect StripRect(std::size_t row)
@@ -58,7 +59,7 @@ void DrawStrips(Gfx& g, const Controller& controller, Animator& animator)
   for (std::size_t row = 0; row < 4; ++row)
   {
     const Rect cap = StripRect(row);
-    const Color color = kStripColors[row];
+    const Color color = *kStripColors[row];
     const auto& key = state.left[row];
     const float led = animator.LedShown(KeyIndex(row, 0));
     const bool solid = !key.down && StripSolid(led);
@@ -464,7 +465,7 @@ Rect DropIn(const Rect& rect, float t, std::size_t order)
   return Rect{rect.x, rect.y - static_cast<int>((1.0f - tileT) * 8.0f), rect.width, rect.height};
 }
 
-// One map tile. `current` is drawn inverse with crawling ants in the map's colour; a tile the key
+// One map tile. `current` is drawn inverse with crawling ants in the map's color; a tile the key
 // cannot use right now stays dotted.
 void MapTile(Gfx& g, const Rect& tile, bool current, bool usable, Color accent, std::uint32_t now, Color fill = kInk)
 {
@@ -837,7 +838,7 @@ void DrawBoot(Gfx& g, Animator& animator)
     const float landed = fx::EaseOutBack(fx::Clamp01(t * 3.0f - 0.9f - static_cast<float>(index) * 0.18f));
     const int x = kScreenWidth / 2 - 38 + static_cast<int>(index) * 20;
     const int y = 88 + static_cast<int>((1.0f - landed) * 20.0f);
-    if (landed > 0.0f) g.Dither(Rect{x, y, 16, 4}, kStripColors[index], 10);
+    if (landed > 0.0f) g.Dither(Rect{x, y, 16, 4}, *kStripColors[index], 10);
   }
   const int scan = static_cast<int>(fx::Clamp01(t * 1.4f) * static_cast<float>(kScreenHeight + 10));
   fx::ScanLine(g, 0, kScreenWidth, scan, 8, kDim);
@@ -847,6 +848,7 @@ void DrawBoot(Gfx& g, Animator& animator)
 
 void RenderFrame(Gfx& g, const Controller& controller, Animator& animator)
 {
+  theme::Use(controller.HostView().ScreenTheme());
   const std::uint32_t now = animator.Now();
   g.Clear(kBlack);
   const std::uint32_t sinceBoot = now - animator.BootAt();

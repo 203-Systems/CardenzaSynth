@@ -2,6 +2,7 @@
 #include "OS/Storage/DeviceSettings.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstring>
 
@@ -159,6 +160,12 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
     choice(host_.Logging() ? 1 : 0, 2, os::storage::kDefaultLogEnabled ? 1 : 0, host_.Logging() ? "ON" : "OFF");
     info.kind = synth::SynthParameterKind::Toggle;
   }
+  else if (Is(id, "sys.theme"))
+  {
+    static constexpr std::array<const char*, os::storage::kThemeCount> kThemeNames{{"DARK", "LIGHT", "RETRO"}};
+    const auto theme = std::min(static_cast<std::size_t>(host_.ScreenTheme()), os::storage::kThemeCount - 1);
+    choice(static_cast<int>(theme), static_cast<int>(os::storage::kThemeCount), static_cast<int>(os::storage::kDefaultTheme), kThemeNames[theme]);
+  }
   else return false;
   return true;
 }
@@ -204,6 +211,7 @@ void Controller::AdjustSetting(const char* id, int delta)
   else if (Is(id, "sys.led")) host_.SetLedBrightness(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.screen")) host_.SetBacklight(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.log")) host_.SetLogging(value != 0);
+  else if (Is(id, "sys.theme")) host_.SetScreenTheme(static_cast<os::storage::Theme>(value));
   // The key range moves under held pads: let them go before they map to other notes.
   if (Is(id, "keys.layout") || Is(id, "keys.octave")) ReleaseAllPads();
   // Only project data makes the project unsaved: the keyboard, the tracks' chords and arpeggiators,
