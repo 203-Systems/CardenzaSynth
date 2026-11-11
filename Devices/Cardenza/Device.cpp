@@ -1,6 +1,6 @@
 #include "Devices/Device.h"
 #include "Devices/Cardenza/DeviceLog.h"
-#include "Devices/KeySettle.h"
+#include "keyboard/key_settle.h"
 #include "Devices/LedFrameBuffer.h"
 #include "Devices/LedLight.h"
 #include "Library/Memory/Memory.h"
@@ -191,7 +191,7 @@ std::uint8_t Backlight() {
 namespace Keyboard {
 
 namespace {
-KeySettle<static_cast<std::size_t>(kRows)> leftKeySettle;
+CardenzaHAL::Keyboard::KeySettle<static_cast<std::size_t>(kRows)> leftKeySettle;
 std::uint32_t reportedGlitches = 0;
 std::uint32_t reportedStuck = 0;
 std::int64_t lastKeyReportAt = 0;
