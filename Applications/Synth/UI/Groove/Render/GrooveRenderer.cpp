@@ -370,8 +370,8 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
     if (seq.hasHeldSteps)
     {
       // Step inspector: lane chooser (ENTER) with a gliding highlight, and the notes or the value.
-      static constexpr std::array<const char*, 4> kLanes{{"NOTE", "LEN", "VEL", "TIME"}};
-      std::array<int, 4> laneX{};
+      static constexpr std::array<const char*, 5> kLanes{{"NOTE", "LEN", "VEL", "TIME", "HITS"}};
+      std::array<int, kLanes.size()> laneX{};
       int x = kFooterX;
       for (std::size_t lane = 0; lane < kLanes.size(); ++lane)
       {
