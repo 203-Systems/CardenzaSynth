@@ -445,6 +445,50 @@ void Controller::SaveProjectNamed(const std::string& name, bool overwrite)
   }
 }
 
+void Controller::RenameProject()
+{
+  std::string name = state_.projectName;
+  if (CurrentPage() == kSetupFiles)
+  {
+    if (state_.projects.empty()) return;
+    name = state_.projects[std::min(state_.fileCursor, state_.projects.size() - 1)];
+  }
+  if (name.empty())
+  {
+    // Never saved: renaming it is naming it, which saves it.
+    OpenTextEntry(TextPurpose::ProjectSaveAs, "NAME PROJECT", "SONG", 24);
+    return;
+  }
+  OpenTextEntry(TextPurpose::ProjectRename, "RENAME PROJECT", name, 24);
+  Top()->payload = name;
+}
+
+void Controller::RenameProjectNamed(const std::string& from, const std::string& to)
+{
+  if (to == from) return;
+  std::string message;
+  switch (host_.RenameProject(from, to, message))
+  {
+    case SaveResult::Ok:
+      // The open project keeps its state (saved or not) under the new name.
+      if (state_.projectName == from) state_.projectName = to;
+      RefreshProjects();
+      // On FILES the cursor stays on the project just renamed.
+      if (CurrentPage() == kSetupFiles)
+        if (const auto at = std::find(state_.projects.begin(), state_.projects.end(), to); at != state_.projects.end())
+          state_.fileCursor = static_cast<std::size_t>(at - state_.projects.begin());
+      ShowToast("RENAMED " + to, ToastKind::Ok);
+      break;
+    case SaveResult::Exists:
+      ShowToast(to + " IS TAKEN", ToastKind::Error);
+      break;
+    case SaveResult::Failed:
+    default:
+      ShowToast(message.empty() ? "RENAME FAILED" : message, ToastKind::Error);
+      break;
+  }
+}
+
 void Controller::LoadProjectNamed(const std::string& name)
 {
   ProjectUiSettings settings;
@@ -1683,6 +1727,9 @@ MenuItems Controller::Menu() const
         put(0, MenuAction::NewProject, "NEW", "PROJECT");
         put(1, MenuAction::LoadProject, "LOAD", "PROJECT");
         put(2, MenuAction::SaveProjectAs, "SAVE AS", "PROJECT");
+        // FILES renames the project under the cursor, PROJECT the open one (a new one gets its first name).
+        put(3, MenuAction::RenameProject, "RENAME", page == kSetupFiles ? "SELECTED" : "PROJECT", nullptr,
+            page != kSetupFiles || !state_.projects.empty());
       }
       else if (const InstrumentPage* settings = SettingsPageShown())
       {
@@ -1788,6 +1835,7 @@ void Controller::RunMenuAction(const MenuItem& item)
       SetPage(kSetupFiles);
       break;
     case MenuAction::SaveProjectAs: SaveProject(true); break;
+    case MenuAction::RenameProject: RenameProject(); break;
     case MenuAction::None:
     default: break;
   }

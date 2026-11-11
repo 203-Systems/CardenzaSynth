@@ -103,6 +103,7 @@ enum class TextPurpose : std::uint8_t {
   ProjectSaveAs,
   PresetSaveAs,
   SampleRename,
+  ProjectRename,  // payload: the project's name on the card
   Search,  // the filter of the preset / sample browser underneath (FN + F)
 };
 
@@ -310,6 +311,7 @@ enum class MenuAction : std::uint8_t {
   NewProject,
   LoadProject,
   SaveProjectAs,
+  RenameProject,  // PROJECT: the open project; FILES: the one under the cursor
 };
 
 struct MenuItem {
@@ -758,6 +760,8 @@ private:
   // Project actions
   void SaveProject(bool saveAs);
   void SaveProjectNamed(const std::string& name, bool overwrite);
+  void RenameProject();
+  void RenameProjectNamed(const std::string& from, const std::string& to);
   void LoadProjectNamed(const std::string& name);
   void NewProject();
   void RefreshProjects();

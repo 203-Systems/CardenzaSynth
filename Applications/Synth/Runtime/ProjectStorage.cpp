@@ -433,6 +433,35 @@ ProjectResult LoadProjectFile(const std::string& name, ProjectData& destination)
   return ReadProject(ProjectPath(name), destination);
 }
 
+ProjectResult RenameProjectFile(const std::string& from, const std::string& to) {
+  if (!IsProjectNameValid(from) || !IsProjectNameValid(to)) return ProjectResult::Invalid;
+  if (from == to) return ProjectResult::Ok;
+  if (!storage::EnsureLayout()) return ProjectResult::StorageError;
+  const std::string source = ProjectPath(from);
+  const std::string target = ProjectPath(to);
+  const bool file = Exists(source);
+  const bool backup = Exists(source + ".bak");
+  if (!file && !backup) return ProjectResult::Invalid;
+  // FAT (and Windows) ignore case: there, a name that differs only in case is the same file, so it
+  // goes through a step name, and it is not a name taken by another project.
+  const bool caseOnly = std::equal(from.begin(), from.end(), to.begin(), to.end(), [](unsigned char a, unsigned char b) {
+    return std::toupper(a) == std::toupper(b);
+  });
+  if (!caseOnly && (Exists(target) || Exists(target + ".bak"))) return ProjectResult::Exists;
+  const auto move = [caseOnly](const std::string& a, const std::string& b) {
+    if (!caseOnly) return std::rename(a.c_str(), b.c_str()) == 0;
+    const std::string step = b + ".ren";
+    return std::rename(a.c_str(), step.c_str()) == 0 && std::rename(step.c_str(), b.c_str()) == 0;
+  };
+  if (file && !move(source, target)) return ProjectResult::StorageError;
+  if (backup && !move(source + ".bak", target + ".bak")) {
+    // Never half renamed: a backup left under the old name would list that name again.
+    if (file) move(target, source);
+    return ProjectResult::StorageError;
+  }
+  return ProjectResult::Ok;
+}
+
 ProjectResult SaveProjectFileAt(const std::string& path, const ProjectData& project) {
   if (path.empty() || !ValidMetadata(project)) return ProjectResult::Invalid;
   return WriteProject(path, project);
