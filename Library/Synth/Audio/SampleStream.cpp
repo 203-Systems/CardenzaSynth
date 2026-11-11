@@ -288,32 +288,37 @@ bool Pump(Pool& pool)
     const std::uint32_t key = BlockKey(id, block);
     if (std::find(needs.begin(), needs.begin() + needCount, key) == needs.begin() + needCount && needCount < needs.size()) needs[needCount++] = key;
   };
-  // What is needed, most urgent first. A stream is read forward from the earliest block any of its
-  // voices is inside, one budget deep: asking only for the block a voice is on and the next one left
-  // the cache nearly empty however much of it the heap had given - a voice arriving at a block that
-  // was never fetched holds its last frame, which is the mute heard as a dropout.
+  // What is needed, most urgent first: for every voice, the block it is in and the ones behind it.
+  //
+  // A stream reads forward from each of its voices, and the look-ahead is shared between them - one
+  // voice gets the whole window, four get a quarter each. Reading forward from the earliest voice
+  // alone left a chop's other slices waiting for blocks nobody had asked for (they held their last
+  // frame: a slice that never sounds), and asking for the window *plus* the sample's start asked for
+  // fourteen blocks where the cache holds twelve, so the cache churned: filled, evicted, filled.
   for (const StreamState& stream : pool.streams)
   {
     const std::uint32_t id = stream.id.load(std::memory_order_relaxed);
     if (id == 0 || stream.released.load(std::memory_order_relaxed)) continue;
     const std::uint32_t start = stream.startBlock.load(std::memory_order_relaxed);
-    // The window follows the voices, not the sample's start: pinned to the start it never moved, and a
-    // voice reaching the end of the first twelve blocks found nothing and held its last frame - the
-    // sound stopping dead a second in while the playhead ran on.
-    std::uint32_t first = start;
-    bool anyReader = false;
+    std::array<std::uint32_t, kMaxStreamReaders> heads{};
+    std::size_t voices = 0;
     for (const auto& reader : pool.readers)
     {
       const std::uint32_t key = reader.load(std::memory_order_acquire);
       if (key == 0 || KeyStream(key) != id) continue;
-      const std::uint32_t block = KeyBlock(key);
-      first = anyReader ? (std::min)(first, block) : block;
-      anyReader = true;
+      if (voices < heads.size()) heads[voices++] = KeyBlock(key);
     }
-    for (std::uint32_t ahead = 0; ahead < kBlocksPerStream; ++ahead) need(id, first + ahead);
-    // The start of the sample too: a note that begins while the reader is elsewhere must not wait.
-    need(id, start);
-    need(id, start + 1);
+    if (voices == 0)
+    {
+      // Open but not playing: nothing has a position yet, so the start is what will be wanted.
+      for (std::uint32_t ahead = 0; ahead < kBlocksPerStream; ++ahead) need(id, start + ahead);
+      continue;
+    }
+    // Two blocks a voice at the very least: a slice needs its block before the next arrives, and six
+    // voices sharing twelve leaves no room for a deeper window than that.
+    const std::size_t depth = (std::max)(std::size_t{2}, kBlocksPerStream / voices);
+    for (std::size_t voice = 0; voice < voices; ++voice)
+      for (std::uint32_t ahead = 0; ahead < depth; ++ahead) need(id, heads[voice] + ahead);
   }
 
   const std::size_t count = pool.blockCount.load(std::memory_order_relaxed);
