@@ -19,7 +19,7 @@ constexpr const char* kLedKey = "sys.led";
 constexpr const char* kScreenKey = "sys.screen";
 constexpr const char* kLogKey = "sys.log";
 constexpr const char* kThemeKey = "sys.theme";
-constexpr int kUiThemeCount = 2;
+constexpr int kUiThemeCount = 3;
 
 struct Cache {
   bool loaded = false;

@@ -183,7 +183,9 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
   ApplyMasterFx(synth::ProjectData::DefaultMasterFx());
   // Volume, key LEDs and screen are device settings: the system applied them at boot. The palette is
   // one too, but only this app knows what the numbers mean, so it is set here, before the first frame.
-  groove::theme::SetTheme(os::storage::UiTheme() == 1 ? groove::theme::ThemeId::LcdGreen : groove::theme::ThemeId::Official);
+  groove::theme::SetTheme(os::storage::UiTheme() == 1 ? groove::theme::ThemeId::Light
+                          : os::storage::UiTheme() == 2 ? groove::theme::ThemeId::Retro
+                                                        : groove::theme::ThemeId::Dark);
   RestorePlaySettings();
   // The autosave is on the card: the working state comes back with it.
   (void)RestoreSessionState();

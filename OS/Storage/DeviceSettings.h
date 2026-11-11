@@ -14,8 +14,8 @@ inline constexpr std::uint8_t kDefaultScreenBacklight = 180;
 inline constexpr std::uint8_t kMinScreenBacklight = 10;
 // The log on the card (OS/System/Log.h) is on unless someone turns it off.
 inline constexpr bool kDefaultLogEnabled = true;
-// The screen's colours: 0 is the shipped dark palette, 1 the backlit green LCD. A device setting, so
-// it stays as it was left whatever project is opened.
+// The screen's colours: 0 dark (shipped), 1 light, 2 the backlit green LCD. A device setting, so it
+// stays as it was left whatever project is opened.
 inline constexpr std::uint8_t kDefaultUiTheme = 0;
 
 // Reads the system settings and applies all three to the device (boot).

@@ -12,15 +12,16 @@ namespace groove::theme {
 using ui::Color;
 using ui::Rgb565;
 
-// Two screens to choose between, one set of names to draw with.
+// Three screens to choose between, one set of names to draw with.
 //
 // kBlack is whatever a panel is cleared to and kInk whatever reads on it, so the same drawing code
-// serves a dark screen (a mark on black) and a backlit green LCD (ink on paper) without knowing
-// which way round it is. The five-value ladder keeps its order in both: kBlack is the field, kInk
-// the mark, and kShade / kFaint / kDim the three steps between them.
+// serves a dark screen (a mark on black), a light one (ink on paper) and a backlit green LCD
+// without knowing which way round it is. The five-value ladder keeps its order in all three: kBlack
+// is the field, kInk the mark, and kShade / kFaint / kDim the three steps between them.
 enum class ThemeId : std::uint8_t {
-  Official = 0,
-  LcdGreen = 1,
+  Dark = 0,   // the shipped screen
+  Light = 1,  // white paper, black ink, the same colours as the dark one
+  Retro = 2,  // backlit green LCD
 };
 
 struct Palette {
@@ -39,7 +40,7 @@ struct Palette {
 };
 
 // The shipped look: a terminal's colours on black, each one bright enough to glow.
-inline constexpr Palette kOfficialPalette{
+inline constexpr Palette kDarkPalette{
     Rgb565(0, 0, 0),        // paper
     Rgb565(232, 232, 224),  // ink
     Rgb565(132, 132, 126),  // dim
@@ -55,11 +56,29 @@ inline constexpr Palette kOfficialPalette{
      Rgb565(96, 240, 200)},
 };
 
+// The same colours on paper: white field, black ink, and the six hues exactly as the dark screen has
+// them, so a track keeps its identity whichever screen it is read on.
+inline constexpr Palette kLightPalette{
+    Rgb565(236, 236, 230),  // paper
+    Rgb565(22, 22, 20),     // ink
+    Rgb565(104, 104, 98),   // dim
+    Rgb565(148, 148, 142),  // faint
+    Rgb565(216, 216, 208),  // shade
+    Rgb565(255, 90, 54),    // esc
+    Rgb565(54, 214, 230),   // tab
+    Rgb565(255, 208, 48),   // fn
+    Rgb565(160, 112, 255),  // ctrl
+    Rgb565(20, 150, 60),    // play: the dark screen's green is invisible here, so a deeper one
+    Rgb565(235, 40, 56),    // rec
+    {Rgb565(255, 92, 176), Rgb565(72, 152, 255), Rgb565(176, 236, 56), Rgb565(255, 164, 40), Rgb565(196, 132, 255),
+     Rgb565(96, 240, 200)},
+};
+
 // A backlit monochrome LCD, the way an MPC's screen reads: pale green paper, dark ink, and nothing
 // between them but shades of the same ink. The ladder runs light to dark - paper, shade, faint, dim,
 // ink - and a dither reads as the screen's own dot grid. Colours survive as dye rather than light:
 // each is dark enough to sit on the paper as ink.
-inline constexpr Palette kLcdGreenPalette{
+inline constexpr Palette kRetroPalette{
     Rgb565(170, 196, 150),  // paper
     Rgb565(24, 32, 20),     // ink
     Rgb565(82, 101, 68),    // dim
@@ -76,32 +95,32 @@ inline constexpr Palette kLcdGreenPalette{
 };
 
 // The palette in use, written by SetTheme and read by every drawing call.
-inline Color kBlack = kOfficialPalette.paper;
-inline Color kInk = kOfficialPalette.ink;
-inline Color kDim = kOfficialPalette.dim;
-inline Color kFaint = kOfficialPalette.faint;
-inline Color kShade = kOfficialPalette.shade;
+inline Color kBlack = kDarkPalette.paper;
+inline Color kInk = kDarkPalette.ink;
+inline Color kDim = kDarkPalette.dim;
+inline Color kFaint = kDarkPalette.faint;
+inline Color kShade = kDarkPalette.shade;
 
-inline Color kEsc = kOfficialPalette.esc;
-inline Color kTab = kOfficialPalette.tab;
-inline Color kFn = kOfficialPalette.fn;
-inline Color kCtrl = kOfficialPalette.ctrl;
+inline Color kEsc = kDarkPalette.esc;
+inline Color kTab = kDarkPalette.tab;
+inline Color kFn = kDarkPalette.fn;
+inline Color kCtrl = kDarkPalette.ctrl;
 
-inline Color kPlay = kOfficialPalette.play;
-inline Color kRec = kOfficialPalette.rec;
+inline Color kPlay = kDarkPalette.play;
+inline Color kRec = kDarkPalette.rec;
 
 // One colour per track, everywhere a track is named or drawn (header, TAB strip, maps, MIX, SENDS,
 // TAPE rows).
-inline Color kTrackColors[6] = {kOfficialPalette.tracks[0], kOfficialPalette.tracks[1], kOfficialPalette.tracks[2],
-                                kOfficialPalette.tracks[3], kOfficialPalette.tracks[4], kOfficialPalette.tracks[5]};
+inline Color kTrackColors[6] = {kDarkPalette.tracks[0], kDarkPalette.tracks[1], kDarkPalette.tracks[2],
+                                kDarkPalette.tracks[3], kDarkPalette.tracks[4], kDarkPalette.tracks[5]};
 inline Color TrackColor(std::size_t track) { return kTrackColors[track % 6u]; }
 
-inline ThemeId CurrentTheme = ThemeId::Official;
+inline ThemeId CurrentTheme = ThemeId::Dark;
 
 // Swaps every colour in one go: the next frame draws in the new palette, nothing cached anywhere.
 inline void SetTheme(ThemeId id)
 {
-  const Palette& palette = id == ThemeId::LcdGreen ? kLcdGreenPalette : kOfficialPalette;
+  const Palette& palette = id == ThemeId::Light ? kLightPalette : id == ThemeId::Retro ? kRetroPalette : kDarkPalette;
   kBlack = palette.paper;
   kInk = palette.ink;
   kDim = palette.dim;

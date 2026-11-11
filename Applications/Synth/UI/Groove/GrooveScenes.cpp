@@ -187,10 +187,10 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
   }
   else if (Is(id, "sys.theme"))
   {
-    // Two screens: the shipped dark one and the backlit green LCD of an MPC. A pad press flips it.
-    const int theme = static_cast<int>(os::storage::UiTheme());
-    choice(theme, 2, os::storage::kDefaultUiTheme, theme == 0 ? "STOCK" : "RETRO");
-    info.kind = synth::SynthParameterKind::Toggle;
+    // Three screens: the shipped dark one, the same on paper, and the backlit green LCD of an MPC.
+    static constexpr const char* kThemeNames[] = {"DARK", "LIGHT", "RETRO"};
+    const int theme = std::clamp(static_cast<int>(os::storage::UiTheme()), 0, 2);
+    choice(theme, 3, os::storage::kDefaultUiTheme, kThemeNames[theme]);
   }
   else return false;
   return true;
@@ -240,7 +240,7 @@ void Controller::AdjustSetting(const char* id, int delta)
   else if (Is(id, "sys.theme"))
   {
     os::storage::SetUiTheme(static_cast<std::uint8_t>(value));
-    theme::SetTheme(value == 0 ? theme::ThemeId::Official : theme::ThemeId::LcdGreen);
+    theme::SetTheme(value == 0 ? theme::ThemeId::Dark : value == 1 ? theme::ThemeId::Light : theme::ThemeId::Retro);
   }
   // The key range moves under held pads: let them go before they map to other notes.
   if (Is(id, "keys.layout") || Is(id, "keys.octave")) ReleaseAllPads();

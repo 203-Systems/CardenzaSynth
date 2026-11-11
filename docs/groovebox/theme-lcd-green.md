@@ -1,12 +1,22 @@
-# 屏幕主题：STOCK 与 LCD Green（MPC2500 风格）
+# 屏幕主题：DARK / LIGHT / RETRO
 
-两套屏幕可选：**STOCK** 是固件出厂那套深色霓虹，**RETRO** 是淡绿底、墨色点阵的 MPC 风格。
-切换在 **SETUP → SYSTEM 页第二行第一格 `THEME`**，按 ADD / SUB 或点一下格子即可，设置写进
-`sys.theme`（system.cfg），跟工程无关，重启后保持。
+三套屏幕可选，按这个顺序：
 
-两套调色板都定义在 `Applications/Synth/UI/Groove/Render/Theme.h`（`kOfficialPalette` /
-`kLcdGreenPalette`），所有颜色是运行期变量，`theme::SetTheme()` 一次整体替换，绘制代码不需要知道
-屏幕是哪一种。
+| 值 | 名称 | 样子 |
+|---|---|---|
+| 0 | **DARK** | 固件出厂那套：黑底 + 霓虹色（默认） |
+| 1 | **LIGHT** | 白底黑字，轨道色与左侧键色与 DARK 相同 |
+| 2 | **RETRO** | 淡绿底、墨色点阵，MPC2500 风格 |
+
+切换在 **SETUP → SYSTEM 页第二行第一格 `THEME`**，按 ADD / SUB 即可，设置写进 `sys.theme`
+（system.cfg），跟工程无关，重启后保持。
+
+三套调色板都定义在 `Applications/Synth/UI/Groove/Render/Theme.h`（`kDarkPalette` /
+`kLightPalette` / `kRetroPalette`），所有颜色是运行期变量，`theme::SetTheme()` 一次整体替换，
+绘制代码不需要知道屏幕是哪一种。
+
+> LIGHT 里只有两处颜色和 DARK 不同：`kPlay` 用深绿（亮度 72,255,120 在白底上基本看不见），
+> `kRec` 略深。其余六个色值与轨道色完全照搬 DARK。
 
 ![鼓轨 STEP](theme-lcd-green-step.png)
 ![鼓轨 ROLL](theme-lcd-green-roll.png)
