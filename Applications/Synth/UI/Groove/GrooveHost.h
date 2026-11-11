@@ -86,6 +86,9 @@ public:
   // Projects.
   virtual std::vector<std::string> ListProjects() const = 0;
   virtual SaveResult SaveProject(const std::string& name, bool overwrite, const ProjectUiSettings& settings, std::string& message) = 0;
+  // Renames a saved project on the card (its file only: the project that is open keeps its state).
+  // Exists: the new name is another project's; Failed: message says why.
+  virtual SaveResult RenameProject(const std::string& from, const std::string& to, std::string& message) = 0;
   virtual bool LoadProject(const std::string& name, ProjectUiSettings& settings, std::string& message) = 0;
   virtual bool NewProject(ProjectUiSettings& settings, std::string& message) = 0;
 

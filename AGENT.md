@@ -202,7 +202,7 @@ FN 是**当前画面的菜单**。按住 FN 时内容区换成菜单：4×4 的�
 | TAPE SONG | COPY / PASTE（插在光标行后）/ DELETE / DUP 一行（C / V / X / D）；PLAY（OK，SONG / LOOP） |
 | TAPE MIX | UNMUTE ALL、UNSOLO ALL |
 | TAPE SENDS / FX | RESET（OK） |
-| SETUP PROJECT / FILES | NEW、LOAD、SAVE AS |
+| SETUP PROJECT / FILES | NEW、LOAD、SAVE AS、RENAME（PROJECT 页改当前工程的名字，FILES 页改光标所在的工程：卡上的文件直接改名，不留旧名，打开的工程照常继续；名字已被别的工程用了就提示 TAKEN，不覆盖；没存过的新工程是起名并保存） |
 | SETUP KEYS / SYSTEM | RESET（OK，焦点设置恢复默认） |
 | 行 3（所有画面） | SAVE（S，存工程）、TAP（T，Tap tempo，显示 BPM）、REC（PLAY，录音待命）、SETUP（进入 0 SETUP；在 SETUP 里是 BACK，回到进来之前的场景） |
 
@@ -240,7 +240,7 @@ PADS 与四周按键上的第二功能：
 
 | 子页面 | 内容 | GRID | ADD / SUB / ENTER |
 |---|---|---|---|
-| PROJECT | 工程名、是否未保存、四轨摘要（引擎、音色） | 行 0：SAVE / LOAD（跳到 FILES）/ NEW（SAVE AS 在 FN 菜单：要打字的操作都不放在一级界面）；行 1：BPM / SWING / TAP / PLAY（LOOP ↔ SONG 开关，SONG 时灯全亮） | 调整 BPM / SWING；ENTER 保存（焦点在 TAP 时是打拍） |
+| PROJECT | 工程名、是否未保存、四轨摘要（引擎、音色） | 行 0：SAVE / LOAD（跳到 FILES）/ NEW（SAVE AS、RENAME 在 FN 菜单：要打字的操作都不放在一级界面）；行 1：BPM / SWING / TAP / PLAY（LOOP ↔ SONG 开关，SONG 时灯全亮） | 调整 BPM / SWING；ENTER 保存（焦点在 TAP 时是打拍） |
 | FILES | 工程列表 | — | 选择；ENTER 载入（未保存时确认） |
 | KEYS | 键盘预览（中间一个八度为主，两边各半个八度、颜色更暗：F 到 F）：音阶音带点、根音带横线，按下的音用当前轨颜色亮起 | LAYOUT、SCALE、ROOT、OCTAVE / VELO、LOCK、SELECT | 选中的设置：ADD / SUB 调整，ENTER 切换选项，Fn + ENTER 恢复默认；再按一次已选中的格子切换选项或开关 |
 | SYSTEM | 音频后端、SD 卡、内存、构建日期（每次进来逐行打出） | VOLUME、KEY LED、SCREEN、LOG | 同上 |

@@ -750,6 +750,45 @@ void TestProject(Harness& h)
   // Keys pressed before the name field opened are released cleanly.
   assert(!h.State().gridDown[2]);
 
+  // RENAME (FN menu, next to SAVE AS): the file on the card changes its name, no copy is left, and the
+  // open project goes on under the new one.
+  h.Chord(kFn, Grid(3));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::TextEntry && h.Modal()->text == "GROOVE 1");
+  for (int index = 0; index < 8; ++index) h.Tap(kDel);
+  TypeText(h, "GROOVE 2");
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && h.State().projectName == "GROOVE 2" && !h.State().dirty);
+  {
+    const auto renamed = app.ListProjects();
+    assert(std::find(renamed.begin(), renamed.end(), "GROOVE 2") != renamed.end());
+    assert(std::find(renamed.begin(), renamed.end(), "GROOVE 1") == renamed.end());
+  }
+  // A name another project has is refused; both stay as they were.
+  h.Chord(kFn, Grid(2));  // SAVE AS GROOVE 3: a second project
+  for (int index = 0; index < 8; ++index) h.Tap(kDel);
+  TypeText(h, "GROOVE 3");
+  h.Tap(kEnter);
+  assert(h.State().projectName == "GROOVE 3");
+  h.Chord(kFn, Grid(3));
+  for (int index = 0; index < 8; ++index) h.Tap(kDel);
+  TypeText(h, "GROOVE 2");
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && h.State().projectName == "GROOVE 3");
+  assert(h.State().toast.text.find("TAKEN") != std::string::npos);
+  {
+    const auto both = app.ListProjects();
+    assert(std::count(both.begin(), both.end(), "GROOVE 2") == 1 && std::count(both.begin(), both.end(), "GROOVE 3") == 1);
+  }
+  // Back to GROOVE 1, the name the rest of this test expects (and ESC in the field changes nothing).
+  h.Chord(kFn, Grid(3));
+  h.Tap(kEsc);
+  assert(h.Modal() == nullptr && h.State().projectName == "GROOVE 3");
+  h.Chord(kFn, Grid(3));
+  for (int index = 0; index < 8; ++index) h.Tap(kDel);
+  TypeText(h, "GROOVE 1");
+  h.Tap(kEnter);
+  assert(h.State().projectName == "GROOVE 1");
+
   // Saving again under the same name overwrites silently.
   h.Tap(Grid(0));
   assert(h.Modal() == nullptr && !h.State().dirty);
@@ -785,6 +824,19 @@ void TestProject(Harness& h)
   // Master effects and the track sends come back with the project.
   assert(app.MasterFx(reverbSize) == synth::fx::kMasterParams[reverbSize].defaultValue - 1);
   assert(ParameterValue(app, 2, "fx.delay") == 11);
+
+  // RENAME on FILES acts on the project under the cursor, not the open one.
+  h.Tap(kSub);
+  assert(h.State().projects[h.State().fileCursor] == "GROOVE 2");
+  h.Chord(kFn, Grid(3));
+  assert(h.Modal() != nullptr && h.Modal()->text == "GROOVE 2");
+  for (int index = 0; index < 8; ++index) h.Tap(kDel);
+  TypeText(h, "OTHER");
+  h.Tap(kEnter);
+  assert(h.State().projectName == "GROOVE 1");
+  assert(std::count(h.State().projects.begin(), h.State().projects.end(), "OTHER") == 1);
+  assert(std::count(h.State().projects.begin(), h.State().projects.end(), "GROOVE 2") == 0);
+  assert(h.State().projects[h.State().fileCursor] == "OTHER");
 
   // SETUP SYSTEM page (CTRL steps the pages): key lights and screen.
   while (h.App().Ui().CurrentPage() != groove::kSetupSystem) h.Tap(kCtrl);

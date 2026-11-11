@@ -86,6 +86,7 @@ public:
   bool FxBusAvailable(std::size_t bus) const override;
   std::vector<std::string> ListProjects() const override;
   groove::SaveResult SaveProject(const std::string& name, bool overwrite, const groove::ProjectUiSettings& settings, std::string& message) override;
+  groove::SaveResult RenameProject(const std::string& from, const std::string& to, std::string& message) override;
   bool LoadProject(const std::string& name, groove::ProjectUiSettings& settings, std::string& message) override;
   bool NewProject(groove::ProjectUiSettings& settings, std::string& message) override;
   void SetLedBrightness(std::uint8_t level) override;
