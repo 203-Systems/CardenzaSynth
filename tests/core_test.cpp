@@ -52,7 +52,7 @@ void TestSequencerEditing() {
   assert(ui.steps[0].lowestNote == 60 && ui.steps[0].noteCount == 3 && ui.steps[0].hasEvents);
   assert(ui.steps[1].lowestNote == -1 && ui.steps[1].noteCount == 0 && !ui.steps[1].hasEvents);
   assert(sequencer->BuildUiState(1).steps[0].lowestNote == -1);
-  assert(ui.heldStepCount == 1 && ui.primaryHeldStep == 0 && ui.scopedNote == -1);
+  assert(ui.heldStepCount == 1 && ui.primaryHeldStep == 0);
   assert(ui.populatedStepCount == 1 && ui.patternHasEvents[0] && !ui.patternHasEvents[1]);
   assert(ui.tracks[0].populatedStepCount == 1 && ui.tracks[1].populatedStepCount == 0);
 
@@ -84,22 +84,19 @@ void TestSequencerEditing() {
   sequencer->PressStep(6, otherChord, std::size(otherChord));
   ui = sequencer->BuildUiState(0);
   assert(ui.heldStepCount == 2 && ui.primaryHeldStep == 2 && ui.populatedStepCount == 3);
-  assert(sequencer->PressEditLane(0)); // Scope is sorted C4, not first inserted G4.
-  assert(sequencer->BuildUiState(0).scopedNote == 60);
-  assert(output.packets.back().status == midi::MidiStatus::NoteOn && output.packets.back().data[1] == 60);
-  sequencer->ReleaseEditLane(0);
-  assert(output.packets.back().status == midi::MidiStatus::NoteOff && output.packets.back().data[1] == 60);
+  // The lowest note of each chord edited alone (a held pad's notes, AdjustNotesOnSelectedSteps).
+  const std::uint8_t lowest[] = {60, 72};
   assert(sequencer->PressEditLane(2));
-  assert(sequencer->HandlePerformanceKeyPress(0, 8, 0));
+  assert(sequencer->AdjustNotesOnSelectedSteps(lowest, std::size(lowest), 17, false));
   state = sequencer->CaptureState();
   for (std::size_t step : {std::size_t{2}, std::size_t{6}}) {
     for (const auto& note : state->tracks[0].patterns[0].steps[step].notes) {
       if (note.active) assert(note.velocity == (note.note == 60 || note.note == 72 ? 127 : 110));
     }
   }
-  assert(sequencer->PressEditLane(1) && sequencer->HandlePerformanceKeyPress(0, 2, 0));
-  assert(sequencer->PressEditLane(3) && sequencer->HandlePerformanceKeyPress(0, 2, 0));
-  // Returning to ALL must show mixed values rather than claim one chord-wide value.
+  assert(sequencer->PressEditLane(1) && sequencer->AdjustNotesOnSelectedSteps(lowest, std::size(lowest), 1, false));
+  assert(sequencer->PressEditLane(3) && sequencer->AdjustNotesOnSelectedSteps(lowest, std::size(lowest), 1, false));
+  // Notes edited apart show mixed values rather than claim one chord-wide value.
   sequencer->ClearHeldSteps();
   sequencer->PressStep(2, nullptr, 0);
   sequencer->PressStep(6, nullptr, 0);
@@ -129,13 +126,12 @@ void TestSequencerEditing() {
   assert(state->tracks[0].patterns[0].steps[10].notes[0].microstep == 0);
   assert(SynthSequencer::ValidateState(*state));
 
-  // A scope audition and edit selection belong to the track where they were started.
+  // An edit selection belongs to the track where it was started.
   sequencer->ClearHeldSteps();
   sequencer->PressStep(10, nullptr, 0);
   assert(sequencer->PressEditLane(0));
   sequencer->SetActiveTrack(1);
   assert(!sequencer->HasHeldSteps() && sequencer->BuildUiState(1).editLane == SequencerEditLane::Note);
-  assert(output.packets.back().status == midi::MidiStatus::NoteOff && output.tracks.back() == 0);
   assert(!sequencer->HandlePerformanceKeyPress(0, 1, 61));
   assert(!sequencer->StepHasEvents(10));
   sequencer->SetActiveTrack(0);
@@ -167,7 +163,7 @@ void TestSequencerEditing() {
   assert(output.packets.back().status == midi::MidiStatus::ControlChange);
   const auto stoppedCount = output.packets.size();
   sequencer->ReleaseEditLane(0);
-  assert(output.packets.size() == stoppedCount); // Stop already released the audition.
+  assert(output.packets.size() == stoppedCount); // A lane key sounds nothing.
   // Removing a filled trailing pattern and adding a new slot must not resurrect notes.
   assert(sequencer->PatternHasEvents(1));
   sequencer->AdjustPatternCount(-1);
@@ -638,7 +634,7 @@ void TestSelectionEditing() {
   sequencer->SetStepSelected(3, true);
   assert(sequencer->IsStepHeld(0) && sequencer->IsStepHeld(3) && sequencer->BuildUiState(0).heldStepCount == 2);
 
-  // Note lane, ALL scope: every note moves by semitones, coarse by octaves.
+  // Note lane: every note moves by semitones, coarse by octaves.
   assert(sequencer->AdjustSelectedSteps(1, false));
   assert(StepPitches(*sequencer, 0) == (Values{61, 65, 68}) && StepPitches(*sequencer, 3) == (Values{63}));
   assert(sequencer->AdjustSelectedSteps(-1, true));
@@ -649,20 +645,7 @@ void TestSelectionEditing() {
   assert(sequencer->ToggleNoteOnSelectedSteps(72));
   assert(StepPitches(*sequencer, 0) == (Values{49, 53, 56}) && StepPitches(*sequencer, 3) == (Values{51}));
 
-  // Scoped note: only that pitch moves, and the scope follows it to its new rank.
-  sequencer->CycleNoteScope();
   auto ui = sequencer->BuildUiState(0);
-  assert(ui.scopedNote == 49 && ui.scopeLabel == "1/3");
-  assert(sequencer->AdjustSelectedSteps(1, true));
-  assert(StepPitches(*sequencer, 0) == (Values{53, 56, 61}) && StepPitches(*sequencer, 3) == (Values{63}));
-  ui = sequencer->BuildUiState(0);
-  assert(ui.scopedNote == 61 && ui.scopeLabel == "3/3");
-  sequencer->SetStepSelected(3, false);
-  assert(!sequencer->AdjustSelectedSteps(-5, false));  // 56 is taken in this step.
-  assert(StepPitches(*sequencer, 0) == (Values{53, 56, 61}));
-  sequencer->CycleNoteScope();
-  assert(sequencer->BuildUiState(0).scopeLabel == "ALL");
-  sequencer->SetStepSelected(3, true);
 
   // Lane cycling.
   assert(sequencer->BuildUiState(0).editLane == SequencerEditLane::Note);
@@ -725,7 +708,7 @@ void TestSelectionEditing() {
 
   sequencer->ClearSelectedSteps();
   ui = sequencer->BuildUiState(0);
-  assert(!ui.hasHeldSteps && ui.editLane == SequencerEditLane::Note && ui.scopeLabel == "ALL");
+  assert(!ui.hasHeldSteps && ui.editLane == SequencerEditLane::Note);
 
   // Per-step clamping: microsteps shorten a note at the pattern end, lengths stop at the end,
   // and the table ends do not move.

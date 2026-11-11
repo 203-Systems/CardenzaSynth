@@ -303,7 +303,6 @@ enum class MenuAction : std::uint8_t {
   LengthDown,   // the length of the current pattern
   LengthUp,
   RecordPanel,  // the RECORD panel (also a held OK)
-  Scope,        // the note a chord step edits (also FN + ENTER)
   // TAPE
   LaunchRow,
   Capture,   // the playing patterns become a new SONG row (also FN + ENTER on SESSION)
@@ -377,9 +376,10 @@ struct StepKey {
 // A pad pressed on the note page while steps are selected edits them, its notes (its chord) as one.
 // A pad none of whose notes a selected step holds puts them in at once. A lit pad (a selected step
 // holds any of them) waits: let go untouched, it takes them out (the toggle of
-// SynthSequencer::ToggleNotesOnSelectedSteps). Held, it scopes ADD / SUB to its notes on the current
-// edit lane (Controller::AdjustHeldPadNotes): NOTE moves them, and keeps moving the same notes while it
-// stays down, wherever they went; LEN / VEL / TIME change their values only.
+// SynthSequencer::ToggleNotesOnSelectedSteps). Held, it turns ADD / SUB to its notes alone on the
+// current edit lane (Controller::AdjustHeldPadNotes): NOTE moves them (a drum to another drum of the
+// kit), and keeps moving the same notes while it stays down, wherever they went; LEN / VEL / TIME
+// change their values only.
 struct PadEdit {
   bool active = false;
   bool removeOnRelease = false;  // lit when pressed: a tap takes its notes out at the release

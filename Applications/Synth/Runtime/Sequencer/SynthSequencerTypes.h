@@ -93,7 +93,6 @@ struct SequencerStepUiState {
   std::size_t noteCount = 0;
   bool held = false;
   bool playing = false;
-  bool scoped = false;
   std::uint32_t contentFingerprint = 0;
   float editFlash = 0.0f;
   // Highest velocity among the step's active notes; 0 when the step is empty.
@@ -126,7 +125,6 @@ struct SequencerUiState {
   std::size_t heldStepCount = 0;
   std::size_t primaryHeldStep = 0;
   std::size_t noteCount = 0;
-  int scopedNote = -1;
   std::string noteNames;
   std::size_t populatedStepCount = 0;
   std::array<bool, kSequencerMaxPatternCount> patternHasEvents{};
@@ -156,7 +154,6 @@ struct SequencerUiState {
   std::size_t activePattern = 0;
   float patternProgress = 0.0f;
   SequencerEditLane editLane = SequencerEditLane::Note;
-  std::string scopeLabel = "ALL";
   std::string valueLabel;
   std::array<bool, kKeyboardMatrixRows> editLanePressed{};
   std::size_t editValueCount = 0;

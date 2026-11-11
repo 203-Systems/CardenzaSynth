@@ -1056,7 +1056,6 @@ void Controller::FnEnter()
     return;
   }
   if (state_.scene == Scene::Instrument) InstrumentReset();
-  else if (state_.scene == Scene::Sequence && CurrentPage() == 0) host_.Sequencer().CycleNoteScope();
   else if (state_.scene == Scene::Tape && CurrentPage() == kTapeSong) SongFnEnter();
   else if (state_.scene == Scene::Tape && CurrentPage() == kTapeSession) SessionCapture();
   else if (state_.scene == Scene::Tape && CurrentPage() == kTapeSends) SendsReset();
@@ -1372,9 +1371,9 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
     finish();
     return;
   }
-  // The screen has an FN + ENTER (a second ENTER: default, scope, capture, song / loop).
-  const bool screenFnEnter = state_.scene == Scene::Instrument || (state_.scene == Scene::Sequence && page == 0) ||
-                             (state_.scene == Scene::Tape && page != kTapeMix) || (state_.scene == Scene::Setup && page >= kSetupKeys);
+  // The screen has an FN + ENTER (a second ENTER: default, capture, song / loop).
+  const bool screenFnEnter = state_.scene == Scene::Instrument || (state_.scene == Scene::Tape && page != kTapeMix) ||
+                             (state_.scene == Scene::Setup && page >= kSetupKeys);
   // The menu's items on the GRID: half, a switch that is on full, nothing there off.
   auto menuGrid = [&]() {
     const MenuItems menu = Menu();
