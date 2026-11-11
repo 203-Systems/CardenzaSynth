@@ -73,6 +73,8 @@ public:
   virtual void SetMasterVolume(std::uint8_t percent) = 0;
   virtual std::uint8_t MasterVolume() const = 0;
   virtual float TrackActivity(std::size_t track) const = 0;
+  // The frame of its sample a chop track plays now (its newest slice), -1 when none.
+  virtual std::int32_t ChopPlayhead(std::size_t track) const = 0;
   virtual float OutputPeak() const = 0;
 
   // Master effects, indexed by synth::fx::MasterParam (ranges in synth::fx::kMasterParams). They

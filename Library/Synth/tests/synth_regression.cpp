@@ -20,6 +20,7 @@
 #include "Library/Synth/Audio/RenderLoad.h"
 #include "Library/Synth/Audio/Fx/SynthFxDsp.h"
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
+#include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
 #include "Library/Synth/Core/SynthStorage.h"
 // Include the runtime once to check both rendered PCM and mapping state against AMY.
 #include "Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp"
@@ -1418,5 +1419,236 @@ int main()
     assert(std::all_of(held.begin(), held.end(), [](std::uint32_t word) { return word == 0; }));
   }
 
-  std::cout << "Synth regression passed: sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters.\n";
+  // The chop engine: its points stay in order and carry their neighbours, its values survive a save,
+  // and the audio side plays slices as one-shots that fade rather than click.
+  {
+    // The row of points: a point carries the ones it reaches, in its direction only.
+    ChopPoints points = ChopEvenPoints(0, kChopPositionMax, kChopSliceCount);
+    assert(points[ChopPointIndex(0, false)] == 0 && points[ChopPointIndex(15, true)] == kChopPositionMax);
+    assert(points[ChopPointIndex(3, true)] == points[ChopPointIndex(4, false)] && points[ChopPointIndex(4, false)] == 2500);
+    ChopPoints moved = ChopChainAfterMove(points, ChopPointIndex(4, false), 1000);  // slice 5's start back past slice 3
+    assert(moved[ChopPointIndex(4, false)] == 1000 && moved[ChopPointIndex(3, true)] == 1000 && moved[ChopPointIndex(3, false)] == 1000);
+    assert(moved[ChopPointIndex(2, true)] == 1000 && moved[ChopPointIndex(2, false)] == 1000 && moved[ChopPointIndex(1, true)] == 1000);
+    assert(moved[ChopPointIndex(1, false)] == 625);  // the first point it does not reach stays
+    assert(moved[ChopPointIndex(4, true)] == points[ChopPointIndex(4, true)]);  // its own end stays: a gap opens
+    moved = ChopChainAfterMove(points, ChopPointIndex(0, true), 99999);  // past the file's end
+    assert(std::all_of(moved.begin() + 1, moved.end(), [](int point) { return point == kChopPositionMax; }));
+    for (std::size_t index = 1; index < moved.size(); ++index) assert(moved[index] >= moved[index - 1]);
+    const ChopPoints eight = ChopEvenPoints(2000, 6000, kChopFewSlices);
+    assert(eight[ChopPointIndex(0, false)] == 2000 && eight[ChopPointIndex(1, false)] == 2500 && eight[ChopPointIndex(7, true)] == 6000);
+    assert(eight[ChopPointIndex(8, false)] == 6000 && eight[ChopPointIndex(15, true)] == 6000);
+    std::size_t parsedSlice = 0;
+    ChopField parsedField = ChopField::Start;
+    assert(ParseChopParameterId("slice.12.cutoff", parsedSlice, parsedField) && parsedSlice == 11 && parsedField == ChopField::Cutoff);
+    assert(!ParseChopParameterId("slice.17.start", parsedSlice, parsedField) && !ParseChopParameterId("slice.00.end", parsedSlice, parsedField));
+    assert(!ParseChopParameterId("slice.1.start", parsedSlice, parsedField) && !ParseChopParameterId("slice.01.pitch", parsedSlice, parsedField));
+    assert(ParseChopFieldAlias("slice.mute", parsedField) && parsedField == ChopField::Mute && !ParseChopFieldAlias("slice.01.mute", parsedField));
+    assert(ChopParameterId(0, ChopField::Start) == "slice.01.start" && ChopParameterId(15, ChopField::Cutoff).size() <= 15);
+    assert(ChopNoteSlice(36) == 0 && ChopNoteSlice(51) == 15 && ChopNoteSlice(52) == -1 && ChopNoteSlice(35) == -1);
+
+    // The chop alone: nothing else plays (the tests before leave tails on other tracks).
+    for (const std::size_t track : {std::size_t{0}, std::size_t{1}, std::size_t{3}}) EnsureEngine(track, SynthEngineKind::None);
+    for (int block = 0; block < 400; ++block) RenderFrames(pcm.data(), 256);
+    ChopSynthEngine chop;
+    assert(chop.Init({2, 0x4300, "regression-chop"}));
+    SynthParameterInfo info;
+    assert(chop.ListParameters({0, 200}).totalCount == kChopSliceCount * 5 + 3 + 7);
+    assert(chop.GetParameterInfo("slice.05.start", info) && info.value == 2500);
+    assert(chop.SetParameterValue("slice.05.start", 1000));  // carries slices 3 and 4 back with it
+    assert(chop.GetParameterInfo("slice.04.end", info) && info.value == 1000);
+    assert(chop.GetParameterInfo("slice.03.start", info) && info.value == 1000);
+    assert(chop.GetParameterInfo("slice.02.end", info) && info.value == 1000);
+    assert(chop.GetParameterInfo("slice.02.start", info) && info.value == 625);
+    assert(chop.DescribeParameterValue("slice.05.start") == "10.00%" && chop.DescribeParameterValue("slice.05.mute") == "OFF");
+    assert(chop.DescribeParameterValue("slice.05.cutoff") == "OPEN" && chop.DescribeParameterValue("slice.05.fade") == "1MS");
+    assert(chop.SetParameterValue("slice.05.mute", 3) && chop.DescribeParameterValue("slice.05.mute") == "G3");
+    assert(chop.HasEdits());
+    const SynthEngineState chopSaved = chop.CaptureState();
+    assert(chop.LoadPreset("chop.8"));
+    assert(chop.GetParameterInfo(kChopSlicesId, info) && info.value == 0);
+    assert(chop.GetParameterInfo("slice.09.start", info) && info.value == kChopPositionMax);
+    assert(chop.RestoreState(chopSaved));
+    assert(chop.GetParameterInfo("slice.03.start", info) && info.value == 1000 && chop.GetParameterInfo("slice.05.mute", info) && info.value == 3);
+    // A file out of order (edited by hand) comes back in order.
+    SynthEngineState disordered = chopSaved;
+    disordered.values["slice.02.start"] = 9000;
+    assert(chop.RestoreState(disordered));
+    for (std::size_t slice = 0; slice + 1 < kChopSliceCount; ++slice)
+    {
+      SynthParameterInfo end, next;
+      assert(chop.GetParameterInfo(ChopParameterId(slice, ChopField::End), end) && chop.GetParameterInfo(ChopParameterId(slice + 1, ChopField::Start), next));
+      assert(next.value >= end.value);
+    }
+    assert(chop.LoadPreset("chop.16"));
+    RenderFrames(pcm.data(), pcm.size());
+    EngineState& state = g_engines[2];
+    assert(state.kind == SynthEngineKind::Chop && state.chop.sliceCount == kChopSliceCount && state.chop.slices[4].start == 2500);
+
+    // A second of DC: a slice is 2756 frames (a sixteenth), and every step in the output is a click.
+    constexpr std::size_t kFrames = 44100;
+    auto dc = std::make_shared<SampleBuffer>();
+    dc->frameCount = kFrames;
+    dc->frames = std::make_unique<std::int16_t[]>(kFrames);
+    std::fill_n(dc->frames.get(), kFrames, 20000);
+    // Every event waiting applied (a block takes them for a while only), so a note starts on the block
+    // after it is sent.
+    const auto drain = [&]() {
+      for (int block = 0; block < 64; ++block)
+      {
+        RenderFrames(pcm.data(), 256);
+        std::lock_guard<std::mutex> lock(g_pendingEventMutex);
+        if (g_pendingEvents.empty()) break;
+      }
+    };
+    SetSamplerFrames(2, dc, kSampleRate);
+    drain();
+    const auto sounding = [&]() {
+      return static_cast<std::size_t>(std::count_if(state.samplerVoices.begin(), state.samplerVoices.end(), [](const SamplerVoice& voice) { return voice.active; }));
+    };
+    const auto render = [&](std::size_t frames) {
+      std::vector<std::int16_t> out;
+      for (std::size_t done = 0; done < frames; done += 256)
+      {
+        RenderFrames(pcm.data(), 256);
+        out.insert(out.end(), pcm.begin(), pcm.begin() + 256);
+      }
+      return out;
+    };
+    const auto largestStep = [](const std::vector<std::int16_t>& out) {
+      int step = 0;
+      for (std::size_t index = 1; index < out.size(); ++index) step = (std::max)(step, std::abs(out[index] - out[index - 1]));
+      return step;
+    };
+    // A note that is no slice plays nothing; a slice is a one-shot: the key going up does not stop it,
+    // nor is it held any more.
+    NoteOn(2, 60, 127);
+    RenderFrames(pcm.data(), 256);
+    assert(sounding() == 0);
+    NoteOn(2, 36, 127);
+    RenderFrames(pcm.data(), 256);
+    assert(sounding() == 1 && (HeldNotes(2)[1] & (1u << (36 - 32))) != 0);
+    NoteOff(2, 36);
+    std::vector<std::int16_t> slice = render(2048);
+    assert(sounding() == 1 && HeldNotes(2)[1] == 0);
+    assert(std::any_of(slice.begin(), slice.end(), [](std::int16_t value) { return value != 0; }));
+    slice = render(2048);  // past its end: it ends by itself, fading to nothing
+    assert(sounding() == 0);
+    // At full level a frame is about 10000: a millisecond's fade steps by some 230, a click by thousands.
+    constexpr int kNoClick = 600;
+    assert(largestStep(slice) < kNoClick);
+    // One voice (the default): the next slice cuts the one sounding, which fades out in a few
+    // milliseconds instead of stopping on a step.
+    NoteOn(2, 36, 127);
+    RenderFrames(pcm.data(), 256);
+    NoteOn(2, 37, 127);
+    slice = render(256);
+    assert(sounding() == 1 && state.samplerVoices[0].active != (state.samplerVoices[1].active) && largestStep(slice) < kNoClick);
+    render(256);
+    assert(ChopPlayhead(2) >= 2756);
+    // Cut before it was heard (two in one block): the first never sounds, so it goes at once.
+    NoteOn(2, 38, 127);
+    NoteOn(2, 39, 127);
+    RenderFrames(pcm.data(), 256);
+    assert(std::count_if(state.samplerVoices.begin(), state.samplerVoices.end(), [](const SamplerVoice& voice) { return voice.active && voice.note == 38; }) == 0);
+    AllNotesOff(2);
+    slice = render(512);
+    assert(sounding() == 0 && largestStep(slice) < kNoClick && ChopPlayhead(2) == -1);
+    // VOICES 3: slices layer, and the fourth cuts the oldest; a mute group cuts its own.
+    SetEngineParameter(2, kChopVoicesId, 3);
+    SetEngineParameter(2, "slice.05.mute", 1);
+    SetEngineParameter(2, "slice.06.mute", 1);
+    drain();
+    for (const std::uint8_t note : {36, 37, 38})
+    {
+      NoteOn(2, note, 100);
+      RenderFrames(pcm.data(), 256);
+    }
+    assert(sounding() == 3);
+    NoteOn(2, 39, 100);
+    RenderFrames(pcm.data(), 256);
+    assert(std::count_if(state.samplerVoices.begin(), state.samplerVoices.end(), [](const SamplerVoice& voice) { return voice.active && !voice.cut; }) == 3);
+    assert(std::none_of(state.samplerVoices.begin(), state.samplerVoices.end(), [](const SamplerVoice& voice) { return voice.active && voice.note == 36; }));
+    AllNotesOff(2);
+    render(512);
+    NoteOn(2, 40, 100);
+    RenderFrames(pcm.data(), 256);
+    NoteOn(2, 41, 100);  // the same group: slice 5 goes
+    RenderFrames(pcm.data(), 256);
+    render(256);
+    assert(sounding() == 1);
+    assert(std::any_of(state.samplerVoices.begin(), state.samplerVoices.end(), [](const SamplerVoice& voice) { return voice.active && voice.note == 41; }));
+    // The same slice again restarts it, whatever VOICES says.
+    NoteOn(2, 41, 100);
+    RenderFrames(pcm.data(), 256);
+    render(256);
+    assert(sounding() == 1);
+    AllNotesOff(2);
+    render(512);
+    // Eight slices in play: the slices past them play nothing.
+    SetEngineParameter(2, kChopSlicesId, 0);
+    drain();
+    NoteOn(2, 36 + 9, 100);
+    RenderFrames(pcm.data(), 256);
+    assert(sounding() == 0);
+    SetEngineParameter(2, kChopSlicesId, 1);
+    SetEngineParameter(2, kChopVoicesId, 1);
+    // FADE: the slice fades to nothing at its own end, as long as it says (here all of it).
+    SetEngineParameter(2, "slice.01.fade", 127);
+    drain();
+    NoteOn(2, 36, 127);
+    slice = render(3072);
+    assert(sounding() == 0);
+    const auto loudest = std::max_element(slice.begin(), slice.end());
+    assert(loudest - slice.begin() < 300 && slice[2000] < *loudest / 2);
+    SetEngineParameter(2, "slice.01.fade", 0);
+    // A slice with no length is silent.
+    SetEngineParameter(2, "slice.01.end", 0);
+    drain();
+    NoteOn(2, 36, 127);
+    RenderFrames(pcm.data(), 256);
+    assert(sounding() == 0);
+    SetEngineParameter(2, "slice.01.end", 625);
+
+    // From the card a slice waits for its first block rather than play its attack as silence: what is
+    // heard is what the same sample plays from RAM, only later.
+    constexpr std::size_t kLong = 30000;
+    auto inRam = std::make_shared<SampleBuffer>();
+    inRam->frameCount = kLong;
+    inRam->frames = std::make_unique<std::int16_t[]>(kLong);
+    for (std::size_t frame = 0; frame < kLong; ++frame) inRam->frames[frame] = static_cast<std::int16_t>((frame % 300) * 100 - 15000);
+    const auto path = storageRoot / "chop.pcm";
+    {
+      std::ofstream file(path, std::ios::binary);
+      file.write(reinterpret_cast<const char*>(inRam->frames.get()), static_cast<std::streamsize>(kLong * sizeof(std::int16_t)));
+    }
+    auto onCard = std::make_shared<SampleBuffer>();
+    onCard->frameCount = kLong;
+    onCard->stream = SampleStream::Open(path.string(), 0, kLong);
+    assert(onCard->stream);
+    const auto playSlice = [&](const SharedSampleBuffer& buffer) {
+      SetSamplerFrames(2, buffer, kSampleRate);
+      drain();
+      NoteOn(2, 36 + 10, 127);  // slice 11: far from the start the card keeps at hand
+      std::vector<std::int16_t> output;
+      for (int block = 0; block < 24; ++block)
+      {
+        RenderFrames(pcm.data(), 256);
+        output.insert(output.end(), pcm.begin(), pcm.begin() + 256);
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+      }
+      AllNotesOff(2);
+      SetSamplerFrames(2, {}, kSampleRate);
+      RenderFrames(pcm.data(), 256);
+      output.erase(output.begin(), std::find_if(output.begin(), output.end(), [](std::int16_t value) { return value != 0; }));
+      return output;
+    };
+    const auto fromRam = playSlice(inRam);
+    const auto fromCard = playSlice(onCard);
+    assert(!fromRam.empty() && fromCard.size() >= 1500);
+    assert(std::equal(fromCard.begin(), fromCard.begin() + 1500, fromRam.begin()));
+    EnsureEngine(2, SynthEngineKind::None);
+    RenderFrames(pcm.data(), 256);
+  }
+
+  std::cout << "Synth regression passed: chop (points, presets, one-shots, voices, mute groups, fades, card waits), sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters.\n";
 }

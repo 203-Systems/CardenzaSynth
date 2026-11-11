@@ -41,6 +41,8 @@ enum class PageGraphic : std::uint8_t {
   Oscillator,        // Juno DCO scope
   Lfo,               // LFO shape, rate and delay
   Waveform,
+  ChopFile,          // chop SAMPLE: the whole file and its slices
+  ChopSlice,         // chop SLICE: the picked slice, magnified, with its start and end
   DrumPads,
   FxChain,           // track insert chain and sends
   Chord,             // INSTR CHORD: the chord one key plays, on a keyboard

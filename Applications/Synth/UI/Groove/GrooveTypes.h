@@ -181,7 +181,17 @@ struct KeyboardSettings {
 };
 
 // Maps a pad (row, column) to a MIDI note for the given engine. Returns false for gaps (Piano layout).
+// A chop's pads are its slices (ChopPadSlice), not this.
 bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std::size_t row, std::size_t column, int& note);
+
+// A chop of `slices` slices on the pads. Eight lie as a drum kit does, a column each, its rows how
+// hard (kDrumRowVelocity); sixteen are a 4 x 4 block of keys in the middle of the pads, slice 1 top
+// left. False for a pad that plays no slice.
+inline constexpr std::size_t kChopBlockColumns = 4;
+inline constexpr std::size_t kChopBlockFirstColumn = kPadFirstColumn + (kPadColumns - kChopBlockColumns) / 2;
+bool ChopPadSlice(std::size_t slices, std::size_t row, std::size_t column, std::size_t& slice);
+// The rows say how hard (eight slices) or the keyboard's velocity does (sixteen).
+constexpr bool ChopRowVelocity(std::size_t slices) { return slices <= kPadColumns; }
 
 // One track's chord effect (INSTR CHORD, saved with the project): what a key press of that track
 // plays, built on the scale of the keyboard settings.
@@ -202,6 +212,8 @@ std::string_view EngineShortName(synth::SynthEngineKind kind);
 std::string_view EngineCode(synth::SynthEngineKind kind);
 // Drum name for GM drum notes on the Drums engine, empty otherwise.
 std::string_view DrumName(int note);
+// A chop slice's number ("1".."16") for its note, empty for a note that is none.
+std::string SliceName(int note);
 std::string NoteName(int note);
 
 }  // namespace groove

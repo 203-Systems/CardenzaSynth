@@ -18,9 +18,9 @@ constexpr std::uint32_t kPulsesPerStep = synth::kSequencerPulsesPerStep;
 constexpr std::uint32_t kPulsesPerMicrostep = synth::kSequencerPulsesPerMicrostep;
 constexpr std::uint32_t kPulsesPerQuarter = kPulsesPerStep * 4;
 
-const char* ViewName(SeqView view, bool drums)
+const char* ViewName(SeqView view, bool drums, bool chop)
 {
-  return view == SeqView::Roll ? "PIANO ROLL" : drums ? "DRUM MACHINE" : "STEPS";
+  return view == SeqView::Roll ? "PIANO ROLL" : drums ? "DRUM MACHINE" : chop ? "SLICES" : "STEPS";
 }
 
 struct TimedNote {
@@ -300,9 +300,9 @@ void Controller::OkTick()
 // melodic tracks each keep their own.
 void Controller::ToggleSeqView()
 {
-  SeqView& view = DrumTrack() ? state_.record.drumView : state_.record.noteView;
+  SeqView& view = DrumTrack() ? state_.record.drumView : ChopTrack() ? state_.record.sliceView : state_.record.noteView;
   view = view == SeqView::Roll ? SeqView::Step : SeqView::Roll;
-  ShowHud("VIEW", ViewName(view, DrumTrack()));
+  ShowHud("VIEW", ViewName(view, DrumTrack(), ChopTrack()));
 }
 
 // ---------------------------------------------------------------------------------------------

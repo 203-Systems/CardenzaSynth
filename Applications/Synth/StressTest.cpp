@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -95,7 +96,7 @@ constexpr std::uint32_t kMagic = 0x53545231u;  // "STR1"
 RTC_NOINIT_ATTR Persist g_persist;
 
 enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
-enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, Chop };
 
 struct Scenario {
   std::string name;
@@ -130,6 +131,7 @@ std::string ProjectName(Variant variant)
     case Variant::Sampler: return std::string(kPrefix) + "SAMPLER";
     case Variant::FxMax: return std::string(kPrefix) + "FXMAX";
     case Variant::MaxPatterns: return std::string(kPrefix) + "MAX";
+    case Variant::Chop: return std::string(kPrefix) + "CHOP";
     case Variant::None: break;
   }
   return std::string(kPrefix) + "NONE";
@@ -137,6 +139,7 @@ std::string ProjectName(Variant variant)
 
 constexpr const char* kShortSample = "ZZ-ST-SHORT.wav";  // 1.5 s: read into PSRAM
 constexpr const char* kLongSample = "ZZ-ST-LONG.wav";    // 20 s: plays from the card
+constexpr const char* kChopSample = "ZZ-ST-CHOP.wav";    // 8 s: plays from the card
 
 bool WriteSample(const char* name, std::size_t frames, float frequency)
 {
@@ -168,6 +171,7 @@ struct TrackSpec {
   int baseNote = 48;
   bool drums = false;       // the eight drums of the kit, not a chord
   synth::ArpSettings arp{};
+  std::map<std::string, int> values;  // the engine's own, beside the effects
   int chorus = 1, drive = 0, filter = 64, resonance = 20, crush = 0, delay = 0, reverb = 0;
 };
 
@@ -266,6 +270,21 @@ synth::ProjectData MakeProject(Variant variant)
       tracks[3] = TrackSpec{SynthEngineKind::Sampler, "sampler.empty", kLongSample, 4, 4, 192, 60};
       break;
     }
+    case Variant::Chop:
+    {
+      // Four chops at once, three of them from the card (two tracks on one 20 s file, one on an 8 s
+      // file: slice starts all over them, more than the stream cache holds), one in PSRAM. Three
+      // voices each, four slices a step, mute groups, a fade and a filtered slice.
+      const char* samples[] = {kLongSample, kLongSample, kChopSample, kShortSample};
+      for (std::size_t track = 0; track < tracks.size(); ++track)
+      {
+        tracks[track] = TrackSpec{SynthEngineKind::Chop, "chop.16", samples[track], 4, 1, 12, 36};
+        tracks[track].values = {{"chop.voices", 3}, {"slice.02.cutoff", 60}, {"slice.05.fade", 70}, {"slice.03.mute", 1}, {"slice.04.mute", 1}};
+        tracks[track].reverb = track == 0 ? 50 : 0;
+      }
+      bpm = 140;
+      break;
+    }
     case Variant::MaxPatterns:
     {
       const SynthEngineKind kinds[] = {SynthEngineKind::Dx7, SynthEngineKind::Juno, SynthEngineKind::Dx7, SynthEngineKind::Juno};
@@ -292,6 +311,7 @@ synth::ProjectData MakeProject(Variant variant)
     engine.presetName = "STRESS";
     engine.values = {{"fx.chorus", spec.chorus}, {"fx.drive", spec.drive}, {"fx.filter", spec.filter}, {"fx.resonance", spec.resonance},
                      {"fx.crush", spec.crush},   {"fx.delay", spec.delay}, {"fx.reverb", spec.reverb}};
+    engine.values.insert(spec.values.begin(), spec.values.end());
     project.samples[track] = spec.sample;
     project.play[track].arp = spec.arp;
     auto& data = sequence.tracks[track];
@@ -367,6 +387,7 @@ std::vector<Scenario> BuildScenarios()
   add("drums-300bpm", Kind::Generated, Variant::DrumsFast, 25);
   add("arps-1/32", Kind::Generated, Variant::Arps, 25);
   add("sampler", Kind::Generated, Variant::Sampler, 25);
+  add("chop", Kind::Generated, Variant::Chop, 30);
   add("fx-max", Kind::Generated, Variant::FxMax, 25);
   add("max-patterns", Kind::Generated, Variant::MaxPatterns, 25);
   add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
@@ -852,11 +873,11 @@ void KeyStorm(GrooveApp& app, std::uint32_t now)
 void LiveOperation(GrooveApp& app)
 {
   std::string message;
-  const SynthEngineKind cycle[] = {SynthEngineKind::Juno, SynthEngineKind::Sampler, SynthEngineKind::Drums, SynthEngineKind::Dx7};
+  const SynthEngineKind cycle[] = {SynthEngineKind::Juno, SynthEngineKind::Sampler, SynthEngineKind::Drums, SynthEngineKind::Dx7, SynthEngineKind::Chop};
   switch (g_runner.op++ % 10)
   {
     case 0: case 1: case 2: case 3:
-      Operation([&] { (void)app.SwitchEngine(3, cycle[(g_runner.op - 1) % 4], message); });
+      Operation([&] { (void)app.SwitchEngine(3, cycle[(g_runner.op - 1) % 5], message); });
       break;
     case 4:
       Operation([&] {
@@ -934,9 +955,10 @@ bool SetUp(GrooveApp& app, const Scenario& scenario, Result& result)
     case Kind::UiStorm:
     case Kind::Worst:
     {
-      if (scenario.variant == Variant::Sampler || scenario.kind == Kind::Worst)
+      if (scenario.variant == Variant::Sampler || scenario.variant == Variant::Chop || scenario.kind == Kind::Worst)
       {
-        if (!WriteSample(kShortSample, 66150, 220.0f) || !WriteSample(kLongSample, 20 * 44100, 110.0f))
+        if (!WriteSample(kShortSample, 66150, 220.0f) || !WriteSample(kLongSample, 20 * 44100, 110.0f) ||
+            (scenario.variant == Variant::Chop && !WriteSample(kChopSample, 8 * 44100, 165.0f)))
         {
           CopyNote(result, "sample write failed");
           return false;

@@ -1,5 +1,7 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
 
+#include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -176,6 +178,7 @@ std::string Controller::PageTab(Scene scene, std::size_t page) const
     }
     case Scene::Sequence:
       if (page == 0 && DrumLayout()) return "DRUMS";
+      if (page == 0 && ChopTrack() && View() == SeqView::Step) return "SLICES";
       if (page == 0) return View() == SeqView::Roll ? "ROLL" : "STEP";
       return page < kSequence.size() ? kSequence[page] : "";
     case Scene::Tape: return page < kTape.size() ? kTape[page] : "";
@@ -195,6 +198,13 @@ void Controller::ClampPages()
 
 bool Controller::PadNoteFor(std::size_t row, std::size_t column, int& note) const
 {
+  if (ChopTrack())
+  {
+    std::size_t slice = 0;
+    if (!ChopPadSlice(ChopSliceCount(), row, column, slice)) return false;
+    note = synth::ChopSliceNote(slice);
+    return true;
+  }
   return PadNote(state_.keyboard, ActiveKind(), row, column, note);
 }
 
@@ -560,10 +570,14 @@ void Controller::PressPad(std::size_t row, std::size_t column)
   const std::size_t voices = PadNotes(state_.keyboard, state_.chords[state_.track], ActiveKind(), note, chord);
   if (voices == 0) return;
   auto& sequencer = host_.Sequencer();
-  // On a drum track the row says how hard. On the drum page a pad also chooses what the GRID puts on
-  // the steps: this drum, this hard.
+  // On a drum track the row says how hard, and on a chop of eight slices (laid out as a kit). On the
+  // drum page a pad also chooses what the GRID puts on the steps: this drum, this hard.
   const bool drums = ActiveKind() == synth::SynthEngineKind::Drums;
-  const std::uint8_t velocity = drums ? kDrumRowVelocity[row] : state_.keyboard.velocity;
+  const bool chop = ChopTrack();
+  const bool rowVelocity = drums || (chop && ChopRowVelocity(ChopSliceCount()));
+  const std::uint8_t velocity = rowVelocity ? kDrumRowVelocity[row] : state_.keyboard.velocity;
+  // The slice a chop's pads play is the one its SLICE page edits.
+  if (chop) state_.chopSlice[state_.track] = static_cast<std::uint8_t>(std::max(0, synth::ChopNoteSlice(note)));
   state_.padVelocity[index] = velocity;
   if (drums) state_.drumPadHits[column - kPadFirstColumn] = DrumHit{state_.now == 0 ? 1 : state_.now, static_cast<std::uint8_t>(row), velocity};
   // Selected steps (held or tapped) turn the pads into a note editor for them; on the drum machine a
@@ -578,15 +592,15 @@ void Controller::PressPad(std::size_t row, std::size_t column)
     }
     else state_.noteLane[state_.track] = static_cast<std::uint8_t>(note);
     // The pad's notes as one: a chord goes in whole, or (any of it in a step) comes out whole.
-    editing = PadForSequence(chord.data(), voices, true, drums ? velocity : std::uint8_t{0});
+    editing = PadForSequence(chord.data(), voices, true, rowVelocity ? velocity : std::uint8_t{0});
   }
   const bool audition = !editing || !sequencer.Playing();
   state_.padNote[index] = static_cast<std::uint8_t>(note);
   state_.padChord[index] = chord;
   state_.padChordCount[index] = static_cast<std::uint8_t>(voices);
   state_.padTrack[index] = static_cast<std::uint8_t>(state_.track);
-  // Drums skip the arpeggiator: one hit per press.
-  state_.padArp[index] = audition && sequencer.GetArpSettings(state_.track).mode != synth::ArpMode::Off && ActiveKind() != synth::SynthEngineKind::Drums;
+  // Drums and slices skip the arpeggiator: one hit per press.
+  state_.padArp[index] = audition && sequencer.GetArpSettings(state_.track).mode != synth::ArpMode::Off && !drums && !chop;
   state_.lastTrackNoteAt[state_.track] = state_.now;
   if (!audition)
   {
@@ -822,6 +836,7 @@ void Controller::Tick(std::uint32_t nowMs)
 {
   state_.now = nowMs;
   OkTick();
+  KeepChopWindow();
   if (CellPickerActive()) ShowCellHud();
   if (synth::SynthSequencer::ConsumePatternMemoryFull()) ShowToast("MEMORY FULL - NOTE NOT WRITTEN", ToastKind::Error);
   auto& repeat = state_.repeat;
@@ -1455,6 +1470,15 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
       }
       int note = 0;
       if (!PadNoteFor(row, column, note)) continue;
+      if (kind == synth::SynthEngineKind::Chop)
+      {
+        // A slice: full while it sounds (held, in the selected step, under the playhead) and for the
+        // one the pads chose (what the SLICE page edits, what SEQ's GRID shows); half otherwise.
+        const bool chosen = synth::ChopNoteSlice(note) == static_cast<int>(ChopSlice()) &&
+                            (state_.scene == Scene::Instrument || (state_.scene == Scene::Sequence && page == 0 && modal == nullptr && !chordEditor));
+        set(index, choice(chosen || lit[static_cast<std::size_t>(note)] || IsChordNoteHeld(note)));
+        continue;
+      }
       const bool melodic = kind != synth::SynthEngineKind::Drums;
       if (melodic && keys.lock == ScaleLock::Mute && !InScale(keys, note)) continue;
       if (!melodic)
@@ -1473,7 +1497,7 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
     if (modal->kind == ModalKind::SampleRecord)
       for (std::size_t index = 0; index < 4; ++index) setGrid(index, choice(index < 2 && modal->trimMarker == index));
     if (modal->kind == ModalKind::EnginePicker)
-      for (std::size_t index = 0; index < modal->items.size() && index < 4; ++index) setGrid(index, choice(index == modal->cursor));
+      for (std::size_t index = 0; index < modal->items.size() && index < kGridCount; ++index) setGrid(index, choice(index == modal->cursor));
     if (modal->kind == ModalKind::Record)
     {
       const RecordState& rec = state_.record;

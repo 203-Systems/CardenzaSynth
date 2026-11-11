@@ -11,7 +11,11 @@ enum class SynthEngineKind {
   Juno,
   Sampler,
   Drums = 4,
+  // One sample cut into slices: a pad plays a part of the file, never a pitch (ChopSynthEngine).
+  Chop = 5,
 };
+// SynthEngineKind None..Chop, for tables by kind.
+constexpr std::size_t kSynthEngineKindCount = 6;
 
 enum class OverlayPage {
   None,

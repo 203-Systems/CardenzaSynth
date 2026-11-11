@@ -61,6 +61,8 @@ bool IsProjectEngineKind(int kind) {
     case static_cast<int>(SynthEngineKind::Juno):
     case static_cast<int>(SynthEngineKind::Sampler):
     case static_cast<int>(SynthEngineKind::Drums):
+    // Firmware before the chop does not know kind 5 and refuses the file (INVALID SOUND).
+    case static_cast<int>(SynthEngineKind::Chop):
       return true;
     default:
       return false;
@@ -86,7 +88,8 @@ bool ValidMetadata(const ProjectData& project) {
         state.basePresetId.empty() || !ValidText(state.basePresetId, 128) || !ValidText(state.presetId, 128) ||
         !ValidText(state.presetName, 64) || state.values.size() > 128) return false;
     const auto& sample = project.samples[track];
-    if (!sample.empty() && (project.kinds[track] != SynthEngineKind::Sampler || !ValidText(sample, 96) ||
+    const bool playsFile = project.kinds[track] == SynthEngineKind::Sampler || project.kinds[track] == SynthEngineKind::Chop;
+    if (!sample.empty() && (!playsFile || !ValidText(sample, 96) ||
         sample == "." || sample == ".." || sample.find_first_of("/\\:\r\n") != std::string::npos)) return false;
     for (const auto& parameter : state.values)
       if (parameter.first.empty() || !ValidText(parameter.first, 64)) return false;

@@ -34,6 +34,8 @@ inline constexpr std::uint32_t kTransitionMs = 110;
 inline constexpr std::uint32_t kHudMs = 1100;
 // How long an FN menu tile stays lit after its key lets go.
 inline constexpr std::uint32_t kMenuPressMs = 350;
+// The chop SLICE page's waveform, in pixels across: ADD / SUB move a slice point by one of them.
+inline constexpr int kChopWaveformWidth = 213;
 
 enum class ToastKind : std::uint8_t { Info, Ok, Error };
 
@@ -116,6 +118,7 @@ enum class ConfirmPurpose : std::uint8_t {
   ReplaceTake,
   ChangePreset,  // the track's sound has edits: loading a preset (payload: its id) loses them
   ChangeEngine,  // the same for another engine (payload: its SynthEngineKind as a number)
+  ChopEven,      // chop: the slices laid out evenly again, over their edits
   Notice,  // only says something (title, and the detail's lines): ENTER or ESC closes it
 };
 
@@ -287,6 +290,7 @@ enum class MenuAction : std::uint8_t {
   SampleFiles,
   SampleRecord,
   SamplePreview,
+  ChopEven,  // chop: equal slices from the first one's start to the last one's end
   // SEQ
   Copy,
   Paste,
@@ -339,6 +343,7 @@ inline constexpr std::array<FnQuickControl, 3> kFnQuickControls{{
 struct RecordState {
   SeqView noteView = SeqView::Roll;  // the view of melodic tracks
   SeqView drumView = SeqView::Step;  // the view of drum tracks (STEP: the drum machine)
+  SeqView sliceView = SeqView::Step;  // the view of chop tracks (STEP: a row per slice)
   bool snap = true;               // placing a take snaps its notes to whole steps
   std::uint8_t focus = kRecordFirstTake;  // RECORD panel GRID focus
   std::uint8_t takeBar = 0;       // which bar of the focused take goes into a pattern
@@ -369,6 +374,15 @@ struct StepKey {
   std::uint32_t at = 0;
 };
 
+// The part of a chop's file its SLICE page shows, in positions (0..synth::kChopPositionMax): fitted to
+// the slice when the pads pick one, then kept while its points move inside it, so the waveform holds
+// still under them.
+struct ChopWindow {
+  int first = 0;
+  int last = 0;
+  int slice = -1;  // the slice it was fitted to; -1: not yet
+};
+
 // Stopped, a step sounds while its key is down: its notes, until that key lets go.
 struct StepAudition {
   std::array<std::uint8_t, 8> notes{};
@@ -389,6 +403,9 @@ struct UiState {
   // The note each melodic track's pads last chose on the note page (kNoNote: none yet): the row the
   // STEP view's GRID shows.
   std::array<std::uint8_t, kTrackCount> noteLane{{kNoNote, kNoNote, kNoNote, kNoNote}};
+  // The slice each chop track's pads played last: the one its SLICE page edits.
+  std::array<std::uint8_t, kTrackCount> chopSlice{};
+  std::array<ChopWindow, kTrackCount> chopWindow{};
   std::array<StepKey, kGridCount> stepKeys{};
   StepAudition stepAudition;
   std::size_t track = synth::kDefaultActiveTrack;
@@ -487,6 +504,13 @@ public:
   // is the drum machine (DrumLayout); the GRID's step keys work as on any note page.
   bool DrumTrack() const;
   bool DrumLayout() const;
+  // A track on the Chop engine: its pads are slices (ChopPadSlice), 8 or 16 of them.
+  bool ChopTrack() const;
+  std::size_t ChopSliceCount() const;
+  std::size_t ChopSlice() const;
+  const ChopWindow& ChopView() const { return state_.chopWindow[state_.track]; }
+  // The engine parameter a cell's id names: "slice.start" on a chop page is the picked slice's.
+  std::string EngineParameterId(const char* id) const;
   AdjustMeaning AdjustKeysMean() const;
   // The pads as the values of the GRID cell being held. What a cell offers: `info` is its range and
   // current value, as for ADD / SUB. Returns false for a cell that holds no parameter.
@@ -540,7 +564,7 @@ public:
   bool MenuOpen() const { return TopModal() != nullptr && TopModal()->kind == ModalKind::Menu; }
   bool RecordOpen() const { return TopModal() != nullptr && TopModal()->kind == ModalKind::Record; }
   // The current track's note page view (drum and melodic tracks keep one each).
-  SeqView View() const { return DrumTrack() ? state_.record.drumView : state_.record.noteView; }
+  SeqView View() const { return DrumTrack() ? state_.record.drumView : ChopTrack() ? state_.record.sliceView : state_.record.noteView; }
 
   // Captured takes, newest first (order 0). Null past the last take.
   struct PlacedNote {
@@ -730,6 +754,9 @@ private:
   void ComputeSceneLeds(LedFrame& frame) const;
   void FillPresetRows(Modal& modal) const;
   void SetCellParameter(std::size_t index, int value);
+  // Fits the SLICE page's window to the picked slice, or moves it along when a point leaves it.
+  void KeepChopWindow();
+  void ChopEven();
   void PickCellValue(std::size_t row, std::size_t column);
   void ShowCellHud();
   void StepCell(std::size_t index);

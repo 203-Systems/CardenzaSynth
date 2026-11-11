@@ -144,6 +144,22 @@ constexpr std::array<InstrumentPage, 3> kDrumPages{{
     kFxPage,
 }};
 
+// The chop: its pads are slices, so no chord and no arpeggiator. SAMPLE is the file and how the pads
+// play it; SLICE the slice the pads picked last ("slice.*" without a number stands for that slice's
+// parameter, Controller::EngineParameterId).
+constexpr std::array<InstrumentPage, 4> kChopPages{{
+    kVoicePage,
+    InstrumentPage{"FILE", "SAMPLE",
+                   {{A(SlotAction::SampleFile, "FILE"), P("chop.slices", "SLICES"), P("chop.voices", "VOICES"), P("sample.gain", "GAIN"),
+                     E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::ChopFile, {1, 0, 3, 4}, 0},
+    InstrumentPage{"CUT", "SLICE",
+                   {{P("slice.start", "START"), P("slice.end", "END"), P("slice.fade", "FADE"), P("slice.cutoff", "CUTOFF"),
+                     P("slice.mute", "MUTE"), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::ChopSlice, {2, 0, 2, 4}, 0},
+    kFxPage,
+}};
+
 }  // namespace
 
 const InstrumentPage& SettingsPage(std::size_t page)
@@ -159,6 +175,7 @@ InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return {kJunoPages.data(), kJunoPages.size()};
     case synth::SynthEngineKind::Sampler: return {kSamplerPages.data(), kSamplerPages.size()};
     case synth::SynthEngineKind::Drums: return {kDrumPages.data(), kDrumPages.size()};
+    case synth::SynthEngineKind::Chop: return {kChopPages.data(), kChopPages.size()};
     case synth::SynthEngineKind::None:
     default: return {&kVoicePage, 1};
   }
