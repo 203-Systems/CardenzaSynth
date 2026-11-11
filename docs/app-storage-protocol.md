@@ -139,11 +139,13 @@ pending edits: for tests, not for a card coming back.
 | `sys.led` | key LED master brightness 0–15, default 15 |
 | `sys.screen` | screen backlight 10–255, default 180 |
 | `sys.log` | `1` writes the console log to `Logs/` (OS/System/Log.h), `0` stops it; default 1 |
+| `sys.theme` | the screen's colors: `dark` (light on black, the default), `light` (ink on white paper) or `retro` (a backlit green LCD), in any case; any other value reads as `dark` |
 | `boot.app` | last non-system app; started at boot when it is still registered |
 
-Volume, key LEDs, screen and the log are device settings: the OS applies them at boot and every app
-changes them only through `os::storage::SetOutputVolume / SetKeyLedBrightness / SetScreenBacklight /
-SetLogEnabled`. Projects never carry them.
+Volume, key LEDs, screen, the log and the theme are device settings: the OS applies them at boot
+(the theme is applied by the app that draws, from `os::storage::ScreenTheme`, before each frame) and
+every app changes them only through `os::storage::SetOutputVolume / SetKeyLedBrightness /
+SetScreenBacklight / SetLogEnabled / SetScreenTheme`. Projects never carry them.
 
 ### The log
 

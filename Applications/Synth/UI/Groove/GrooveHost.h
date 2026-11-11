@@ -10,6 +10,7 @@
 #include "Applications/Synth/UI/Groove/GrooveTypes.h"
 #include "Library/Synth/Audio/SynthFx.h"
 #include "Library/Synth/Core/ISynthEngine.h"
+#include "OS/Storage/DeviceSettings.h"
 
 namespace groove {
 
@@ -97,6 +98,9 @@ public:
   // The console log on the card (a device setting, OS/System/Log.h).
   virtual void SetLogging(bool on) = 0;
   virtual bool Logging() const = 0;
+  // The screen's palette (a device setting, sys.theme); the renderer applies it every frame.
+  virtual void SetScreenTheme(os::storage::Theme theme) = 0;
+  virtual os::storage::Theme ScreenTheme() const = 0;
   virtual SystemInfo QuerySystem() const = 0;
 };
 

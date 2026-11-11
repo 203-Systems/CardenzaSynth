@@ -10,6 +10,7 @@
 #include <iterator>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <random>
 #include <string>
 #include <vector>
@@ -808,6 +809,24 @@ void TestProject(Harness& h)
   assert(!app.Logging());
   h.Tap(kAdd);
   assert(app.Logging());
+  // THEME: the screen's palette (sys.theme), DARK unless picked; the next frame draws in it.
+  const auto fieldShown = [&] {
+    // The field is what most of a frame is.
+    h.Render();
+    const auto frame = Device::Display::CurrentFrameBuffer();
+    std::map<Device::Display::Pixel, std::size_t> counts;
+    for (std::size_t index = 0; index < static_cast<std::size_t>(frame.width) * frame.height; ++index) ++counts[frame.pixels[index]];
+    return std::max_element(counts.begin(), counts.end(), [](const auto& a, const auto& b) { return a.second < b.second; })->first;
+  };
+  assert(app.ScreenTheme() == os::storage::Theme::Dark && fieldShown() == groove::theme::kDarkPalette.field);
+  h.Tap(Grid(4));
+  h.Tap(kAdd);
+  assert(app.ScreenTheme() == os::storage::Theme::Light && fieldShown() == groove::theme::kLightPalette.field);
+  h.Tap(kAdd);
+  h.Tap(kAdd);  // RETRO is the last
+  assert(app.ScreenTheme() == os::storage::Theme::Retro && fieldShown() == groove::theme::kRetroPalette.field);
+  h.Chord(kFn, kEnter);  // the default
+  assert(app.ScreenTheme() == os::storage::Theme::Dark && fieldShown() == groove::theme::kDarkPalette.field);
   h.Tap(kEsc);
   assert(h.State().scene != Scene::Setup);
 }
