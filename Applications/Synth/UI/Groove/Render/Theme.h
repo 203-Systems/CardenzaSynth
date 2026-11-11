@@ -12,30 +12,40 @@ namespace groove::theme {
 using ui::Color;
 using ui::Rgb565;
 
-inline constexpr Color kBlack = Rgb565(0, 0, 0);
-inline constexpr Color kInk = Rgb565(232, 232, 224);
-inline constexpr Color kDim = Rgb565(132, 132, 126);
-inline constexpr Color kFaint = Rgb565(58, 58, 54);
-inline constexpr Color kShade = Rgb565(26, 26, 24);
+// A backlit monochrome LCD, the way an MPC's screen reads: pale green paper, dark ink, and nothing
+// between them but shades of the same ink. The names keep their old meaning in the code - kBlack is
+// still the paper a panel is cleared to and kInk still the mark that reads on it - so the whole UI
+// inverts with these five values and no drawing code has to know which way round it is.
+//
+// The ladder runs light to dark: kBlack (paper) > kShade (a key's shadow) > kFaint (a hairline) >
+// kDim (a second reading) > kInk (the mark). Anything that used to glow on black now sits as ink on
+// green, and a dither reads as the screen's own dot grid.
+inline constexpr Color kBlack = Rgb565(170, 196, 150);  // the paper: backlit green
+inline constexpr Color kInk = Rgb565(24, 32, 20);       // the mark
+inline constexpr Color kDim = Rgb565(82, 101, 68);      // a second reading
+inline constexpr Color kFaint = Rgb565(116, 140, 98);   // a hairline on the paper
+inline constexpr Color kShade = Rgb565(148, 172, 126);  // a shade under a key, barely there
 
-// One color per hidden left key; the same hue marks what that key controls everywhere.
-inline constexpr Color kEsc = Rgb565(255, 90, 54);     // scenes / back
-inline constexpr Color kTab = Rgb565(54, 214, 230);    // tracks
-inline constexpr Color kFn = Rgb565(255, 208, 48);     // second functions
-inline constexpr Color kCtrl = Rgb565(160, 112, 255);  // pages
+// One mark per hidden left key. On green paper a colour has to be dark enough to read as ink, so
+// these are the muted versions of the four - a dyed ink rather than a light behind glass.
+inline constexpr Color kEsc = Rgb565(158, 76, 56);    // scenes / back
+inline constexpr Color kTab = Rgb565(56, 104, 126);   // tracks
+inline constexpr Color kFn = Rgb565(150, 120, 44);    // second functions
+inline constexpr Color kCtrl = Rgb565(108, 88, 138);  // pages
 
-inline constexpr Color kPlay = Rgb565(72, 255, 120);
-inline constexpr Color kRec = Rgb565(255, 52, 68);
+inline constexpr Color kPlay = Rgb565(0, 0, 0);       // running: the darkest the ink goes
+inline constexpr Color kRec = Rgb565(150, 52, 46);    // armed
 
-// One color per track, everywhere a track is named or drawn (header, TAB strip, maps, MIX, SENDS,
-// TAPE rows). Kept apart from the four left-key colors and from play green / record red.
+// One colour per track, everywhere a track is named or drawn (header, TAB strip, maps, MIX, SENDS,
+// TAPE rows). Six inks of equal weight - none lighter than the screen's own second reading - so a
+// track is told apart by its dye and not by how bright it shouts.
 inline constexpr Color kTrackColors[6] = {
-    Rgb565(255, 92, 176),   // T1 pink
-    Rgb565(72, 152, 255),   // T2 blue
-    Rgb565(176, 236, 56),   // T3 lime
-    Rgb565(255, 164, 40),   // T4 amber
-    Rgb565(196, 132, 255),  // T5 violet
-    Rgb565(96, 240, 200),   // T6 mint
+    Rgb565(150, 70, 58),    // T1 terracotta
+    Rgb565(58, 82, 128),    // T2 indigo
+    Rgb565(94, 112, 52),    // T3 olive
+    Rgb565(148, 114, 44),   // T4 ochre
+    Rgb565(104, 84, 132),   // T5 plum
+    Rgb565(52, 108, 104),   // T6 teal
 };
 inline constexpr Color TrackColor(std::size_t track) { return kTrackColors[track % 6u]; }
 
