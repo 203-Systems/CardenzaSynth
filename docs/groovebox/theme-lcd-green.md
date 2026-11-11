@@ -1,7 +1,12 @@
-# 屏幕主题：LCD Green（MPC2500 风格）
+# 屏幕主题：STOCK 与 LCD Green（MPC2500 风格）
 
-淡绿底、墨色点阵，配压暗的高级灰彩色。整套主题只由
-`Applications/Synth/UI/Groove/Render/Theme.h` 里的常量决定，改一行全局生效，绘制代码不需要知道屏幕是哪一种。
+两套屏幕可选：**STOCK** 是固件出厂那套深色霓虹，**RETRO** 是淡绿底、墨色点阵的 MPC 风格。
+切换在 **SETUP → SYSTEM 页第二行第一格 `THEME`**，按 ADD / SUB 或点一下格子即可，设置写进
+`sys.theme`（system.cfg），跟工程无关，重启后保持。
+
+两套调色板都定义在 `Applications/Synth/UI/Groove/Render/Theme.h`（`kOfficialPalette` /
+`kLcdGreenPalette`），所有颜色是运行期变量，`theme::SetTheme()` 一次整体替换，绘制代码不需要知道
+屏幕是哪一种。
 
 ![鼓轨 STEP](theme-lcd-green-step.png)
 ![鼓轨 ROLL](theme-lcd-green-roll.png)
