@@ -186,6 +186,7 @@ private:
   std::array<std::string, synth::kSynthTrackCount> pendingSamples_;
   std::uint32_t lastKeyAt_ = 0;
   void EndOrphanNotes(std::uint32_t now);
+  void ReportStreamStats(std::uint32_t now);
   std::uint32_t lastOrphanCheckAt_ = 0;
   std::array<synth::audio::NoteSet, synth::kSynthTrackCount> orphanNotes_{};
   // Notes a computer plays over USB MIDI and has not let go yet.
@@ -233,6 +234,11 @@ private:
   // internal RAM's low mark fell, otherwise every few minutes (it ends up on the card).
   std::uint32_t quietRenderReports_ = 0;
   std::uint32_t loggedLostNotes_ = 0;
+  // Stream counters to the card's log while a sample plays (ReportStreamStats), and where the audio
+  // timing stood at the last line, so each covers only its own five seconds.
+  std::uint32_t lastStreamReportAt_ = 0;
+  std::uint32_t streamReportBlocks_ = 0;
+  std::uint32_t streamReportMicros_ = 0;
   std::uint32_t loggedFastMinimum_ = 0;
 };
 

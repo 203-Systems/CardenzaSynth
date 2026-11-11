@@ -48,6 +48,15 @@ inline constexpr std::uint16_t kStreamMissRetryReads = 256;
 // so it belongs at zero. Watched from the web page, where a shared cache is easiest to overrun.
 extern std::atomic<std::uint32_t> g_streamBlockLosses;
 
+// What the cache is doing right now, for the log the firmware keeps on the card: how many samples
+// stream, how many blocks the heap let the cache have, and how many were taken back under a voice.
+struct StreamStats {
+  std::size_t streams = 0;
+  std::size_t blocks = 0;
+  std::uint32_t losses = 0;
+};
+StreamStats SampleStreamStats();
+
 class SampleStream {
 public:
   // Null without memory for the cache or with every stream slot in use.

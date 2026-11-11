@@ -591,6 +591,31 @@ void GrooveApp::Tick()
   CheckCard(now);
   KeepSessionCurrent(now);
   EndOrphanNotes(now);
+  ReportStreamStats(now);
+}
+
+// While a sample plays from the card, its counters go to the card's log every five seconds: streams
+// being served, blocks the heap let the cache have, blocks taken back under a voice, and the audio
+// side's render time against its budget. A click and a track that goes quiet are two different
+// failures, and these numbers tell them apart without a console.
+void GrooveApp::ReportStreamStats(std::uint32_t now)
+{
+#if defined(ESP_PLATFORM)
+  if (now - lastStreamReportAt_ < 5000 || !synth::audio::SampleStreamsReading()) return;
+  lastStreamReportAt_ = now;
+  const synth::audio::StreamStats stats = synth::audio::SampleStreamStats();
+  const Device::Audio::RenderTiming timing = Device::Audio::Timing();
+  const std::uint32_t blocks = timing.blocks - streamReportBlocks_;
+  const std::uint32_t micros = timing.renderMicros - streamReportMicros_;
+  streamReportBlocks_ = timing.blocks;
+  streamReportMicros_ = timing.renderMicros;
+  printf("Groove: stream streams=%u blocks=%u losses=%lu audio avg=%luus longest=%luus under=%lu over=%lu\n",
+         static_cast<unsigned>(stats.streams), static_cast<unsigned>(stats.blocks), static_cast<unsigned long>(stats.losses),
+         static_cast<unsigned long>(blocks != 0 ? micros / blocks : 0), static_cast<unsigned long>(timing.longestRenderMicros),
+         static_cast<unsigned long>(timing.underruns), static_cast<unsigned long>(timing.overruns));
+#else
+  (void)now;
+#endif
 }
 
 // The safety net under every path that starts a note: the audio side's notes against those someone
@@ -609,6 +634,14 @@ void GrooveApp::EndOrphanNotes(std::uint32_t now)
   orphanCandidates_ = false;
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
+    const synth::ISynthEngine* engine = Engine(track);
+    // A sampler or a chop plays one-shots: a twenty-four second loop started by a one-step note
+    // outlives the note that started it by design, and cutting it at the note's end is the click heard
+    // as a stutter. So a voice still sounding is the sample doing what it was asked to, not a note
+    // nobody holds - the voice ends itself where the sample (or the slice) ends. Every other engine
+    // keeps the net.
+    const synth::SynthEngineKind kind = engine != nullptr ? engine->Descriptor().kind : synth::SynthEngineKind::None;
+    const bool oneShot = kind == synth::SynthEngineKind::Sampler || kind == synth::SynthEngineKind::Chop;
     const synth::audio::NoteSet held = synth::audio::HeldNotes(track);
     synth::audio::NoteSet owned{};
     controller_.AddHeldPadNotes(track, owned);
@@ -618,7 +651,7 @@ void GrooveApp::EndOrphanNotes(std::uint32_t now)
     const bool preview = sampler_.Previewing(track);
     for (std::size_t word = 0; word < held.size(); ++word)
     {
-      const std::uint32_t orphans = preview ? 0u : held[word] & ~owned[word];
+      const std::uint32_t orphans = (preview || oneShot) ? 0u : held[word] & ~owned[word];
       for (std::size_t bit = 0; confirming && bit < 32; ++bit)
       {
         if ((orphans & orphanNotes_[track][word] & (1u << bit)) == 0) continue;

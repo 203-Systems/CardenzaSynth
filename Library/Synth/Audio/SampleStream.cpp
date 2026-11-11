@@ -34,14 +34,16 @@ std::atomic<std::uint32_t> g_streamBlockLosses{0};
 namespace {
 
 constexpr std::size_t kMaxStreams = 8;       // four tracks, plus a project being loaded over them
-constexpr std::size_t kMaxOpenFiles = 2;     // the card driver has five file slots for everything
+constexpr std::size_t kMaxOpenFiles = 3;     // the card driver has five file slots for everything
 // Eight blocks a stream (a quarter of a second of look-ahead, enough for a card that stalls a little),
 // and enough of them for several streams at once: two streams used to be all a project could have.
-constexpr std::size_t kBlocksPerStream = 8;
+constexpr std::size_t kBlocksPerStream = 10;
 #if defined(ESP_PLATFORM)
-// Internal RAM, the only kind the card can read into: 24 blocks are 48 KB of the 280 KB heap, three
-// streams with their look-ahead. More streams than that share the cache and re-read.
-constexpr std::size_t kMaxBlocks = 24;
+// Internal RAM, the only kind the card can read into: 40 blocks are 80 KB of the 280 KB heap, four
+// streams with their look-ahead. It used to be 24, which was three streams, and a fourth track - or a
+// chop with a few voices spread over its file - ran the cache out: an evicted block is a gap, and a
+// stream whose start block never fits is a track that never sounds at all.
+constexpr std::size_t kMaxBlocks = 40;
 #else
 constexpr std::size_t kMaxBlocks = 40;
 #endif
@@ -185,9 +187,10 @@ bool ReadFromFile(Pool& pool, StreamState& stream, std::size_t frame, std::int16
   const auto offset = static_cast<long>(stream.dataOffset + frame * sizeof(std::int16_t));
   if (!ReadBytes(stream.file, offset, destination, count * sizeof(std::int16_t)))
   {
-    // Card out or read error: this stream stays silent, no retries that would hold up the others.
+    // A read that fails once is not a stream that is gone: the block stays empty and the next round
+    // asks the card again. Giving up for good here is what turned one bad read into a track that
+    // never made another sound until it was reloaded.
     CloseFile(stream);
-    stream.failed = true;
     return false;
   }
   return true;
@@ -470,6 +473,18 @@ bool SampleStreamsReading()
 {
   const Pool& pool = ThePool();
   return std::any_of(pool.readers.begin(), pool.readers.end(), [](const std::atomic<std::uint32_t>& reader) { return reader.load(std::memory_order_relaxed) != 0; });
+}
+
+StreamStats SampleStreamStats()
+{
+  Pool& pool = ThePool();
+  std::lock_guard<std::recursive_mutex> lock(pool.io);
+  StreamStats stats;
+  for (const StreamState& stream : pool.streams)
+    if (stream.id.load(std::memory_order_relaxed) != 0 && !stream.released.load(std::memory_order_relaxed)) ++stats.streams;
+  stats.blocks = pool.blockCount.load(std::memory_order_relaxed);
+  stats.losses = g_streamBlockLosses.load(std::memory_order_relaxed);
+  return stats;
 }
 
 void RetrySampleStreams()
