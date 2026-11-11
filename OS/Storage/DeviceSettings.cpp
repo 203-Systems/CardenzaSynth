@@ -18,6 +18,10 @@ constexpr int kVolumeRevision = 3;
 constexpr const char* kLedKey = "sys.led";
 constexpr const char* kScreenKey = "sys.screen";
 constexpr const char* kLogKey = "sys.log";
+// The log used to default to on, so a device that never touched the switch may have nothing stored
+// and a device that did may have "on" stored; this revision settles both on off, once.
+constexpr const char* kLogRevisionKey = "sys.log.rev";
+constexpr int kLogRevision = 1;
 constexpr const char* kThemeKey = "sys.theme";
 constexpr int kUiThemeCount = 3;
 
@@ -44,6 +48,11 @@ Cache& Values()
     cache.volume = static_cast<std::uint8_t>(system.GetInt(kVolumeKey, kDefaultOutputVolume, 0, 100));
     cache.led = static_cast<std::uint8_t>(system.GetInt(kLedKey, kDefaultKeyLedBrightness, 0, Device::LED::kBrightnessMax));
     cache.screen = static_cast<std::uint8_t>(system.GetInt(kScreenKey, kDefaultScreenBacklight, kMinScreenBacklight, 255));
+    if (system.GetInt(kLogRevisionKey, 0, 0, 1000) < kLogRevision)
+    {
+      system.SetBool(kLogKey, kDefaultLogEnabled);
+      system.SetInt(kLogRevisionKey, kLogRevision);
+    }
     cache.log = system.GetBool(kLogKey, kDefaultLogEnabled);
     cache.theme = static_cast<std::uint8_t>(system.GetInt(kThemeKey, kDefaultUiTheme, 0, kUiThemeCount - 1));
     cache.loaded = true;

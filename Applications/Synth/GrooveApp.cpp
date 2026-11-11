@@ -608,7 +608,7 @@ void GrooveApp::ReportStreamStats(std::uint32_t now)
 #if defined(ESP_PLATFORM)
   // Every fifteen seconds: the log is written to the card, and a line every five was a write every
   // five, which the UI pays for on a card that is already busy streaming from itself.
-  if (now - lastStreamReportAt_ < 15000 || !synth::audio::SampleStreamsReading()) return;
+  if (now - lastStreamReportAt_ < 45000 || !synth::audio::SampleStreamsReading()) return;
   lastStreamReportAt_ = now;
   const synth::audio::StreamStats stats = synth::audio::SampleStreamStats();
   const Device::Audio::RenderTiming timing = Device::Audio::Timing();

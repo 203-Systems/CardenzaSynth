@@ -12,8 +12,11 @@ inline constexpr std::uint8_t kDefaultOutputVolume = 70;
 inline constexpr std::uint8_t kDefaultKeyLedBrightness = 15;
 inline constexpr std::uint8_t kDefaultScreenBacklight = 180;
 inline constexpr std::uint8_t kMinScreenBacklight = 10;
-// The log on the card (OS/System/Log.h) is on unless someone turns it off.
-inline constexpr bool kDefaultLogEnabled = true;
+// The log on the card (OS/System/Log.h) is off unless someone turns it on: every line is written
+// through the same card the sampler streams from, and a write of a hundred milliseconds stops the
+// blocks arriving - a click in the music that the log itself caused. SETUP > SYSTEM > LOG turns it
+// back on when something needs chasing.
+inline constexpr bool kDefaultLogEnabled = false;
 // The screen's colours: 0 dark (shipped), 1 light, 2 the backlit green LCD. A device setting, so it
 // stays as it was left whatever project is opened.
 inline constexpr std::uint8_t kDefaultUiTheme = 0;

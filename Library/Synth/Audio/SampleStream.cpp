@@ -37,7 +37,7 @@ constexpr std::size_t kMaxStreams = 8;       // four tracks, plus a project bein
 constexpr std::size_t kMaxOpenFiles = 3;     // the card driver has five file slots for everything
 // Twenty blocks a stream is 460 ms of look-ahead: an 8 KB block is 93 ms, so twelve cover it and the
 // cache still fits four streams in 384 KB of PSRAM.
-constexpr std::size_t kBlocksPerStream = 12;
+constexpr std::size_t kBlocksPerStream = 16;
 // The card still reads through internal RAM (the driver's DMA cannot address PSRAM), so one scratch
 // block there takes each read and the worker copies it across: two kilobytes, whatever the cache size.
 #if defined(ESP_PLATFORM)
@@ -323,6 +323,20 @@ bool Pump(Pool& pool)
 
   const std::size_t count = pool.blockCount.load(std::memory_order_relaxed);
   auto isNeeded = [&](std::uint32_t key) { return std::find(needs.begin(), needs.begin() + needCount, key) != needs.begin() + needCount; };
+  // The needs list is a snapshot; the voices keep moving while the card is read. A block a voice has
+  // since stepped into is not in it, and handing that block to another stream is exactly the burst
+  // of somebody else's audio the `losses` counter watches: so where the readers stand now is read
+  // once a round and treated as needed too.
+  std::array<std::uint32_t, kMaxStreamReaders> busy{};
+  std::size_t busyCount = 0;
+  for (const auto& reader : pool.readers)
+  {
+    const std::uint32_t key = reader.load(std::memory_order_acquire);
+    if (key != 0 && busyCount < busy.size()) busy[busyCount++] = key;
+  }
+  auto inUse = [&](std::uint32_t key) {
+    return isNeeded(key) || std::find(busy.begin(), busy.begin() + busyCount, key) != busy.begin() + busyCount;
+  };
   std::size_t reads = 0;
   for (std::size_t index = 0; index < needCount; ++index)
   {
@@ -339,7 +353,7 @@ bool Pump(Pool& pool)
         cached = true;
         break;
       }
-      if (isNeeded(held)) continue;
+      if (inUse(held)) continue;
       if (victim == nullptr || held == 0 || (victim->key.load(std::memory_order_relaxed) != 0 && block->lastUse < victim->lastUse)) victim = block;
     }
     if (cached) continue;
