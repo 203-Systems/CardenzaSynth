@@ -128,7 +128,19 @@ else
 	@exit 1
 endif
 
-flash bootloader-flash app-flash erase monitor:
+# flash goes through CardenzaHAL's tools/cardenza_flash.py: it reads the board first and refuses a board
+# that has the 203 Launcher (a full flash would erase it); FLASH_ARGS=--app-into <label> writes only the
+# app into one of the Launcher's app partitions instead. PORT is required.
+flash: build
+ifeq ($(DEVICE),Cardenza)
+	@test -n "$(PORT)" || { echo "flash: PORT=<serial port> is required" >&2; exit 1; }
+	python $(HAL_DIR)/tools/cardenza_flash.py -p '$(PORT)' $(FLASH_ARGS) '$(abspath $(BUILD))'
+else
+	@echo flash is only supported for DEVICE=Cardenza
+	@exit 1
+endif
+
+bootloader-flash app-flash erase monitor:
 ifeq ($(DEVICE),Cardenza)
 	$(call RUN_IDF,$(CARDENZA_IDF_ARGS) $(IDF_PORT_ARG) $@)
 else
@@ -136,9 +148,9 @@ else
 	@exit 1
 endif
 
-flash-monitor:
+flash-monitor: flash
 ifeq ($(DEVICE),Cardenza)
-	$(call RUN_IDF,$(CARDENZA_IDF_ARGS) $(IDF_PORT_ARG) flash monitor)
+	$(call RUN_IDF,$(CARDENZA_IDF_ARGS) $(IDF_PORT_ARG) monitor)
 else
 	@echo flash-monitor is only supported for DEVICE=Cardenza
 	@exit 1

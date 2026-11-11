@@ -134,6 +134,9 @@ if(DEFINED COMPONENT_DIR)
     set_source_files_properties(${CARDENZA_AUDIO_HOT_SOURCES} PROPERTIES COMPILE_OPTIONS "-O3")
 elseif(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}" "${CARDENZA_HAL_DIR}")
+    # The board's defaults are CardenzaHAL's (board/sdkconfig.defaults: flash, PSRAM, the tick, FAT);
+    # this firmware's own come after them and win where they differ.
+    set(SDKCONFIG_DEFAULTS "${CARDENZA_HAL_DIR}/board/sdkconfig.defaults;${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults")
     include($ENV{IDF_PATH}/tools/cmake/project.cmake)
     # The component manager's lock (dependencies.lock, tracked) hashes the HAL's manifest and component
     # name. A HAL clone under test may change its dependencies or be named otherwise, so a HAL_DEV build

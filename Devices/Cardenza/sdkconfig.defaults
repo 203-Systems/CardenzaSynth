@@ -1,42 +1,18 @@
+# This firmware's defaults, after CardenzaHAL's board/sdkconfig.defaults (the board: 16 MB flash in QIO
+# at 120 MHz as the Launcher's bootloader runs it, the 2 MB PSRAM at 120 MHz, the 1000 Hz tick the
+# display needs, FAT with 512-byte sectors and long names). Devices/Cardenza/CMakeLists.txt lists both.
+
+# The partition table is the HAL's: the 203 Launcher's regions left as the Launcher has them, the
+# firmware in ota_0 from 0x170000. Installed through the Launcher, the Launcher's table is used and this
+# one never is; flashed directly it never touches the Launcher (CardenzaHAL board/partitions.csv).
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-# Quad I/O, as the Launcher's bootloader runs the flash (W25Q128JV, IO2 / IO3 wired). The bootloader
-# decides how the cache reads the flash, so this matters for a board flashed with ours: in DIO the code
-# AMY runs from flash made a block's cost outside the voices about 40% higher (2026-11-05).
-CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
-# 120 MHz, single data rate; the PSRAM on the same bus has to run at the same speed (CONFIG_SPIRAM_SPEED_120M
-# below: the S3 has one clock for both). The app tunes the timing at its start, so this holds under the
-# Launcher's bootloader too. Against 80 MHz: a block's cost outside the voices 10-20% lower; the full
-# stress test ran 20 minutes without a fault (2026-11-05).
-CONFIG_ESPTOOLPY_FLASHFREQ_120M=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="CardenzaHAL/board/partitions.csv"
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
-CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
-CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
-# A millisecond tick: the HAL waits for each 8-row band it sends to the screen, and esp_lcd does not
-# yield from the transfer's completion, so the waiting task runs at the next tick. At 100 Hz a band
-# took 10 ms and the UI drew at under 30 fps (2026-11-05); 0.1.0 shipped with 1000 Hz.
-CONFIG_FREERTOS_HZ=1000
-# Long file names: the storage protocol uses names such as settings.cfg.bak and <project>.ccproj.
-CONFIG_FATFS_LFN_HEAP=y
-
 # AMY runs from flash on both cores: a bigger instruction cache for sound, measured on the board.
 CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
-
-# The chip's 2 MB PSRAM (ESP32-S3R2, quad, on the flash bus), mapped but not given to malloc: the
-# firmware adds it to the heap for what asks for it (Library/Memory/Memory.h, Devices/Cardenza/app_main.cpp),
-# so driver objects and the audio path stay in internal RAM. A board without it still starts.
-CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_QUAD=y
-CONFIG_SPIRAM_TYPE_AUTO=y
-CONFIG_SPIRAM_SPEED_120M=y
-CONFIG_SPIRAM_BOOT_INIT=y
-CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+# The PSRAM is mapped but not given to malloc: the firmware adds it to the heap for what asks for it
+# (Library/Memory/Memory.h, Devices/Cardenza/app_main.cpp), so driver objects and the audio path stay
+# in internal RAM.
 CONFIG_SPIRAM_USE_MEMMAP=y
-
-# FAT only on the SD card (512-byte sectors), no wear-levelled FAT in flash: with 4096 every open-file
-# slot of the card carried a 4 KB buffer, 27 KB of internal RAM for five slots and the volume.
-CONFIG_FATFS_SECTOR_512=y
-CONFIG_WL_SECTOR_SIZE_512=y
