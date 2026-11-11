@@ -12,8 +12,6 @@
 
 namespace synth {
 
-static_assert(kSynthTrackCount == 6, "Mixer defaults list one level per track.");
-
 // Scale indices the UI line may hold (readers of format v4 and earlier accepted 0..7 only).
 inline constexpr int kProjectScaleCount = 14;
 inline constexpr int kProjectScaleCountV4 = 8;
@@ -33,7 +31,7 @@ struct ProjectData {
   // LED brightness (UI line), MASTER and SYSTEM (backlight) are device settings
   // (docs/app-storage-protocol.md): still written, ignored when a project loads.
   struct MixerData {
-    std::array<std::uint8_t, kSynthTrackCount> level{{100, 100, 100, 100, 100, 100}};  // 0..100
+    std::array<std::uint8_t, kSynthTrackCount> level{{100, 100, 100, 100}};  // 0..100
     std::array<bool, kSynthTrackCount> muted{};
     std::array<bool, kSynthTrackCount> soloed{};
     std::uint8_t master = 80;  // 0..100

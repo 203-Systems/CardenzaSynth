@@ -25,10 +25,8 @@ inline constexpr std::uint8_t kSongMaxRepeats = 16;
 inline constexpr std::size_t kSongBarSteps = 16;
 inline constexpr std::uint32_t kSongBarPulses = static_cast<std::uint32_t>(kSongBarSteps) * kSequencerPulsesPerStep;
 
-static_assert(kSynthTrackCount == 6, "SongRow lists one default pattern per track.");
-
 struct SongRow {
-  std::array<std::int8_t, kSynthTrackCount> patterns{{0, 0, 0, 0, 0, 0}};  // -1 = track silent in this row, else pattern index
+  std::array<std::int8_t, kSynthTrackCount> patterns{{0, 0, 0, 0}};  // -1 = track silent in this row, else pattern index
   std::uint8_t repeats = 1;  // length in bars, 1..kSongMaxRepeats
 };
 

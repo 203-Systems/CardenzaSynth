@@ -558,7 +558,7 @@ private:
   // Steps a page holds, per track: 16 until a caller asks for 32 (see SetViewSteps).
   std::array<std::uint8_t, kSynthTrackCount> viewSteps_{};
   mutable std::array<std::uint8_t, kSynthTrackCount> viewPattern_{};
-  std::array<bool, kSynthTrackCount> viewFollow_{{true, true, true, true, true, true}};
+  std::array<bool, kSynthTrackCount> viewFollow_{{true, true, true, true}};
   std::array<bool, kKeyboardMatrixRows> heldEditLanes_{};
   std::array<PlaybackNote, kMaxPlaybackNotes> playbackNotes_{};
   std::size_t activeTrack_ = 0;

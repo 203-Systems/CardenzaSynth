@@ -97,8 +97,7 @@ public:
   groove::SystemInfo QuerySystem() const override;
 
   static constexpr std::array<synth::SynthEngineKind, synth::kSynthTrackCount> kDefaultKinds{{
-      synth::SynthEngineKind::Drums, synth::SynthEngineKind::Juno, synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Sampler,
-      synth::SynthEngineKind::Drums, synth::SynthEngineKind::Juno}};
+      synth::SynthEngineKind::Drums, synth::SynthEngineKind::Juno, synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Sampler}};
 
 private:
   void ReadComputerMidi();
@@ -217,7 +216,7 @@ private:
   synth::SynthSequencer sequencer_;
   groove::Controller controller_;
   groove::Animator animator_;
-  std::array<std::uint8_t, synth::kSynthTrackCount> levels_{{100, 100, 100, 100, 100, 100}};
+  std::array<std::uint8_t, synth::kSynthTrackCount> levels_{{100, 100, 100, 100}};
   std::array<bool, synth::kSynthTrackCount> muted_{};
   std::array<bool, synth::kSynthTrackCount> soloed_{};
   // SELECT as last written to the app settings, to notice changes cheaply every tick.

@@ -42,10 +42,12 @@ constexpr std::size_t kMaxProjectBytes = 4 * 1024 * 1024;
 // Version 9 has six tracks: files from version 8 and older hold four.
 // Version 10 refines the chop's slice positions to a two-thousandth of the file; files from 9 and older
 // hold them on the coarser scale and the chop widens them as it loads them.
-constexpr int kProjectVersion = 10;
-constexpr int kMaxReadProjectVersion = 10;
-// How many tracks a file of this version holds. Older files keep their four and the rest start empty.
-constexpr std::size_t TracksInFile(int version) { return version >= 9 ? kSynthTrackCount : 4; }
+// Version 11 has four tracks: files from 9 and 10 hold six, the two extra are read and dropped.
+constexpr int kProjectVersion = 11;
+constexpr int kMaxReadProjectVersion = 11;
+// How many tracks a file of this version holds - the file's own count, not this build's: a six-track
+// file read as four would leave two tracks' lines in the stream and fail on the first SONG.
+constexpr std::size_t TracksInFile(int version) { return version >= 9 && version < 11 ? 6 : kSynthTrackCount; }
 constexpr int kMinProjectVersion = 1;
 constexpr unsigned kMaxMixerLevel = 100;
 
@@ -299,6 +301,7 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
       unsigned level = 0, muted = 0, soloed = 0;
       if (!ReadExpected(file, "MIX") || !(file >> index >> level >> muted >> soloed) || index != track || level > kMaxMixerLevel ||
           muted > 1 || soloed > 1) return ProjectResult::Invalid;
+      if (track >= kSynthTrackCount) continue;  // a six-track file's extra rows: read, not kept
       project.mixer.level[track] = static_cast<std::uint8_t>(level);
       project.mixer.muted[track] = muted != 0;
       project.mixer.soloed[track] = soloed != 0;
@@ -336,6 +339,7 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
           chord < 0 || chord >= kProjectChordCount || voicing < 0 || voicing >= kProjectVoicingCount || mode < 0 ||
           mode >= static_cast<int>(kArpModeCount) || rate < 0 || rate >= static_cast<int>(kArpRateCount) || octaves < 1 ||
           octaves > kArpMaxOctaves || gate < kArpMinGate || gate > kArpMaxGate || latch < 0 || latch > 1) return ProjectResult::Invalid;
+      if (track >= kSynthTrackCount) continue;  // a six-track file's extra rows: read, not kept
       auto& play = project.play[track];
       play.chord = chord;
       play.voicing = voicing;
@@ -350,14 +354,18 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
   for (std::size_t track = 0; track < TracksInFile(version); ++track) {
     std::size_t index = 0, parameterCount = 0;
     int kind = 0;
-    auto& state = project.engines[track];
+    // A six-track file's last two tracks are parsed into a scratch state and dropped.
+    SynthEngineState scratchState;
+    std::string scratchSample;
+    auto& state = track < kSynthTrackCount ? project.engines[track] : scratchState;
+    auto& sample = track < kSynthTrackCount ? project.samples[track] : scratchSample;
     // The chop's positions changed scale in version 10: it reads this to widen what older files hold.
     state.version = version;
     if (!ReadExpected(file, "TRACK") || !(file >> index >> kind) || !ReadQuoted(file, state.basePresetId, 128) ||
-        !ReadQuoted(file, state.presetId, 128) || !ReadQuoted(file, state.presetName, 64) || !ReadQuoted(file, project.samples[track], 96) ||
+        !ReadQuoted(file, state.presetId, 128) || !ReadQuoted(file, state.presetName, 64) || !ReadQuoted(file, sample, 96) ||
         index != track || !IsProjectEngineKind(kind) ||
         !ReadExpected(file, "PARAM") || !(file >> parameterCount) || parameterCount > 128) return ProjectResult::Invalid;
-    project.kinds[track] = static_cast<SynthEngineKind>(kind);
+    if (track < kSynthTrackCount) project.kinds[track] = static_cast<SynthEngineKind>(kind);
     for (std::size_t p = 0; p < parameterCount; ++p) {
       std::string id;
       int value = 0;
@@ -369,7 +377,9 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
       (version >= 2 && (!(file >> swing) || swing < 50 || swing > 75))) return ProjectResult::Invalid;
   project.sequence->bpm = static_cast<std::uint16_t>(bpm);
   project.sequence->swing = static_cast<std::uint8_t>(swing);
-  for (auto& track : project.sequence->tracks) {
+  for (std::size_t trackIndex = 0; trackIndex < TracksInFile(version); ++trackIndex) {
+    SynthSequencer::TrackData scratchTrack;
+    auto& track = trackIndex < kSynthTrackCount ? project.sequence->tracks[trackIndex] : scratchTrack;
     unsigned velocity = 0, length = 0, enabled = 0, muted = 0;
     std::size_t noteCount = 0;
     if (!ReadExpected(file, "T") || !(file >> track.patternCount >> track.activePattern >> velocity >> length >> enabled >> muted) ||
@@ -419,8 +429,9 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
       if (!ReadExpected(file, "R")) return ProjectResult::Invalid;
       for (std::size_t track = 0; track < TracksInFile(version); ++track) {
         int pattern = 0;
-        if (!(file >> pattern) || pattern < -1 || pattern >= static_cast<int>(project.sequence->tracks[track].patternCount)) return ProjectResult::Invalid;
-        songRow.patterns[track] = static_cast<std::int8_t>(pattern);
+        const std::size_t known = (std::min)(track, kSynthTrackCount - 1);
+        if (!(file >> pattern) || pattern < -1 || pattern >= static_cast<int>(project.sequence->tracks[known].patternCount)) return ProjectResult::Invalid;
+        if (track < kSynthTrackCount) songRow.patterns[track] = static_cast<std::int8_t>(pattern);
       }
       unsigned repeats = 0;
       if (!(file >> repeats) || repeats < 1 || repeats > kSongMaxRepeats) return ProjectResult::Invalid;

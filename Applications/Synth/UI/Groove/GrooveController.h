@@ -383,7 +383,7 @@ struct UiState {
   Scene scene = Scene::Instrument;
   Scene previousScene = Scene::Sequence;
   std::array<std::uint8_t, kSceneCount> page{};
-  std::array<std::uint8_t, kTrackCount> drumVelocity{{100, 100, 100, 100, 100, 100}};  // how hard the drum the pads last chose was hit
+  std::array<std::uint8_t, kTrackCount> drumVelocity{{100, 100, 100, 100}};  // how hard the drum the pads last chose was hit
   std::array<std::uint8_t, kRows * kPadColumns> padVelocity{};
   std::array<DrumHit, kDrumNotes.size()> drumPadHits{};
   std::array<std::uint8_t, kTrackCount> drumLane{};  // the drum each track's pads last chose on the drum page
@@ -393,7 +393,7 @@ struct UiState {
   std::array<std::uint8_t, kTrackCount> chopZoom{};
   // The note each melodic track's pads last chose on the note page (kNoNote: none yet): the row the
   // STEP view's GRID shows.
-  std::array<std::uint8_t, kTrackCount> noteLane{{kNoNote, kNoNote, kNoNote, kNoNote, kNoNote, kNoNote}};
+  std::array<std::uint8_t, kTrackCount> noteLane{{kNoNote, kNoNote, kNoNote, kNoNote}};
   std::array<StepKey, kGridCount> stepKeys{};
   StepAudition stepAudition;
   std::size_t track = synth::kDefaultActiveTrack;

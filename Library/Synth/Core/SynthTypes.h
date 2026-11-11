@@ -37,7 +37,9 @@ enum class UiModifier {
   Other,
 };
 
-constexpr std::size_t kSynthTrackCount = 6;
+// Four tracks: what this instrument plays, and what its mixing and voice budget were measured
+// against. Six was one over what the sample streaming could carry with any polyphony to spare.
+constexpr std::size_t kSynthTrackCount = 4;
 // The track a fresh start, a new project and a loaded one open on: T1, the drum machine.
 constexpr std::size_t kDefaultActiveTrack = 0;
 constexpr std::size_t kKeyboardMatrixRows = 4;
