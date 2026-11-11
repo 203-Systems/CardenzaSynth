@@ -12,42 +12,110 @@ namespace groove::theme {
 using ui::Color;
 using ui::Rgb565;
 
-// A backlit monochrome LCD, the way an MPC's screen reads: pale green paper, dark ink, and nothing
-// between them but shades of the same ink. The names keep their old meaning in the code - kBlack is
-// still the paper a panel is cleared to and kInk still the mark that reads on it - so the whole UI
-// inverts with these five values and no drawing code has to know which way round it is.
+// Two screens to choose between, one set of names to draw with.
 //
-// The ladder runs light to dark: kBlack (paper) > kShade (a key's shadow) > kFaint (a hairline) >
-// kDim (a second reading) > kInk (the mark). Anything that used to glow on black now sits as ink on
-// green, and a dither reads as the screen's own dot grid.
-inline constexpr Color kBlack = Rgb565(170, 196, 150);  // the paper: backlit green
-inline constexpr Color kInk = Rgb565(24, 32, 20);       // the mark
-inline constexpr Color kDim = Rgb565(82, 101, 68);      // a second reading
-inline constexpr Color kFaint = Rgb565(116, 140, 98);   // a hairline on the paper
-inline constexpr Color kShade = Rgb565(148, 172, 126);  // a shade under a key, barely there
+// kBlack is whatever a panel is cleared to and kInk whatever reads on it, so the same drawing code
+// serves a dark screen (a mark on black) and a backlit green LCD (ink on paper) without knowing
+// which way round it is. The five-value ladder keeps its order in both: kBlack is the field, kInk
+// the mark, and kShade / kFaint / kDim the three steps between them.
+enum class ThemeId : std::uint8_t {
+  Official = 0,
+  LcdGreen = 1,
+};
 
-// One mark per hidden left key. On green paper a colour has to be dark enough to read as ink, so
-// these are the muted versions of the four - a dyed ink rather than a light behind glass.
-inline constexpr Color kEsc = Rgb565(158, 76, 56);    // scenes / back
-inline constexpr Color kTab = Rgb565(56, 104, 126);   // tracks
-inline constexpr Color kFn = Rgb565(150, 120, 44);    // second functions
-inline constexpr Color kCtrl = Rgb565(108, 88, 138);  // pages
+struct Palette {
+  Color paper;   // kBlack: what a panel is cleared to
+  Color ink;     // kInk: the mark
+  Color dim;     // kDim: a second reading
+  Color faint;   // kFaint: a hairline
+  Color shade;   // kShade: a shade under a key
+  Color esc;
+  Color tab;
+  Color fn;
+  Color ctrl;
+  Color play;
+  Color rec;
+  std::array<Color, 6> tracks;
+};
 
-inline constexpr Color kPlay = Rgb565(0, 0, 0);       // running: the darkest the ink goes
-inline constexpr Color kRec = Rgb565(150, 52, 46);    // armed
+// The shipped look: a terminal's colours on black, each one bright enough to glow.
+inline constexpr Palette kOfficialPalette{
+    Rgb565(0, 0, 0),        // paper
+    Rgb565(232, 232, 224),  // ink
+    Rgb565(132, 132, 126),  // dim
+    Rgb565(58, 58, 54),     // faint
+    Rgb565(26, 26, 24),     // shade
+    Rgb565(255, 90, 54),    // esc
+    Rgb565(54, 214, 230),   // tab
+    Rgb565(255, 208, 48),   // fn
+    Rgb565(160, 112, 255),  // ctrl
+    Rgb565(72, 255, 120),   // play
+    Rgb565(255, 52, 68),    // rec
+    {Rgb565(255, 92, 176), Rgb565(72, 152, 255), Rgb565(176, 236, 56), Rgb565(255, 164, 40), Rgb565(196, 132, 255),
+     Rgb565(96, 240, 200)},
+};
+
+// A backlit monochrome LCD, the way an MPC's screen reads: pale green paper, dark ink, and nothing
+// between them but shades of the same ink. The ladder runs light to dark - paper, shade, faint, dim,
+// ink - and a dither reads as the screen's own dot grid. Colours survive as dye rather than light:
+// each is dark enough to sit on the paper as ink.
+inline constexpr Palette kLcdGreenPalette{
+    Rgb565(170, 196, 150),  // paper
+    Rgb565(24, 32, 20),     // ink
+    Rgb565(82, 101, 68),    // dim
+    Rgb565(116, 140, 98),   // faint
+    Rgb565(148, 172, 126),  // shade
+    Rgb565(158, 76, 56),    // esc
+    Rgb565(56, 104, 126),   // tab
+    Rgb565(150, 120, 44),   // fn
+    Rgb565(108, 88, 138),   // ctrl
+    Rgb565(0, 0, 0),        // play: the darkest the ink goes
+    Rgb565(150, 52, 46),    // rec
+    {Rgb565(150, 70, 58), Rgb565(58, 82, 128), Rgb565(94, 112, 52), Rgb565(148, 114, 44), Rgb565(104, 84, 132),
+     Rgb565(52, 108, 104)},
+};
+
+// The palette in use, written by SetTheme and read by every drawing call.
+inline Color kBlack = kOfficialPalette.paper;
+inline Color kInk = kOfficialPalette.ink;
+inline Color kDim = kOfficialPalette.dim;
+inline Color kFaint = kOfficialPalette.faint;
+inline Color kShade = kOfficialPalette.shade;
+
+inline Color kEsc = kOfficialPalette.esc;
+inline Color kTab = kOfficialPalette.tab;
+inline Color kFn = kOfficialPalette.fn;
+inline Color kCtrl = kOfficialPalette.ctrl;
+
+inline Color kPlay = kOfficialPalette.play;
+inline Color kRec = kOfficialPalette.rec;
 
 // One colour per track, everywhere a track is named or drawn (header, TAB strip, maps, MIX, SENDS,
-// TAPE rows). Six inks of equal weight - none lighter than the screen's own second reading - so a
-// track is told apart by its dye and not by how bright it shouts.
-inline constexpr Color kTrackColors[6] = {
-    Rgb565(150, 70, 58),    // T1 terracotta
-    Rgb565(58, 82, 128),    // T2 indigo
-    Rgb565(94, 112, 52),    // T3 olive
-    Rgb565(148, 114, 44),   // T4 ochre
-    Rgb565(104, 84, 132),   // T5 plum
-    Rgb565(52, 108, 104),   // T6 teal
-};
-inline constexpr Color TrackColor(std::size_t track) { return kTrackColors[track % 6u]; }
+// TAPE rows).
+inline Color kTrackColors[6] = {kOfficialPalette.tracks[0], kOfficialPalette.tracks[1], kOfficialPalette.tracks[2],
+                                kOfficialPalette.tracks[3], kOfficialPalette.tracks[4], kOfficialPalette.tracks[5]};
+inline Color TrackColor(std::size_t track) { return kTrackColors[track % 6u]; }
+
+inline ThemeId CurrentTheme = ThemeId::Official;
+
+// Swaps every colour in one go: the next frame draws in the new palette, nothing cached anywhere.
+inline void SetTheme(ThemeId id)
+{
+  const Palette& palette = id == ThemeId::LcdGreen ? kLcdGreenPalette : kOfficialPalette;
+  kBlack = palette.paper;
+  kInk = palette.ink;
+  kDim = palette.dim;
+  kFaint = palette.faint;
+  kShade = palette.shade;
+  kEsc = palette.esc;
+  kTab = palette.tab;
+  kFn = palette.fn;
+  kCtrl = palette.ctrl;
+  kPlay = palette.play;
+  kRec = palette.rec;
+  for (std::size_t track = 0; track < 6; ++track) kTrackColors[track] = palette.tracks[track];
+  CurrentTheme = id;
+}
 
 // Ordered dither densities (0..16 of a 4x4 Bayer cell).
 inline constexpr int kDitherIdle = 3;

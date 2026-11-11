@@ -17,7 +17,17 @@ namespace {
 
 using namespace groove::theme;
 
-constexpr std::array<Color, 4> kStripColors{{kEsc, kTab, kFn, kCtrl}};
+// The four left keys' colours, read where they are drawn: the palette can change under them.
+Color StripColor(std::size_t row)
+{
+  switch (row)
+  {
+    case 0: return kEsc;
+    case 1: return kTab;
+    case 2: return kFn;
+    default: return kCtrl;
+  }
+}
 const Rect kContentArea{kContentX - 2, kContentY - 2, kContentWidth + 4, kContentHeight + 4};
 
 Rect StripRect(std::size_t row)
@@ -58,7 +68,7 @@ void DrawStrips(Gfx& g, const Controller& controller, Animator& animator)
   for (std::size_t row = 0; row < 4; ++row)
   {
     const Rect cap = StripRect(row);
-    const Color color = kStripColors[row];
+    const Color color = StripColor(row);
     const auto& key = state.left[row];
     const float led = animator.LedShown(KeyIndex(row, 0));
     const bool solid = !key.down && StripSolid(led);
@@ -838,7 +848,7 @@ void DrawBoot(Gfx& g, Animator& animator)
     const float landed = fx::EaseOutBack(fx::Clamp01(t * 3.0f - 0.9f - static_cast<float>(index) * 0.18f));
     const int x = kScreenWidth / 2 - 38 + static_cast<int>(index) * 20;
     const int y = 88 + static_cast<int>((1.0f - landed) * 20.0f);
-    if (landed > 0.0f) g.Dither(Rect{x, y, 16, 4}, kStripColors[index], 10);
+    if (landed > 0.0f) g.Dither(Rect{x, y, 16, 4}, StripColor(index), 10);
   }
   const int scan = static_cast<int>(fx::Clamp01(t * 1.4f) * static_cast<float>(kScreenHeight + 10));
   fx::ScanLine(g, 0, kScreenWidth, scan, 8, kDim);

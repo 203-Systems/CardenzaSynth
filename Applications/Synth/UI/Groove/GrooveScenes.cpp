@@ -1,5 +1,6 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
 #include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
+#include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "OS/Storage/DeviceSettings.h"
 
 #include <algorithm>
@@ -184,6 +185,13 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
     choice(host_.Logging() ? 1 : 0, 2, os::storage::kDefaultLogEnabled ? 1 : 0, host_.Logging() ? "ON" : "OFF");
     info.kind = synth::SynthParameterKind::Toggle;
   }
+  else if (Is(id, "sys.theme"))
+  {
+    // Two screens: the shipped dark one and the backlit green LCD of an MPC. A pad press flips it.
+    const int theme = static_cast<int>(os::storage::UiTheme());
+    choice(theme, 2, os::storage::kDefaultUiTheme, theme == 0 ? "STOCK" : "RETRO");
+    info.kind = synth::SynthParameterKind::Toggle;
+  }
   else return false;
   return true;
 }
@@ -229,6 +237,11 @@ void Controller::AdjustSetting(const char* id, int delta)
   else if (Is(id, "sys.led")) host_.SetLedBrightness(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.screen")) host_.SetBacklight(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.log")) host_.SetLogging(value != 0);
+  else if (Is(id, "sys.theme"))
+  {
+    os::storage::SetUiTheme(static_cast<std::uint8_t>(value));
+    theme::SetTheme(value == 0 ? theme::ThemeId::Official : theme::ThemeId::LcdGreen);
+  }
   // The key range moves under held pads: let them go before they map to other notes.
   if (Is(id, "keys.layout") || Is(id, "keys.octave")) ReleaseAllPads();
   // Only project data makes the project unsaved: the keyboard, the tracks' chords and arpeggiators,

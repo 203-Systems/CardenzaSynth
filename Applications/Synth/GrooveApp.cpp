@@ -25,6 +25,7 @@
 #include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Applications/Synth/Runtime/SynthStorage.h"
 #include "Applications/Synth/UI/Groove/Render/Gfx.h"
+#include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Applications/Synth/UI/Groove/Render/GrooveRenderer.h"
 #include "Devices/Device.h"
 #include "Devices/LedLight.h"
@@ -180,7 +181,9 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
   storageReady_ = synth::storage::EnsureLayout();
   ApplyMix();
   ApplyMasterFx(synth::ProjectData::DefaultMasterFx());
-  // Volume, key LEDs and screen are device settings: the system applied them at boot.
+  // Volume, key LEDs and screen are device settings: the system applied them at boot. The palette is
+  // one too, but only this app knows what the numbers mean, so it is set here, before the first frame.
+  groove::theme::SetTheme(os::storage::UiTheme() == 1 ? groove::theme::ThemeId::LcdGreen : groove::theme::ThemeId::Official);
   RestorePlaySettings();
   // The autosave is on the card: the working state comes back with it.
   (void)RestoreSessionState();

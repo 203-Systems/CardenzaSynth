@@ -18,6 +18,8 @@ constexpr int kVolumeRevision = 3;
 constexpr const char* kLedKey = "sys.led";
 constexpr const char* kScreenKey = "sys.screen";
 constexpr const char* kLogKey = "sys.log";
+constexpr const char* kThemeKey = "sys.theme";
+constexpr int kUiThemeCount = 2;
 
 struct Cache {
   bool loaded = false;
@@ -25,6 +27,7 @@ struct Cache {
   std::uint8_t led = kDefaultKeyLedBrightness;
   std::uint8_t screen = kDefaultScreenBacklight;
   bool log = kDefaultLogEnabled;
+  std::uint8_t theme = kDefaultUiTheme;
 };
 
 Cache& Values()
@@ -42,6 +45,7 @@ Cache& Values()
     cache.led = static_cast<std::uint8_t>(system.GetInt(kLedKey, kDefaultKeyLedBrightness, 0, Device::LED::kBrightnessMax));
     cache.screen = static_cast<std::uint8_t>(system.GetInt(kScreenKey, kDefaultScreenBacklight, kMinScreenBacklight, 255));
     cache.log = system.GetBool(kLogKey, kDefaultLogEnabled);
+    cache.theme = static_cast<std::uint8_t>(system.GetInt(kThemeKey, kDefaultUiTheme, 0, kUiThemeCount - 1));
     cache.loaded = true;
   }
   return cache;
@@ -112,6 +116,18 @@ void SetLogEnabled(bool enabled)
 bool LogEnabled()
 {
   return Values().log;
+}
+
+void SetUiTheme(std::uint8_t theme)
+{
+  Cache& cache = Values();
+  cache.theme = std::min<std::uint8_t>(theme, kUiThemeCount - 1);
+  SystemSettings().SetInt(kThemeKey, cache.theme);
+}
+
+std::uint8_t UiTheme()
+{
+  return Values().theme;
 }
 
 }  // namespace os::storage
