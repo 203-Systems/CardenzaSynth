@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace groove {
@@ -836,16 +837,150 @@ void Controller::RunSlotAction(SlotAction action)
 // ---------------------------------------------------------------------------------------------
 // SEQ
 
-// A pad while steps are selected (held or tapped): its notes (its chord, as one) go into them, or come
-// out: a step that holds any of them loses them all and gains none. A new note gets `velocity` (a drum
-// pad's row), or with 0 the track's new-note velocity.
-bool Controller::PadForSequence(const std::uint8_t* notes, std::size_t count, bool pressed, std::uint8_t velocity)
+// A pad while steps are selected (held or tapped) edits them (PadEdit), its notes (its chord) as one.
+// When no selected step holds any of them they go in at once, a new note at `velocity` (a drum pad's
+// row; 0: the track's new-note velocity). A lit pad (a selected step holds any of them) waits for its
+// release: let go untouched, a step that holds any of them loses them all and gains none (and one that
+// holds none gains them all); held, ADD / SUB edit them alone (AdjustHeldPadNotes). False when no step
+// is selected.
+bool Controller::PadForSequence(std::size_t pad, int key, const std::uint8_t* notes, std::size_t count, std::uint8_t velocity)
 {
-  if (!pressed || count == 0) return false;
+  state_.padEdit[pad] = PadEdit{};
+  if (count == 0) return false;
   auto& sequencer = host_.Sequencer();
-  if (!sequencer.BuildUiState(state_.track).hasHeldSteps) return false;
-  if (sequencer.ToggleNotesOnSelectedSteps(notes, count, velocity)) MarkDirty();
+  if (!sequencer.HasHeldSteps()) return false;
+  PadEdit& edit = state_.padEdit[pad];
+  edit.active = true;
+  edit.root = static_cast<std::uint8_t>(DrumTrack() ? key : SnapToScale(state_.keyboard, key));
+  edit.velocity = velocity;
+  edit.count = static_cast<std::uint8_t>(std::min(count, edit.notes.size()));
+  std::copy(notes, notes + edit.count, edit.notes.begin());
+  edit.removeOnRelease = sequencer.SelectedStepsHoldAny(notes, count);
+  if (!edit.removeOnRelease && sequencer.ToggleNotesOnSelectedSteps(notes, count, velocity)) MarkDirty();
   return true;
+}
+
+bool Controller::PadEditHeld() const
+{
+  if (state_.scene != Scene::Sequence || CurrentPage() != 0 || TopModal() != nullptr) return false;
+  for (std::size_t pad = 0; pad < state_.padEdit.size(); ++pad)
+    if (state_.padEdit[pad].active && state_.padNote[pad] != kNoNote && state_.padTrack[pad] == state_.track) return true;
+  return false;
+}
+
+void Controller::UsePadEdits()
+{
+  for (PadEdit& edit : state_.padEdit) edit.used = edit.used || edit.active;
+}
+
+// ADD / SUB with lit pads held on the note page (PadEdit): the current edit lane (OK cycles it), for
+// their notes only, on the selected steps that hold them. One rule for every lane: NOTE moves them
+// (MovePadNotes), and every other lane goes to the sequencer's lane edit (AdjustNotesOnSelectedSteps),
+// the same one ADD / SUB use on whole steps; a new lane needs nothing here. A drum stays a drum: on a
+// drum track the NOTE lane does nothing (the pads pick the drums), the other lanes edit the held hit.
+bool Controller::AdjustHeldPadNotes(int delta, bool coarse)
+{
+  if (delta == 0 || !PadEditHeld()) return false;
+  std::array<std::size_t, kRows * kPadColumns> pads{};
+  std::size_t padCount = 0;
+  for (std::size_t pad = 0; pad < state_.padEdit.size(); ++pad)
+    if (state_.padEdit[pad].active && state_.padNote[pad] != kNoNote && state_.padTrack[pad] == state_.track) pads[padCount++] = pad;
+  // The keys belong to the pads until they let go (also while ADD / SUB repeat), and the pads keep
+  // their notes when they do.
+  state_.repeat.padMove = true;
+  UsePadEdits();
+  auto& sequencer = host_.Sequencer();
+  const synth::SequencerEditLane lane = sequencer.EditLane();
+  const auto name = [&](std::uint8_t note) { return DrumTrack() ? std::string(DrumName(note)) : NoteName(note); };
+  if (lane == synth::SequencerEditLane::Note)
+  {
+    if (DrumTrack()) ShowHud(name(state_.padEdit[pads[0]].notes[0]), "PADS PICK DRUMS");
+    else MovePadNotes(pads.data(), padCount, delta, coarse);
+    return true;
+  }
+  // The held pads' notes together, each once.
+  std::array<std::uint8_t, kRows * kPadColumns * kMaxPadNotes> notes{};
+  std::size_t count = 0;
+  std::string names;
+  for (std::size_t order = 0; order < padCount; ++order)
+  {
+    const PadEdit& edit = state_.padEdit[pads[order]];
+    for (std::size_t voice = 0; voice < edit.count; ++voice)
+    {
+      if (std::find(notes.begin(), notes.begin() + static_cast<std::ptrdiff_t>(count), edit.notes[voice]) != notes.begin() + static_cast<std::ptrdiff_t>(count)) continue;
+      notes[count++] = edit.notes[voice];
+      names += " " + name(edit.notes[voice]);
+    }
+  }
+  if (sequencer.AdjustNotesOnSelectedSteps(notes.data(), count, delta, coarse)) MarkDirty();
+  const std::string value = sequencer.NotesLaneValue(notes.data(), count);
+  ShowHud(synth::SequencerEditLaneLabel(lane) + names, value.empty() ? "--" : value);
+  return true;
+}
+
+// The NOTE lane for held pads: each one's notes move a key of the keyboard at a time
+// (NextKeyboardNote: a semitone, the next scale note on SCALE or with the scale lock on; FN: an
+// octave), past notes those steps already hold. A chord pad's notes become the next key's chord.
+// Stopped, the pad sounds where its notes went; it keeps moving the same notes while it is down.
+void Controller::MovePadNotes(const std::size_t* heldPads, std::size_t padCount, int delta, bool coarse)
+{
+  std::array<std::size_t, kRows * kPadColumns> pads{};
+  padCount = std::min(padCount, pads.size());
+  std::copy(heldPads, heldPads + padCount, pads.begin());
+  const int direction = delta > 0 ? 1 : -1;
+  // Up from the highest pad, down from the lowest: held pads never land on each other.
+  std::sort(pads.begin(), pads.begin() + static_cast<std::ptrdiff_t>(padCount), [&](std::size_t left, std::size_t right) {
+    return direction > 0 ? state_.padEdit[left].root > state_.padEdit[right].root : state_.padEdit[left].root < state_.padEdit[right].root;
+  });
+  auto& sequencer = host_.Sequencer();
+  const auto kind = ActiveKind();
+  std::string names;
+  for (std::size_t order = 0; order < padCount; ++order)
+  {
+    const std::size_t pad = pads[order];
+    PadEdit& edit = state_.padEdit[pad];
+    std::array<bool, 128> taken{};
+    if (sequencer.SelectedStepsHoldAny(edit.notes.data(), edit.count, &taken))
+    {
+      int root = edit.root;
+      std::array<std::uint8_t, kMaxPadNotes> moved = edit.notes;
+      for (int keys = 0; keys < std::abs(delta); ++keys)
+      {
+        // The next key whose notes land on none the steps already hold.
+        int next = root;
+        std::array<std::uint8_t, kMaxPadNotes> notes{};
+        bool found = false;
+        while (!found)
+        {
+          next = coarse ? next + 12 * direction : NextKeyboardNote(state_.keyboard, next, direction);
+          if (next < 0 || next > 127) break;
+          if (PadNotes(state_.keyboard, state_.chords[state_.track], kind, next, notes) != edit.count) continue;
+          found = std::none_of(notes.begin(), notes.begin() + edit.count, [&](std::uint8_t note) { return taken[note]; });
+        }
+        if (!found) break;
+        root = next;
+        moved = notes;
+      }
+      if (root != edit.root && sequencer.MoveNotesOnSelectedSteps(edit.notes.data(), moved.data(), edit.count))
+      {
+        MarkDirty();
+        // Stopped, the pad sounds (and the screen shows it held) where its notes went.
+        if (state_.padChordCount[pad] != 0)
+        {
+          SoundPad(pad, false);
+          std::copy(moved.begin(), moved.begin() + edit.count, state_.padChord[pad].begin());
+          state_.padChordCount[pad] = edit.count;
+          SoundPad(pad, true, false);
+        }
+        edit.root = static_cast<std::uint8_t>(root);
+        edit.notes = moved;
+        state_.padNote[pad] = edit.root;
+        state_.noteLane[state_.track] = edit.root;
+      }
+    }
+    for (std::size_t voice = 0; voice < edit.count; ++voice) names += (names.empty() ? "" : " ") + NoteName(edit.notes[voice]);
+  }
+  ShowHud("NOTE", names);
 }
 
 // The note page's step keys, as MatrixOS's sequencer has them: a step is selected while its key is
@@ -1030,8 +1165,12 @@ void Controller::SequenceAdjust(int delta, bool coarse)
   switch (CurrentPage())
   {
     case 0:
-      // Selected steps: the value of the edit lane (OK chooses it). Nothing selected: ADD / SUB flip
-      // the GRID's page, FN + ADD / SUB go to the next / previous pattern.
+      // Selected steps: the value of the edit lane (OK chooses it), only for the notes of a lit pad
+      // held. Nothing selected: ADD / SUB flip the GRID's page, FN + ADD / SUB go to the next /
+      // previous pattern.
+      if (AdjustHeldPadNotes(delta, coarse)) return;
+      // The pad let go while ADD / SUB repeat: they stay its keys until they let go too.
+      if (state_.repeat.down && state_.repeat.padMove) return;
       if (ui.hasHeldSteps)
       {
         // On a drum track the pads pick the drum: the NOTE lane does not move hits to pitches that
