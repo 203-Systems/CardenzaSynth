@@ -1712,6 +1712,9 @@ SYNTH_FX_HOT void MixRoutedTrackNoLock(std::size_t track, float* samples, float*
 // a note not heard). Everything else is kept, note-offs too, so nothing that sounds is left on.
 constexpr std::size_t kMaxPendingEvents = 384;
 std::atomic<std::uint32_t> g_droppedNoteOns{0};
+// Voices taken from a slice that was still sounding because every voice of the setting was busy:/n// polyphony running out is heard as a hit that never arrives, and it is worth telling apart from a
+// block that was late.
+std::atomic<std::uint32_t> g_samplerSteals{0};
 
 void QueuePendingEvent(PendingEvent event)
 {
@@ -2033,6 +2036,7 @@ void ApplyPendingEvent(const PendingEvent& event)
         if (slot == engine.samplerVoices.size())
         {
           // Every voice of the setting is sounding: the slice that has played longest gives way.
+          g_samplerSteals.fetch_add(1, std::memory_order_relaxed);
           slot = 0;
           for (std::size_t index = 1; index < polyphony; ++index)
           {
@@ -3784,6 +3788,11 @@ std::uint32_t ShedVoiceCount()
 std::uint32_t FadedVoiceCount()
 {
   return g_fadedVoices.load(std::memory_order_relaxed);
+}
+
+std::uint32_t SamplerStealCount()
+{
+  return g_samplerSteals.load(std::memory_order_relaxed);
 }
 
 RenderModel CurrentRenderModel()

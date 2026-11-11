@@ -703,6 +703,23 @@ void Controller::InstrumentAdjust(int delta, bool coarse)
   synth::ISynthEngine* engine = ActiveEngine();
   synth::SynthParameterInfo info;
   if (engine == nullptr || !engine->GetParameterInfo(slot.id, info)) return;
+  // A chop's polyphony is not that track's own: every chop track draws from one pool of six, so a
+  // track may only take what the others have left, and says who holds what when it cannot.
+  if (std::strcmp(slot.id, "chop.voices") == 0)
+  {
+    const int others = ChopVoicesUsed() - ChopVoicesOn(state_.track);
+    const int wanted = std::clamp(info.value + delta, info.minValue, info.maxValue);
+    if (wanted == info.value) return;
+    if (others + wanted > kChopSharedVoices)
+    {
+      ShowToast("CHOP MAX " + std::to_string(kChopSharedVoices) + "  " + ChopUsageText(), ToastKind::Error);
+      return;
+    }
+    if (engine->SetParameterValue(slot.id, wanted)) MarkDirty();
+    ShowToast("CHOP " + std::to_string(others + wanted) + "/" + std::to_string(kChopSharedVoices) + "  " + ChopUsageText(),
+              ToastKind::Ok);
+    return;
+  }
   // A slice start is placed by eye against the magnified waveform, so one press moves it by what the
   // window shows: a tenth of a percent of the file at 4x, half a percent at 2x, and 0.8% - what it
   // always was - on the whole file. Holding the key still accelerates the same way (the repeat sends

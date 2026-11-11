@@ -172,9 +172,13 @@ void Controller::OpenEnginePicker()
   const std::array<synth::SynthEngineKind, 5> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
                                                       synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums,
                                                       synth::SynthEngineKind::Chop}};
+  // The chop has no voice of its own to give: a track dropped onto it takes one from the shared six,
+  // so with the pool full the tile is shown faint and refuses the press.
+  const bool ChopFull = ChopVoicesUsed() + 1 > kChopSharedVoices && current != synth::SynthEngineKind::Chop;
   for (std::size_t index = 0; index < kinds.size(); ++index)
   {
     modal.items.push_back({std::to_string(static_cast<int>(kinds[index])), std::string(EngineShortName(kinds[index])), kinds[index] == current});
+    if (kinds[index] == synth::SynthEngineKind::Chop) modal.items.back().dim = ChopFull;
     if (kinds[index] == current) modal.cursor = index;
   }
   OpenModal(std::move(modal));
@@ -280,6 +284,11 @@ void Controller::ModalEnter()
     case ModalKind::EnginePicker:
     {
       if (modal->items.empty()) return;
+      if (modal->items[modal->cursor].dim)
+      {
+        ShowToast("CHOP MAX " + std::to_string(kChopSharedVoices) + " VOICES", ToastKind::Error);
+        return;
+      }
       const auto kind = static_cast<synth::SynthEngineKind>(std::stoi(modal->items[modal->cursor].id));
       if (kind == ActiveKind())
       {

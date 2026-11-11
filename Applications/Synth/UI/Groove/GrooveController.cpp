@@ -155,6 +155,37 @@ std::size_t Controller::ChopSliceCount() const
   return synth::kChopSliceCount;
 }
 
+int Controller::ChopVoicesOn(std::size_t track) const
+{
+  if (track >= kTrackCount || host_.EngineKind(track) != synth::SynthEngineKind::Chop) return 0;
+  const synth::ISynthEngine* engine = host_.Engine(track);
+  synth::SynthParameterInfo info;
+  if (engine != nullptr && engine->GetParameterInfo("chop.voices", info)) return std::max(1, info.value);
+  return 1;
+}
+
+int Controller::ChopVoicesUsed() const
+{
+  int used = 0;
+  for (std::size_t track = 0; track < kTrackCount; ++track) used += ChopVoicesOn(track);
+  return used;
+}
+
+// "T1-3 T2-1 T4-2": what each chop track is holding of the pool, which is what a player needs when
+// the seventh voice is refused.
+std::string Controller::ChopUsageText() const
+{
+  std::string text;
+  for (std::size_t track = 0; track < kTrackCount; ++track)
+  {
+    const int voices = ChopVoicesOn(track);
+    if (voices <= 0) continue;
+    if (!text.empty()) text += ' ';
+    text += "T" + std::to_string(track + 1) + "-" + std::to_string(voices);
+  }
+  return text.empty() ? std::string("NONE") : text;
+}
+
 std::size_t Controller::ChopSlice() const
 {
   return std::min<std::size_t>(state_.chopSlice[state_.track], ChopSliceCount() - 1);

@@ -616,8 +616,9 @@ void GrooveApp::ReportStreamStats(std::uint32_t now)
   const std::uint32_t micros = timing.renderMicros - streamReportMicros_;
   streamReportBlocks_ = timing.blocks;
   streamReportMicros_ = timing.renderMicros;
-  printf("Groove: stream streams=%u blocks=%u losses=%lu audio avg=%luus longest=%luus under=%lu over=%lu\n",
+  printf("Groove: stream streams=%u blocks=%u losses=%lu steals=%lu audio avg=%luus longest=%luus under=%lu over=%lu\n",
          static_cast<unsigned>(stats.streams), static_cast<unsigned>(stats.blocks), static_cast<unsigned long>(stats.losses),
+         static_cast<unsigned long>(synth::audio::SamplerStealCount()),
          static_cast<unsigned long>(blocks != 0 ? micros / blocks : 0), static_cast<unsigned long>(timing.longestRenderMicros),
          static_cast<unsigned long>(timing.underruns), static_cast<unsigned long>(timing.overruns));
 #else

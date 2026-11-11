@@ -36,6 +36,8 @@ void SetLineInput(LineInput input);
 bool ShedVoice();
 // Voices stopped so far because rendering fell behind anyway (0 in normal use).
 std::uint32_t ShedVoiceCount();
+// Sampler/chop voices taken over while still sounding, because the track's polyphony was busy.
+std::uint32_t SamplerStealCount();
 // Voices faded out so far to keep the next block within the render budget (on the board: let-go tails
 // when many pile up; 0 on hosts).
 std::uint32_t FadedVoiceCount();

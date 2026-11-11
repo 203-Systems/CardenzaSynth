@@ -123,6 +123,7 @@ struct ListItem {
   std::string id;
   std::string label;
   bool marked = false;  // current / active entry
+  bool dim = false;     // there but not available: drawn faint, and it refuses to be chosen
 };
 
 // How many rows a list shows, and the first of them with the cursor on `cursor`.
@@ -500,6 +501,12 @@ public:
   bool TrackGridPage() const;
   // How many slices the chop track shows (8 or 16), and which one its pads picked.
   std::size_t ChopSliceCount() const;
+  // The chop engine's voices are one pool for the whole instrument: six in all, shared by every track
+  // on that engine, because a slice costs the same whoever plays it.
+  int ChopVoicesOn(std::size_t track) const;
+  int ChopVoicesUsed() const;
+  std::string ChopUsageText() const;  // "T1-3 T2-1 T4-2"
+  static constexpr int kChopSharedVoices = 6;
   std::size_t ChopSlice() const;
   // The chop's VOICE and SAMPLE pages: there the right half of the pads picks a slice.
   bool ChopSlicePads() const;

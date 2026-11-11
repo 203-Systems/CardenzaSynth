@@ -160,14 +160,17 @@ void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, 
     const Rect cell = Cell(1 + index / 4, index % 4);
     const bool selected = index == modal.cursor;
     const auto& item = modal.items[index];
-    if (selected)
+    // A choice that cannot be taken is drawn as a hole in the row: the frame without the fill, the
+    // name faint, and no marching ants even when the cursor is on it.
+    if (selected && !item.dim)
     {
       g.Fill(cell, kInk);
       fx::MarchingAnts(g, Rect{cell.x - 2, cell.y - 2, cell.width + 4, cell.height + 4}, kTab, animator.Now());
     }
-    else g.Stroke(cell, kFaint);
-    g.TextFit(cell.x + 3, cell.y + 3, cell.width - 5, item.label, selected ? kBlack : kInk, Font::Small);
-    if (item.marked) g.Text(cell.x + 3, cell.y + 15, "NOW", selected ? kBlack : kTab);
+    else g.Stroke(cell, item.dim ? kShade : kFaint);
+    g.TextFit(cell.x + 3, cell.y + 3, cell.width - 5, item.label,
+              item.dim ? kFaint : (selected ? kBlack : kInk), Font::Small);
+    if (item.marked) g.Text(cell.x + 3, cell.y + 15, "NOW", selected && !item.dim ? kBlack : kTab);
   }
   if (modal.cursor < kDetails.size())
     fx::DecodeText(g, Cell(3, 0).x, Cell(3, 0).y + 6, kDetails[modal.cursor], kDim, Font::Micro,
