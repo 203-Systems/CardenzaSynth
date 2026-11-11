@@ -514,7 +514,7 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 
 ### 压力测试使用
 
-`make DEVICE=Cardenza stress` 编一个带压力测试的固件（`Applications/Synth/StressTest.cpp`，`CARDENZA_STRESS_TEST`，绝不发布），配置和正式版相同，另加任务看门狗（卡死 5 秒就变成带调用栈的崩溃记录）。用 `BUILD=build/Cardenza-stress tools/remote-flash/push.sh` 烧上去，开机 20 秒后自动开始，日志里是 `stress:` 开头的行，跑完每 20 秒重复一遍汇总。它在卡上写 `ZZ-ST-` 开头的工程和采样，挨个载入并播放；设备重启（崩溃或看门狗）后从下一个场景接着跑，并打印上次崩溃的 `!!!` 行。自动保存会变成最后一个测试工程。
+`make DEVICE=Cardenza stress` 编一个带压力测试的固件（`Applications/Synth/StressTest.cpp`，`CARDENZA_STRESS_TEST`，绝不发布），配置和正式版相同，另加任务看门狗（卡死 5 秒就变成带调用栈的崩溃记录）。在 ESP-IDF 环境里用 `cd build/Cardenza-stress && esptool.py --chip esp32s3 -p <端口> write_flash @flash_args` 烧上去，开机 20 秒后自动开始，日志里是 `stress:` 开头的行，跑完每 20 秒重复一遍汇总。它在卡上写 `ZZ-ST-` 开头的工程和采样，挨个载入并播放；设备重启（崩溃或看门狗）后从下一个场景接着跑，并打印上次崩溃的 `!!!` 行。自动保存会变成最后一个测试工程。
 
 - 场景：空工程；旧格式 v1（音色不存在）；0.1.0 正式版的 DEMO-2（格式 6）；四轨 DX7 每步六音和弦；四轨 Juno 长尾音八音和弦；300 BPM 鼓机八条全开加两轨；四轨 1/32 琶音四个八度；采样（1.5 秒进 PSRAM、20 秒从卡上流式）；效果器全部开到最大；最大工程（四轨 × 16 个 Pattern × 256 步 × 每步 8 音，文件 2.6 MB）；播放中的操作（切引擎、换音色、载入、新建、存盘、自动保存、改主效果和音量）；按键风暴（垫子成串按放、GRID、ESC、TAB、CTRL，不按 ENTER、ADD、SUB、FN、PLAY）；以上叠加；卡上每一个工程（含 0.1.0 的 `CardenzaSynth/Projects`）。
 - 每个场景量：音频每块平均和最长时间、DMA 放空（`underruns`）、丢掉的音（按住的、还没出声的、被抢的，和提前收掉的尾音）、界面最长一帧和超过 34 ms 的帧（掉帧）、音序器脉冲最晚多少、晚 5 ms 以上的次数、内部 RAM 和 PSRAM 的最低值、操作最长多久和操作期间的放空。通过：放空 0、按住的音和新音一个不丢、晚的脉冲 0、界面最长一帧 < 250 ms、内部 RAM 最低 ≥ 12 KB、没有出错。`STRESS_ONLY=card:DEMO-2,sampler STRESS_SECONDS=60` 只跑这几个。
@@ -525,7 +525,7 @@ USB 口是 CardenzaHAL 提供的一个复合设备（`usb/usb.h`）：MIDI、双
 
 - **MIDI**：电脑可以弹各轨：通道 1–4 对应轨道 1–4，其他通道弹当前轨。这些音符有主人（`GrooveApp::computerNotes_`，计入 `EndOrphanNotes`），电脑断开时结束；CC 120 / 123 也会结束它们，其他 CC 交给该轨的引擎。设备弹出的音（按键和音序器）也发给电脑，轨道 n 走通道 n。
 - **音频**：电脑录到的是设备的声音，在设备音量之前（单声道复制到两个声道）。USB 音频两个方向的通道都在，但电脑播放的声音 app 目前不用（用户 2026-11-06：先只当电脑的麦克风）：`GrooveApp` 不装 line input，设备层把一块里没人读的从 USB 收下丢掉，好让电脑的播放流一直走着（HAL 的反馈看它的 FIFO 有多满，一直满着电脑就会降到最慢）。装上（`synth::audio::SetLineInput(&Device::Audio::ReadComputerAudio)`）时，它在输出增益和限幅器之前以单位增益并入混音，带电脑自己的静音和音量，于是也回到电脑录到的声音里。电脑里设备叫「203 Systems Cardenza」，仍有它的扬声器，播进去听不到。
-- **控制台与更新**：stdout、stderr 和日志都走 HAL 的系统通道；电脑在那里读日志，也可以让设备重启进 Launcher 或 ROM 下载模式（报告 0xCB 或 SysEx F0 23，与 Matrix OS 相同）。`tools/remote-flash/gate.sh` 在板子没有串口时会自动这样做。
+- **控制台与更新**：stdout、stderr 和日志都走 HAL 的系统通道；电脑在那里读日志，也可以让设备重启进 Launcher 或 ROM 下载模式（报告 0xCB 或 SysEx F0 23，与 Matrix OS 相同）。电脑这边的命令行工具是 `tools/usb/cardenza_usb.py`（list、command identify / reboot / launcher / download、console、stats、test、guide）：板子没有串口时，`command download` 让它进 ROM 下载模式再刷。
 - 内存：静态约 8.5 KB，外加 4 KB 任务栈，不管有没有接电脑都占着。
 
 ### 教程模式
