@@ -154,7 +154,7 @@ The root CMake project is for desktop-style targets such as `CardenzaSim`. The C
 
 - 屏幕 240×135，RGB565，50 fps（20 ms 一帧）；按键、键灯和应用的 Tick 每 10 ms 一次，屏幕隔一次画一次。只发变化的行，另外每帧轮流整条重发一带（8 行），约 0.34 秒整屏刷新一遍。FreeRTOS 的 tick 是 1000 Hz（`sdkconfig.defaults`，和 0.1.0 一样）：HAL 每发一条 8 行的带子都要等 DMA 完成，esp_lcd 在完成中断里不切换任务，等着的界面要到下一个 tick 才醒；100 Hz 时一条带子要 10 ms（本来 1 ms），界面画不到 30 fps，一帧最长 160 ms（2026-11-05）。
 - 键盘 4 行 × 14 列，每键一颗单色 LED（0–15 级）。另有侧边 HOME 键（GPIO0）。
-- 实机超过 4 个矩阵按键时，HAL 保留已确认键并屏蔽可疑新按键（矩阵串扰会读出没按的键）；松键仍通过原有 3 ms 去抖处理。被屏蔽键稳定松开后才能重新按下，不补发仍按住的可疑键；HOME 独立，不计入上限。HAL 的纯计算（去抖、按键数上限、LED 帧、背光曲线）和它的驱动代码（假 ESP-IDF 驱动下注入失败）在主机上测（`tests/cardenza_hal_logic_test.cpp`、`tests/key_count_guard_test.cpp`、`tests/hal_faults`）。
+- 实机超过 4 个矩阵按键时，HAL 保留已确认键并屏蔽可疑新按键（矩阵串扰会读出没按的键）；松键仍通过原有 3 ms 去抖处理。被屏蔽键稳定松开后才能重新按下，不补发仍按住的可疑键；HOME 独立，不计入上限。HAL 的纯计算（去抖、按键数上限、LED 帧、背光曲线）和它的驱动代码（假 ESP-IDF 驱动下注入失败）在 CardenzaHAL 自己的仓库里测（它的 `tests/` 和 CI）。
 - 单声道扬声器输出；麦克风；SD 卡。
 
 ```text
