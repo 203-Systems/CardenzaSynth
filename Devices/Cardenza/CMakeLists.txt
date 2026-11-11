@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 get_filename_component(CARDENZA_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 # The firmware version is version.txt (the app description, the Launcher, the log's first line).
-include(${CARDENZA_ROOT}/cmake/FirmwareVersion.cmake)
-cardenza_read_firmware_version("${CARDENZA_ROOT}" PROJECT_VER)
+include(${CMAKE_CURRENT_LIST_DIR}/CardenzaHAL/cmake/firmware_info.cmake)
+cardenza_read_version("${CARDENZA_ROOT}/version.txt" PROJECT_VER)
 set(CARDENZA_FIRMWARE_BUILD_DIR "${CARDENZA_ROOT}/build/Cardenza")
 set(CARDENZA_IDF_PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set(CARDENZA_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/powershell.exe")
@@ -68,7 +68,7 @@ if(DEFINED COMPONENT_DIR)
     )
 
     # CardenzaBuildInfo.h: version, Git hash and build time (SETUP > SYSTEM, the log).
-    cardenza_target_build_info(${COMPONENT_LIB} "${CARDENZA_ROOT}")
+    cardenza_target_build_info(${COMPONENT_LIB} "${CARDENZA_ROOT}" HEADER CardenzaBuildInfo.h NAMESPACE cardenza::build)
     target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
     # A crash goes into the log ring before ESP-IDF prints it (Devices/Cardenza/DeviceLog.cpp).
     target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=esp_panic_handler")
