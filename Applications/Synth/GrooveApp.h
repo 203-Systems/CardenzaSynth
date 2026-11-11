@@ -185,6 +185,12 @@ private:
   std::array<std::string, synth::kSynthTrackCount> pendingSamples_;
   std::uint32_t lastKeyAt_ = 0;
   void EndOrphanNotes(std::uint32_t now);
+  // Samples played from the card: a failed read is a card that may have gone; late blocks go to the
+  // log when there are new ones (at most every 10 s).
+  void WatchSampleStreams(std::uint32_t now);
+  std::uint32_t streamFailuresSeen_ = 0;
+  std::uint32_t streamLateLogged_ = 0;
+  std::uint32_t streamLoggedAt_ = 0;
   std::uint32_t lastOrphanCheckAt_ = 0;
   std::array<synth::audio::NoteSet, synth::kSynthTrackCount> orphanNotes_{};
   // Notes a computer plays over USB MIDI and has not let go yet.

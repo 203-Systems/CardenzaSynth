@@ -63,6 +63,17 @@ inline void* AllocateSlow(std::size_t bytes) noexcept
 inline void FreeSlow(void* block) noexcept { heap_caps_free(block); }
 inline void* AllocateSlowArray(std::size_t bytes) noexcept { return AllocateSlow(bytes); }
 inline void FreeSlowArray(void* block) noexcept { heap_caps_free(block); }
+
+// Internal RAM the SD card's DMA reaches, for what the card reads into in one go (into anything else
+// its driver fetches one sector per command); null where that would leave less than `floor` of
+// internal RAM. Never PSRAM, unlike a large `new (std::nothrow)`.
+inline void* AllocateDma(std::size_t bytes, std::size_t floor) noexcept
+{
+  if (bytes == 0) bytes = 1;
+  if (FastFree() < bytes + floor) return nullptr;
+  return heap_caps_malloc(bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+inline void FreeDma(void* block) noexcept { heap_caps_free(block); }
 #else
 inline std::size_t FastFree() { return std::numeric_limits<std::size_t>::max() / 4; }
 inline std::size_t FastLargest() { return std::numeric_limits<std::size_t>::max() / 4; }
@@ -79,6 +90,8 @@ inline void* AllocateSlow(std::size_t bytes) noexcept { return ::operator new(by
 inline void FreeSlow(void* block) noexcept { ::operator delete(block); }
 inline void* AllocateSlowArray(std::size_t bytes) noexcept { return ::operator new[](bytes != 0 ? bytes : 1, std::nothrow); }
 inline void FreeSlowArray(void* block) noexcept { ::operator delete[](block); }
+inline void* AllocateDma(std::size_t bytes, std::size_t) noexcept { return ::operator new[](bytes != 0 ? bytes : 1, std::nothrow); }
+inline void FreeDma(void* block) noexcept { ::operator delete[](block); }
 #endif
 
 // Room for something kept in PSRAM, leaving `reserve` there; on a board without PSRAM, room for it in
