@@ -183,12 +183,27 @@ public:
   // that holds any of them loses them all and gains none, one that holds none gains them all, each at
   // `velocity` (0: the track's new-note velocity). False when no step is selected or no note given.
   bool ToggleNotesOnSelectedSteps(const std::uint8_t* notes, std::size_t count, std::uint8_t velocity = 0);
+  // Whether a selected step holds any of these notes (a pad's, its chord as one: the pad is lit).
+  // `others`, when given, gets every other note those steps hold: where a move of them must not land.
+  bool SelectedStepsHoldAny(const std::uint8_t* notes, std::size_t count, std::array<bool, 128>* others = nullptr) const;
+  // A held pad's notes moved (ADD / SUB): on each selected step that holds any of from[0..count),
+  // from[i] becomes to[i], keeping its velocity, length and timing (a step holding some of them moves
+  // those). Nothing changes when such a step already holds one of `to` besides them. True when a note
+  // moved.
+  bool MoveNotesOnSelectedSteps(const std::uint8_t* from, const std::uint8_t* to, std::size_t count);
   void SetEditLane(SequencerEditLane lane);
+  SequencerEditLane EditLane() const;
   void CycleEditLane();
   void CycleNoteScope();
   // Relative edit of the current lane for the scoped note (or every note) of each selected
   // step. Returns true when any value changed.
   bool AdjustSelectedSteps(int delta, bool coarse);
+  // The same edit for these notes only (a held pad's, its chord as one), on each selected step that
+  // holds any of them: what ADD / SUB do while a lit pad is held. True when a value changed.
+  bool AdjustNotesOnSelectedSteps(const std::uint8_t* notes, std::size_t count, int delta, bool coarse);
+  // The current lane's value ("96" on VEL) of the first of these notes on the selected steps; empty
+  // when none holds them.
+  std::string NotesLaneValue(const std::uint8_t* notes, std::size_t count) const;
 
   // Song (arrangement) mode. With the switch on and at least one row, Play() starts at the cued
   // row. Each row applies at a bar line: every track switches to the row's pattern (-1 leaves the
@@ -442,6 +457,14 @@ private:
   static std::uint16_t ClampLengthInPattern(std::size_t patternSteps, std::size_t stepIndex, std::uint8_t microstep, std::uint16_t lengthPulses);
   std::string ScopeLabelLocked(const StepData* step) const;
   std::string ValueLabelLocked(const StepData* step) const;
+  // The edit lanes, in one place: the current lane's edit of some notes of a step (its slots), which
+  // every way of editing a lane goes through (AdjustSelectedSteps, AdjustNotesOnSelectedSteps), and a
+  // note's value on that lane. A new lane is added here (and to CycleEditLane and its label). True
+  // when a value changed.
+  bool AdjustLaneLocked(StepData& step, std::size_t stepIndex, std::array<std::size_t, 8> slots, std::size_t slotCount, int delta,
+                        bool coarse);
+  std::string LaneValueLocked(const NoteEvent& note) const;
+  static std::uint16_t AdjustedLength(std::uint16_t current, int delta, bool coarse);
 
   static std::size_t TrackStepCountOf(const TrackData& track);
   std::size_t ViewPageLocked(std::size_t trackIndex) const;

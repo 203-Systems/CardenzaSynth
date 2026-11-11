@@ -240,7 +240,7 @@ std::size_t Controller::CollectHeldNotes(std::array<std::uint8_t, kRows * kPadCo
 }
 
 // Starts or ends the notes of one held pad: straight to the engine, or into the arpeggiator.
-void Controller::SoundPad(std::size_t index, bool on)
+void Controller::SoundPad(std::size_t index, bool on, bool capture)
 {
   auto& sequencer = host_.Sequencer();
   const std::uint8_t track = state_.padTrack[index];
@@ -256,7 +256,7 @@ void Controller::SoundPad(std::size_t index, bool on)
     if (on)
     {
       host_.NoteOn(track, note, state_.padVelocity[index]);
-      CaptureNoteOn(track, note, state_.padVelocity[index]);
+      if (capture) CaptureNoteOn(track, note, state_.padVelocity[index]);
     }
     else
     {
@@ -297,6 +297,7 @@ void Controller::ReleaseAllPads()
     SoundPad(index, false);
     state_.padNote[index] = kNoNote;
     state_.padChordCount[index] = 0;
+    state_.padEdit[index] = PadEdit{};
   }
 }
 
@@ -358,8 +359,10 @@ void Controller::KeyEvent(std::size_t row, std::size_t column, bool pressed, std
     }
   }
 
-  // A step key on the SEQ note page down while any other key is pressed: a hold, not a tap.
+  // A step key on the SEQ note page down while any other key is pressed: a hold, not a tap. A lit
+  // pad down while another key (not a pad) is pressed keeps its notes when it lets go.
   if (pressed) UseStepKeys();
+  if (pressed && role != KeyRole::Pad) UsePadEdits();
   switch (role)
   {
     case KeyRole::Esc:
@@ -500,6 +503,7 @@ void Controller::PressRight(KeyRole role)
       state_.repeat.coarse = fn;
       state_.repeat.count = 0;
       state_.repeat.nextAt = state_.now + kRepeatDelayMs;
+      state_.repeat.padMove = false;
       Adjust(direction, state_.repeat.coarse);
       return;
     }
@@ -577,8 +581,9 @@ void Controller::PressPad(std::size_t row, std::size_t column)
       state_.drumVelocity[state_.track] = velocity;
     }
     else state_.noteLane[state_.track] = static_cast<std::uint8_t>(note);
-    // The pad's notes as one: a chord goes in whole, or (any of it in a step) comes out whole.
-    editing = PadForSequence(chord.data(), voices, true, drums ? velocity : std::uint8_t{0});
+    // The pad's notes as one: a chord goes in whole, or (any of it in a step) comes out whole when the
+    // pad lets go untouched (held, ADD / SUB edit them alone).
+    editing = PadForSequence(index, note, chord.data(), voices, drums ? velocity : std::uint8_t{0});
   }
   const bool audition = !editing || !sequencer.Playing();
   state_.padNote[index] = static_cast<std::uint8_t>(note);
@@ -608,9 +613,15 @@ void Controller::ReleasePad(std::size_t row, std::size_t column)
   if (state_.repeat.quickKey == KeyIndex(row, column)) state_.repeat = RepeatState{};
   const std::size_t index = PadIndex(row, column);
   if (state_.padNote[index] == kNoNote) return;
+  const PadEdit edit = state_.padEdit[index];
+  state_.padEdit[index] = PadEdit{};
   SoundPad(index, false);
   state_.padNote[index] = kNoNote;
   state_.padChordCount[index] = 0;
+  // A tap on a lit pad: its notes come out of the selected steps now. Holding it never took them out.
+  if (edit.active && edit.removeOnRelease && !edit.used && state_.padTrack[index] == state_.track && state_.scene == Scene::Sequence &&
+      CurrentPage() == 0 && TopModal() == nullptr && host_.Sequencer().ToggleNotesOnSelectedSteps(edit.notes.data(), edit.count, edit.velocity))
+    MarkDirty();
 }
 
 void Controller::PressGrid(std::size_t index)
@@ -1001,8 +1012,8 @@ AdjustMeaning Controller::AdjustKeysMean() const
     case Scene::Instrument:
       return CurrentInstrumentPage()->graphic == PageGraphic::Voice ? AdjustMeaning::List : AdjustMeaning::Value;
     case Scene::Sequence:
-      // The note page with nothing selected: ADD / SUB flip the GRID's page.
-      if (CurrentPage() == 0 && !host_.Sequencer().HasHeldSteps()) return AdjustMeaning::Sideways;
+      // The note page with nothing selected: ADD / SUB flip the GRID's page (a held pad moves its notes).
+      if (CurrentPage() == 0 && !host_.Sequencer().HasHeldSteps() && !PadEditHeld()) return AdjustMeaning::Sideways;
       return AdjustMeaning::Value;
     case Scene::Tape:
       return CurrentPage() == kTapeSession ? AdjustMeaning::List : AdjustMeaning::Value;

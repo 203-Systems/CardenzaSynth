@@ -840,6 +840,46 @@ void TestChordTogglesAsOne() {
   sequencer.reset();
 }
 
+// A held pad's notes on the selected steps (the SEQ note page): a move takes each of them to its new
+// pitch and keeps its values, all or nothing; the other lanes edit those notes alone.
+void TestHeldNotesEdit() {
+  using namespace synth;
+  Output output;
+  auto sequencer = std::make_unique<SynthSequencer>();
+  sequencer->SetMidiSink(Sink, &output);
+  using Values = std::vector<int>;
+  const std::uint8_t chord[] = {60, 64, 67};
+  const std::uint8_t c = 60, d = 62;
+  assert(sequencer->SetStepNotes(0, 0, chord, std::size(chord), 100));
+  assert(sequencer->SetStepNotes(0, 1, &c, 1, 80));
+  assert(sequencer->SetStepNotes(0, 2, &d, 1, 70));
+  assert(!sequencer->SelectedStepsHoldAny(&c, 1));  // nothing selected
+  for (const std::size_t step : {0, 1, 2}) sequencer->SetStepSelected(step, true);
+  std::array<bool, 128> others{};
+  assert(sequencer->SelectedStepsHoldAny(&c, 1, &others));
+  assert(others[64] && others[67] && !others[60] && !others[62]);  // step 2 does not hold C: its D does not count
+  const std::uint8_t e = 64, cSharp = 61;
+  assert(!sequencer->MoveNotesOnSelectedSteps(&c, &e, 1));  // E is taken on step 0: nothing moves
+  assert(StepPitches(*sequencer, 0) == (Values{60, 64, 67}) && StepPitches(*sequencer, 1) == (Values{60}));
+  assert(sequencer->MoveNotesOnSelectedSteps(&c, &cSharp, 1));
+  assert(StepPitches(*sequencer, 0) == (Values{61, 64, 67}) && StepPitches(*sequencer, 1) == (Values{61}) && StepPitches(*sequencer, 2) == (Values{62}));
+  assert(StepValues(*sequencer, 1, [](const auto& note) { return note.velocity; }) == (Values{80}));
+  // A group moves as one (no note lands on another of the group on the way).
+  const std::uint8_t from[] = {61, 64}, to[] = {64, 65};
+  assert(sequencer->MoveNotesOnSelectedSteps(from, to, 2));
+  assert(StepPitches(*sequencer, 0) == (Values{64, 65, 67}) && StepPitches(*sequencer, 1) == (Values{64}));
+  // VEL for the held note only, on each selected step that has it.
+  sequencer->SetEditLane(SequencerEditLane::Velocity);
+  assert(sequencer->EditLane() == SequencerEditLane::Velocity);
+  const std::uint8_t g = 67;
+  assert(sequencer->AdjustNotesOnSelectedSteps(&g, 1, -5, false));
+  assert(StepValues(*sequencer, 0, [](const auto& note) { return note.velocity; }) == (Values{100, 100, 95}));
+  assert(sequencer->NotesLaneValue(&g, 1) == "95");
+  assert(!sequencer->AdjustNotesOnSelectedSteps(&cSharp, 1, 1, false));  // no step holds it
+  sequencer->ClearSelectedSteps();
+  sequencer.reset();
+}
+
 void TestSequencerSettings() {
   using namespace synth;
   Output output;
@@ -1626,6 +1666,7 @@ int main() {
   TestSequencerEditing();
   TestSelectionEditing();
   TestChordTogglesAsOne();
+  TestHeldNotesEdit();
   TestSequencerSettings();
   TestLiveRecording();
   TestSwingPlayback();

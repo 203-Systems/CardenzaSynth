@@ -2008,6 +2008,82 @@ bool SynthSequencer::ToggleNotesOnSelectedSteps(const std::uint8_t* notes, std::
   return true;
 }
 
+bool SynthSequencer::SelectedStepsHoldAny(const std::uint8_t* notes, std::size_t count, std::array<bool, 128>* others) const
+{
+  if (others != nullptr) others->fill(false);
+  if (notes == nullptr || count == 0) return false;
+  std::array<bool, 128> group{};
+  for (std::size_t index = 0; index < count; ++index)
+    if (notes[index] < group.size()) group[notes[index]] = true;
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size()) return false;
+  const PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
+  bool any = false;
+  for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
+  {
+    if (!heldSteps_[stepIndex]) continue;
+    const auto& events = pattern.steps[stepIndex].notes;
+    const auto inGroup = [&](const NoteEvent& event) { return event.active && event.note < group.size() && group[event.note]; };
+    if (std::none_of(events.begin(), events.end(), inGroup)) continue;
+    any = true;
+    if (others == nullptr) break;
+    for (const NoteEvent& event : events)
+      if (event.active && event.note < group.size() && !group[event.note]) (*others)[event.note] = true;
+  }
+  return any;
+}
+
+bool SynthSequencer::MoveNotesOnSelectedSteps(const std::uint8_t* from, const std::uint8_t* to, std::size_t count)
+{
+  if (from == nullptr || to == nullptr || count == 0) return false;
+  // target[note]: where a note of the group goes (-1: not in the group); landing: what the group becomes.
+  std::array<int, 128> target{};
+  target.fill(-1);
+  std::array<bool, 128> landing{};
+  for (std::size_t index = 0; index < count; ++index)
+  {
+    if (from[index] >= target.size() || to[index] >= target.size()) return false;
+    target[from[index]] = to[index];
+    landing[to[index]] = true;
+  }
+  const auto inGroup = [&](const NoteEvent& event) { return event.active && event.note < target.size() && target[event.note] >= 0; };
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size()) return false;
+  StepStore& steps = ActivePatternLocked(tracks_[activeTrack_]).steps;
+  // All or nothing: no step may end up with the same pitch twice.
+  bool any = false;
+  for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
+  {
+    if (!heldSteps_[stepIndex]) continue;
+    const auto& events = std::as_const(steps)[stepIndex].notes;
+    if (std::none_of(events.begin(), events.end(), inGroup)) continue;
+    any = true;
+    const bool blocked = std::any_of(events.begin(), events.end(), [&](const NoteEvent& event) {
+      return event.active && event.note < target.size() && target[event.note] < 0 && landing[event.note];
+    });
+    if (blocked) return false;
+  }
+  if (!any) return false;
+
+  bool moved = false;
+  for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
+  {
+    if (!heldSteps_[stepIndex]) continue;
+    const auto& events = std::as_const(steps)[stepIndex].notes;
+    if (std::none_of(events.begin(), events.end(), inGroup)) continue;
+    for (NoteEvent& event : steps.Edit(stepIndex).notes)
+    {
+      if (!inGroup(event) || target[event.note] == event.note) continue;
+      event.note = static_cast<std::uint8_t>(target[event.note]);
+      moved = true;
+    }
+  }
+  NormalizeScopeLocked();
+  return moved;
+}
+
 void SynthSequencer::SetEditLane(SequencerEditLane lane)
 {
   if (lane > SequencerEditLane::Micro)
@@ -2054,29 +2130,6 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
   }
 
   TrackData& track = tracks_[activeTrack_];
-  // Steps through the length table relative to the current value; values between entries
-  // move to the neighbouring entry first.
-  auto stepLength = [delta, coarse](std::uint16_t current) {
-    const int entries = delta * (coarse ? 3 : 1);
-    const int last = static_cast<int>(kAdjustLengthTable.size()) - 1;
-    int index = -1;
-    if (entries > 0)
-    {
-      for (int candidate = 0; candidate <= last; ++candidate)
-        if (kAdjustLengthTable[static_cast<std::size_t>(candidate)] > current) { index = candidate; break; }
-      if (index < 0) return current;
-      index = std::min(last, index + entries - 1);
-    }
-    else
-    {
-      for (int candidate = last; candidate >= 0; --candidate)
-        if (kAdjustLengthTable[static_cast<std::size_t>(candidate)] < current) { index = candidate; break; }
-      if (index < 0) return current;
-      index = std::max(0, index + entries + 1);
-    }
-    return kAdjustLengthTable[static_cast<std::size_t>(index)];
-  };
-
   bool selectionHasNotes = false;
   const PatternData& readPattern = ActivePatternLocked(std::as_const(track));
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
@@ -2087,7 +2140,7 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
     // Empty steps edit the values new notes start with ("NEW LEN" / "NEW VEL").
     if (editLane_ == SequencerEditLane::Length)
     {
-      const std::uint16_t next = std::clamp<std::uint16_t>(stepLength(track.defaultLengthPulses), 1,
+      const std::uint16_t next = std::clamp<std::uint16_t>(AdjustedLength(track.defaultLengthPulses, delta, coarse), 1,
                                                            kSequencerMaxSteps * kSequencerPulsesPerStep);
       const bool changed = next != track.defaultLengthPulses;
       track.defaultLengthPulses = next;
@@ -2115,7 +2168,7 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
     if (ActiveNoteCount(pattern.steps[stepIndex]) == 0) continue;
     StepData& step = pattern.steps.Edit(stepIndex);
 
-    // Affected slots, in pitch order so a transposed chord never collides with itself.
+    // The scoped note, or every note of the step.
     std::array<std::size_t, 8> slots{};
     std::size_t slotCount = 0;
     if (noteScopeIndex_ >= 0)
@@ -2128,74 +2181,8 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
       for (std::size_t slot = 0; slot < step.notes.size(); ++slot)
         if (step.notes[slot].active) slots[slotCount++] = slot;
     }
-    for (std::size_t index = 1; index < slotCount; ++index)
-    {
-      const std::size_t slot = slots[index];
-      std::size_t insertionIndex = index;
-      while (insertionIndex > 0 && step.notes[slot].note < step.notes[slots[insertionIndex - 1]].note)
-      {
-        slots[insertionIndex] = slots[insertionIndex - 1];
-        --insertionIndex;
-      }
-      slots[insertionIndex] = slot;
-    }
-
-    switch (editLane_)
-    {
-      case SequencerEditLane::Note:
-      {
-        const int amount = delta * (coarse ? 12 : 1);
-        for (std::size_t order = 0; order < slotCount; ++order)
-        {
-          // Raise from the top and lower from the bottom.
-          NoteEvent& event = step.notes[slots[amount > 0 ? slotCount - 1 - order : order]];
-          const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.note) + amount, 0, 127));
-          if (target == event.note) continue;
-          const bool collides = std::any_of(step.notes.begin(), step.notes.end(),
-                                            [&](const NoteEvent& other) { return other.active && other.note == target; });
-          if (collides) continue;
-          event.note = target;
-          changed = true;
-        }
-        if (primary && noteScopeIndex_ >= 0 && slotCount == 1) primaryScopedPitch = step.notes[slots[0]].note;
-        break;
-      }
-      case SequencerEditLane::Length:
-        for (std::size_t order = 0; order < slotCount; ++order)
-        {
-          NoteEvent& event = step.notes[slots[order]];
-          const std::uint16_t target = ClampLengthForStepMicrostep(stepIndex, event.microstep, stepLength(event.lengthPulses));
-          if ((delta > 0 && target <= event.lengthPulses) || (delta < 0 && target >= event.lengthPulses)) continue;
-          event.lengthPulses = target;
-          changed = true;
-        }
-        break;
-      case SequencerEditLane::Velocity:
-        for (std::size_t order = 0; order < slotCount; ++order)
-        {
-          NoteEvent& event = step.notes[slots[order]];
-          const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.velocity) + delta * (coarse ? 10 : 1), 1, 127));
-          if (target == event.velocity) continue;
-          event.velocity = target;
-          changed = true;
-        }
-        break;
-      case SequencerEditLane::Micro:
-        for (std::size_t order = 0; order < slotCount; ++order)
-        {
-          NoteEvent& event = step.notes[slots[order]];
-          // Coarse moves to the nearest edge of the six microsteps.
-          const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.microstep) + delta * (coarse ? kSequencerMicrostepCount : 1),
-                                                                   0, kSequencerMicrostepCount - 1));
-          if (target == event.microstep) continue;
-          event.microstep = target;
-          event.lengthPulses = ClampLengthForStepMicrostep(stepIndex, event.microstep, event.lengthPulses);
-          changed = true;
-        }
-        break;
-      default:
-        break;
-    }
+    changed = AdjustLaneLocked(step, stepIndex, slots, slotCount, delta, coarse) || changed;
+    if (editLane_ == SequencerEditLane::Note && primary && noteScopeIndex_ >= 0 && slotCount == 1) primaryScopedPitch = step.notes[slots[0]].note;
   }
 
   // A transposed scoped note keeps the scope, even when its pitch rank in the chord changed.
@@ -2209,6 +2196,155 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
     noteScopeIndex_ = rank;
   }
   NormalizeScopeLocked();
+  return changed;
+}
+
+bool SynthSequencer::AdjustNotesOnSelectedSteps(const std::uint8_t* notes, std::size_t count, int delta, bool coarse)
+{
+  if (notes == nullptr || count == 0 || delta == 0) return false;
+  std::array<bool, 128> group{};
+  for (std::size_t index = 0; index < count; ++index)
+    if (notes[index] < group.size()) group[notes[index]] = true;
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size()) return false;
+  StepStore& steps = ActivePatternLocked(tracks_[activeTrack_]).steps;
+  bool changed = false;
+  for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
+  {
+    if (!heldSteps_[stepIndex]) continue;
+    const auto& events = std::as_const(steps)[stepIndex].notes;
+    const auto inGroup = [&](const NoteEvent& event) { return event.active && event.note < group.size() && group[event.note]; };
+    if (std::none_of(events.begin(), events.end(), inGroup)) continue;
+    StepData& step = steps.Edit(stepIndex);
+    std::array<std::size_t, 8> slots{};
+    std::size_t slotCount = 0;
+    for (std::size_t slot = 0; slot < step.notes.size(); ++slot)
+      if (inGroup(step.notes[slot])) slots[slotCount++] = slot;
+    changed = AdjustLaneLocked(step, stepIndex, slots, slotCount, delta, coarse) || changed;
+  }
+  NormalizeScopeLocked();
+  return changed;
+}
+
+std::string SynthSequencer::NotesLaneValue(const std::uint8_t* notes, std::size_t count) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (notes == nullptr || activeTrack_ >= tracks_.size()) return {};
+  const PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
+  for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
+  {
+    if (!heldSteps_[stepIndex]) continue;
+    for (const NoteEvent& event : pattern.steps[stepIndex].notes)
+      if (event.active && std::find(notes, notes + count, event.note) != notes + count) return LaneValueLocked(event);
+  }
+  return {};
+}
+
+SequencerEditLane SynthSequencer::EditLane() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return editLane_;
+}
+
+std::uint16_t SynthSequencer::AdjustedLength(std::uint16_t current, int delta, bool coarse)
+{
+  // Steps through the length table relative to the current value; values between entries move to
+  // the neighbouring entry first.
+  const int entries = delta * (coarse ? 3 : 1);
+  const int last = static_cast<int>(kAdjustLengthTable.size()) - 1;
+  int index = -1;
+  if (entries > 0)
+  {
+    for (int candidate = 0; candidate <= last; ++candidate)
+      if (kAdjustLengthTable[static_cast<std::size_t>(candidate)] > current) { index = candidate; break; }
+    if (index < 0) return current;
+    index = std::min(last, index + entries - 1);
+  }
+  else
+  {
+    for (int candidate = last; candidate >= 0; --candidate)
+      if (kAdjustLengthTable[static_cast<std::size_t>(candidate)] < current) { index = candidate; break; }
+    if (index < 0) return current;
+    index = std::max(0, index + entries + 1);
+  }
+  return kAdjustLengthTable[static_cast<std::size_t>(index)];
+}
+
+bool SynthSequencer::AdjustLaneLocked(StepData& step, std::size_t stepIndex, std::array<std::size_t, 8> slots, std::size_t slotCount,
+                                      int delta, bool coarse)
+{
+  slotCount = std::min(slotCount, slots.size());
+  // Pitch order, so a transposed chord never collides with itself. (An explicit insertion sort: GCC's
+  // std::sort expansion trips -Warray-bounds on this fixed 8-item buffer on Xtensa.)
+  for (std::size_t index = 1; index < slotCount; ++index)
+  {
+    const std::size_t slot = slots[index];
+    std::size_t insertionIndex = index;
+    while (insertionIndex > 0 && step.notes[slot].note < step.notes[slots[insertionIndex - 1]].note)
+    {
+      slots[insertionIndex] = slots[insertionIndex - 1];
+      --insertionIndex;
+    }
+    slots[insertionIndex] = slot;
+  }
+
+  bool changed = false;
+  switch (editLane_)
+  {
+    case SequencerEditLane::Note:
+    {
+      const int amount = delta * (coarse ? 12 : 1);
+      for (std::size_t order = 0; order < slotCount; ++order)
+      {
+        // Raise from the top and lower from the bottom.
+        NoteEvent& event = step.notes[slots[amount > 0 ? slotCount - 1 - order : order]];
+        const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.note) + amount, 0, 127));
+        if (target == event.note) continue;
+        const bool collides = std::any_of(step.notes.begin(), step.notes.end(),
+                                          [&](const NoteEvent& other) { return other.active && other.note == target; });
+        if (collides) continue;
+        event.note = target;
+        changed = true;
+      }
+      break;
+    }
+    case SequencerEditLane::Length:
+      for (std::size_t order = 0; order < slotCount; ++order)
+      {
+        NoteEvent& event = step.notes[slots[order]];
+        const std::uint16_t target = ClampLengthForStepMicrostep(stepIndex, event.microstep, AdjustedLength(event.lengthPulses, delta, coarse));
+        if ((delta > 0 && target <= event.lengthPulses) || (delta < 0 && target >= event.lengthPulses)) continue;
+        event.lengthPulses = target;
+        changed = true;
+      }
+      break;
+    case SequencerEditLane::Velocity:
+      for (std::size_t order = 0; order < slotCount; ++order)
+      {
+        NoteEvent& event = step.notes[slots[order]];
+        const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.velocity) + delta * (coarse ? 10 : 1), 1, 127));
+        if (target == event.velocity) continue;
+        event.velocity = target;
+        changed = true;
+      }
+      break;
+    case SequencerEditLane::Micro:
+      for (std::size_t order = 0; order < slotCount; ++order)
+      {
+        NoteEvent& event = step.notes[slots[order]];
+        // Coarse moves to the nearest edge of the six microsteps.
+        const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.microstep) + delta * (coarse ? kSequencerMicrostepCount : 1),
+                                                                 0, kSequencerMicrostepCount - 1));
+        if (target == event.microstep) continue;
+        event.microstep = target;
+        event.lengthPulses = ClampLengthForStepMicrostep(stepIndex, event.microstep, event.lengthPulses);
+        changed = true;
+      }
+      break;
+    default:
+      break;
+  }
   return changed;
 }
 
@@ -3271,18 +3407,24 @@ std::string SynthSequencer::ValueLabelLocked(const StepData* step) const
     return SequencerEditLaneLabel(editLane_);
   }
 
+  if (editLane_ == SequencerEditLane::Note) return std::to_string(ActiveNoteCount(*step)) + " notes";
+  return std::string(SequencerEditLaneLabel(editLane_)) + " " + LaneValueLocked(*note);
+}
+
+std::string SynthSequencer::LaneValueLocked(const NoteEvent& note) const
+{
   switch (editLane_)
   {
     case SequencerEditLane::Note:
-      return std::to_string(ActiveNoteCount(*step)) + " notes";
+      return std::to_string(note.note);
     case SequencerEditLane::Length:
-      return "LEN " + std::to_string((note->lengthPulses + kSequencerPulsesPerStep - 1) / kSequencerPulsesPerStep);
+      return std::to_string((note.lengthPulses + kSequencerPulsesPerStep - 1) / kSequencerPulsesPerStep);
     case SequencerEditLane::Velocity:
-      return "VEL " + std::to_string(note->velocity);
+      return std::to_string(note.velocity);
     case SequencerEditLane::Micro:
-      return "TIME " + std::to_string(note->microstep + 1);
+      return std::to_string(note.microstep + 1);
     default:
-      return "SEQ";
+      return {};
   }
 }
 
