@@ -395,6 +395,13 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
         if (seq.noteCount > 1) notes += "+" + std::to_string(seq.noteCount - 1);
         if (scope != "ALL" && seq.scopedNote >= 0 && !DrumName(seq.scopedNote).empty()) scope = std::string(DrumName(seq.scopedNote));
       }
+      else if (controller.ChopTrack())
+      {
+        // Slices by number, not as the notes they are sent as.
+        notes = seq.primaryLowestNote >= 0 && !SliceName(seq.primaryLowestNote).empty() ? "S" + SliceName(seq.primaryLowestNote) : std::string{};
+        if (seq.noteCount > 1) notes += "+" + std::to_string(seq.noteCount - 1);
+        if (scope != "ALL" && seq.scopedNote >= 0 && !SliceName(seq.scopedNote).empty()) scope = "S" + SliceName(seq.scopedNote);
+      }
       std::string detail = seq.valueLabel.empty() ? notes : seq.valueLabel;
       if (seq.editLane == synth::SequencerEditLane::Note && !scope.empty()) detail = scope + " " + notes;
       g.TextFit(x + 4, kFooterY, kFooterRight - x - 4, detail, kInk);

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdlib>
 #include <cerrno>
 #include <cstdio>
 #include <cmath>
@@ -291,7 +292,10 @@ void SamplerManager::OnTrackEngineChanged(std::size_t trackIndex, SynthEngineKin
   }
 
   TrackState& state = tracks_[trackIndex];
-  state.isSampler = kind == SynthEngineKind::Sampler;
+  // The chop plays a file as the sampler does (loaded, streamed and kept the same way); only the
+  // sampler records into its track.
+  state.isSampler = kind == SynthEngineKind::Sampler || kind == SynthEngineKind::Chop;
+  state.records = kind == SynthEngineKind::Sampler;
   if (!state.isSampler)
   {
     if (activeRecordingTrack_ == static_cast<int>(trackIndex))
@@ -304,6 +308,7 @@ void SamplerManager::OnTrackEngineChanged(std::size_t trackIndex, SynthEngineKin
     StopPreview(trackIndex, state);
     audio::SetSamplerFrames(trackIndex, {}, audio::kSampleRate);
     state = TrackState{};
+    peakCache_.fill(PeakCache{});
     return;
   }
 
@@ -366,7 +371,7 @@ void SamplerManager::Tick()
 
 bool SamplerManager::BeginRecord(std::size_t trackIndex, bool replaceDraft)
 {
-  if (!IsValidSamplerTrack(trackIndex) || activeRecordingTrack_ >= 0)
+  if (!IsValidSamplerTrack(trackIndex) || !tracks_[trackIndex].records || activeRecordingTrack_ >= 0)
   {
     return false;
   }
@@ -726,6 +731,7 @@ bool SamplerManager::ApplySample(std::size_t trackIndex, const PreparedSample& s
   }
   TrackState& state = tracks_[trackIndex];
   StopPreview(trackIndex, state);
+  peakCache_.fill(PeakCache{});
   state.currentFrames = sample.frames;
   state.currentSampleRate = sample.sampleRate;
   state.draftFrames.reset();
@@ -743,11 +749,85 @@ bool SamplerManager::ApplySample(std::size_t trackIndex, const PreparedSample& s
   state.ui.trimEndFrame = state.ui.frameCount;
   state.ui.previewCursorFrame = 0;
   BuildWaveform(state.ui.waveform, state.currentFrames);
+  BuildOverview(state);
   state.ui.phase = state.ui.hasSample ? SamplerTrackPhase::Ready : SamplerTrackPhase::Empty;
   state.ui.statusText = PhaseStatus(state.ui.phase);
   state.trimResetPending = true;
   SyncAudioSample(trackIndex, state);
   return state.ui.hasSample;
+}
+
+// A sample on the card cannot be scanned for a waveform while it plays: a look at the start of each
+// of these stretches when it is loaded is what a chop shows of it (one read of the card each).
+void SamplerManager::BuildOverview(TrackState& state)
+{
+  state.overview.reset();
+  const auto& frames = state.currentFrames;
+  if (state.records || !frames || !frames->stream || frames->frameCount == 0) return;
+  std::unique_ptr<std::uint8_t[]> overview(new (memory::slow) std::uint8_t[kOverviewBins]);
+  // Into internal RAM: the card's DMA cannot reach PSRAM.
+  std::unique_ptr<std::int16_t[]> probe(new (std::nothrow) std::int16_t[kOverviewProbeFrames]);
+  if (!overview || !probe) return;
+  for (std::size_t bin = 0; bin < kOverviewBins; ++bin)
+  {
+    const std::size_t begin = bin * frames->frameCount / kOverviewBins;
+    const std::size_t count = std::min(kOverviewProbeFrames, frames->frameCount - begin);
+    overview[bin] = count != 0 && frames->stream->ReadFrames(begin, probe.get(), count)
+                        ? static_cast<std::uint8_t>(std::lround(PeakLevel(probe.get(), count) * 255.0f))
+                        : 0;
+  }
+  state.overview = std::move(overview);
+}
+
+bool SamplerManager::WaveformPeaks(std::size_t trackIndex, std::size_t firstFrame, std::size_t lastFrame, std::uint8_t* peaks,
+                                   std::size_t columns) const
+{
+  if (trackIndex >= tracks_.size() || columns == 0) return false;
+  const TrackState& state = tracks_[trackIndex];
+  const auto& frames = ActiveFrames(state);
+  if (!frames || frames->frameCount == 0) return false;
+  lastFrame = std::min(lastFrame, frames->frameCount);
+  firstFrame = std::min(firstFrame, lastFrame);
+  const std::size_t span = lastFrame - firstFrame;
+  // The screen asks every frame: the last two answers are kept (a page turn draws two pages).
+  for (PeakCache& cached : peakCache_)
+    if (cached.buffer == frames.get() && cached.first == firstFrame && cached.last == lastFrame && cached.columns == columns && columns <= cached.peaks.size())
+    {
+      std::copy_n(cached.peaks.begin(), columns, peaks);
+      return true;
+    }
+  PeakCache& entry = peakCache_[peakCacheNext_];
+  peakCacheNext_ = (peakCacheNext_ + 1) % peakCache_.size();
+  entry = PeakCache{};
+  const std::size_t shown = std::min(columns, entry.peaks.size());
+  for (std::size_t column = 0; column < shown; ++column)
+  {
+    const std::size_t begin = firstFrame + span * column / shown;
+    const std::size_t end = std::max(begin + 1, firstFrame + span * (column + 1) / shown);
+    int peak = 0;
+    if (frames->frames)
+    {
+      // Exact, a frame in every few: a column of a long view would read the whole sample each time.
+      const std::size_t stride = std::max<std::size_t>(1, (end - begin) / kPeakReadsPerColumn);
+      for (std::size_t frame = begin; frame < end && frame < frames->frameCount; frame += stride)
+        peak = std::max(peak, std::abs(static_cast<int>(frames->frames[frame])));
+      peak = peak * 255 / 32767;
+    }
+    else if (state.overview)
+    {
+      const std::size_t fromBin = begin * kOverviewBins / frames->frameCount;
+      const std::size_t toBin = std::max(fromBin + 1, (end * kOverviewBins + frames->frameCount - 1) / frames->frameCount);
+      for (std::size_t bin = fromBin; bin < toBin && bin < kOverviewBins; ++bin) peak = std::max<int>(peak, state.overview[bin]);
+    }
+    entry.peaks[column] = static_cast<std::uint8_t>(std::min(peak, 255));
+  }
+  entry.buffer = frames.get();
+  entry.first = firstFrame;
+  entry.last = lastFrame;
+  entry.columns = shown;
+  std::copy_n(entry.peaks.begin(), shown, peaks);
+  std::fill(peaks + shown, peaks + columns, std::uint8_t{0});
+  return true;
 }
 
 bool SamplerManager::DeleteBrowserSample(std::size_t trackIndex, std::string_view id)
@@ -1064,7 +1144,7 @@ int SamplerManager::RestoreTakes()
     if (path.empty() || !IsRegularFile(path)) continue;
     audio::SharedSampleBuffer take;
     std::uint32_t rate = audio::kSampleRate;
-    const bool usable = state.isSampler && RepairTakeHeader(path) && sampler::ReadMono16Wav(path, take, rate);
+    const bool usable = state.records && RepairTakeHeader(path) && sampler::ReadMono16Wav(path, take, rate);
     if (!usable)
     {
       RemoveTakeFile(trackIndex);

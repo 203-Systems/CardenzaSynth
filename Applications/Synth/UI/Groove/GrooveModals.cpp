@@ -169,8 +169,9 @@ void Controller::OpenEnginePicker()
   modal.kind = ModalKind::EnginePicker;
   modal.title = "ENGINE";
   const auto current = ActiveKind();
-  const std::array<synth::SynthEngineKind, 4> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
-                                                      synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums}};
+  const std::array<synth::SynthEngineKind, 5> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
+                                                      synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums,
+                                                      synth::SynthEngineKind::Chop}};
   for (std::size_t index = 0; index < kinds.size(); ++index)
   {
     modal.items.push_back({std::to_string(static_cast<int>(kinds[index])), std::string(EngineShortName(kinds[index])), kinds[index] == current});
@@ -181,7 +182,7 @@ void Controller::OpenEnginePicker()
 
 void Controller::OpenSampleBrowser()
 {
-  if (ActiveKind() != synth::SynthEngineKind::Sampler) return;
+  if (ActiveKind() != synth::SynthEngineKind::Sampler && ActiveKind() != synth::SynthEngineKind::Chop) return;
   Modal modal;
   modal.kind = ModalKind::SampleBrowser;
   modal.title = "SAMPLES";
@@ -533,6 +534,9 @@ void Controller::Confirmed()
     case ConfirmPurpose::ChangeEngine:
       if (Top() != nullptr && Top()->kind == ModalKind::EnginePicker) CloseModal();
       ApplyEngine(static_cast<synth::SynthEngineKind>(std::stoi(payload)));
+      break;
+    case ConfirmPurpose::ChopEven:
+      ChopEven();
       break;
     case ConfirmPurpose::Notice:
       break;  // read: closed

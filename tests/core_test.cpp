@@ -1663,11 +1663,18 @@ int main() {
   }
   project.kinds[2] = SynthEngineKind::Sampler;
   project.samples[2] = "Exact.WAV";
+  // The chop is one more engine kind in the same format (7): its sample and its slices go as the
+  // sampler's and any engine's parameters do.
+  project.kinds[1] = SynthEngineKind::Chop;
+  project.samples[1] = "Break.wav";
+  project.engines[1] = {"chop.16", "chop.16", "16 Slices", {{"slice.03.start", 1200}, {"slice.03.mute", 2}, {"chop.voices", 3}}};
   assert(SaveProjectFile("round trip", project, false) == ProjectResult::Ok);
   assert(SaveProjectFile("round trip", project, false) == ProjectResult::Exists);
   ProjectData loaded;
   assert(LoadProjectFile("round trip", loaded) == ProjectResult::Ok);
   assert(loaded.activeTrack == 2 && loaded.octave == 3 && loaded.samples[2] == "Exact.WAV");
+  assert(loaded.kinds[1] == SynthEngineKind::Chop && loaded.samples[1] == "Break.wav" && loaded.engines[1].values.at("slice.03.start") == 1200 &&
+         loaded.engines[1].values.at("chop.voices") == 3);
   assert(loaded.engines[0].values.at("global.feedback") == 5);
   assert(loaded.sequence->tracks[0].patternCount == project.sequence->tracks[0].patternCount);
   assert(loaded.sequence->tracks[0].patterns[1].steps[0].notes[2].note == 67);
@@ -1685,6 +1692,9 @@ int main() {
   reject(valid + "TRAILING");
   auto bad = valid; bad.replace(bad.find("SEQ 120"), 7, "SEQ 999"); reject(bad);
   bad = valid; bad.replace(bad.find("factory.1"), 9, std::string(4000, 'x')); reject(bad);
+  // A kind this firmware does not know is refused (so is the chop, kind 5, by firmware before it).
+  bad = valid; bad.replace(bad.find("TRACK 1 5 "), 10, "TRACK 1 6 "); reject(bad);
+  assert(valid.find("CARDENZA_PROJECT 7\n") == 0);
   assert(SaveProjectFile("../escape", project, true) == ProjectResult::Invalid);
   assert(!IsProjectNameValid("CON") && !IsProjectNameValid("com1"));
   assert(SaveProjectFile("round trip", project, true) == ProjectResult::Ok);

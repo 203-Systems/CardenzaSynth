@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "CardenzaBuildInfo.h"
+#include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Applications/Synth/UI/Groove/Render/Widgets.h"
@@ -116,6 +117,50 @@ void DrawPads(Gfx& g, const Controller& controller, Animator& animator, const Re
   }
 }
 
+// A chop's slices as its pads lie (ChopPadSlice): eight in a row, sixteen in a 4 x 4 block under the
+// pads' middle columns. The one the pads chose (what SLICE edits) is outlined, a held one is filled in
+// the track's colour, a hit glows and fades.
+void DrawChopPads(Gfx& g, const Controller& controller, Animator& animator, const Rect& area)
+{
+  const std::size_t slices = controller.ChopSliceCount();
+  const bool inRow = ChopRowVelocity(slices);
+  const int rows = inRow ? 1 : static_cast<int>(kRows);
+  constexpr int kGap = 2;
+  const int padWidth = (area.width - kGap * static_cast<int>(kPadColumns - 1)) / static_cast<int>(kPadColumns);
+  const int padHeight = (area.height - kGap * (rows - 1)) / rows;
+  const int left = area.x + (area.width - (padWidth * static_cast<int>(kPadColumns) + kGap * static_cast<int>(kPadColumns - 1))) / 2 +
+                   (inRow ? 0 : static_cast<int>(kChopBlockFirstColumn - kPadFirstColumn) * (padWidth + kGap));
+  const std::uint32_t now = animator.Now();
+  const Color color = TrackColor(controller.State().track);
+  for (std::size_t slice = 0; slice < slices; ++slice)
+  {
+    const int column = static_cast<int>(inRow ? slice : slice % kChopBlockColumns);
+    const int row = static_cast<int>(inRow ? 0 : slice / kChopBlockColumns);
+    const Rect rect{left + column * (padWidth + kGap), area.y + row * (padHeight + kGap), padWidth, padHeight};
+    const int note = synth::ChopSliceNote(slice);
+    const bool held = controller.IsNoteHeld(note);
+    const bool picked = slice == controller.ChopSlice();
+    const float hit = fx::Decay(now, animator.NoteHitAt(note), kAfterglowMs);
+    if (held) g.Fill(rect, color);
+    else if (hit > 0.0f) g.Dither(rect, color, static_cast<int>(hit * 12.0f));
+    g.Stroke(rect, picked || held ? kInk : kFaint);
+    const std::string number = std::to_string(slice + 1);
+    g.TextAligned(Rect{rect.x, rect.y + (rect.height - 7) / 2, rect.width, 8}, number, held ? kBlack : picked ? kInk : kDim, Font::Micro, Align::Center);
+  }
+}
+
+// A waveform: `peaks` (0..255) one a column across `rect`, mirrored about its middle.
+void DrawPeaks(Gfx& g, const Rect& rect, const std::uint8_t* peaks, std::size_t count, Color color)
+{
+  const int half = rect.height / 2;
+  const int middle = rect.y + half;
+  for (std::size_t column = 0; column < count && static_cast<int>(column) < rect.width; ++column)
+  {
+    const int height = static_cast<int>(peaks[column]) * half / 255;
+    g.VLine(rect.x + static_cast<int>(column), middle - height, 2 * height + 1, color);
+  }
+}
+
 void DrawMiniPiano(Gfx& g, const Rect& rect, const Controller& controller, Animator& animator, int baseNote, bool showScale = false,
                    const std::array<bool, 128>* marked = nullptr)
 {
@@ -193,7 +238,12 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
   const int infoY = area.y + (huge ? 23 : 21);
   int x = g.Text(area.x, infoY, EngineShortName(host.EngineKind(state.track)), TrackColor(state.track));
   if (engine != nullptr && engine->CurrentPresetId().rfind("user.", 0) == 0) x = g.Text(x + 6, infoY, "USER", kFn);
-  if (host.EngineKind(state.track) != synth::SynthEngineKind::Drums)
+  if (host.EngineKind(state.track) == synth::SynthEngineKind::Chop)
+  {
+    const auto sampler = host.Sampler().BuildUiState(state.track);
+    g.TextFit(x + 8, infoY, area.x + area.width - x - 8, sampler.hasSample ? sampler.sampleName : std::string("NO SAMPLE - SAMPLE > FILE"), kDim);
+  }
+  else if (host.EngineKind(state.track) != synth::SynthEngineKind::Drums)
   {
     const KeyboardSettings& keys = state.keyboard;
     std::string detail = std::string(kLayoutNames[static_cast<std::size_t>(keys.layout)]);
@@ -207,6 +257,11 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
   if (host.EngineKind(state.track) == synth::SynthEngineKind::Drums)
   {
     DrawPads(g, controller, animator, lower, engine, true);
+    return;
+  }
+  if (host.EngineKind(state.track) == synth::SynthEngineKind::Chop)
+  {
+    DrawChopPads(g, controller, animator, lower);
     return;
   }
   const int base = synth::kHomePerformanceBaseMidiNote + state.keyboard.octave * 12;
@@ -322,6 +377,127 @@ void DrawFxChain(Gfx& g, const Controller& controller, Animator& animator, const
 }
 
 void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, const Rect& panel);
+
+// The chop's file. SAMPLE: all of it, its slices in play laid over it, the one the pads chose in the
+// track's colour. SLICE: that slice magnified (the window the controller keeps, ChopView), its start
+// and end drawn across, the focused one solid, the neighbours' points dotted. A slice playing draws its
+// playhead.
+void DrawChopFile(Gfx& g, const Controller& controller, Animator& animator, const InstrumentPage& page, const Rect& area)
+{
+  const Host& host = controller.HostView();
+  const std::size_t track = controller.State().track;
+  const auto* engine = host.Engine(track);
+  const auto sampler = host.Sampler().BuildUiState(track);
+  const std::uint32_t now = animator.Now();
+  const bool magnified = page.graphic == PageGraphic::ChopSlice;
+  const std::size_t picked = controller.ChopSlice();
+  // Every point once a frame (a lookup by name each).
+  std::array<int, synth::kChopPointCount> points{};
+  for (std::size_t index = 0; index < points.size(); ++index)
+    points[index] = EngineRaw(engine, synth::ChopParameterId(index / 2, index % 2 == 0 ? synth::ChopField::Start : synth::ChopField::End).c_str(), 0);
+  const auto point = [&](std::size_t slice, synth::ChopField field) { return points[synth::ChopPointIndex(slice, field == synth::ChopField::End)]; };
+  const auto seconds = [&](int position) {
+    char text[32];
+    const long long millis = sampler.sampleRate > 0 ? static_cast<long long>(sampler.frameCount) * position / synth::kChopPositionMax * 1000 / sampler.sampleRate : 0;
+    std::snprintf(text, sizeof(text), "%lld.%03lld", millis / 1000, millis % 1000);
+    return std::string(text);
+  };
+  const int start = point(picked, synth::ChopField::Start);
+  const int end = point(picked, synth::ChopField::End);
+  // The title: the file (SAMPLE), or the slice and where it is in the file (SLICE).
+  if (!sampler.hasSample)
+    g.TextFit(area.x + 2, area.y, area.width - 4, magnified ? "NO SAMPLE - SAMPLE > FILE" : "NO SAMPLE - FILE TO LOAD ONE", (now / 600) % 2 ? kFaint : kDim);
+  else if (magnified)
+  {
+    const int x = g.Text(area.x + 2, area.y, "S" + std::to_string(picked + 1), TrackColor(track));
+    g.TextFit(x + 6, area.y, area.x + area.width - x - 8, seconds(start) + "-" + seconds(end) + "S  " + seconds(end - start) + "S", kDim);
+  }
+  else
+  {
+    char length[24];
+    std::snprintf(length, sizeof(length), "  %.2fS", static_cast<double>(sampler.frameCount) / static_cast<double>(std::max<std::uint32_t>(1, sampler.sampleRate)));
+    g.TextFit(area.x + 2, area.y, area.width - 4, sampler.sampleName + length, kDim);
+  }
+  // Under the title a strip for the slices' numbers (SAMPLE) or the START and END tags (SLICE), so the
+  // waveform below covers none of them.
+  constexpr int kStripTop = 9;
+  constexpr int kGraphTop = 18;
+  const Rect graph{area.x + 2, area.y + kGraphTop, magnified ? kChopWaveformWidth : area.width - 4, area.height - kGraphTop};
+  const ChopWindow& window = controller.ChopView();
+  const int first = magnified && window.last > window.first ? window.first : 0;
+  const int last = magnified && window.last > window.first ? window.last : synth::kChopPositionMax;
+  const auto xOf = [&](int position) {
+    return graph.x + static_cast<int>(static_cast<long long>(position - first) * graph.width / std::max(1, last - first));
+  };
+  const auto visible = [&](int x) { return x >= graph.x && x < graph.x + graph.width; };
+  g.HLine(graph.x, graph.y + graph.height / 2, graph.width, kShade);
+  if (!sampler.hasSample) return;
+  // The slices behind the waveform: on SAMPLE every one in play, bands alternating, the chosen one in
+  // the track's colour; on SLICE the chosen one, and the others' points dotted.
+  const std::size_t slices = controller.ChopSliceCount();
+  for (std::size_t slice = 0; slice < slices; ++slice)
+  {
+    const int from = std::max(graph.x, xOf(point(slice, synth::ChopField::Start)));
+    const int to = std::min(graph.x + graph.width, xOf(point(slice, synth::ChopField::End)));
+    if (slice == picked)
+    {
+      if (to > from) g.Dither(Rect{from, graph.y, to - from, graph.height}, TrackColor(track), 5);
+      continue;
+    }
+    if (magnified)
+    {
+      for (const int x : {xOf(point(slice, synth::ChopField::Start)), xOf(point(slice, synth::ChopField::End))})
+        if (visible(x)) g.DottedVLine(x, graph.y, graph.height, kFaint, 2);
+      continue;
+    }
+    if (to > from && slice % 2 == 1) g.Dither(Rect{from, graph.y, to - from, graph.height}, kShade, 8);
+  }
+  std::array<std::uint8_t, 240> peaks{};
+  const auto frameOf = [&](int position) { return static_cast<std::size_t>(static_cast<std::uint64_t>(sampler.frameCount) * static_cast<std::uint64_t>(position) / synth::kChopPositionMax); };
+  const std::size_t columns = std::min<std::size_t>(peaks.size(), static_cast<std::size_t>(graph.width));
+  if (host.Sampler().WaveformPeaks(track, frameOf(first), frameOf(last), peaks.data(), columns)) DrawPeaks(g, graph, peaks.data(), columns, kInk);
+  if (magnified)
+  {
+    // START and END across the graph, the one ADD / SUB move solid and flagged.
+    // The focused one last, over the other's tag when the slice is narrow.
+    const std::uint8_t focus = controller.InstrumentFocus();
+    for (const bool isEnd : {focus == 0, focus != 0})
+    {
+      const int x = xOf(isEnd ? end : start);
+      if (!visible(x)) continue;
+      const bool focused = focus == (isEnd ? 1 : 0);
+      if (focused) g.VLine(x, area.y + kStripTop, area.y + area.height - (area.y + kStripTop), kInk);
+      else g.DottedVLine(x, graph.y, graph.height, kDim);
+      // The tag on the slice's side of its line.
+      const char* tag = isEnd ? "END" : "START";
+      const int tagX = isEnd ? x - Gfx::Measure(tag) - 2 : x + 2;
+      if (focused) g.Fill(Rect{tagX - 1, area.y + kStripTop, Gfx::Measure(tag) + 2, 8}, kInk);
+      g.Text(tagX, area.y + kStripTop + 1, tag, focused ? kBlack : kDim);
+    }
+  }
+  else
+  {
+    // Slice numbers along the top where there is room for them.
+    for (std::size_t slice = 0; slice < slices; ++slice)
+    {
+      const int from = xOf(point(slice, synth::ChopField::Start));
+      const int to = xOf(point(slice, synth::ChopField::End));
+      const std::string number = std::to_string(slice + 1);
+      if (to - from >= Gfx::Measure(number) + 2 || slice == picked)
+      {
+        if (slice == picked) g.Fill(Rect{from, area.y + kStripTop, Gfx::Measure(number) + 2, 8}, TrackColor(track));
+        g.Text(from + 1, area.y + kStripTop + 1, number, slice == picked ? kBlack : kDim);
+      }
+      if (visible(from) && from > graph.x) g.VLine(from, graph.y, graph.height, slice == picked ? kInk : kFaint);
+    }
+  }
+  const std::int32_t playhead = host.ChopPlayhead(track);
+  if (playhead >= 0 && sampler.frameCount > 0)
+  {
+    const int x = xOf(static_cast<int>(static_cast<long long>(playhead) * synth::kChopPositionMax / sampler.frameCount));
+    if (visible(x)) g.VLine(x, graph.y, graph.height, kPlay);
+  }
+}
 
 void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const InstrumentPage& page)
 {
@@ -570,6 +746,10 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
     case PageGraphic::DrumPads:
       DrawPads(g, controller, animator, area, engine);
       break;
+    case PageGraphic::ChopFile:
+    case PageGraphic::ChopSlice:
+      DrawChopFile(g, controller, animator, page, area);
+      break;
     case PageGraphic::None:
     default:
       break;
@@ -693,6 +873,8 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   // The notes the pads hold (chord tones too): their rows light up, the rows a tapped step writes.
   // How hard: a drum's row lights as dense as its pad hits, a note's as a checker.
   const bool drums = controller.DrumTrack();
+  // A chop's roll is a row per slice in play, slice 1 on top, as its STEP view.
+  const bool chop = controller.ChopTrack();
   std::array<std::uint8_t, 128> pressed{};
   int pressedLow = 128, pressedHigh = -1;
   for (std::size_t pad = 0; pad < state.padNote.size(); ++pad)
@@ -710,7 +892,7 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   // A melodic track's roll keeps every key the pads play at this octave, used or not (nothing folds
   // away), widened for notes of the page and held notes outside it. A drum track's fits its hits.
   int padLow = 128, padHigh = -1;
-  if (!drums)
+  if (!drums && !chop)
     for (std::size_t row = 0; row < kRows; ++row)
       for (std::size_t column = kPadFirstColumn; column < kPadFirstColumn + kPadColumns; ++column)
       {
@@ -754,14 +936,27 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
   }
   low = std::max(0, low);
   high = std::min(127, high);
+  if (chop)
+  {
+    low = synth::ChopSliceNote(0);
+    high = synth::ChopSliceNote(controller.ChopSliceCount() - 1);
+  }
   const int rows = high - low + 1;
   const int rowHeight = std::max(2, (bottom - top) / rows);
   const int height = rowHeight * rows;
   const int y0 = top + (bottom - top - height) / 2;
-  auto rowY = [&](int note) { return y0 + (high - note) * rowHeight; };
+  auto rowY = [&](int note) { return y0 + (chop ? note - low : high - note) * rowHeight; };
 
+  // A chop's rows: numbered (every fourth when they are thin), in fours as its pads are.
+  for (int note = low; chop && note <= high; ++note)
+  {
+    const int row = note - low;
+    const int y = rowY(note);
+    if (row % 4 == 0 && row > 0) g.DottedHLine(x0, y, column * static_cast<int>(steps), kShade, 2);
+    if (rowHeight >= 8 || row % 4 == 0) g.Text(kContentX, std::max(top, y + (rowHeight - 7) / 2), SliceName(note), kFaint, Font::Micro);
+  }
   // Keyboard rows: black keys shaded, every C labelled.
-  for (int note = low; note <= high; ++note)
+  for (int note = low; !chop && note <= high; ++note)
   {
     const int pitch = note % 12;
     const bool black = pitch == 1 || pitch == 3 || pitch == 6 || pitch == 8 || pitch == 10;
@@ -780,11 +975,11 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
     const std::uint8_t held = pressed[static_cast<std::size_t>(note)];
     if (held == 0) continue;
     const int y = rowY(note);
-    g.Dither(Rect{x0, y, column * static_cast<int>(steps), rowHeight}, kInk, drums ? DrumDensity(held) : 8);
+    g.Dither(Rect{x0, y, column * static_cast<int>(steps), rowHeight}, kInk, drums || chop ? DrumDensity(held) : 8);
     const int labelY = std::clamp(y + rowHeight / 2 - 4, top, bottom - 8);
     const std::string_view drum = drums ? DrumName(note) : std::string_view{};
     g.Fill(Rect{kContentX, labelY, kGutter - 2, 8}, kInk);
-    g.Text(kContentX + 1, labelY + 1, drum.empty() ? NoteName(note) : std::string(drum), kBlack, Font::Micro);
+    g.Text(kContentX + 1, labelY + 1, chop ? SliceName(note) : drum.empty() ? NoteName(note) : std::string(drum), kBlack, Font::Micro);
   }
   // Beats, the selection and the playhead.
   for (std::size_t step = 0; step <= steps; step += 4)
@@ -876,6 +1071,11 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   const std::size_t first = seq.firstViewStep;
   const Color trackColor = TrackColor(state.track);
   const bool drums = controller.DrumTrack();
+  // A chop has a row per slice in play, slice 1 on top, as the kit has a row per drum.
+  const bool chop = controller.ChopTrack();
+  const bool lanes = drums || chop;
+  const int laneCount = drums ? static_cast<int>(kDrumNotes.size()) : chop ? static_cast<int>(controller.ChopSliceCount()) : 0;
+  const auto laneNote = [&](int lane) { return drums ? static_cast<int>(kDrumNotes[static_cast<std::size_t>(lane)]) : synth::ChopSliceNote(static_cast<std::size_t>(lane)); };
   const bool playingHere = seq.playing && seq.currentStep >= first && seq.currentStep < first + kGridCount;
 
   // How hard each note is held on the pads (0: not held), chord tones too.
@@ -892,13 +1092,15 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   std::array<std::size_t, kGridCount> counts{};
   for (std::size_t step = 0; step < kGridCount; ++step) counts[step] = sequencer.StepNoteEvents(state.track, first + step, notes[step]);
   // The drum or note the GRID shows: the one the pads chose last.
-  const int picked = drums ? kDrumNotes[controller.DrumLane()] : (state.noteLane[state.track] == kNoNote ? -1 : state.noteLane[state.track]);
+  const int picked = drums ? kDrumNotes[controller.DrumLane()]
+                     : chop  ? synth::ChopSliceNote(controller.ChopSlice())
+                             : (state.noteLane[state.track] == kNoNote ? -1 : state.noteLane[state.track]);
 
   // The rows. A melodic track's: from the highest pitch down, the pads' range at this octave widened
   // for notes of the page, held and chosen notes outside it; at most 41 rows, around the pads' middle.
   int low = 0, high = 0;
-  int rows = static_cast<int>(kDrumNotes.size());
-  if (!drums)
+  int rows = laneCount;
+  if (!lanes)
   {
     int padLow = 128, padHigh = -1;
     for (std::size_t row = 0; row < kRows; ++row)
@@ -934,18 +1136,20 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     rows = high - low + 1;
   }
   const auto rowOf = [&](int note) {
-    if (!drums) return note < low || note > high ? -1 : high - note;
-    for (std::size_t lane = 0; lane < kDrumNotes.size(); ++lane)
-      if (kDrumNotes[lane] == note) return static_cast<int>(lane);
+    if (!lanes) return note < low || note > high ? -1 : high - note;
+    for (int lane = 0; lane < laneCount; ++lane)
+      if (laneNote(lane) == note) return lane;
     return -1;
   };
-  const auto noteOf = [&](int row) { return drums ? static_cast<int>(kDrumNotes[static_cast<std::size_t>(row)]) : high - row; };
+  const auto noteOf = [&](int row) { return lanes ? laneNote(row) : high - row; };
   const int chosen = picked >= 0 ? rowOf(picked) : -1;
 
-  const int label = drums ? 14 : 20;
+  const int label = lanes ? 14 : 20;
   constexpr int kColumn = 5;
   constexpr int kMatrixWidth = kColumn * static_cast<int>(kGridCount);
-  const int rowHeight = drums ? kContentHeight / static_cast<int>(kDrumNotes.size()) : std::max(2, kContentHeight / rows);
+  const int rowHeight = lanes ? kContentHeight / laneCount : std::max(2, kContentHeight / rows);
+  // Rows tall enough for a drum's marks: the kit's eight, a chop's eight.
+  const bool tall = lanes && rowHeight >= 9;
   const int matrixHeight = rowHeight * rows;
   const int x0 = kContentX + label;
   const int top = kContentY + (kContentHeight - matrixHeight) / 2;
@@ -958,14 +1162,16 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     const int note = noteOf(row);
     const std::uint8_t held = heldVelocity[static_cast<std::size_t>(note)];
     const int pitch = note % 12;
-    if (!drums && (pitch == 1 || pitch == 3 || pitch == 6 || pitch == 8 || pitch == 10)) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight}, kShade, 3);
-    // Lit across: a drum as dense as its pad hits (the four pad rows), a note a checker.
-    if (held != 0) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight - (drums ? 1 : 0)}, kInk, drums ? DrumDensity(held) : 8);
-    else if (row == chosen) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight - (drums ? 1 : 0)}, kShade, 8);
-    if (!drums && pitch == 0) g.DottedHLine(x0, y + rowHeight - 1, kMatrixWidth, kShade, 2);
+    if (!lanes && (pitch == 1 || pitch == 3 || pitch == 6 || pitch == 8 || pitch == 10)) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight}, kShade, 3);
+    // Lit across: a drum (a slice) as dense as its pad hits (the four pad rows), a note a checker.
+    if (held != 0) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight - (lanes ? 1 : 0)}, kInk, lanes ? DrumDensity(held) : 8);
+    else if (row == chosen) g.Dither(Rect{x0, y, kMatrixWidth, rowHeight - (lanes ? 1 : 0)}, kShade, 8);
+    if (!lanes && pitch == 0) g.DottedHLine(x0, y + rowHeight - 1, kMatrixWidth, kShade, 2);
+    // A chop's rows in fours, as its pads are.
+    if (chop && row % 4 == 0 && row > 0) g.DottedHLine(x0, y, kMatrixWidth, kFaint, 2);
   }
   // Beats (melodic: the rows are too thin for the dots of the drum rows), the selected steps' columns.
-  if (!drums)
+  if (!lanes)
     for (int step = 0; step <= steps; step += 4)
       for (int y = top; y < top + matrixHeight; y += 2) g.Pixel(x0 + step * kColumn, y, step % 16 == 0 ? kDim : kShade);
   for (int step = 0; step < steps; ++step)
@@ -980,6 +1186,29 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     {
       if (lit) g.Fill(Rect{kContentX, y, label - 2, rowHeight - 1}, kInk);
       g.Text(kContentX + 1, y + (rowHeight - 6) / 2, kDrumNames[static_cast<std::size_t>(row)], lit ? kBlack : kDim, Font::Micro);
+      for (int step = 0; step < steps; ++step)
+      {
+        bool hit = false;
+        for (std::size_t slot = 0; slot < counts[static_cast<std::size_t>(step)]; ++slot) hit = hit || notes[static_cast<std::size_t>(step)][slot].note == note;
+        if (!hit && heldVelocity[static_cast<std::size_t>(note)] == 0) g.Pixel(x0 + step * kColumn + 2, y + rowHeight / 2, step % 4 == 0 ? kFaint : kShade);
+      }
+      continue;
+    }
+    if (chop)
+    {
+      // Numbers: every slice in rows of eight, every fourth in sixteen (and the lit ones).
+      const std::string number = std::to_string(row + 1);
+      if (tall)
+      {
+        if (lit) g.Fill(Rect{kContentX, y, label - 2, rowHeight - 1}, kInk);
+        g.Text(kContentX + 1, y + (rowHeight - 6) / 2, number, lit ? kBlack : kDim, Font::Micro);
+      }
+      else if (lit || row % 4 == 0)
+      {
+        const int labelY = std::clamp(y + rowHeight / 2 - 4, kContentY, kContentBottom - 8);
+        if (lit) g.Fill(Rect{kContentX, labelY, label - 2, 8}, kInk);
+        g.Text(kContentX + 1, labelY + 1, number, lit ? kBlack : kDim, Font::Micro);
+      }
       for (int step = 0; step < steps; ++step)
       {
         bool hit = false;
@@ -1006,13 +1235,13 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
       const int late = note.microstep;
       const int x = x0 + step * kColumn + late * (kColumn - 3) / (synth::kSequencerMicrostepCount - 1);
       // On the beat it fills the step; off it, a sliver where in the step it falls.
-      const Rect mark = drums ? Rect{x, y + 2, late == 0 ? kColumn - 1 : 2, rowHeight - 5}
-                              : Rect{x, y, late == 0 ? kColumn - 1 : 2, std::max(1, rowHeight - 1)};
+      const Rect mark = tall ? Rect{x, y + 2, late == 0 ? kColumn - 1 : 2, rowHeight - 5}
+                             : Rect{x, y, late == 0 ? kColumn - 1 : 2, std::max(1, rowHeight - 1)};
       const std::uint8_t held = heldVelocity[note.note & 0x7F];
       const bool strong = held != 0 || row == chosen || seq.steps[static_cast<std::size_t>(step)].held;
-      if (strong) g.Fill(Rect{mark.x - 1, mark.y - (drums ? 1 : 0), mark.width + 2, mark.height + (drums ? 2 : 0)}, kBlack);
+      if (strong) g.Fill(Rect{mark.x - 1, mark.y - (tall ? 1 : 0), mark.width + 2, mark.height + (tall ? 2 : 0)}, kBlack);
       if (head) g.Fill(mark, kPlay);
-      else if (drums) g.Dither(mark, trackColor, held != 0 ? std::max(8, DrumDensity(note.velocity)) : DrumDensity(note.velocity));
+      else if (lanes) g.Dither(mark, trackColor, held != 0 ? std::max(8, DrumDensity(note.velocity)) : DrumDensity(note.velocity));
       else g.Dither(mark, trackColor, strong ? 16 : 6 + note.velocity * 10 / 127);
     }
   }
@@ -1029,7 +1258,10 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
   const int nameHeight = 11;
   const int gridTop = kContentY + nameHeight;
   const int cellHeight = (kContentBottom - gridTop - 3 * kGap) / 4;
-  const std::string chosenName = picked < 0 ? std::string("PADS: A NOTE") : drums ? std::string(kDrumNames[controller.DrumLane()]) : NoteName(picked);
+  const std::string chosenName = picked < 0 ? std::string("PADS: A NOTE")
+                                 : drums    ? std::string(kDrumNames[controller.DrumLane()])
+                                 : chop     ? "SLICE " + SliceName(picked)
+                                            : NoteName(picked);
   g.TextFit(left, kContentY + 1, kContentRight - left, chosenName, picked < 0 ? kFaint : kInk, picked < 0 ? Font::Micro : Font::Small);
   for (std::size_t index = 0; index < kGridCount; ++index)
   {

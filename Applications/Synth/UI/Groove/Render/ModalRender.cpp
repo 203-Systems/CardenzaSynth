@@ -151,10 +151,11 @@ void DrawConfirm(Gfx& g, Animator& animator, const Modal& modal)
 void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, const Modal& modal)
 {
   Title(g, "ENGINE  T" + std::to_string(controller.State().track + 1), kTab);
-  static constexpr std::array<const char*, 4> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT"}};
-  for (std::size_t index = 0; index < modal.items.size() && index < 4; ++index)
+  static constexpr std::array<const char*, 5> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT", "SLICED SAMPLE"}};
+  // Four to a row, each a row under its GRID key (the title takes the first).
+  for (std::size_t index = 0; index < modal.items.size() && index < 8; ++index)
   {
-    const Rect cell = Cell(1, index);
+    const Rect cell = Cell(1 + index / kGridColumns, index % kGridColumns);
     const bool selected = index == modal.cursor;
     const auto& item = modal.items[index];
     if (selected)
@@ -166,8 +167,9 @@ void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, 
     g.TextFit(cell.x + 3, cell.y + 3, cell.width - 5, item.label, selected ? kBlack : kInk, Font::Small);
     if (item.marked) g.Text(cell.x + 3, cell.y + 15, "NOW", selected ? kBlack : kTab);
   }
+  const std::size_t detailColumn = modal.items.size() > kGridColumns ? modal.items.size() - kGridColumns : 0;
   if (modal.cursor < kDetails.size())
-    fx::DecodeText(g, Cell(2, 0).x, Cell(2, 0).y + 6, kDetails[modal.cursor], kDim, Font::Micro,
+    fx::DecodeText(g, Cell(2, detailColumn).x + (detailColumn > 0 ? 3 : 0), Cell(2, 0).y + 6, kDetails[modal.cursor], kDim, Font::Micro,
                    fx::Progress(animator.Now(), animator.ModalOpenedAt(), 400), static_cast<std::uint32_t>(modal.cursor) + animator.Now() / 50);
   g.Text(Cell(3, 0).x, Cell(3, 0).y + 6, "THE TRACK SOUND IS REPLACED", kFaint);
 }

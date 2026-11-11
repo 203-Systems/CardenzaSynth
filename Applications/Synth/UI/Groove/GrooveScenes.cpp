@@ -1,4 +1,5 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
+#include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
 #include "OS/Storage/DeviceSettings.h"
 
 #include <algorithm>
@@ -69,9 +70,31 @@ bool Controller::SlotValue(const Slot& slot, synth::SynthParameterInfo& info, st
   if (!slot.IsParameter()) return false;
   if (SettingValue(slot.id, info, text)) return true;
   const synth::ISynthEngine* engine = ActiveEngine();
-  if (engine == nullptr || !engine->GetParameterInfo(slot.id, info)) return false;
-  text = engine->DescribeParameterValue(slot.id);
+  const std::string id = EngineParameterId(slot.id);
+  if (engine == nullptr || !engine->GetParameterInfo(id, info)) return false;
+  text = engine->DescribeParameterValue(id);
+  // A chop's point says where it is in the sample, when there is one.
+  synth::ChopField field = synth::ChopField::Start;
+  std::size_t slice = 0;
+  const auto sample = ChopTrack() && synth::ParseChopParameterId(id, slice, field) && (field == synth::ChopField::Start || field == synth::ChopField::End)
+                          ? host_.Sampler().BuildUiState(state_.track)
+                          : synth::SamplerTrackUiState{};
+  if (sample.hasSample && sample.sampleRate > 0)
+  {
+    const auto frame = static_cast<long long>(sample.frameCount) * info.value / synth::kChopPositionMax;
+    const long long millis = frame * 1000 / sample.sampleRate;
+    char seconds[24];
+    std::snprintf(seconds, sizeof(seconds), "%lld.%03lldS", millis / 1000, millis % 1000);
+    text = seconds;
+  }
   return true;
+}
+
+std::string Controller::EngineParameterId(const char* id) const
+{
+  synth::ChopField field = synth::ChopField::Start;
+  if (id != nullptr && ChopTrack() && synth::ParseChopFieldAlias(id, field)) return synth::ChopParameterId(ChopSlice(), field);
+  return id != nullptr ? std::string(id) : std::string();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -595,7 +618,7 @@ void Controller::SetCellParameter(std::size_t index, int value)
   if (slot != nullptr)
   {
     if (IsSetting(slot->id)) AdjustSetting(slot->id, value - info.value);
-    else if (synth::ISynthEngine* engine = ActiveEngine(); engine != nullptr && engine->SetParameterValue(slot->id, value)) MarkDirty();
+    else if (synth::ISynthEngine* engine = ActiveEngine(); engine != nullptr && engine->SetParameterValue(EngineParameterId(slot->id), value)) MarkDirty();
     return;
   }
   const std::size_t track = index % kGridColumns;
@@ -664,10 +687,78 @@ void Controller::InstrumentAdjust(int delta, bool coarse)
   }
   synth::ISynthEngine* engine = ActiveEngine();
   synth::SynthParameterInfo info;
-  if (engine == nullptr || !engine->GetParameterInfo(slot.id, info)) return;
+  const std::string id = EngineParameterId(slot.id);
+  if (engine == nullptr || !engine->GetParameterInfo(id, info)) return;
   int scaled = delta;
   if (coarse) scaled *= info.maxValue - info.minValue >= 40 ? 10 : 3;
-  if (engine->AdjustParameterValue(slot.id, scaled)) MarkDirty();
+  // A chop's point moves a pixel of the waveform on its page at a time, however far it is magnified.
+  synth::ChopField field = synth::ChopField::Start;
+  std::size_t slice = 0;
+  if (ChopTrack() && synth::ParseChopParameterId(id, slice, field) && (field == synth::ChopField::Start || field == synth::ChopField::End))
+  {
+    const ChopWindow& window = ChopView();
+    scaled *= std::max(1, (window.last - window.first) / kChopWaveformWidth);
+  }
+  if (engine->AdjustParameterValue(id, scaled)) MarkDirty();
+}
+
+void Controller::KeepChopWindow()
+{
+  if (!ChopTrack()) return;
+  const synth::ISynthEngine* engine = ActiveEngine();
+  synth::SynthParameterInfo start, end;
+  const std::size_t slice = ChopSlice();
+  if (engine == nullptr || !engine->GetParameterInfo(synth::ChopParameterId(slice, synth::ChopField::Start), start) ||
+      !engine->GetParameterInfo(synth::ChopParameterId(slice, synth::ChopField::End), end))
+    return;
+  ChopWindow& window = state_.chopWindow[state_.track];
+  const int length = end.value - start.value;
+  if (window.slice != static_cast<int>(slice) || window.last <= window.first)
+  {
+    // The slice with as much again around it, at least a sixty-fourth of the file.
+    const int span = std::clamp(length * 2, synth::kChopPositionMax / 64, synth::kChopPositionMax);
+    window.first = std::clamp((start.value + end.value - span) / 2, 0, synth::kChopPositionMax - span);
+    window.last = window.first + span;
+    window.slice = static_cast<int>(slice);
+    return;
+  }
+  // A point near an edge takes the window along, as it is.
+  const int span = window.last - window.first;
+  const int margin = span / 20;
+  const int low = std::min(start.value, end.value);
+  const int high = std::max(start.value, end.value);
+  int shift = 0;
+  if (high - low > span - 2 * margin)
+  {
+    // The slice outgrew it: fitted again.
+    window.slice = -1;
+    KeepChopWindow();
+    return;
+  }
+  if (low < window.first + margin) shift = low - margin - window.first;
+  else if (high > window.last - margin) shift = high + margin - window.last;
+  window.first = std::clamp(window.first + shift, 0, synth::kChopPositionMax - span);
+  window.last = window.first + span;
+}
+
+// Equal slices from the first slice's start to the last one's end: the quick way to cut a bar of a
+// longer file evenly.
+void Controller::ChopEven()
+{
+  synth::ISynthEngine* engine = ActiveEngine();
+  if (engine == nullptr || !ChopTrack()) return;
+  const std::size_t slices = ChopSliceCount();
+  synth::SynthParameterInfo first, last;
+  if (!engine->GetParameterInfo(synth::ChopParameterId(0, synth::ChopField::Start), first) ||
+      !engine->GetParameterInfo(synth::ChopParameterId(slices - 1, synth::ChopField::End), last))
+    return;
+  const synth::ChopPoints points = synth::ChopEvenPoints(first.value, last.value, slices);
+  // In order: each point lands at or past the one before, so none carries another away.
+  for (std::size_t index = 0; index < points.size(); ++index)
+    (void)engine->SetParameterValue(synth::ChopParameterId(index / 2, index % 2 == 0 ? synth::ChopField::Start : synth::ChopField::End), points[index]);
+  state_.chopWindow[state_.track].slice = -1;
+  MarkDirty();
+  ShowToast(std::to_string(slices) + " EVEN SLICES", ToastKind::Ok);
 }
 
 void Controller::InstrumentEnter()
@@ -689,7 +780,7 @@ void Controller::InstrumentEnter()
     if (info.value >= info.maxValue)
     {
       if (IsSetting(slot.id)) StepSetting(slot.id);
-      else if (synth::ISynthEngine* engine = ActiveEngine(); engine != nullptr && engine->SetParameterValue(slot.id, info.minValue)) MarkDirty();
+      else if (synth::ISynthEngine* engine = ActiveEngine(); engine != nullptr && engine->SetParameterValue(EngineParameterId(slot.id), info.minValue)) MarkDirty();
     }
     else InstrumentAdjust(1, false);
   }
@@ -707,7 +798,8 @@ void Controller::InstrumentReset()
   }
   synth::ISynthEngine* engine = ActiveEngine();
   synth::SynthParameterInfo info;
-  if (engine != nullptr && engine->GetParameterInfo(slot.id, info) && engine->SetParameterValue(slot.id, info.defaultValue))
+  const std::string id = EngineParameterId(slot.id);
+  if (engine != nullptr && engine->GetParameterInfo(id, info) && engine->SetParameterValue(id, info.defaultValue))
   {
     MarkDirty();
     ShowToast(std::string(slot.label) + " DEFAULT");
@@ -821,7 +913,7 @@ void Controller::StepKeyPress(std::size_t index)
     // Drums go in as hard as the row of the pad that holds them; melodic notes at the track's
     // new-note velocity.
     std::array<std::uint8_t, kRows * kPadColumns> velocities{};
-    const bool drums = ActiveKind() == synth::SynthEngineKind::Drums;
+    const bool drums = ActiveKind() == synth::SynthEngineKind::Drums || (ChopTrack() && ChopRowVelocity(ChopSliceCount()));
     for (std::size_t held = 0; drums && held < count; ++held)
       for (std::size_t pad = 0; pad < state_.padNote.size(); ++pad)
         if (state_.padNote[pad] == notes[held] && state_.padTrack[pad] == state_.track)
@@ -907,6 +999,23 @@ bool Controller::DrumLayout() const
   return DrumTrack() && state_.record.drumView == SeqView::Step;
 }
 
+bool Controller::ChopTrack() const
+{
+  return ActiveKind() == synth::SynthEngineKind::Chop;
+}
+
+std::size_t Controller::ChopSliceCount() const
+{
+  synth::SynthParameterInfo info;
+  const synth::ISynthEngine* engine = ActiveEngine();
+  return engine != nullptr && engine->GetParameterInfo(synth::kChopSlicesId, info) && info.value == 0 ? synth::kChopFewSlices : synth::kChopSliceCount;
+}
+
+std::size_t Controller::ChopSlice() const
+{
+  return std::min<std::size_t>(state_.chopSlice[state_.track], ChopSliceCount() - 1);
+}
+
 void Controller::SequenceGrid(std::size_t index)
 {
   auto& sequencer = host_.Sequencer();
@@ -984,9 +1093,9 @@ void Controller::SequenceAdjust(int delta, bool coarse)
       {
         // On a drum track the pads pick the drum: the NOTE lane does not move hits to pitches that
         // are no drum (OK goes on to the length, velocity and timing).
-        if (DrumTrack() && ui.editLane == synth::SequencerEditLane::Note)
+        if ((DrumTrack() || ChopTrack()) && ui.editLane == synth::SequencerEditLane::Note)
         {
-          ShowHud("NOTE", "PADS PICK DRUMS");
+          ShowHud("NOTE", DrumTrack() ? "PADS PICK DRUMS" : "PADS PICK SLICES");
           return;
         }
         if (sequencer.AdjustSelectedSteps(delta, coarse)) MarkDirty();
@@ -1619,6 +1728,11 @@ MenuItems Controller::Menu() const
         put(9, MenuAction::SampleRecord, "RECORD", "SAMPLE");
         put(10, MenuAction::SamplePreview, "PREVIEW", "SAMPLE");
       }
+      if (ChopTrack())
+      {
+        put(8, MenuAction::SampleFiles, "SAMPLES", "FILES");
+        put(9, MenuAction::ChopEven, "EVEN", "INTO " + std::to_string(ChopSliceCount()));
+      }
       break;
     }
     case Scene::Sequence:
@@ -1750,6 +1864,9 @@ void Controller::RunMenuAction(const MenuItem& item)
     case MenuAction::SampleFiles: RunSlotAction(SlotAction::SampleFile); break;
     case MenuAction::SampleRecord: RunSlotAction(SlotAction::SampleRecord); break;
     case MenuAction::SamplePreview: RunSlotAction(SlotAction::SamplePreview); break;
+    case MenuAction::ChopEven:
+      OpenConfirm(ConfirmPurpose::ChopEven, "EVEN SLICES?", "THE SLICE POINTS ARE REPLACED", true);
+      break;
     case MenuAction::Default:
     case MenuAction::Scope:
     case MenuAction::Capture:

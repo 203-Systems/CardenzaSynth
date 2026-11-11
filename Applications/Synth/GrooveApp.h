@@ -79,6 +79,7 @@ public:
   void SetMasterVolume(std::uint8_t percent) override;
   std::uint8_t MasterVolume() const override;
   float TrackActivity(std::size_t track) const override;
+  std::int32_t ChopPlayhead(std::size_t track) const override;
   float OutputPeak() const override;
   void SetMasterFx(std::size_t param, int value) override;
   int MasterFx(std::size_t param) const override;
@@ -209,7 +210,7 @@ private:
   std::uint32_t (*clock_)() = nullptr;
   HeapProbe heapProbe_ = nullptr;
   // By SynthEngineKind: the most an engine of the kind gave back when destroyed (0 = none yet).
-  std::array<std::size_t, 5> engineBytes_{};
+  std::array<std::size_t, synth::kSynthEngineKindCount> engineBytes_{};
   synth::SynthRack rack_;
   synth::SamplerManager sampler_;
   synth::SynthSequencer sequencer_;

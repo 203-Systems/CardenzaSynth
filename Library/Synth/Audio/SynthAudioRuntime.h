@@ -96,6 +96,8 @@ bool TrackMuted(std::size_t engineIndex);
 float TrackActivity(std::size_t engineIndex);
 // Decaying (~300 ms) peak of the final mono output after the soft clipper, 0..1 of full scale.
 float OutputPeak();
+// The frame of its sample a chop track plays now (its newest slice), -1 when none.
+std::int32_t ChopPlayhead(std::size_t engineIndex);
 
 // Effects (see SynthFx.h). Track inserts and sends arrive as "fx.*" engine parameters through
 // SetEngineParameter; they reset to their defaults when a track changes engine or loads a preset.
