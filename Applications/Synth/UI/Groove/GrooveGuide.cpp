@@ -1,6 +1,5 @@
 // The guide's side of the controller: the hint lights (ComputeLeds), where a lesson starts, and the
-// state a lesson page checks its steps against. GrooveApp carries the messages (docs/groovebox-design.md,
-// 教程模式).
+// state a lesson page checks its steps against. GrooveAppGuide.cpp carries the messages.
 
 #include "Applications/Synth/UI/Groove/GrooveController.h"
 

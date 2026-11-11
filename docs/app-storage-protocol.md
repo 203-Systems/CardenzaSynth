@@ -227,7 +227,7 @@ project under the name of the one before.
 - Room: two projects do not always fit in RAM side by side. A load or NEW that does not fit first
   writes the autosave and lets go of the current patterns, and brings them back from it when it still
   fails; without a card (or during a lesson) it says `NO MEMORY` instead.
-- The guide (a lesson page driving the device, docs/groovebox-design.md) writes it before it starts,
+- The guide (a lesson page driving the device, Applications/Synth/GrooveAppGuide.cpp) writes it before it starts,
   writes nothing while its practice project runs, and restores it when it ends. Without a card the
   guide does not start.
 - Without a card at the start there is no autosave: nothing is restored and nothing written.

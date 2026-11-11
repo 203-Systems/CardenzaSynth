@@ -235,7 +235,7 @@ def sysex_command(code, seconds=1.5):
 
 
 def guide():
-    """The guide link (CardenzaSynth docs/groovebox-design.md) as the Learn page uses it, over SysEx
+    """The guide link (Applications/Synth/GrooveAppGuide.cpp) as the Learn page uses it, over SysEx
     F0 23 7F <text> F7: start, a lesson start, the state, a key from the page, the end."""
     port, error = midi()
     if port is None:

@@ -5,3 +5,5 @@
 
 # Drawn from the firmware by tools/wiki/generate.py
 /generated
+.vercel
+.env*

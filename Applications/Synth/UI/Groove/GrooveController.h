@@ -507,8 +507,8 @@ public:
   // Levels only (no effects), for callers that do not animate.
   void ComputeLeds(std::array<std::uint8_t, kKeyCount>& levels) const;
 
-  // The guide: a lesson page on a computer drives the device (GrooveApp's guide link,
-  // docs/groovebox-design.md). The header says GUIDE, and the keys of the step are lit (bit
+  // The guide: a lesson page drives the device (Applications/Synth/GrooveAppGuide.cpp).
+  // The header says GUIDE, and the keys of the step are lit (bit
   // KeyIndex(row, column) of `keys`): blinking while the step waits for the user, steady once it is
   // learned and the user tries more keys.
   void SetGuide(bool on);

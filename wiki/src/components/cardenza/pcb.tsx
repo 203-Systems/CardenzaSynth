@@ -15,10 +15,12 @@ export const HOME = {x: 51.48, y: 22.28, w: 9.35, h: 13.18};
 /** The key area: the legends of the top row down to the LEDs of the bottom row. */
 const KEYS_VIEW = {x: 0, y: 62.4, w: BOARD.w, h: BOARD.h - 62.4};
 /** The device as one white board: above its keys, its display (the LCD module), magnified so the screen
- *  reads (60% of the width; on the board it is a quarter) on the same board, the parts around it left out,
- *  so the picture is one device at one scale and not a magnified top over a plain one. */
-const FACE = {screenW: 151, margin: 7, frame: 3.2};
-const FACE_SCREEN_H = (FACE.screenW * 135) / 240;
+ *  reads, as wide as the keys: its edges on the outer edges of the first and the last column, so nothing
+ *  beside it is empty (on the board it is a quarter of the width). The parts around it are left out, so
+ *  the picture is one device and not a magnified top over a plain one. */
+const FACE = {left: SWITCH.x, right: SWITCH.x + 13 * SWITCH.dx + SWITCH.w, margin: 6, frame: 3.2};
+const FACE_SCREEN_W = FACE.right - FACE.left - 2 * FACE.frame;
+const FACE_SCREEN_H = (FACE_SCREEN_W * 135) / 240;
 const FACE_TOP = FACE.margin * 2 + FACE.frame * 2 + FACE_SCREEN_H;
 /** Under the display, the board from its printed row of labels (203 Systems | Cardenza, ESP32-S3, ...)
  *  down: cut there it has no seam. */
@@ -170,16 +172,16 @@ export function usePcbKeys({levels, marks, first = 1, focusOnly = false, badgeAl
     );
     return {svg, items};
   }
-  const sx = (BOARD.w - FACE.screenW) / 2;
+  const sx = FACE.left + FACE.frame;
   const sy = FACE.margin + FACE.frame;
   const shift = FACE_TOP - FACE_KEYS_Y;
   const height = FACE_TOP + BOARD.h - FACE_KEYS_Y;
   const svg = (
     <svg className="cz-pcb cz-pcb-face" viewBox={`0 0 ${BOARD.w} ${height}`} role="img" aria-label={label}>
       <rect className="cz-pcb-board" x="0" y="0" width={BOARD.w} height={height} />
-      <rect className="cz-pcb-module" x={sx - FACE.frame} y={sy - FACE.frame} width={FACE.screenW + FACE.frame * 2}
+      <rect className="cz-pcb-module" x={sx - FACE.frame} y={sy - FACE.frame} width={FACE_SCREEN_W + FACE.frame * 2}
         height={FACE_SCREEN_H + FACE.frame * 2} rx="2.4" />
-      <svg x={sx} y={sy} width={FACE.screenW} height={FACE_SCREEN_H} viewBox="0 0 240 135" preserveAspectRatio="none" overflow="visible">
+      <svg x={sx} y={sy} width={FACE_SCREEN_W} height={FACE_SCREEN_H} viewBox="0 0 240 135" preserveAspectRatio="none" overflow="visible">
         {screen}
       </svg>
       <g transform={`translate(0 ${shift})`}>{keyArea}</g>

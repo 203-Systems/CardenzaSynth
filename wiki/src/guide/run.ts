@@ -17,6 +17,8 @@ export type DeviceStep = {
   marks: string[];
   lights: boolean;
   keymarks: [string, Words][];
+  /** What the step says on another keyboard layout than PIANO (DeviceState z: 1 SCALE, 2 CHROMA). */
+  byLayout?: Record<string, {say: Words}>;
 };
 export type Lesson = {
   id: string;
@@ -44,6 +46,14 @@ const KEYS_PER_MESSAGE = 29;
 
 /** The pads that make no sound in the device's keyboard: PIANO's gaps (before C#, between E and F,
  *  after A#) on a melodic track. Without a device's state, the PIANO of a new project. */
+/** The step as the device's keyboard (the user's) has it: a step that names PIANO's keys has words of
+ *  its own for SCALE and CHROMA. null: as written (PIANO, or no device following). */
+export function layoutVariant(step: DeviceStep, state: DeviceState | null | undefined): {say: Words; layout: number} | null {
+  if (!state || state.z === undefined || state.z === 0 || state.e === 4) return null;
+  const variant = step.byLayout?.[String(state.z)];
+  return variant ? {say: variant.say, layout: state.z as number} : null;
+}
+
 export function silentPads(state: DeviceState | null | undefined): Set<number> {
   const silent = new Set<number>();
   const layout = state && state.z !== undefined ? state.z : 0;

@@ -2909,7 +2909,7 @@ void TestGuide(Harness& h)
 // Every cell of every page of every scene, on every engine, stopped and playing: moved both ways, in
 // big steps to both ends, ENTER, picked from the pads; then every parameter of every engine at both ends,
 // and every preset. Whatever falls over here shows as an assertion or under ASan. Running out of memory
-// does not show on a host: see the on-board sweep in docs/groovebox-design.md.
+// does not show on a host: see the on-board sweep in Applications/Synth/StressTest.cpp.
 void TestEveryParameter(Harness& h)
 {
   using Kind = synth::SynthEngineKind;

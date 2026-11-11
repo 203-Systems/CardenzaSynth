@@ -1,6 +1,6 @@
 // The guide link: a lesson page on a computer (wiki/src/guide/device.ts) talks to the firmware in short
 // text messages (Device::USB app messages: over USB, or from the page around the web simulator). The
-// protocol is in docs/groovebox-design.md (教程模式); in short, every message starts with G:
+// protocol is listed below; every message starts with G:
 //
 //   page -> device                          device -> page
 //   G?        protocol and guide state      G!1 g<0|1>

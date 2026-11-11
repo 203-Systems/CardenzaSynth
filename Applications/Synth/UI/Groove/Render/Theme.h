@@ -6,7 +6,7 @@
 
 #include "OS/UI/Canvas.h"
 
-// Terminal / neo-minimal / dither palette and layout grid. See docs/groovebox-design.md section 5.
+// Terminal / neo-minimal / dither palette and layout grid.
 namespace groove::theme {
 
 using ui::Color;

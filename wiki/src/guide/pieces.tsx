@@ -10,7 +10,7 @@ import {Legend, useScreen} from '@site/src/components/cardenza/figures';
 import {usePcbKeys} from '@site/src/components/cardenza/pcb';
 import {GUIDE, GUIDE_LEDS, lessonPath, loadAnim, type AnimPlayer} from './data';
 import {REASONS, STATUS, device, useDevice} from './device';
-import {silentPads, type DeviceStep} from './run';
+import {layoutVariant, silentPads, type DeviceStep} from './run';
 import {clearDone, requestRestart, toast, useProgress, useToast} from './store';
 import {useSay} from './text';
 import './guide.css';
@@ -174,20 +174,28 @@ export function StepPicture({step, pressed}: {step: DeviceStep; pressed?: Set<nu
   const lang = useLang();
   // The pads the device's keyboard leaves silent (as it lights them), or a new project's PIANO.
   const d = useDevice();
-  const silent = silentPads(d?.connected() && d.guide ? d.state : null);
+  const live = d?.connected() && d.guide ? d.state : null;
+  const silent = silentPads(live);
+  // On the user's SCALE or CHROMA keyboard every pad plays: the picture lights them all, and the PIANO
+  // keys' frames (black, white) are not shown.
+  const variant = layoutVariant(step, live);
   const screen = useScreen({shot: step.shot, marks: step.marks.map((at) => ({at})), light: true, alt: step.say.en});
-  const lit = step.lights ? GUIDE_LEDS[step.shot] ?? null : null;
-  const plain = !lit && !step.keymarks.length;
+  const shotLit = step.lights ? GUIDE_LEDS[step.shot] ?? null : null;
+  const lit = shotLit && variant
+    ? shotLit.map((row) => row.map((level, column) => (column >= 1 && column <= 8 ? Math.max(level, 6) : level)))
+    : shotLit;
+  const keymarks = variant ? [] : step.keymarks;
+  const plain = !lit && !keymarks.length;
   const keys = usePcbKeys(plain
     ? {levels: null, focusOnly: true, pressed, label: step.say.en, screen: screen.inner, silent,
       marks: step.keySpec.split(/\s+/).filter(Boolean).map((token) => ({keys: token}))}
     : {levels: lit, focusOnly: !lit, badgeAll: true, pressed, label: step.say.en, screen: screen.inner,
-      marks: step.keymarks.map(([spec, label]) => ({keys: spec, label: label[lang]}))});
+      marks: keymarks.length ? keymarks.map(([spec, label]) => ({keys: spec, label: label[lang]})) : [{keys: step.keySpec}]});
   return (
     <div className="st-page">
       <div className="st-keys">
         <div className="cz-device">{keys.svg}</div>
-        {step.keymarks.length > 0 && <Legend items={keys.items} rows={Math.ceil(step.keymarks.length / 2)} />}
+        {keymarks.length > 0 && <Legend items={keys.items} rows={Math.ceil(keymarks.length / 2)} />}
       </div>
     </div>
   );

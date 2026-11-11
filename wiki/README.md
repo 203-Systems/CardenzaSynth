@@ -22,7 +22,25 @@ translation, the 203 navbar and footer. `make learn` builds it into `build/web/s
 The guide's lessons are `docs/learn/guide.json` (see `tools/wiki/lessons.py` for its fields); the
 manual's version is `docs/learn/manual.json`.
 
-## Build
+## Production deployment
+
+The `cardenza-learn` project in Vercel's `203nulls-projects` team is connected directly to the public
+`203-Systems/CardenzaSynth` repository. Every push to `main` builds and deploys to
+https://cardenza.203.io; other branches and pull requests get preview deployments. No fork, deploy
+hook or GitHub deployment token is required.
+
+Vercel uses the repository-root `vercel.json` and `tools/learn-build.sh`. It installs the website
+dependencies, builds `CardenzaSimShot` and `CardenzaLearnDump` from the pinned public submodules,
+and generates the lesson data and screenshots. It then builds both Docusaurus languages and runs
+the search regression tests. A failed lesson, build or search test leaves the previous production
+site live. The firmware CI remains independent.
+
+`/deployment.json` identifies the deployed Git commit; the search index records it too. To rerun a
+deployment, use **Redeploy** in Vercel. The project root must be the repository root, the output is
+`wiki/build`, and the build command is `bash tools/learn-build.sh`. Do not commit credentials or
+`wiki/.env.local`.
+
+## Local build
 
 ```bash
 make learn

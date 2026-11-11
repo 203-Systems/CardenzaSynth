@@ -8,7 +8,7 @@ import {useLang, useUrls} from '@site/src/components/cardenza/common';
 import {GUIDE, lessonPath, loadAnim, partOf} from './data';
 import {useDevice} from './device';
 import {AnimStage, DeviceLine, GuideLayout, StepPicture, learnAgain} from './pieces';
-import {LessonRun, type DeviceStep, type Lesson} from './run';
+import {LessonRun, layoutVariant, type DeviceStep, type Lesson} from './run';
 import {markDone, setSound, toast, useRestart, useSound} from './store';
 import {GuideText, useSay} from './text';
 
@@ -69,7 +69,7 @@ function DeviceLesson({lesson}: {lesson: Lesson}) {
     return () => lessonRun.dispose();
   }, [lesson]);
   useSyncExternalStore(run ? run.subscribe : noSubscribe, () => (run ? run.version : -1), () => -1);
-  useDevice();
+  const d = useDevice();
   useRestart(lesson.id, () => run?.start());
 
   const steps = lesson.steps as DeviceStep[];
@@ -99,7 +99,7 @@ function DeviceLesson({lesson}: {lesson: Lesson}) {
                 className={'a-dot' + (i === index ? ' on' : '') + (run?.done[i] ? ' done' : '')} onClick={() => run?.dot(i)} />
             ))}
           </div>
-          <p className="anim-text"><GuideText words={step.say} /></p>
+          <p className="anim-text"><GuideText words={layoutVariant(step, d?.connected() && d.guide ? d.state : null)?.say ?? step.say} /></p>
           {learned && (
             <p key={run?.learnedAt} className="anim-pass pop" role="status">
               <span className="pass-badge" aria-hidden="true" />
