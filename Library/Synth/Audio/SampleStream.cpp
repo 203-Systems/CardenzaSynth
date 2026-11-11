@@ -35,27 +35,31 @@ namespace {
 
 constexpr std::size_t kMaxStreams = 8;       // four tracks, plus a project being loaded over them
 constexpr std::size_t kMaxOpenFiles = 3;     // the card driver has five file slots for everything
-// Eight blocks a stream (a quarter of a second of look-ahead, enough for a card that stalls a little),
-// and enough of them for several streams at once: two streams used to be all a project could have.
-constexpr std::size_t kBlocksPerStream = 10;
+// Twenty blocks a stream is 460 ms of look-ahead: an 8 KB block is 93 ms, so twelve cover it and the
+// cache still fits four streams in 384 KB of PSRAM.
+constexpr std::size_t kBlocksPerStream = 12;
+// The card still reads through internal RAM (the driver's DMA cannot address PSRAM), so one scratch
+// block there takes each read and the worker copies it across: two kilobytes, whatever the cache size.
 #if defined(ESP_PLATFORM)
-// Internal RAM, the only kind the card can read into: 40 blocks are 80 KB of the 280 KB heap, four
-// streams with their look-ahead. It used to be 24, which was three streams, and a fourth track - or a
-// chop with a few voices spread over its file - ran the cache out: an evicted block is a gap, and a
-// stream whose start block never fits is a track that never sounds at all.
-constexpr std::size_t kMaxBlocks = 40;
+constexpr std::size_t kMaxBlocks = 80;       // 640 KB of PSRAM at most, six streams deep
 #else
 constexpr std::size_t kMaxBlocks = 40;
 #endif
 constexpr std::size_t kMinBlocks = 4;
-// The blocks stay in internal RAM, which the card reads into by DMA (into PSRAM the driver would fetch
-// one sector per command). They stop where internal RAM is down to this.
-constexpr std::size_t kHeapFloorBytes = 40 * 1024;
+// Blocks fetched in one round of the worker. A round is a few milliseconds of the card; the UI shares
+// this core and needs the rest of the time.
+#if defined(ESP_PLATFORM)
+constexpr std::size_t kReadsPerPump = 3;
+#else
+constexpr std::size_t kReadsPerPump = 64;  // no threads to come back in: finish the job here
+#endif
+// PSRAM left for patterns, projects and the rest of the app before the cache stops growing.
+constexpr std::size_t kSlowReserveBytes = 512 * 1024;
 
 struct Block {
   std::atomic<std::uint32_t> key{0};  // BlockKey, 0 = empty
   std::uint32_t lastUse = 0;
-  std::array<std::int16_t, kStreamBlockFrames> frames{};
+  std::int16_t* frames = nullptr;     // PSRAM: kStreamBlockFrames of them
 };
 
 struct StreamState {
@@ -79,6 +83,10 @@ struct Pool {
   std::array<std::atomic<Block*>, kMaxBlocks> blocks{};
   std::atomic<std::size_t> blockCount{0};
   std::array<std::atomic<std::uint32_t>, kMaxStreamReaders> readers{};
+  // The one block the card reads into: internal RAM, because its driver's DMA cannot address PSRAM.
+  // Each filled block is copied from here into its PSRAM home (2 KB a block, 43 times a second a
+  // stream - nothing next to the render).
+  std::array<std::int16_t, kStreamBlockFrames> scratch{};
   std::uint32_t nextId = 1;
   std::uint32_t clock = 0;
 #if defined(ESP_PLATFORM)
@@ -196,22 +204,41 @@ bool ReadFromFile(Pool& pool, StreamState& stream, std::size_t frame, std::int16
   return true;
 }
 
+void FreeBlock(Block* block)
+{
+  if (block == nullptr) return;
+  memory::FreeSlowArray(block->frames);
+  delete block;
+}
+
 void GrowCache(Pool& pool, std::size_t target)
 {
   std::size_t count = pool.blockCount.load(std::memory_order_relaxed);
   target = std::min(target, kMaxBlocks);
   while (count < target)
   {
-    if (memory::FastFree() < sizeof(Block) + kHeapFloorBytes) break;
+    // PSRAM, where the look-ahead can be long: the block's frames are the only thing worth reserving
+    // there, and each one is 2 KB.
+    if (!memory::SlowRoom(kStreamBlockFrames * sizeof(std::int16_t), kSlowReserveBytes)) break;
     Block* block = new (std::nothrow) Block;
     if (block == nullptr) break;
+    block->frames = static_cast<std::int16_t*>(memory::AllocateSlowArray(kStreamBlockFrames * sizeof(std::int16_t)));
+    if (block->frames == nullptr)
+    {
+      delete block;
+      break;
+    }
+    std::fill(block->frames, block->frames + kStreamBlockFrames, std::int16_t{0});
     pool.blocks[count].store(block, std::memory_order_relaxed);
     pool.blockCount.store(++count, std::memory_order_release);
   }
 }
 
-// One round of the worker: retire released streams, then bring in what the voices need next.
-void Pump(Pool& pool)
+// One round of the worker: retire released streams, then bring in what the voices need next. Only a
+// few blocks a round: the worker sits above the UI on this core, and five streams' look-ahead is
+// nearly half a megabyte - fetched in one go that is half a second with the screen frozen and the
+// keys dead. Returns whether more is waiting, so the caller can come back after a tick.
+bool Pump(Pool& pool)
 {
   std::lock_guard<std::recursive_mutex> lock(pool.io);
   std::size_t live = 0;
@@ -240,8 +267,8 @@ void Pump(Pool& pool)
   {
     // Nothing plays from the card any more: the memory goes back.
     const std::size_t count = pool.blockCount.exchange(0, std::memory_order_acq_rel);
-    for (std::size_t index = 0; index < count; ++index) delete pool.blocks[index].exchange(nullptr, std::memory_order_acq_rel);
-    return;
+    for (std::size_t index = 0; index < count; ++index) FreeBlock(pool.blocks[index].exchange(nullptr, std::memory_order_acq_rel));
+    return false;
   }
   GrowCache(pool, live * kBlocksPerStream);
 
@@ -252,7 +279,8 @@ void Pump(Pool& pool)
   };
   // What is needed, most urgent first: each voice's block and the next, the start of every sample,
   // then one more ahead for each voice. A wanted block is never evicted.
-  std::array<std::uint32_t, kMaxStreamReaders * 3 + kMaxStreams * 2> needs{};
+  // Sized for every stream's whole budget plus its start: the look-ahead below asks for that many.
+  std::array<std::uint32_t, kMaxStreams * (kBlocksPerStream + 2)> needs{};
   std::size_t needCount = 0;
   auto need = [&](std::uint32_t id, std::uint32_t block) {
     const StreamState* stream = stateOf(id);
@@ -260,31 +288,37 @@ void Pump(Pool& pool)
     const std::uint32_t key = BlockKey(id, block);
     if (std::find(needs.begin(), needs.begin() + needCount, key) == needs.begin() + needCount && needCount < needs.size()) needs[needCount++] = key;
   };
-  for (const auto& reader : pool.readers)
-  {
-    const std::uint32_t key = reader.load(std::memory_order_acquire);
-    if (key == 0) continue;
-    const std::uint32_t id = KeyStream(key);
-    const std::uint32_t block = KeyBlock(key);
-    need(id, block);
-    need(id, block + 1);
-  }
+  // What is needed, most urgent first. A stream is read forward from the earliest block any of its
+  // voices is inside, one budget deep: asking only for the block a voice is on and the next one left
+  // the cache nearly empty however much of it the heap had given - a voice arriving at a block that
+  // was never fetched holds its last frame, which is the mute heard as a dropout.
   for (const StreamState& stream : pool.streams)
   {
     const std::uint32_t id = stream.id.load(std::memory_order_relaxed);
     if (id == 0 || stream.released.load(std::memory_order_relaxed)) continue;
     const std::uint32_t start = stream.startBlock.load(std::memory_order_relaxed);
+    // The window follows the voices, not the sample's start: pinned to the start it never moved, and a
+    // voice reaching the end of the first twelve blocks found nothing and held its last frame - the
+    // sound stopping dead a second in while the playhead ran on.
+    std::uint32_t first = start;
+    bool anyReader = false;
+    for (const auto& reader : pool.readers)
+    {
+      const std::uint32_t key = reader.load(std::memory_order_acquire);
+      if (key == 0 || KeyStream(key) != id) continue;
+      const std::uint32_t block = KeyBlock(key);
+      first = anyReader ? (std::min)(first, block) : block;
+      anyReader = true;
+    }
+    for (std::uint32_t ahead = 0; ahead < kBlocksPerStream; ++ahead) need(id, first + ahead);
+    // The start of the sample too: a note that begins while the reader is elsewhere must not wait.
     need(id, start);
     need(id, start + 1);
-  }
-  for (const auto& reader : pool.readers)
-  {
-    const std::uint32_t key = reader.load(std::memory_order_acquire);
-    if (key != 0) need(KeyStream(key), KeyBlock(key) + 1);
   }
 
   const std::size_t count = pool.blockCount.load(std::memory_order_relaxed);
   auto isNeeded = [&](std::uint32_t key) { return std::find(needs.begin(), needs.begin() + needCount, key) != needs.begin() + needCount; };
+  std::size_t reads = 0;
   for (std::size_t index = 0; index < needCount; ++index)
   {
     const std::uint32_t key = needs[index];
@@ -311,11 +345,15 @@ void Pump(Pool& pool)
     const std::size_t firstFrame = blockNumber * kStreamBlockFrames;
     const std::size_t frames = std::min(kStreamBlockFrames, stream->frameCount - firstFrame);
     victim->key.store(0, std::memory_order_release);
-    if (!ReadFromFile(pool, *stream, firstFrame, victim->frames.data(), frames)) continue;
-    std::fill(victim->frames.begin() + static_cast<std::ptrdiff_t>(frames), victim->frames.end(), std::int16_t{0});
+    // The card fills the scratch block in internal RAM, then it is copied to the block's PSRAM home.
+    if (!ReadFromFile(pool, *stream, firstFrame, pool.scratch.data(), frames)) continue;
+    std::copy(pool.scratch.begin(), pool.scratch.begin() + static_cast<std::ptrdiff_t>(frames), victim->frames);
+    std::fill(victim->frames + frames, victim->frames + kStreamBlockFrames, std::int16_t{0});
     victim->lastUse = ++pool.clock;
     victim->key.store(key, std::memory_order_release);
+    if (++reads >= kReadsPerPump) return index + 1 < needCount;
   }
+  return false;
 }
 
 #if defined(ESP_PLATFORM)
@@ -325,7 +363,9 @@ void WorkerTask(void* context)
   for (;;)
   {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    Pump(pool);
+    // A tick between rounds: three blocks are 24 KB, a few milliseconds of the card, and the UI on
+    // this core needs the rest of the time.
+    while (Pump(pool)) vTaskDelay(1);
   }
 }
 #endif
@@ -346,7 +386,7 @@ void EnsureWorker(Pool& pool)
         pool.wake.wait(lock, [&pool] { return pool.woken; });
         pool.woken = false;
       }
-      Pump(pool);
+      (void)Pump(pool);
     }
   }).detach();
 #else
@@ -361,7 +401,7 @@ std::shared_ptr<SampleStream> SampleStream::Open(const std::string& path, std::u
   Pool& pool = ThePool();
   std::lock_guard<std::recursive_mutex> lock(pool.io);
 #if defined(__EMSCRIPTEN__)
-  Pump(pool);
+  (void)Pump(pool);
 #endif
   std::size_t live = 1;
   StreamState* free = nullptr;
@@ -399,7 +439,7 @@ std::shared_ptr<SampleStream> SampleStream::Open(const std::string& path, std::u
   free->id.store(id, std::memory_order_release);
   Wake(pool);
 #if defined(__EMSCRIPTEN__)
-  Pump(pool);
+  (void)Pump(pool);
 #endif
   return stream;
 }
@@ -411,7 +451,7 @@ SampleStream::~SampleStream()
   pool.streams[slot_].released.store(true, std::memory_order_release);
   Wake(pool);
 #if defined(__EMSCRIPTEN__)
-  Pump(pool);
+  (void)Pump(pool);
 #endif
 }
 
@@ -433,14 +473,14 @@ bool SampleStream::FindBlock(StreamCursor& cursor, std::uint32_t index) const
       const Block* block = pool.blocks[blockIndex].load(std::memory_order_acquire);
       if (block != nullptr && block->key.load(std::memory_order_acquire) == key)
       {
-        cursor.block = block->frames.data();
+        cursor.block = block->frames;
         cursor.key = &block->key;
         return true;
       }
     }
 #if defined(__EMSCRIPTEN__)
     PublishReader(0, this, index * kStreamBlockFrames);
-    Pump(pool);
+    (void)Pump(pool);
   }
 #endif
   return false;

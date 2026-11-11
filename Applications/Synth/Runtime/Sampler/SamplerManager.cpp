@@ -3,6 +3,7 @@
 #include "Devices/Device.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "Library/Synth/Core/SynthStorage.h"
+#include "OS/Storage/Storage.h"
 #include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
 
 #include <algorithm>
@@ -715,7 +716,9 @@ bool SamplerManager::SelectBrowserSample(std::size_t trackIndex, std::string_vie
   if (!PrepareSample(id, sample))
   {
     state.ui.phase = SamplerTrackPhase::Error;
-    state.ui.statusText = "LOAD ERR";
+    // A stereo or 24-bit file has to be converted onto the card first, and that write competes with
+    // every track streaming from it: say so rather than "load error", which reads as a broken file.
+    state.ui.statusText = os::storage::CardStreaming() ? "STOP PLAYBACK" : "LOAD ERR";
     return false;
   }
 
@@ -734,10 +737,12 @@ bool SamplerManager::PrepareSample(std::string_view id, PreparedSample& sample)
   // is not a sample folder, so it stays out of the browser's list.
   const std::string monoDirectory = JoinPath(storage::SampleDirectory(), "Mono");
   (void)EnsureDirectory(monoDirectory);
-  if (!sampler::ReadMono16Wav(JoinPath(storage::SampleDirectory(), prepared.fileName), prepared.frames,
-                              prepared.sampleRate, monoDirectory))
+  const std::string path = JoinPath(storage::SampleDirectory(), prepared.fileName);
+  if (!sampler::ReadMono16Wav(path, prepared.frames, prepared.sampleRate, monoDirectory))
   {
-    return false;
+    // The conversion writes megabytes to the card while other tracks are streaming from it: the FAT is
+    // busy and the read back can come short. Once more, now that the first pass has settled it.
+    if (!sampler::ReadMono16Wav(path, prepared.frames, prepared.sampleRate, monoDirectory)) return false;
   }
   sample = std::move(prepared);
   return true;

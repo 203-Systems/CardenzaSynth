@@ -13,7 +13,11 @@ namespace synth::audio {
 // after the start point, so a note begins without waiting for the card. The cache exists only while
 // such a sample is loaded (16 KB for one, 32 KB at most) and the render thread never blocks on it:
 // a block that is late plays as the last frame held, a short gap and nothing worse.
-inline constexpr std::size_t kStreamBlockFrames = 1024;  // 2 KB, 23 ms at 44.1 kHz
+// A block is 8 KB - 93 ms at 44.1 kHz. It used to be 2 KB, and the card's fixed cost per read (about
+// 1.8 ms on this board) made five streams read 215 times a second: two thirds of a core spent in the
+// SD driver, which is the UI stuttering while the music plays. Eight kilobytes a read is the same
+// bandwidth at a tenth of the overhead; the blocks themselves live in PSRAM either way.
+inline constexpr std::size_t kStreamBlockFrames = 4096;  // 8 KB, 93 ms at 44.1 kHz
 inline constexpr std::size_t kMaxStreamReaders = 40;     // every sampler voice of every track (6 x 6)
 
 // A block's key in 32 bits: the stream's id above, the block's index + 1 below. 32-bit keys because a
