@@ -369,7 +369,7 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
     const auto seq = sequencer.BuildUiState(state.track);
     if (seq.hasHeldSteps)
     {
-      // Step inspector: lane chooser (ENTER) with a gliding highlight, scope and value.
+      // Step inspector: lane chooser (ENTER) with a gliding highlight, and the notes or the value.
       static constexpr std::array<const char*, 4> kLanes{{"NOTE", "LEN", "VEL", "TIME"}};
       std::array<int, 4> laneX{};
       int x = kFooterX;
@@ -388,15 +388,13 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
         g.Text(laneX[index], kFooterY, kLanes[index], covered ? kBlack : kFaint);
       }
       std::string notes = seq.noteNames;
-      std::string scope = seq.scopeLabel;
       if (controller.HostView().EngineKind(state.track) == synth::SynthEngineKind::Drums)
       {
         notes = seq.primaryLowestNote >= 0 ? std::string(DrumName(seq.primaryLowestNote)) : std::string{};
         if (seq.noteCount > 1) notes += "+" + std::to_string(seq.noteCount - 1);
-        if (scope != "ALL" && seq.scopedNote >= 0 && !DrumName(seq.scopedNote).empty()) scope = std::string(DrumName(seq.scopedNote));
       }
       std::string detail = seq.valueLabel.empty() ? notes : seq.valueLabel;
-      if (seq.editLane == synth::SequencerEditLane::Note && !scope.empty()) detail = scope + " " + notes;
+      if (seq.editLane == synth::SequencerEditLane::Note) detail = notes;
       g.TextFit(x + 4, kFooterY, kFooterRight - x - 4, detail, kInk);
       return;
     }

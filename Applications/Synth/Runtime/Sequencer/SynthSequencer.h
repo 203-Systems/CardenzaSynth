@@ -194,9 +194,8 @@ public:
   void SetEditLane(SequencerEditLane lane);
   SequencerEditLane EditLane() const;
   void CycleEditLane();
-  void CycleNoteScope();
-  // Relative edit of the current lane for the scoped note (or every note) of each selected
-  // step. Returns true when any value changed.
+  // Relative edit of the current lane for every note of each selected step. Returns true when any
+  // value changed.
   bool AdjustSelectedSteps(int delta, bool coarse);
   // The same edit for these notes only (a held pad's, its chord as one), on each selected step that
   // holds any of them: what ADD / SUB do while a lit pad is held. True when a value changed.
@@ -432,7 +431,6 @@ private:
                                 std::size_t& count);
   void CollectAllNoteOffsLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
   void StopAuditionLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
-  void AuditionScopedNoteLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count);
 
   void ToggleNoteInStepLocked(StepData& step, std::uint8_t note, TrackData& track, std::size_t stepIndex, std::uint8_t velocity = 0);
   // A group of notes (given[note]: a pad's chord, the pads held) toggled in a step all or none: any of
@@ -444,18 +442,15 @@ private:
   void ApplyMicrostepToHeldStepsLocked(std::uint8_t microstep);
   void ClearStepLocked(StepData& step);
   void QuantizeStepLocked(StepData& step, std::size_t stepIndex);
-  void CycleNoteScopeLocked();
-  void NormalizeScopeLocked();
+  // Gives back the memory of the active pattern's pages that edits emptied.
+  void ReleaseEmptyPagesLocked();
   void PopulateEditValueStateLocked(SequencerUiState& state, const StepData* step) const;
   PatternData& ActivePatternLocked(TrackData& track);
   const PatternData& ActivePatternLocked(const TrackData& track) const;
   const StepData* PrimaryHeldStepLocked() const;
   std::size_t ActiveNoteCount(const StepData& step) const;
-  std::size_t ScopedNoteSlot(const StepData& step) const;
-  const NoteEvent* ScopedNoteLocked(const StepData& step) const;
   std::uint16_t ClampLengthForStepMicrostep(std::size_t stepIndex, std::uint8_t microstep, std::uint16_t lengthPulses) const;
   static std::uint16_t ClampLengthInPattern(std::size_t patternSteps, std::size_t stepIndex, std::uint8_t microstep, std::uint16_t lengthPulses);
-  std::string ScopeLabelLocked(const StepData* step) const;
   std::string ValueLabelLocked(const StepData* step) const;
   // The edit lanes, in one place: the current lane's edit of some notes of a step (its slots), which
   // every way of editing a lane goes through (AdjustSelectedSteps, AdjustNotesOnSelectedSteps), and a
@@ -541,7 +536,6 @@ private:
   std::array<PlaybackNote, kMaxPlaybackNotes> playbackNotes_{};
   std::size_t activeTrack_ = 0;
   SequencerEditLane editLane_ = SequencerEditLane::Note;
-  int noteScopeIndex_ = -1;
   bool playing_ = false;
   std::size_t playbackStep_ = 0;
   std::uint64_t absolutePulse_ = 0;

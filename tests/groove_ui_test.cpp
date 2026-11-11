@@ -1157,9 +1157,9 @@ void TestPlayFeatures(Harness& h)
 }
 
 // SEQ note page, a lit pad (its note is in a selected step): a tap takes the note out when it lets go,
-// never while it is held; held, it scopes ADD / SUB to its notes on the current edit lane. NOTE moves
-// them a key of the keyboard at a time, past the step's other notes; LEN / VEL / TIME change only
-// their values. On a drum track NOTE does nothing (a drum stays a drum), the other lanes edit the hit.
+// never while it is held; held, ADD / SUB act on its notes alone, on the current edit lane. NOTE moves
+// them a key of the keyboard at a time, past the step's other notes (on a drum track to the next drum
+// of the kit); LEN / VEL / TIME change only their values.
 void TestHeldPadEdits(Harness& h)
 {
   auto& app = h.App();
@@ -1319,7 +1319,8 @@ void TestHeldPadEdits(Harness& h)
   GoToScene(h, 2);
   for (const std::size_t cell : cells) assert(sequencer.SetStepNotes(1, first + cell, nullptr, 0, 0));
 
-  // A drum track: NOTE does nothing to a held hit (and the release keeps it), the other lanes edit it.
+  // A drum track: NOTE moves a held hit to the next drum of the kit the step does not hold, keeping its
+  // values (and the release keeps it); the other lanes edit it.
   h.Chord(kTab, Grid(0));
   assert(app.Ui().DrumTrack());
   const Key bd{0, 1}, sd{0, 2};
@@ -1329,11 +1330,25 @@ void TestHeldPadEdits(Harness& h)
   assert(drumCell < 16);
   const std::array<std::uint8_t, 2> hits{36, 38};
   assert(sequencer.SetStepNotes(0, drumFirst + drumCell, hits.data(), hits.size(), 100));
+  const auto drumPitches = [&]() {
+    std::vector<int> notes;
+    const std::size_t count = sequencer.StepNoteEvents(0, drumFirst + drumCell, views);
+    for (std::size_t slot = 0; slot < count; ++slot) notes.push_back(views[slot].note);
+    std::sort(notes.begin(), notes.end());
+    return notes;
+  };
   h.Tap(Grid(drumCell));
   h.Down(bd);
-  h.Tap(kAdd);
+  h.Tap(kAdd);  // BD past SD (there already) to CH
+  assert((drumPitches() == std::vector<int>{38, 42}) && h.State().hud.label == "DRUM" && h.State().hud.value == "CH");
+  assert(app.Ui().DrumLane() == 2);
+  for (std::size_t slot = 0; slot < sequencer.StepNoteEvents(0, drumFirst + drumCell, views); ++slot) assert(views[slot].velocity == 100);
+  h.Tap(kSub);  // back past SD to BD
+  assert((drumPitches() == std::vector<int>{36, 38}) && h.State().hud.value == "BD");
+  h.Tap(kSub);  // no drum below BD
+  assert((drumPitches() == std::vector<int>{36, 38}));
   h.Up(bd);
-  assert(sequencer.StepNoteEvents(0, drumFirst + drumCell, views) == 2 && h.State().hud.value == "PADS PICK DRUMS");
+  assert((drumPitches() == std::vector<int>{36, 38}));
   h.Down(sd);
   assert(sequencer.StepNoteEvents(0, drumFirst + drumCell, views) == 2);
   h.Up(sd);

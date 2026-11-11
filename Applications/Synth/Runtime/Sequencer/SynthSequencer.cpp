@@ -331,11 +331,10 @@ void SynthSequencer::SetActiveTrack(std::size_t trackIndex)
         heldSteps_.fill(false);
         heldEditLanes_.fill(false);
         editLane_ = SequencerEditLane::Note;
-        noteScopeIndex_ = -1;
         // Each track's arp runs on when another track becomes active.
       }
       activeTrack_ = trackIndex;
-      NormalizeScopeLocked();
+      ReleaseEmptyPagesLocked();
     }
   }
   EmitPendingMidi(events, eventCount);
@@ -586,7 +585,7 @@ void SynthSequencer::StepPattern(int delta)
   const int next = (static_cast<int>(track.activePattern) + delta % count + count) % count;
   track.activePattern = static_cast<std::size_t>(next);
   queuedPattern_[activeTrack_] = kNoPattern;
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
 }
 
 void SynthSequencer::AdjustPatternCount(int delta)
@@ -616,7 +615,7 @@ void SynthSequencer::AdjustPatternCount(int delta)
   if (queuedPattern_[activeTrack_] >= track.patternCount) queuedPattern_[activeTrack_] = kNoPattern;
   for (HeldRecording& recording : heldRecordings_)
     if (recording.active && recording.trackIndex == activeTrack_ && recording.pattern >= track.patternCount) recording = HeldRecording{};
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
 }
 
 bool SynthSequencer::SelectOrCreatePattern(std::size_t patternIndex)
@@ -646,7 +645,7 @@ bool SynthSequencer::SelectOrCreatePattern(std::size_t patternIndex)
 
   track.activePattern = patternIndex;
   queuedPattern_[activeTrack_] = kNoPattern;
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
   return true;
 }
 
@@ -681,7 +680,7 @@ bool SynthSequencer::DeletePattern(std::size_t patternIndex)
     track.patterns.Release(0);
     track.patternSteps[0] = kSequencerStepCount;
     track.activePattern = 0;
-    NormalizeScopeLocked();
+    ReleaseEmptyPagesLocked();
     return true;
   }
 
@@ -696,7 +695,7 @@ bool SynthSequencer::DeletePattern(std::size_t patternIndex)
   --track.patternCount;
   if (track.activePattern > patternIndex) --track.activePattern;
   track.activePattern = std::min(track.activePattern, track.patternCount - 1);
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
   return true;
 }
 
@@ -728,7 +727,7 @@ bool SynthSequencer::CopyPattern(std::size_t sourcePattern, std::size_t destinat
   track.patternSteps[destinationPattern] = track.patternSteps[sourcePattern];
   track.activePattern = destinationPattern;
   queuedPattern_[activeTrack_] = kNoPattern;
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
   return true;
 }
 
@@ -779,7 +778,7 @@ void SynthSequencer::PressStep(std::size_t stepIndex, const std::uint8_t* heldNo
   heldSteps_[stepIndex] = true;
   if (activeTrack_ >= tracks_.size() || heldNotes == nullptr || heldNoteCount == 0 || editLane_ != SequencerEditLane::Note)
   {
-    NormalizeScopeLocked();
+    ReleaseEmptyPagesLocked();
     return;
   }
 
@@ -790,7 +789,7 @@ void SynthSequencer::PressStep(std::size_t stepIndex, const std::uint8_t* heldNo
   for (std::size_t index = 0; index < heldNoteCount; ++index)
     if (heldNotes[index] < given.size()) given[heldNotes[index]] = true;
   ToggleNotesInStepLocked(ActivePatternLocked(track).steps, stepIndex, given, velocity, track);
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
 }
 
 void SynthSequencer::ReleaseStep(std::size_t stepIndex)
@@ -811,11 +810,10 @@ void SynthSequencer::ReleaseStep(std::size_t stepIndex)
       StopAuditionLocked(events, eventCount);
       heldEditLanes_.fill(false);
       editLane_ = SequencerEditLane::Note;
-      noteScopeIndex_ = -1;
     }
     else
     {
-      NormalizeScopeLocked();
+      ReleaseEmptyPagesLocked();
     }
   }
   EmitPendingMidi(events, eventCount);
@@ -832,7 +830,6 @@ void SynthSequencer::ClearHeldSteps()
     heldSteps_.fill(false);
     heldEditLanes_.fill(false);
     editLane_ = SequencerEditLane::Note;
-    noteScopeIndex_ = -1;
   }
   EmitPendingMidi(events, eventCount);
 }
@@ -852,7 +849,7 @@ void SynthSequencer::ClearStep(std::size_t stepIndex)
 
   PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
   if (ActiveNoteCount(pattern.steps[stepIndex]) != 0) ClearStepLocked(pattern.steps.Edit(stepIndex));
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
 }
 
 void SynthSequencer::ClearHeldStepEvents()
@@ -876,7 +873,7 @@ void SynthSequencer::ClearHeldStepEvents()
         ClearStepLocked(pattern.steps.Edit(stepIndex));
       }
     }
-    NormalizeScopeLocked();
+    ReleaseEmptyPagesLocked();
   }
   EmitPendingMidi(events, eventCount);
 }
@@ -908,7 +905,7 @@ bool SynthSequencer::CopyStep(std::size_t sourceStep, std::size_t destinationSte
     if (note.active)
       note.lengthPulses = ClampLengthForStepMicrostep(destinationStep, note.microstep, note.lengthPulses);
   }
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
   return true;
 }
 
@@ -936,7 +933,7 @@ bool SynthSequencer::SetStepNotes(std::size_t trackIndex, std::size_t stepIndex,
     // No notes: the step is erased, and a page left without notes is given back.
     if (ActiveNoteCount(steps[stepIndex]) != 0) ClearStepLocked(steps.Edit(stepIndex));
     steps.ReleaseEmptyPages();
-    if (trackIndex == activeTrack_) NormalizeScopeLocked();
+    if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
     return true;
   }
   StepData& step = steps.Edit(stepIndex);
@@ -952,7 +949,7 @@ bool SynthSequencer::SetStepNotes(std::size_t trackIndex, std::size_t stepIndex,
     event.microstep = 0;
     event.lengthPulses = kSequencerPulsesPerStep;
   }
-  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
   return true;
 }
 
@@ -971,7 +968,7 @@ bool SynthSequencer::ToggleStepNotes(std::size_t trackIndex, std::size_t stepInd
     velocity[notes[index]] = velocities != nullptr ? velocities[index] : 0;
   }
   ToggleNotesInStepLocked(ActivePatternLocked(track).steps, stepIndex, given, velocity, track);
-  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
   return true;
 }
 
@@ -1027,7 +1024,7 @@ bool SynthSequencer::RemoveNote(std::size_t trackIndex, std::size_t patternIndex
   for (NoteEvent& event : steps.Edit(stepIndex).notes)
     if (event.active && event.note == note) event = NoteEvent{};
   steps.ReleaseEmptyPages();
-  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
   return true;
 }
 
@@ -1051,7 +1048,7 @@ bool SynthSequencer::InsertNote(std::size_t trackIndex, std::size_t patternIndex
   target->velocity = std::clamp<std::uint8_t>(velocity, 1, 127);
   target->microstep = std::min<std::uint8_t>(microstep, kSequencerMicrostepCount - 1);
   target->lengthPulses = ClampLengthInPattern(track.patternSteps[patternIndex], stepIndex, target->microstep, std::max<std::uint16_t>(1, lengthPulses));
-  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
   return true;
 }
 
@@ -1132,7 +1129,7 @@ void SynthSequencer::QuantizeStep(std::size_t stepIndex)
 
   PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
   if (ActiveNoteCount(pattern.steps[stepIndex]) != 0) QuantizeStepLocked(pattern.steps.Edit(stepIndex), stepIndex);
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
 }
 
 void SynthSequencer::QuantizeHeldSteps()
@@ -1151,7 +1148,7 @@ void SynthSequencer::QuantizeHeldSteps()
       QuantizeStepLocked(pattern.steps.Edit(stepIndex), stepIndex);
     }
   }
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
 }
 
 void SynthSequencer::QuantizeActivePattern()
@@ -1167,7 +1164,7 @@ void SynthSequencer::QuantizeActivePattern()
   {
     if (ActiveNoteCount(pattern.steps[stepIndex]) != 0) QuantizeStepLocked(pattern.steps.Edit(stepIndex), stepIndex);
   }
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
 }
 
 void SynthSequencer::QuantizePattern(std::size_t patternIndex)
@@ -1184,7 +1181,7 @@ void SynthSequencer::QuantizePattern(std::size_t patternIndex)
   {
     if (ActiveNoteCount(pattern.steps[stepIndex]) != 0) QuantizeStepLocked(pattern.steps.Edit(stepIndex), stepIndex);
   }
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
 }
 
 bool SynthSequencer::IsStepHeld(std::size_t stepIndex) const
@@ -1221,24 +1218,20 @@ bool SynthSequencer::PressEditLane(std::size_t row)
     switch (row)
     {
       case 0:
-      {
-        const bool alreadyNoteLane = editLane_ == SequencerEditLane::Note;
         editLane_ = SequencerEditLane::Note;
-        if (alreadyNoteLane) CycleNoteScopeLocked();
-        AuditionScopedNoteLocked(events, eventCount);
+        ReleaseEmptyPagesLocked();
         break;
-      }
       case 1:
         editLane_ = SequencerEditLane::Length;
-        NormalizeScopeLocked();
+        ReleaseEmptyPagesLocked();
         break;
       case 2:
         editLane_ = SequencerEditLane::Velocity;
-        NormalizeScopeLocked();
+        ReleaseEmptyPagesLocked();
         break;
       case 3:
         editLane_ = SequencerEditLane::Micro;
-        NormalizeScopeLocked();
+        ReleaseEmptyPagesLocked();
         break;
       default:
         return false;
@@ -1292,7 +1285,7 @@ bool SynthSequencer::HandlePerformanceKeyPress(std::size_t, std::size_t column, 
         ToggleNoteInStepLocked(pattern.steps.Edit(stepIndex), note, track, stepIndex);
       }
     }
-    NormalizeScopeLocked();
+    ReleaseEmptyPagesLocked();
     return true;
   }
 
@@ -1447,20 +1440,7 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
       state.noteNames += names[pitch % names.size()];
       state.noteNames += std::to_string(static_cast<int>(pitch / names.size()) - 1);
     }
-    const std::size_t slot = ScopedNoteSlot(*primaryHeldStep);
-    if (slot < primaryHeldStep->notes.size())
-    {
-      state.scopedNote = primaryHeldStep->notes[slot].note;
-      for (std::size_t cellIndex = 0; cellIndex < state.steps.size(); ++cellIndex)
-      {
-        if (heldSteps_[state.firstViewStep + cellIndex])
-        {
-          state.steps[cellIndex].scoped = true;
-        }
-      }
-    }
   }
-  state.scopeLabel = ScopeLabelLocked(primaryHeldStep);
   state.valueLabel = ValueLabelLocked(primaryHeldStep);
   PopulateEditValueStateLocked(state, primaryHeldStep);
   if (track != nullptr && editLane_ != SequencerEditLane::Note)
@@ -1470,11 +1450,10 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     {
       if (!heldSteps_[index]) continue;
       const StepData& step = ActivePatternLocked(*track).steps[index];
-      const std::size_t scopedSlot = ScopedNoteSlot(step);
       for (std::size_t slot = 0; slot < step.notes.size(); ++slot)
       {
         const NoteEvent& note = step.notes[slot];
-        if (!note.active || (noteScopeIndex_ >= 0 && slot != scopedSlot)) continue;
+        if (!note.active) continue;
         const int value = editLane_ == SequencerEditLane::Length ? note.lengthPulses :
             (editLane_ == SequencerEditLane::Velocity ? note.velocity : note.microstep);
         if (firstValue < 0) firstValue = value;
@@ -1870,7 +1849,7 @@ bool SynthSequencer::QueuePattern(std::size_t trackIndex, std::size_t patternInd
   {
     queuedPattern_[trackIndex] = patternIndex == track.activePattern ? kNoPattern : patternIndex;
   }
-  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
   return true;
 }
 
@@ -1963,7 +1942,7 @@ void SynthSequencer::SetStepSelected(std::size_t stepIndex, bool selected)
     if (std::none_of(heldSteps_.begin(), heldSteps_.end(), [](bool held) { return held; }))
       ClearSelectionLocked(events, eventCount);
     else
-      NormalizeScopeLocked();
+      ReleaseEmptyPagesLocked();
   }
   EmitPendingMidi(events, eventCount);
 }
@@ -2004,7 +1983,7 @@ bool SynthSequencer::ToggleNotesOnSelectedSteps(const std::uint8_t* notes, std::
   StepStore& steps = ActivePatternLocked(track).steps;
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
     if (heldSteps_[stepIndex]) ToggleNotesInStepLocked(steps, stepIndex, given, velocities, track);
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
   return true;
 }
 
@@ -2080,7 +2059,7 @@ bool SynthSequencer::MoveNotesOnSelectedSteps(const std::uint8_t* from, const st
       moved = true;
     }
   }
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
   return moved;
 }
 
@@ -2093,7 +2072,7 @@ void SynthSequencer::SetEditLane(SequencerEditLane lane)
 
   std::lock_guard<std::mutex> lock(mutex_);
   editLane_ = lane;
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
 }
 
 void SynthSequencer::CycleEditLane()
@@ -2107,13 +2086,7 @@ void SynthSequencer::CycleEditLane()
     case SequencerEditLane::Micro:
     default: editLane_ = SequencerEditLane::Note; break;
   }
-  NormalizeScopeLocked();
-}
-
-void SynthSequencer::CycleNoteScope()
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  CycleNoteScopeLocked();
+  ReleaseEmptyPagesLocked();
 }
 
 bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
@@ -2158,44 +2131,18 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
 
   PatternData& pattern = ActivePatternLocked(track);
   bool changed = false;
-  bool primarySeen = false;
-  int primaryScopedPitch = -1;
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
   {
-    if (!heldSteps_[stepIndex]) continue;
-    const bool primary = !primarySeen;
-    primarySeen = true;
-    if (ActiveNoteCount(pattern.steps[stepIndex]) == 0) continue;
+    if (!heldSteps_[stepIndex] || ActiveNoteCount(pattern.steps[stepIndex]) == 0) continue;
     StepData& step = pattern.steps.Edit(stepIndex);
-
-    // The scoped note, or every note of the step.
+    // Every note of the step (a held pad edits its own notes alone: AdjustNotesOnSelectedSteps).
     std::array<std::size_t, 8> slots{};
     std::size_t slotCount = 0;
-    if (noteScopeIndex_ >= 0)
-    {
-      const std::size_t slot = ScopedNoteSlot(step);
-      if (slot < step.notes.size() && step.notes[slot].active) slots[slotCount++] = slot;
-    }
-    else
-    {
-      for (std::size_t slot = 0; slot < step.notes.size(); ++slot)
-        if (step.notes[slot].active) slots[slotCount++] = slot;
-    }
+    for (std::size_t slot = 0; slot < step.notes.size(); ++slot)
+      if (step.notes[slot].active) slots[slotCount++] = slot;
     changed = AdjustLaneLocked(step, stepIndex, slots, slotCount, delta, coarse) || changed;
-    if (editLane_ == SequencerEditLane::Note && primary && noteScopeIndex_ >= 0 && slotCount == 1) primaryScopedPitch = step.notes[slots[0]].note;
   }
-
-  // A transposed scoped note keeps the scope, even when its pitch rank in the chord changed.
-  if (primaryScopedPitch >= 0)
-  {
-    const StepData* primaryStep = PrimaryHeldStepLocked();
-    int rank = 0;
-    if (primaryStep != nullptr)
-      for (const NoteEvent& event : primaryStep->notes)
-        if (event.active && event.note < primaryScopedPitch) ++rank;
-    noteScopeIndex_ = rank;
-  }
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
   return changed;
 }
 
@@ -2223,7 +2170,7 @@ bool SynthSequencer::AdjustNotesOnSelectedSteps(const std::uint8_t* notes, std::
       if (inGroup(step.notes[slot])) slots[slotCount++] = slot;
     changed = AdjustLaneLocked(step, stepIndex, slots, slotCount, delta, coarse) || changed;
   }
-  NormalizeScopeLocked();
+  ReleaseEmptyPagesLocked();
   return changed;
 }
 
@@ -2526,7 +2473,7 @@ bool SynthSequencer::ClearPatternEvents(std::size_t trackIndex, std::size_t patt
 
   // Releasing reads back as an empty pattern and keeps the slot and pattern count.
   track.patterns.Release(patternIndex);
-  if (trackIndex == activeTrack_) NormalizeScopeLocked();
+  if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
   return true;
 }
 
@@ -2932,31 +2879,6 @@ void SynthSequencer::StopAuditionLocked(std::array<PendingMidiEvent, kMaxPending
   auditionActive_ = false;
 }
 
-void SynthSequencer::AuditionScopedNoteLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count)
-{
-  if (activeTrack_ >= tracks_.size())
-  {
-    return;
-  }
-
-  const StepData* step = PrimaryHeldStepLocked();
-  if (step == nullptr)
-  {
-    return;
-  }
-
-  const NoteEvent* note = ScopedNoteLocked(*step);
-  if (note == nullptr)
-  {
-    return;
-  }
-
-  auditionActive_ = true;
-  auditionTrack_ = activeTrack_;
-  auditionNote_ = note->note;
-  AddPendingMidi(events, count, activeTrack_, midi::MidiPacket::NoteOn(0, note->note, note->velocity));
-}
-
 void SynthSequencer::ToggleNoteInStepLocked(StepData& step, std::uint8_t note, TrackData& track, std::size_t stepIndex, std::uint8_t velocity)
 {
   if (note > 127) return;
@@ -3000,23 +2922,12 @@ void SynthSequencer::ApplyLengthToHeldStepsLocked(std::uint16_t lengthPulses)
       continue;
     }
 
-    StepData& step = pattern.steps.Edit(stepIndex);
-    if (noteScopeIndex_ < 0)
+    for (NoteEvent& note : pattern.steps.Edit(stepIndex).notes)
     {
-      for (NoteEvent& note : step.notes)
+      if (note.active)
       {
-        if (note.active)
-        {
-          note.lengthPulses = ClampLengthForStepMicrostep(stepIndex, note.microstep, lengthPulses);
-        }
+        note.lengthPulses = ClampLengthForStepMicrostep(stepIndex, note.microstep, lengthPulses);
       }
-      continue;
-    }
-
-    const std::size_t slot = ScopedNoteSlot(step);
-    if (slot < step.notes.size())
-    {
-      step.notes[slot].lengthPulses = ClampLengthForStepMicrostep(stepIndex, step.notes[slot].microstep, lengthPulses);
     }
   }
 }
@@ -3038,23 +2949,12 @@ void SynthSequencer::ApplyVelocityToHeldStepsLocked(std::uint8_t velocity)
       continue;
     }
 
-    StepData& step = pattern.steps.Edit(stepIndex);
-    if (noteScopeIndex_ < 0)
+    for (NoteEvent& note : pattern.steps.Edit(stepIndex).notes)
     {
-      for (NoteEvent& note : step.notes)
+      if (note.active)
       {
-        if (note.active)
-        {
-          note.velocity = velocity;
-        }
+        note.velocity = velocity;
       }
-      continue;
-    }
-
-    const std::size_t slot = ScopedNoteSlot(step);
-    if (slot < step.notes.size())
-    {
-      step.notes[slot].velocity = velocity;
     }
   }
 }
@@ -3076,25 +2976,13 @@ void SynthSequencer::ApplyMicrostepToHeldStepsLocked(std::uint8_t microstep)
       continue;
     }
 
-    StepData& step = pattern.steps.Edit(stepIndex);
-    if (noteScopeIndex_ < 0)
+    for (NoteEvent& note : pattern.steps.Edit(stepIndex).notes)
     {
-      for (NoteEvent& note : step.notes)
+      if (note.active)
       {
-        if (note.active)
-        {
-          note.microstep = microstep;
-          note.lengthPulses = ClampLengthForStepMicrostep(stepIndex, note.microstep, note.lengthPulses);
-        }
+        note.microstep = microstep;
+        note.lengthPulses = ClampLengthForStepMicrostep(stepIndex, note.microstep, note.lengthPulses);
       }
-      continue;
-    }
-
-    const std::size_t slot = ScopedNoteSlot(step);
-    if (slot < step.notes.size())
-    {
-      step.notes[slot].microstep = microstep;
-      step.notes[slot].lengthPulses = ClampLengthForStepMicrostep(stepIndex, step.notes[slot].microstep, step.notes[slot].lengthPulses);
     }
   }
 }
@@ -3118,64 +3006,10 @@ void SynthSequencer::QuantizeStepLocked(StepData& step, std::size_t stepIndex)
   }
 }
 
-void SynthSequencer::CycleNoteScopeLocked()
+// Gives back the memory of the active pattern's pages that edits emptied.
+void SynthSequencer::ReleaseEmptyPagesLocked()
 {
-  const StepData* primaryStep = nullptr;
-  if (activeTrack_ < tracks_.size())
-  {
-    const PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
-    for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
-    {
-      if (heldSteps_[stepIndex])
-      {
-        primaryStep = &pattern.steps[stepIndex];
-        break;
-      }
-    }
-  }
-
-  const std::size_t noteCount = primaryStep != nullptr ? ActiveNoteCount(*primaryStep) : 0;
-  if (noteCount == 0)
-  {
-    noteScopeIndex_ = -1;
-    return;
-  }
-
-  if (noteScopeIndex_ < 0)
-  {
-    noteScopeIndex_ = 0;
-    return;
-  }
-
-  ++noteScopeIndex_;
-  if (noteScopeIndex_ >= static_cast<int>(noteCount))
-  {
-    noteScopeIndex_ = -1;
-  }
-}
-
-void SynthSequencer::NormalizeScopeLocked()
-{
-  const StepData* primaryStep = nullptr;
-  if (activeTrack_ < tracks_.size())
-  {
-    ActivePatternLocked(tracks_[activeTrack_]).steps.ReleaseEmptyPages();
-    const PatternData& pattern = ActivePatternLocked(std::as_const(tracks_[activeTrack_]));
-    for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
-    {
-      if (heldSteps_[stepIndex])
-      {
-        primaryStep = &pattern.steps[stepIndex];
-        break;
-      }
-    }
-  }
-
-  const std::size_t noteCount = primaryStep != nullptr ? ActiveNoteCount(*primaryStep) : 0;
-  if (noteScopeIndex_ >= static_cast<int>(noteCount))
-  {
-    noteScopeIndex_ = -1;
-  }
+  if (activeTrack_ < tracks_.size()) ActivePatternLocked(tracks_[activeTrack_]).steps.ReleaseEmptyPages();
 }
 
 SynthSequencer::PatternData& SynthSequencer::ActivePatternLocked(TrackData& track)
@@ -3226,52 +3060,10 @@ std::size_t SynthSequencer::ActiveNoteCount(const StepData& step) const
   return count;
 }
 
-std::size_t SynthSequencer::ScopedNoteSlot(const StepData& step) const
-{
-  if (noteScopeIndex_ < 0)
-  {
-    return step.notes.size();
-  }
-
-  std::array<std::size_t, 8> slots{};
-  std::size_t slotCount = 0;
-  for (std::size_t slot = 0; slot < step.notes.size(); ++slot)
-  {
-    if (step.notes[slot].active)
-    {
-      slots[slotCount++] = slot;
-    }
-  }
-  // GCC's small-range std::sort expansion probes its 16-item insertion-sort
-  // threshold and triggers -Warray-bounds for this fixed 8-item buffer on
-  // Xtensa. An explicit insertion sort keeps every access visibly bounded.
-  for (std::size_t index = 1; index < slotCount; ++index)
-  {
-    const std::size_t slot = slots[index];
-    std::size_t insertionIndex = index;
-    while (insertionIndex > 0 && step.notes[slot].note < step.notes[slots[insertionIndex - 1]].note)
-    {
-      slots[insertionIndex] = slots[insertionIndex - 1];
-      --insertionIndex;
-    }
-    slots[insertionIndex] = slot;
-  }
-
-  return noteScopeIndex_ >= 0 && static_cast<std::size_t>(noteScopeIndex_) < slotCount
-             ? slots[static_cast<std::size_t>(noteScopeIndex_)]
-             : step.notes.size();
-}
-
-const SynthSequencer::NoteEvent* SynthSequencer::ScopedNoteLocked(const StepData& step) const
-{
-  const std::size_t slot = ScopedNoteSlot(step);
-  return slot < step.notes.size() && step.notes[slot].active ? &step.notes[slot] : nullptr;
-}
-
 void SynthSequencer::PopulateEditValueStateLocked(SequencerUiState& state, const StepData* step) const
 {
-  const NoteEvent* note = step != nullptr ? ScopedNoteLocked(*step) : nullptr;
-  if (note == nullptr && step != nullptr)
+  const NoteEvent* note = nullptr;
+  if (step != nullptr)
   {
     for (const NoteEvent& event : step->notes)
     {
@@ -3352,21 +3144,6 @@ std::uint16_t SynthSequencer::ClampLengthInPattern(std::size_t patternSteps, std
   return std::max<std::uint16_t>(1, std::min(lengthPulses, remaining));
 }
 
-std::string SynthSequencer::ScopeLabelLocked(const StepData* step) const
-{
-  if (noteScopeIndex_ < 0 || step == nullptr)
-  {
-    return "ALL";
-  }
-
-  const std::size_t noteCount = ActiveNoteCount(*step);
-  if (noteCount == 0 || static_cast<std::size_t>(noteScopeIndex_) >= noteCount)
-  {
-    return "ALL";
-  }
-  return std::to_string(noteScopeIndex_ + 1) + "/" + std::to_string(noteCount);
-}
-
 std::string SynthSequencer::ValueLabelLocked(const StepData* step) const
 {
   if (step == nullptr || ActiveNoteCount(*step) == 0)
@@ -3383,23 +3160,12 @@ std::string SynthSequencer::ValueLabelLocked(const StepData* step) const
   }
 
   const NoteEvent* note = nullptr;
-  if (noteScopeIndex_ >= 0)
+  for (const NoteEvent& event : step->notes)
   {
-    const std::size_t slot = ScopedNoteSlot(*step);
-    if (slot < step->notes.size())
+    if (event.active)
     {
-      note = &step->notes[slot];
-    }
-  }
-  if (note == nullptr)
-  {
-    for (const NoteEvent& event : step->notes)
-    {
-      if (event.active)
-      {
-        note = &event;
-        break;
-      }
+      note = &event;
+      break;
     }
   }
   if (note == nullptr)
@@ -3500,7 +3266,7 @@ void SynthSequencer::HandleLoopBoundaryLocked(std::size_t trackIndex, std::uint6
   if (queued < patternCount && queued != track.activePattern)
   {
     track.activePattern = queued;
-    if (trackIndex == activeTrack_) NormalizeScopeLocked();
+    if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
   }
 }
 
@@ -3580,7 +3346,7 @@ void SynthSequencer::StartSongRowLocked(std::size_t row, std::uint64_t pulse)
     trackNextPulse_[trackIndex] = 0;
     trackCurrentPulse_[trackIndex] = 0;
     trackStarted_[trackIndex] = false;
-    if (trackIndex == activeTrack_) NormalizeScopeLocked();
+    if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
   }
 }
 
@@ -3636,7 +3402,7 @@ void SynthSequencer::ApplyQueuedPatternsLocked()
     TrackData& track = tracks_[trackIndex];
     if (queued >= std::clamp<std::size_t>(track.patternCount, 1, kSequencerMaxPatternCount)) continue;
     track.activePattern = queued;
-    if (trackIndex == activeTrack_) NormalizeScopeLocked();
+    if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
   }
 }
 
@@ -3703,7 +3469,6 @@ void SynthSequencer::ClearSelectionLocked(std::array<PendingMidiEvent, kMaxPendi
   heldSteps_.fill(false);
   heldEditLanes_.fill(false);
   editLane_ = SequencerEditLane::Note;
-  noteScopeIndex_ = -1;
 }
 
 std::size_t SynthSequencer::ArpTrack(const ArpVoice& arp) const

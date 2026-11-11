@@ -823,9 +823,9 @@ void Controller::UsePadEdits()
 
 // ADD / SUB with lit pads held on the note page (PadEdit): the current edit lane (OK cycles it), for
 // their notes only, on the selected steps that hold them. One rule for every lane: NOTE moves them
-// (MovePadNotes), and every other lane goes to the sequencer's lane edit (AdjustNotesOnSelectedSteps),
-// the same one ADD / SUB use on whole steps; a new lane needs nothing here. A drum stays a drum: on a
-// drum track the NOTE lane does nothing (the pads pick the drums), the other lanes edit the held hit.
+// (MovePadNotes; on a drum track only from drum to drum), and every other lane goes to the sequencer's
+// lane edit (AdjustNotesOnSelectedSteps), the same one ADD / SUB use on whole steps; a new lane needs
+// nothing here.
 bool Controller::AdjustHeldPadNotes(int delta, bool coarse)
 {
   if (delta == 0 || !PadEditHeld()) return false;
@@ -842,8 +842,7 @@ bool Controller::AdjustHeldPadNotes(int delta, bool coarse)
   const auto name = [&](std::uint8_t note) { return DrumTrack() ? std::string(DrumName(note)) : NoteName(note); };
   if (lane == synth::SequencerEditLane::Note)
   {
-    if (DrumTrack()) ShowHud(name(state_.padEdit[pads[0]].notes[0]), "PADS PICK DRUMS");
-    else MovePadNotes(pads.data(), padCount, delta, coarse);
+    MovePadNotes(pads.data(), padCount, delta, coarse);
     return true;
   }
   // The held pads' notes together, each once.
@@ -868,17 +867,28 @@ bool Controller::AdjustHeldPadNotes(int delta, bool coarse)
 
 // The NOTE lane for held pads: each one's notes move a key of the keyboard at a time
 // (NextKeyboardNote: a semitone, the next scale note on SCALE or with the scale lock on; FN: an
-// octave), past notes those steps already hold. A chord pad's notes become the next key's chord.
-// Stopped, the pad sounds where its notes went; it keeps moving the same notes while it is down.
+// octave), past notes those steps already hold. A chord pad's notes become the next key's chord. On a
+// drum track a hit moves to the next drum of the kit in pad order (kDrumNotes; FN the same), past the
+// drums those steps already hold, and never off the kit. Stopped, the pad sounds where its notes went;
+// it keeps moving the same notes while it is down.
 void Controller::MovePadNotes(const std::size_t* heldPads, std::size_t padCount, int delta, bool coarse)
 {
   std::array<std::size_t, kRows * kPadColumns> pads{};
   padCount = std::min(padCount, pads.size());
   std::copy(heldPads, heldPads + padCount, pads.begin());
   const int direction = delta > 0 ? 1 : -1;
+  const bool drums = DrumTrack();
+  // Where a note is on the way: its pitch, or a drum's pad (-1: not a drum of the kit).
+  const auto rank = [&](int note) {
+    if (!drums) return note;
+    for (std::size_t lane = 0; lane < kDrumNotes.size(); ++lane)
+      if (kDrumNotes[lane] == note) return static_cast<int>(lane);
+    return -1;
+  };
   // Up from the highest pad, down from the lowest: held pads never land on each other.
   std::sort(pads.begin(), pads.begin() + static_cast<std::ptrdiff_t>(padCount), [&](std::size_t left, std::size_t right) {
-    return direction > 0 ? state_.padEdit[left].root > state_.padEdit[right].root : state_.padEdit[left].root < state_.padEdit[right].root;
+    const int a = rank(state_.padEdit[left].root), b = rank(state_.padEdit[right].root);
+    return direction > 0 ? a > b : a < b;
   });
   auto& sequencer = host_.Sequencer();
   const auto kind = ActiveKind();
@@ -900,7 +910,13 @@ void Controller::MovePadNotes(const std::size_t* heldPads, std::size_t padCount,
         bool found = false;
         while (!found)
         {
-          next = coarse ? next + 12 * direction : NextKeyboardNote(state_.keyboard, next, direction);
+          if (drums)
+          {
+            const int lane = rank(next) + direction;
+            if (rank(next) < 0 || lane < 0 || lane >= static_cast<int>(kDrumNotes.size())) break;
+            next = kDrumNotes[static_cast<std::size_t>(lane)];
+          }
+          else next = coarse ? next + 12 * direction : NextKeyboardNote(state_.keyboard, next, direction);
           if (next < 0 || next > 127) break;
           if (PadNotes(state_.keyboard, state_.chords[state_.track], kind, next, notes) != edit.count) continue;
           found = std::none_of(notes.begin(), notes.begin() + edit.count, [&](std::uint8_t note) { return taken[note]; });
@@ -923,12 +939,15 @@ void Controller::MovePadNotes(const std::size_t* heldPads, std::size_t padCount,
         edit.root = static_cast<std::uint8_t>(root);
         edit.notes = moved;
         state_.padNote[pad] = edit.root;
-        state_.noteLane[state_.track] = edit.root;
+        // The STEP view's GRID shows the row the note went to.
+        if (drums) state_.drumLane[state_.track] = static_cast<std::uint8_t>(rank(root));
+        else state_.noteLane[state_.track] = edit.root;
       }
     }
-    for (std::size_t voice = 0; voice < edit.count; ++voice) names += (names.empty() ? "" : " ") + NoteName(edit.notes[voice]);
+    for (std::size_t voice = 0; voice < edit.count; ++voice)
+      names += (names.empty() ? "" : " ") + (drums ? std::string(DrumName(edit.notes[voice])) : NoteName(edit.notes[voice]));
   }
-  ShowHud("NOTE", names);
+  ShowHud(drums ? "DRUM" : "NOTE", names);
 }
 
 // The note page's step keys, as MatrixOS's sequencer has them: a step is selected while its key is
@@ -1773,7 +1792,7 @@ MenuItems Controller::Menu() const
       put(4, MenuAction::Duplicate, "DUP", "PATTERN", "D", ui.tracks[state_.track].patternCount < synth::kSequencerMaxPatternCount);
       put(5, MenuAction::View, "VIEW", PageTab(Scene::Sequence, 0), nullptr, true, View() == SeqView::Step);
       put(6, MenuAction::RecordPanel, "RECORD", "TAKES");
-      put(7, MenuAction::Scope, "SCOPE", steps ? ui.scopeLabel : "", "OK", steps);
+      // Cell 7 is free. (One note of a chord: hold its pad, AdjustHeldPadNotes.)
       // The pages of a long pattern, and how long it is.
       const std::string pages = std::to_string(ui.viewPage + 1) + "/" + std::to_string(ui.viewPageCount);
       const std::string length = std::to_string(ui.tracks[state_.track].stepCount);
@@ -1890,7 +1909,6 @@ void Controller::RunMenuAction(const MenuItem& item)
     case MenuAction::SampleRecord: RunSlotAction(SlotAction::SampleRecord); break;
     case MenuAction::SamplePreview: RunSlotAction(SlotAction::SamplePreview); break;
     case MenuAction::Default:
-    case MenuAction::Scope:
     case MenuAction::Capture:
     case MenuAction::SongMode: FnEnter(); break;
     case MenuAction::Copy: Copy(); break;
