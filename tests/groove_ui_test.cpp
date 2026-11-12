@@ -1337,6 +1337,22 @@ void TestHeldPadEdits(Harness& h)
   h.Tap(kAdd);
   h.Up(g3);
   assert(event(cells[0], 55).microstep == 1 && event(cells[0], 51).microstep == 0 && event(cells[0], 53).microstep == 0);
+  // HITS: the held pad's note fires 3 times in its step, the others stay single; the edit strip names
+  // the lane and the HUD the note.
+  h.Tap(kEnter);
+  assert(h.Seq().editLane == synth::SequencerEditLane::Hits && h.Seq().valueLabel == "HITS 1");
+  h.Down(g3);
+  h.Tap(kAdd);
+  h.Tap(kAdd);
+  h.Up(g3);
+  assert(event(cells[0], 55).hits == 3 && event(cells[0], 51).hits == 1 && event(cells[0], 53).hits == 1);
+  assert(h.State().hud.label == "HITS G3" && h.State().hud.value == "3" && h.Seq().valueLabel == "HITS MIXED");
+  assert((pitches(cells[0]) == std::vector<int>{51, 53, 55}));  // the release kept it
+  // Without a pad, the whole step: up to 4 and no further, back down to 1.
+  for (int press = 0; press < 4; ++press) h.Tap(kAdd);
+  assert(event(cells[0], 55).hits == 4 && event(cells[0], 51).hits == 4 && h.Seq().valueLabel == "HITS 4");
+  for (int press = 0; press < 4; ++press) h.Tap(kSub);
+  assert(event(cells[0], 55).hits == 1 && event(cells[0], 53).hits == 1 && h.Seq().valueLabel == "HITS 1");
   h.Tap(kEnter);  // NOTE
   h.Tap(kEnter);  // LEN
   assert(h.Seq().editLane == synth::SequencerEditLane::Length);
@@ -1345,6 +1361,7 @@ void TestHeldPadEdits(Harness& h)
   h.Tap(kAdd);
   h.Up(g3);
   assert(event(cells[0], 55).lengthPulses > gLength && event(cells[0], 51).lengthPulses == length);
+  h.Tap(kEnter);
   h.Tap(kEnter);
   h.Tap(kEnter);
   h.Tap(kEnter);  // back to NOTE
@@ -1432,6 +1449,14 @@ void TestHeldPadEdits(Harness& h)
   h.Up(bd);
   assert(sequencer.StepNoteEvents(0, drumFirst + drumCell, views) == 1 && views[0].velocity == 99 && h.State().hud.label == "VEL BD");
   h.Tap(kEnter);
+  h.Tap(kEnter);  // HITS: a roll on the held hit
+  h.Down(bd);
+  h.Tap(kAdd);
+  h.Tap(kAdd);
+  h.Tap(kAdd);
+  h.Up(bd);
+  assert(sequencer.StepNoteEvents(0, drumFirst + drumCell, views) == 1 && views[0].hits == 4 && h.State().hud.label == "HITS BD" &&
+         h.State().hud.value == "4");
   h.Tap(kEnter);  // back to NOTE
   assert(h.Seq().editLane == synth::SequencerEditLane::Note);
   h.Tap(kEsc);
@@ -1528,6 +1553,8 @@ void TestRecording(Harness& h)
   assert(h.Seq().editLane == synth::SequencerEditLane::Length && app.Ui().View() == groove::SeqView::Step);
   h.Tap(kEnter);
   h.Tap(kEnter);
+  h.Tap(kEnter);
+  assert(h.Seq().editLane == synth::SequencerEditLane::Hits);
   h.Tap(kEnter);
   assert(h.Seq().editLane == synth::SequencerEditLane::Note && h.Seq().steps[0].held);
   // A tap on the step selected alone lets it go, and the pads play again.

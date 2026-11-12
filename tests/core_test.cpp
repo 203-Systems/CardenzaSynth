@@ -656,6 +656,8 @@ void TestSelectionEditing() {
   sequencer->CycleEditLane();
   assert(sequencer->BuildUiState(0).editLane == SequencerEditLane::Micro);
   sequencer->CycleEditLane();
+  assert(sequencer->BuildUiState(0).editLane == SequencerEditLane::Hits);
+  sequencer->CycleEditLane();
   assert(sequencer->BuildUiState(0).editLane == SequencerEditLane::Note);
 
   // Length lane walks the length table; coarse moves three entries.

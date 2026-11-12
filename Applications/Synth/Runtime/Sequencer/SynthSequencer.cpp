@@ -41,6 +41,26 @@ constexpr std::array<std::uint16_t, 16> kAdjustLengthTable = {
 
 constexpr std::uint8_t kMinSwing = 50;
 constexpr std::uint8_t kMaxSwing = 75;
+// An odd sixteenth starts at swing% of an eighth note (48 pulses): this many pulses late at most.
+constexpr std::uint16_t SwingDelayPulses(std::uint8_t swing)
+{
+  const int swung = (48 * static_cast<int>(swing < kMinSwing ? kMinSwing : (swing > kMaxSwing ? kMaxSwing : swing)) + 50) / 100;
+  return static_cast<std::uint16_t>(swung > static_cast<int>(kSequencerPulsesPerStep) ? swung - static_cast<int>(kSequencerPulsesPerStep) : 0);
+}
+// The latest a note's last hit can start after the start of its own step: the latest microstep, the
+// hardest swing and the widest spread of hits. That many steps back can still play on this pulse.
+constexpr std::uint16_t MaxHitReachPulses()
+{
+  std::uint16_t widest = 0;
+  for (int hits = 1; hits <= kSequencerMaxHits; ++hits)
+  {
+    const auto spread = static_cast<std::uint16_t>((hits - 1) * SequencerHitSpacingPulses(static_cast<std::uint8_t>(hits)));
+    if (spread > widest) widest = spread;
+  }
+  return static_cast<std::uint16_t>((kSequencerMicrostepCount - 1) * kSequencerPulsesPerMicrostep + SwingDelayPulses(kMaxSwing) + widest);
+}
+constexpr std::size_t kHitReachSteps = MaxHitReachPulses() / kSequencerPulsesPerStep;
+static_assert(MaxHitReachPulses() == 50 && kHitReachSteps == 2, "A note's hits reach at most two steps past its own.");
 constexpr std::uint16_t kMinTempo = 30;
 constexpr std::uint16_t kMaxTempo = 300;
 
@@ -480,6 +500,7 @@ void SynthSequencer::Reset()
     track.activePattern = 0;
     track.defaultVelocity = 110;
     track.defaultLengthPulses = kSequencerPulsesPerStep;
+    track.defaultHits = 1;
     track.enabled = true;
     track.muted = false;
     track.patternSteps = TrackData::DefaultPatternSteps();
@@ -525,7 +546,8 @@ bool SynthSequencer::ValidateState(const ProjectState& state)
   for (const TrackData& track : state.tracks) {
     if (track.patternCount < 1 || track.patternCount > kSequencerMaxPatternCount ||
         track.activePattern >= track.patternCount || track.defaultVelocity == 0 || track.defaultVelocity > 127 ||
-        track.defaultLengthPulses == 0 || track.defaultLengthPulses > kSequencerMaxSteps * kSequencerPulsesPerStep) return false;
+        track.defaultLengthPulses == 0 || track.defaultLengthPulses > kSequencerMaxSteps * kSequencerPulsesPerStep || track.defaultHits < 1 ||
+        track.defaultHits > kSequencerMaxHits) return false;
     for (const std::uint16_t steps : track.patternSteps)
       if (steps < 1 || steps > kSequencerMaxSteps) return false;
     for (std::size_t patternIndex = 0; patternIndex < track.patterns.size(); ++patternIndex) {
@@ -917,7 +939,7 @@ std::size_t SynthSequencer::StepNoteEvents(std::size_t trackIndex, std::size_t s
   for (const NoteEvent& event : ActivePatternLocked(tracks_[trackIndex]).steps[stepIndex].notes)
   {
     if (!event.active || count >= notes.size()) continue;
-    notes[count++] = StepNoteView{event.note, event.velocity, event.lengthPulses, event.microstep};
+    notes[count++] = StepNoteView{event.note, event.velocity, event.lengthPulses, event.microstep, event.Hits()};
   }
   return count;
 }
@@ -948,6 +970,7 @@ bool SynthSequencer::SetStepNotes(std::size_t trackIndex, std::size_t stepIndex,
     event.velocity = std::clamp<std::uint8_t>(velocity, 1, 127);
     event.microstep = 0;
     event.lengthPulses = kSequencerPulsesPerStep;
+    event.SetHits(1);
   }
   if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
   return true;
@@ -1048,6 +1071,7 @@ bool SynthSequencer::InsertNote(std::size_t trackIndex, std::size_t patternIndex
   target->velocity = std::clamp<std::uint8_t>(velocity, 1, 127);
   target->microstep = std::min<std::uint8_t>(microstep, kSequencerMicrostepCount - 1);
   target->lengthPulses = ClampLengthInPattern(track.patternSteps[patternIndex], stepIndex, target->microstep, std::max<std::uint16_t>(1, lengthPulses));
+  target->SetHits(1);
   if (trackIndex == activeTrack_) ReleaseEmptyPagesLocked();
   return true;
 }
@@ -1417,9 +1441,11 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
           // length and timing changes without retaining a second pattern copy.
           cell.contentFingerprint = cell.contentFingerprint * 16777619u ^
               (static_cast<std::uint32_t>(note.note) | (static_cast<std::uint32_t>(note.velocity) << 7) |
-               (static_cast<std::uint32_t>(note.lengthPulses) << 14) | (static_cast<std::uint32_t>(note.microstep) << 25));
+               (static_cast<std::uint32_t>(note.lengthPulses) << 14) | (static_cast<std::uint32_t>(note.microstep) << 25) |
+               (static_cast<std::uint32_t>(note.extraHits) << 28));
           if (cell.lowestNote < 0 || note.note < cell.lowestNote) cell.lowestNote = note.note;
           cell.velocity = std::max(cell.velocity, note.velocity);
+          cell.hits = std::max(cell.hits, note.Hits());
         }
     cell.hasEvents = cell.noteCount > 0;
     cell.held = heldSteps_[stepIndex];
@@ -1455,7 +1481,7 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
         const NoteEvent& note = step.notes[slot];
         if (!note.active) continue;
         const int value = editLane_ == SequencerEditLane::Length ? note.lengthPulses :
-            (editLane_ == SequencerEditLane::Velocity ? note.velocity : note.microstep);
+            editLane_ == SequencerEditLane::Velocity ? note.velocity : editLane_ == SequencerEditLane::Hits ? note.Hits() : note.microstep;
         if (firstValue < 0) firstValue = value;
         else if (value != firstValue) state.editValueMixed = true;
       }
@@ -1574,6 +1600,7 @@ void SynthSequencer::RecordNoteOnLocked(std::size_t trackIndex, std::uint8_t not
   target->velocity = std::min<std::uint8_t>(velocity, 127);
   target->microstep = bestMicrostep;
   target->lengthPulses = ClampLengthInPattern(stepCount, bestStep, bestMicrostep, kSequencerPulsesPerMicrostep);
+  target->SetHits(1);  // what was played: one hit
 
   HeldRecording* held = nullptr;
   for (HeldRecording& recording : heldRecordings_)
@@ -2065,7 +2092,7 @@ bool SynthSequencer::MoveNotesOnSelectedSteps(const std::uint8_t* from, const st
 
 void SynthSequencer::SetEditLane(SequencerEditLane lane)
 {
-  if (lane > SequencerEditLane::Micro)
+  if (lane > SequencerEditLane::Hits)
   {
     return;
   }
@@ -2083,7 +2110,8 @@ void SynthSequencer::CycleEditLane()
     case SequencerEditLane::Note: editLane_ = SequencerEditLane::Length; break;
     case SequencerEditLane::Length: editLane_ = SequencerEditLane::Velocity; break;
     case SequencerEditLane::Velocity: editLane_ = SequencerEditLane::Micro; break;
-    case SequencerEditLane::Micro:
+    case SequencerEditLane::Micro: editLane_ = SequencerEditLane::Hits; break;
+    case SequencerEditLane::Hits:
     default: editLane_ = SequencerEditLane::Note; break;
   }
   ReleaseEmptyPagesLocked();
@@ -2110,7 +2138,7 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
 
   if (!selectionHasNotes)
   {
-    // Empty steps edit the values new notes start with ("NEW LEN" / "NEW VEL").
+    // Empty steps edit the values new notes start with ("NEW LEN" / "NEW VEL" / "NEW HITS").
     if (editLane_ == SequencerEditLane::Length)
     {
       const std::uint16_t next = std::clamp<std::uint16_t>(AdjustedLength(track.defaultLengthPulses, delta, coarse), 1,
@@ -2124,6 +2152,13 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
       const auto next = static_cast<std::uint8_t>(std::clamp(static_cast<int>(track.defaultVelocity) + delta * (coarse ? 10 : 1), 1, 127));
       const bool changed = next != track.defaultVelocity;
       track.defaultVelocity = next;
+      return changed;
+    }
+    if (editLane_ == SequencerEditLane::Hits)
+    {
+      const std::uint8_t next = AdjustedHits(track.defaultHits, delta, coarse);
+      const bool changed = next != track.defaultHits;
+      track.defaultHits = next;
       return changed;
     }
     return false;
@@ -2289,10 +2324,26 @@ bool SynthSequencer::AdjustLaneLocked(StepData& step, std::size_t stepIndex, std
         changed = true;
       }
       break;
+    case SequencerEditLane::Hits:
+      for (std::size_t order = 0; order < slotCount; ++order)
+      {
+        NoteEvent& event = step.notes[slots[order]];
+        const std::uint8_t target = AdjustedHits(event.Hits(), delta, coarse);
+        if (target == event.Hits()) continue;
+        event.SetHits(target);
+        changed = true;
+      }
+      break;
     default:
       break;
   }
   return changed;
+}
+
+std::uint8_t SynthSequencer::AdjustedHits(std::uint8_t current, int delta, bool coarse)
+{
+  // 1..4, no wrap, like the other lanes; coarse goes to the end.
+  return ClampSequencerHits(static_cast<int>(current) + delta * (coarse ? kSequencerMaxHits : 1));
 }
 
 void SynthSequencer::SetSongMode(bool enabled)
@@ -2720,19 +2771,19 @@ void SynthSequencer::ProcessTransportPulseLocked(std::uint64_t pulse,
     // A track the playing song row leaves out keeps its position but plays nothing of its own.
     if (!songSilent_[trackIndex])
     {
-      FireStepNotesLocked(trackIndex, pattern.steps[stepIndex], stepIndex, position, pulse, events, eventCount);
-      // Microstep and swing offsets can carry a step's notes into the following step...
-      if (stepIndex > 0)
-        FireStepNotesLocked(trackIndex, pattern.steps[stepIndex - 1], stepIndex - 1, position, pulse, events, eventCount);
+      // Microstep, swing and the later hits of HITS carry a step's notes into the following steps...
+      for (std::size_t back = 0; back <= kHitReachSteps && back <= stepIndex; ++back)
+        FireStepNotesLocked(trackIndex, pattern.steps[stepIndex - back], stepIndex - back, position, pulse, events, eventCount);
     }
-    // ...and the last step of the previous pass past the loop wrap (or past a song row line).
+    // ...and the last steps of the previous pass past the loop wrap (or past a song row line).
     const std::size_t previousPattern = previousPassPattern_[trackIndex];
     const std::uint16_t previousPulses = previousPassPulses_[trackIndex];
-    if (previousPattern < kSequencerMaxPatternCount && previousPulses >= kSequencerPulsesPerStep && position < 2u * kSequencerPulsesPerStep)
+    if (previousPattern < kSequencerMaxPatternCount && previousPulses >= kSequencerPulsesPerStep && position <= MaxHitReachPulses())
     {
       const std::size_t lastStep = std::min<std::size_t>(previousPulses / kSequencerPulsesPerStep, kSequencerMaxSteps) - 1;
-      FireStepNotesLocked(trackIndex, track.patterns[previousPattern].steps[lastStep], lastStep,
-                          static_cast<std::uint32_t>(position) + previousPulses, pulse, events, eventCount);
+      for (std::size_t back = 0; back <= kHitReachSteps && back <= lastStep; ++back)
+        FireStepNotesLocked(trackIndex, track.patterns[previousPattern].steps[lastStep - back], lastStep - back,
+                            static_cast<std::uint32_t>(position) + previousPulses, pulse, events, eventCount);
     }
   }
 
@@ -2900,6 +2951,7 @@ void SynthSequencer::ToggleNoteInStepLocked(StepData& step, std::uint8_t note, T
       event.velocity = velocity != 0 ? std::min<std::uint8_t>(velocity, 127) : track.defaultVelocity;
       event.microstep = 0;
       event.lengthPulses = ClampLengthForStepMicrostep(stepIndex, event.microstep, track.defaultLengthPulses);
+      event.SetHits(track.defaultHits);
       return;
     }
   }
@@ -3079,6 +3131,7 @@ void SynthSequencer::PopulateEditValueStateLocked(SequencerUiState& state, const
   {
     defaults.lengthPulses = tracks_[activeTrack_].defaultLengthPulses;
     defaults.velocity = tracks_[activeTrack_].defaultVelocity;
+    defaults.SetHits(tracks_[activeTrack_].defaultHits);
     note = &defaults;
   }
 
@@ -3121,6 +3174,10 @@ void SynthSequencer::PopulateEditValueStateLocked(SequencerUiState& state, const
       state.editValueCount = note != nullptr ? kSequencerMicrostepCount : 0;
       state.editValueIndex = note != nullptr ? std::min<std::size_t>(note->microstep, kSequencerMicrostepCount - 1) : 0;
       break;
+    case SequencerEditLane::Hits:
+      state.editValueCount = kSequencerMaxHits;
+      state.editValueIndex = note != nullptr ? static_cast<std::size_t>(note->Hits() - 1) : 0;
+      break;
     case SequencerEditLane::Note:
     default:
       state.editValueCount = 0;
@@ -3155,6 +3212,7 @@ std::string SynthSequencer::ValueLabelLocked(const StepData* step) const
       if (editLane_ == SequencerEditLane::Velocity)
         return "NEW VEL " + std::to_string(tracks_[activeTrack_].defaultVelocity);
       if (editLane_ == SequencerEditLane::Micro) return "ADD NOTES FIRST";
+      if (editLane_ == SequencerEditLane::Hits) return "NEW HITS " + std::to_string(tracks_[activeTrack_].defaultHits);
     }
     return SequencerEditLaneLabel(editLane_);
   }
@@ -3189,6 +3247,8 @@ std::string SynthSequencer::LaneValueLocked(const NoteEvent& note) const
       return std::to_string(note.velocity);
     case SequencerEditLane::Micro:
       return std::to_string(note.microstep + 1);
+    case SequencerEditLane::Hits:
+      return std::to_string(note.Hits());
     default:
       return {};
   }
@@ -3203,8 +3263,7 @@ std::size_t SynthSequencer::TrackStepCountOf(const TrackData& track)
 std::uint16_t SynthSequencer::SwingDelayPulsesLocked() const
 {
   // An odd sixteenth starts at swing% of an eighth note (48 pulses); 50% is straight.
-  const int swung = (48 * static_cast<int>(std::clamp(swing_, kMinSwing, kMaxSwing)) + 50) / 100;
-  return static_cast<std::uint16_t>(std::max(0, swung - static_cast<int>(kSequencerPulsesPerStep)));
+  return SwingDelayPulses(swing_);
 }
 
 std::uint16_t SynthSequencer::NoteOffsetPulsesLocked(std::size_t stepIndex, std::uint8_t microstep) const
@@ -3223,16 +3282,23 @@ void SynthSequencer::FireStepNotesLocked(std::size_t trackIndex,
 {
   for (const NoteEvent& note : step.notes)
   {
-    if (!note.active || note.microstep >= kSequencerMicrostepCount || NoteOffsetPulsesLocked(stepIndex, note.microstep) != targetOffset)
-    {
-      continue;
-    }
-    if (ConsumeSuppressedNoteLocked(trackIndex, note.note, pulse))
+    if (!note.active || note.microstep >= kSequencerMicrostepCount) continue;
+    // The note's first hit is on its own offset (TIME and swing included); HITS adds more, a spacing
+    // apart (whole pulses), each ended before the next one starts: a note-off due on this pulse was
+    // sent before these note-ons.
+    const std::uint32_t first = NoteOffsetPulsesLocked(stepIndex, note.microstep);
+    if (targetOffset < first) continue;
+    const std::uint8_t hits = note.Hits();
+    const std::uint32_t spacing = SequencerHitSpacingPulses(hits);
+    const std::uint32_t since = targetOffset - first;
+    if (since % spacing != 0 || since / spacing >= hits) continue;
+    const auto hit = static_cast<std::uint8_t>(since / spacing);
+    if (hit == 0 && ConsumeSuppressedNoteLocked(trackIndex, note.note, pulse))
     {
       continue;
     }
 
-    if (ScheduleNoteOffLocked(trackIndex, note.note, pulse + std::max<std::uint16_t>(1, note.lengthPulses)))
+    if (ScheduleNoteOffLocked(trackIndex, note.note, pulse + SequencerHitGatePulses(hits, hit, std::max<std::uint16_t>(1, note.lengthPulses))))
       AddPendingMidi(events, count, trackIndex, midi::MidiPacket::NoteOn(0, note.note, note.velocity));
   }
 }

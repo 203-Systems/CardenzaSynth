@@ -73,9 +73,10 @@ public:
     std::uint8_t velocity = 0;
     std::uint16_t lengthPulses = 0;
     std::uint8_t microstep = 0;
+    std::uint8_t hits = 1;
   };
   std::size_t StepNoteEvents(std::size_t track, std::size_t step, std::array<StepNoteView, 8>& notes) const;
-  // Step recording: the step's notes become exactly these (one step long, on the grid).
+  // Step recording: the step's notes become exactly these (one step long, on the grid, one hit).
   bool SetStepNotes(std::size_t track, std::size_t step, const std::uint8_t* notes, std::size_t count, std::uint8_t velocity);
   // Notes held on the pads and a step tapped (MatrixOS): all or none, a chord as one. When the step of
   // the track's active pattern holds any of them they all come out and none goes in, else they all go
@@ -89,6 +90,7 @@ public:
   // Moves one note within its step, to another microstep. False when it is not there, or another of
   // the same pitch already is.
   bool MoveNote(std::size_t track, std::size_t pattern, std::size_t step, std::uint8_t note, std::uint8_t fromMicrostep, std::uint8_t toMicrostep);
+  // InsertNote (above) writes a plain note, one hit: a take lays down what was played.
   bool InsertNote(std::size_t track, std::size_t pattern, std::size_t step, std::uint8_t microstep, std::uint8_t note,
                   std::uint8_t velocity, std::uint16_t lengthPulses);
   // Pulses processed since playback started (0 while stopped): where a played note sits in time.
@@ -258,12 +260,30 @@ public:
     std::uint8_t velocity = 110;
     std::uint16_t lengthPulses = kSequencerPulsesPerStep;
     std::uint8_t microstep = 0;
-    bool active = false;
+    // One byte for whether the slot holds a note and for its HITS less one (0..3: it fires 1..4 times
+    // in its step), so a page of steps stays 768 bytes. HITS less one: zero, what a cleared slot holds,
+    // is a plain note (and 1..4 stored as is would need a third bit).
+    bool active : 1;
+    std::uint8_t extraHits : 2;
+
+    constexpr NoteEvent() : active(false), extraHits(0) {}
+    constexpr NoteEvent(std::uint8_t pitch, std::uint8_t noteVelocity, std::uint16_t length, std::uint8_t noteMicrostep, bool isActive,
+                        std::uint8_t hits = 1)
+        : note(pitch), velocity(noteVelocity), lengthPulses(length), microstep(noteMicrostep), active(isActive),
+          extraHits(static_cast<std::uint8_t>(ClampSequencerHits(hits) - 1))
+    {
+    }
+    constexpr std::uint8_t Hits() const { return static_cast<std::uint8_t>(extraHits + 1); }
+    void SetHits(int hits) { extraHits = static_cast<std::uint8_t>(ClampSequencerHits(hits) - 1) & 3u; }
   };
+  static_assert(kSequencerMaxHits - 1 <= 3, "HITS less one must fit NoteEvent::extraHits' two bits.");
 
   struct StepData {
     std::array<NoteEvent, 8> notes{};
   };
+  // A page of steps (StepStore) is 16 of these in PSRAM: 768 bytes.
+  static_assert(sizeof(NoteEvent) == 6, "A NoteEvent is six bytes: HITS lives in the spare bits of `active`'s byte.");
+  static_assert(sizeof(StepData) == 48, "A step is 48 bytes, a page of 16 steps 768.");
 
   // The steps of a pattern, stored one GRID page at a time. A page costs its 768 bytes only once
   // something is written on it (256 steps flat would be 12 KB per pattern, and the board has no
@@ -339,6 +359,8 @@ public:
     std::size_t activePattern = 0;
     std::uint8_t defaultVelocity = 110;
     std::uint16_t defaultLengthPulses = kSequencerPulsesPerStep;
+    // HITS a note written by hand starts with (NEW HITS, 1..kSequencerMaxHits); recording writes 1.
+    std::uint8_t defaultHits = 1;
     bool enabled = true;
     bool muted = false;
     // Each pattern's own length, 1..kSequencerMaxSteps.
@@ -460,6 +482,7 @@ private:
                         bool coarse);
   std::string LaneValueLocked(const NoteEvent& note) const;
   static std::uint16_t AdjustedLength(std::uint16_t current, int delta, bool coarse);
+  static std::uint8_t AdjustedHits(std::uint8_t current, int delta, bool coarse);
 
   static std::size_t TrackStepCountOf(const TrackData& track);
   std::size_t ViewPageLocked(std::size_t trackIndex) const;
