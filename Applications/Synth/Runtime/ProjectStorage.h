@@ -86,6 +86,10 @@ bool IsProjectNameValid(const std::string& name);
 std::vector<std::string> ListProjects();
 ProjectResult SaveProjectFile(const std::string& name, const ProjectData& project, bool overwrite);
 ProjectResult LoadProjectFile(const std::string& name, ProjectData& project);
+// Renames <from>.ccproj (and its backup) to <to>.ccproj on the card; nothing else changes. Exists: <to>
+// is another project's name; Invalid: a bad name, or no project <from>. A name that differs only in
+// case is renamed too (FAT would see the same file).
+ProjectResult RenameProjectFile(const std::string& from, const std::string& to);
 // The same format at an explicit path (the autosave). Saving replaces the file atomically
 // and keeps a backup until the new file is in place; loading falls back to that backup.
 ProjectResult SaveProjectFileAt(const std::string& path, const ProjectData& project);

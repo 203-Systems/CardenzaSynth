@@ -24,7 +24,7 @@ The spec is `docs/app-storage-protocol.md`; keep it in sync with behaviour chang
 - Apps store data only through the OS storage API (`OS/Storage`: `os::storage::AppFolder`, `AppSettings`, `SharedSamplesDirectory`, `WriteFileAtomic`), in their own app folder (the groovebox, the primary app, is the product root). Never hard-code card paths and never call `Device::Storage` from app code (enforced by ValidateArchitecture).
 - `Device::Storage` is the low-level card (root, mount, free space, `CheckAfterIoError`). Folder knowledge belongs to `OS/Storage`, not to the device layer. After a failed file operation call `os::storage::ReportCardIoError()` (from the system loop) so the device can notice a card that stopped answering.
 - The system decides once, at its start (`os::system::Begin`, `os::storage::DecideCardAtStart`), whether the run has a card. A run without one makes no card operation at all until a restart (no mount probe, `CardPresent()` / `CardMounted()` false, the file helpers refuse card paths, no log, no saves; a card put in later changes nothing), and the groovebox shows a notice after the boot animation; saving says NO SD CARD. Anything new that touches the card must go through `os::storage` or check `CardMissingThisRun()`.
-- Settings are `key=value` text read tolerantly (unknown keys kept); change them in RAM and let the system write them (one second after the last change, on suspend). They are a RAM cache plus this device's edits: a flush reads the card file again and applies only the edits (keys changed elsewhere survive), writes nothing when that read fails, and `RefreshAllSettingsFromCard` merges a card that comes back. Volume, key LEDs and screen are device settings (`os::storage::Set…`); projects never carry them. The keyboard, chords and arpeggiators are project data, not settings.
+- Settings are `key=value` text read tolerantly (unknown keys kept); change them in RAM and let the system write them (one second after the last change, on suspend). They are a RAM cache plus this device's edits: a flush reads the card file again and applies only the edits (keys changed elsewhere survive), writes nothing when that read fails, and `RefreshAllSettingsFromCard` merges a card that comes back. Volume, key LEDs, screen, log and theme are device settings (`os::storage::Set…`); projects never carry them. The keyboard, chords and arpeggiators are project data, not settings.
 - An app persists its working state in `Suspend()` (its `Session/` folder) and restores it in `Setup()`; the system destroys the app before it creates the next one. The groovebox also writes it during use because users may pull the power at any moment: one autosave on the card (`SessionStore`: `Session/autosave.ccproj` in the project format plus `autosave.txt`), taken once the keys rest (1.5 s, playing or not; 60 s at most while keys keep coming or a sample streams) and written on the device's background task (`Device::Background`), never twice the same (`ProjectFingerprint`). A failed write is retried, calls `ReportCardIoError`, and never starts the wait over. `Setup` restores it; `Session/restoring.txt` counts starts that did not finish, and at 3 it is skipped once. New project data must be added to `CaptureProject` (and so to the project format), and every way to change a project must go through a key event (that is what starts a write).
 - Groovebox project files are format 7 (format 6 made the play settings project data: keyboard, per-track chord and arpeggiator; format 7 gives every pattern its own length, up to 256 steps); version 5 was an unreleased development format with a PLAY line.
 - Format 8 waits for the one format bump of the next test build (the user, 2026-11-11: features that change the format wait for it together). It adds HITS: each T line's new-note hits after its new-note length, and a seventh number on each note line, the note's hits. This build reads format 8 and writes 7 (`kProjectWriteVersion` in `Applications/Synth/Runtime/ProjectStorage.h` is the one constant to raise; the writer for 8 is there and tested). Until then a project saved, and the autosave, keeps no hits: a reload or a restart (or a Learn guide session) gives every note one hit again. Further format changes join format 8 before the bump; after it the next one takes 9.
@@ -64,7 +64,7 @@ Keep the UI rules below in sync with behaviour changes.
 - Fixed key roles: left column ESC / TAB / FN / CTRL (icons on the screen's left edge, in the key's color, no labels and no state marks: where you are is in the header and the page tabs), right column ADD / SUB / ENTER / PLAY (ADD and SUB's icons follow `Controller::AdjustKeysMean`: up / down for a value and for a list alike, ADD, the upper key, raising the value and going up the list; sideways and erase have their own; a new screen says which it is there), columns 1–8 always play the current track, columns 9–12 mirror the on-screen 4x4 cell grid.
 - Four scenes in two kinds, numbered as on screen: 0 SETUP comes first (the project and files, plus settings for every track and the device: KEYS, SYSTEM), outside the ring, reached only with ESC + GRID column 1 (or the FN menu); ESC there goes back to the scene it came from. 1 INSTR (the current track's sound, with its own CHORD and ARP pages), 2 SEQ (what it plays) and 3 TAPE (all tracks together: session, song, mix, sends, master FX) form the ring a tap on ESC walks. The device boots on INSTR VOICE, every project on T1 (`kDefaultActiveTrack`, the drum machine). New music pages go in scenes 1–3 by what they act on (one track's sound / one track's notes / all tracks); new global or device settings go in SETUP. INSTR pages run in signal order: VOICE, CHORD, ARP (not on drums), engine pages, FX.
 - Holding a left key turns the GRID into a map of what that key switches (ESC scenes by column, TAB tracks laid out like MIX, CTRL every page of the scene, FN the menu of the current screen); choices go on the GRID, not on the pads or number keys. Keep each scene at 16 pages or fewer so the CTRL map fits.
-- Colors carry meaning: ESC red-orange = scenes / back, TAB cyan = tracks, FN yellow = second functions, CTRL violet = pages, green = playing, red = recording / danger. Selection is terminal inverse (ink background, black text). Area fills use the 4x4 Bayer dither, not flat blocks.
+- Colors carry meaning: ESC red-orange = scenes / back, TAB cyan = tracks, FN yellow = second functions, CTRL violet = pages, green = playing, red = recording / danger. Selection is terminal inverse (ink background, field-colored text). Area fills use the 4x4 Bayer dither, not flat blocks. The screen has three themes (SETUP > SYSTEM > THEME, `sys.theme`: DARK, LIGHT, RETRO; the palette table under 视觉系统): draw with the names in `Render/Theme.h` by meaning (`kBlack` the field, `kInk` the mark), never a literal color or a color kept in a static, and check a visual change on all three.
 - Nothing on the first level types: anything that needs a name (save as, rename) goes in the FN menu, the plain action picks a free name by itself (`FreePresetName`, `FreeTakeName`, `SONG nn`).
 - The note page's step keys follow MatrixOS's sequencer, the same in ROLL and STEP and on drum tracks (only the drawing differs; `Controller::StepKeyPress`): a step is selected while its key is down (pads edit its notes, OK cycles the edit lane, ADD / SUB edit it, steps held together are edited together), a tap keeps it selected (a tap on the step selected alone lets it go), a hold lets it go at the release; pads held + a step pressed toggle their notes there (`SynthSequencer::ToggleStepNotes`). On selected steps a pad's notes are one group (a chord as one, `UiState::padEdit`): a pad none of whose notes a selected step holds puts them in as it goes down; a lit pad (a selected step holds any of them) acts at its release: a plain tap takes them out (`ToggleNotesOnSelectedSteps`: all or none, a step that holds any of the notes loses them all and gains none), never the press or the hold. Holding a lit pad turns ADD / SUB to its notes alone, one rule for every edit lane (`Controller::AdjustHeldPadNotes`; the user, 2026-11-11): the current lane (OK) for those notes only, on each selected step that holds them. NOTE moves them a key of the keyboard (a semitone; the next scale note on SCALE or with a scale lock; FN an octave), past notes the step already holds, a chord pad's notes becoming the next key's chord, and keeps moving the same notes while the pad is down; on a drum track it moves a held hit to the next / previous drum of the kit in pad order (BD SD CH OH CP TM CB MA, `kDrumNotes`; FN the same), past drums the step already holds, keeping its velocity, length and timing, never onto a pitch that is not one of the kit's pads. LEN / VEL / TIME / HITS change only their values (`SynthSequencer::AdjustNotesOnSelectedSteps`, which shares `AdjustLaneLocked` with the whole-step edit: a new lane goes there, not into the gesture). This is the only way to edit one note of a chord (the note scope, FN + ENTER / SCOPE, was removed, the user 2026-11-11): a note out of the pads' reach is reached by changing the octave (FN + 8 / I). A pad that met ADD / SUB or any other key but a pad keeps its notes at its release; ADD / SUB with a pad held never edit whole steps or flip the page, not even while they repeat after the pad let go. Nothing writes and moves on by itself (no step-record cursor): an untouched step is a rest.
 - HITS (the user's 鼓点连击, 2026-11-11) is the fifth edit lane (OK: NOTE → LEN → VEL → TIME → HITS; not called ROLL, which names the piano-roll view): a note fires 1–4 times in its step, evenly and on whole pulses (12 / 8 / 6 apart: 32nds, sixteenth triplets, 64ths), the first hit on the note's own TIME and swing, the others after it. Each hit sounds for the note's length, up to the next hit; the last one to the end of a longer note, so a long note stutters in its first step and then rings (`SequencerHitGatePulses`). Hits fall at most two steps past their own (`MaxHitReachPulses`: TIME, swing and the spread), and the clock looks that far back for them, past the loop wrap too, with no state of its own (stop, mute and edits act at once; every hit's note-off is scheduled like any note's, the off before the next hit's on). Edited like every lane: ADD / SUB on the selected steps (1–4, no wrap, FN to the end), a held lit pad + ADD / SUB for its notes alone (HUD `HITS E3` `3`); an empty selected step edits NEW HITS, what notes written by hand start with (per track, like NEW LEN / NEW VEL). Recording (REC, a take, step recording, the guide's demo songs) writes one hit; copy, paste, DUP and quantise carry it. A note keeps its hits less one in two spare bits of its last byte (`NoteEvent::extraHits`; zero, a cleared slot, is one hit): a page of steps stays 768 bytes. On screen the piano roll cuts a note into its hits (a piece per hit as long as it sounds, each starting with a solid column in the track's colour, a black pixel between); the STEP view's GRID cells cut the step the same way; the drum machine's marks are 4 pixels wide, too narrow to cut in time, so they stack a stroke per hit (black between, like the strokes that mark a roll in drum notation); a melodic STEP row, too thin for the stack, cuts its mark once (how many: the GRID beside, the edit strip). Key LEDs do not change.
@@ -76,7 +76,7 @@ Keep the UI rules below in sync with behaviour changes.
 - FN is the menu of the current screen (`Controller::Menu()`, `RunMenu`): held FN shows it on the GRID (FN + GRID runs an item), a tap keeps it open (`ModalKind::Menu`, GRID runs and closes). Rows 0–2 are the page's actions, row 3 is the same everywhere (SAVE, TAP, REC, SETUP / BACK). A new action for a screen goes into its menu (with its FN letter, if any); settings do not go in the menu, they go on a SETUP page. FN + CTRL is the previous page, FN + ADD / SUB big steps. In input screens (`FnYellowMode()`) FN is the yellow keycap layer instead (`; . , /` arrows, text cursor).
 - Every Fn letter shortcut must be the `key` of a menu item, and every other Fn combination on the edge keys must appear in `Controller::FnEntries()` so the menu footer documents it.
 - The left column is filtered in the device layer (`Devices/KeySettle.h`): a state must settle for 12 ms, and a key reading as held for over 15 s counts as released until it lets go. The filter logs what it did, which is how to tell a bad signal from a bug.
-- Key LEDs are driven by CardenzaHAL (see the top of this file); it drives each key at 16 linear duties and gamma-corrects only the master level, so `Device::LED` key levels are perceived brightness and the device layer gamma-maps them (gamma 2.6, `Devices/LedLight.h`, also the simulators' model). Every key is off (`groove::kLedOff`, nothing there), half (`kLedHalf` = 6, the dimmest glow, HAL duty 1/15, there but not chosen) or full (`kLedFull` = 15, chosen / held / sounding / playing); Blink is the only effect (waiting). The Learn guide's hint: the keys a step asks for are full and every other key at most half, as the lesson page frames them and dims the rest; they blink at half Blink's speed while the step waits for the user (`LedEffect::Hint`) and stay lit once it is learned; an edge key in it goes full too (`Controller::ComputeLeds`, `GrooveApp::UpdateLeds`). Do not add in-between levels, breathing or press ripples, and never let an animation keep a key lit that the state says is off. One exception, asked for by the user: the pads of a drum track, where a column is a drum and its rows are velocities (`kDrumRowVelocity`): they rest at half like any pad (no brighter than a melodic track's: half is the HAL's dimmest duty, so a resting gradient only made them brighter, 2026-11-05), a held pad lights its column from the bottom up to its row, and a hit runs along the column (`Animator::DrumWave`). That spread is for the key lights only: on screen the pads keep their blocks and show how hard by dither density. The screen's edge strips mirror the edge-key LEDs through `Animator::LedShown`.
+- Key LEDs are driven by CardenzaHAL (see the top of this file); it drives each key at 16 linear duties and gamma-corrects only the master level, so `Device::LED` key levels are perceived brightness and the device layer gamma-maps them (gamma 2.6, `Devices/LedLight.h`, also the simulators' model). Every key is off (`groove::kLedOff`, nothing there), half (`kLedHalf` = 6, the dimmest glow, HAL duty 1/15, there but not chosen) or full (`kLedFull` = 15, chosen / held / sounding / playing); Blink is the only effect (waiting). The Learn guide's hint: the keys a step asks for are full (not a pad the keyboard leaves silent: PIANO's gaps stay dark), its practice projects keep the user's keyboard (a lesson start's f1 takes a new project's) and every other key at most half, as the lesson page frames them and dims the rest; they blink at half Blink's speed while the step waits for the user (`LedEffect::Hint`) and stay lit once it is learned; an edge key in it goes full too (`Controller::ComputeLeds`, `GrooveApp::UpdateLeds`). Do not add in-between levels, breathing or press ripples, and never let an animation keep a key lit that the state says is off. One exception, asked for by the user: the pads of a drum track, where a column is a drum and its rows are velocities (`kDrumRowVelocity`): they rest at half like any pad (no brighter than a melodic track's: half is the HAL's dimmest duty, so a resting gradient only made them brighter, 2026-11-05), a held pad lights its column from the bottom up to its row, and a hit runs along the column (`Animator::DrumWave`). That spread is for the key lights only: on screen the pads keep their blocks and show how hard by dither density. The screen's edge strips mirror the edge-key LEDs through `Animator::LedShown`.
 - While FN is held no key may do its plain function: a key either has an FN function or does nothing (and its LED is off). Every FN shortcut and menu item reports its result with `Controller::ShowHud` (name, value, bar) or a toast.
 - Settings that apply to every track (keyboard layout, scale, system) live on the SETUP settings pages (`SettingsPage`, `UiState::settingsFocus`) as `keys.*` / `proj.*` / `sys.*` slots. Each track's MIDI effects are its own: the chord (`UiState::chords`, `chord.*` slots) and the arpeggiator (one per track in `SynthSequencer`, `arp.*` slots) act on the current track and sit on its INSTR pages. All are handled by `SettingValue` / `AdjustSetting`.
 - The Learn site (`wiki/`, Docusaurus, laid out like 203 Systems' Matrix wiki; `make learn` builds it into `build/web/site/learn`, deployed with the web simulator) opens on the guide (`docs/learn/guide.json`, pages in `wiki/src/guide`, animations `wiki/src/guide/guide-anim.js`, lessons checked by `tools/wiki/lessons.py`): short lessons, few words and pictures, and a Cardenza on USB that follows them through the guide link (the guide pages ask for MIDI as they open and connect by themselves, no button, no simulator beside the lessons; one connection for the whole site, `wiki/src/guide/device.ts`, and leaving the lessons ends the guide on the device); the manual is its reference. Every device lesson step has `keys`, `done` and `demo`; `make learn` runs the demos on the firmware and fails when a step does not complete, so a behaviour change that breaks a lesson shows there. A new state the lessons check goes into `Controller::GuideState` and the guide rules here.
@@ -168,7 +168,7 @@ The root CMake project is for desktop-style targets such as `CardenzaSim`. The C
 
 - **PADS（第 1–8 列）**：任何场景都演奏当前轨。文本输入时整块键盘按键帽字符打字。
 - **GRID（第 9–12 列）**：屏幕中央 4×4 内容区与它一一对应，物理位置即屏幕位置：音序场景是 16 个 step，其它场景是当前页的 16 个直达槽（参数、Pattern、轨道、动作）。
-- **左侧 4 键**：屏幕左边缘的 4 个键帽与它们逐行对齐，和右侧一样用图标表示，不写文字：ESC 返回箭头、TAB 跳到竖线的箭头（轨道）、FN 四宫格（菜单）、CTRL 叠放的两页（页面），图标用这个键的颜色。键帽底色是该键颜色的浅 dither，亮度和这个键的灯同步（`CapDither`，灭时几乎看不见、半亮也很浅、全亮时实色，图标变黑）；按下时从下往上填成实色。当前在哪个场景、哪条轨、哪一页看状态行和底行的页签，键帽上不再显示。底行的页签和它的高亮块与左右两侧的键帽之间至少留 2 像素黑边（`kFooterX` / `kFooterRight`）。
+- **左侧 4 键**：屏幕左边缘的 4 个键帽与它们逐行对齐，和右侧一样用图标表示，不写文字：ESC 返回箭头、TAB 跳到竖线的箭头（轨道）、FN 四宫格（菜单）、CTRL 叠放的两页（页面），图标用这个键的颜色。键帽底色是该键颜色的浅 dither，亮度和这个键的灯同步（`CapDither`，灭时几乎看不见、半亮也很浅、全亮时实色，图标变成底色）；按下时从下往上填成实色。当前在哪个场景、哪条轨、哪一页看状态行和底行的页签，键帽上不再显示。底行的页签和它的高亮块与左右两侧的键帽之间至少留 2 像素底色的边（`kFooterX` / `kFooterRight`）。
 - **右侧 4 键**：自上而下为 ADD / SUB / ENTER / PLAY，屏幕右边缘是同样造型的 4 个键帽，dither 很浅，图标最突出。ADD 和 SUB 的图标说明它们此刻做什么（`Controller::AdjustKeysMean`）：调参数值和在列表里上下移动都是 ▲ / ▼（列表：INSTR 的 VOICE 页切音色、音色和采样浏览、TAPE 的 SESSION、SETUP 的 FILES），ADD 是上面的键，数值往大调、列表往上走（2026-11-03 起调数值也不再是 + / −）；横向移动是 → / ←（SEQ 音符页没有选中 step 时翻 GRID 的页、引擎选择、按住 CTRL 翻页、按住 TAB 换轨）；文本输入时最上面的键（键帽印 del）是删除，下面的键没有图标；确认框和常驻菜单里两个键不起作用，也没有图标。
 
 ### 全局按键
@@ -204,7 +204,7 @@ FN 是**当前画面的菜单**。按住 FN 时内容区换成菜单：4×4 的�
 | TAPE SONG | COPY / PASTE（插在光标行后）/ DELETE / DUP 一行（C / V / X / D）；PLAY（OK，SONG / LOOP） |
 | TAPE MIX | UNMUTE ALL、UNSOLO ALL |
 | TAPE SENDS / FX | RESET（OK） |
-| SETUP PROJECT / FILES | NEW、LOAD、SAVE AS |
+| SETUP PROJECT / FILES | NEW、LOAD、SAVE AS、RENAME（PROJECT 页改当前工程的名字，FILES 页改光标所在的工程：卡上的文件直接改名，不留旧名，打开的工程照常继续；名字已被别的工程用了就提示 TAKEN，不覆盖；没存过的新工程是起名并保存） |
 | SETUP KEYS / SYSTEM | RESET（OK，焦点设置恢复默认） |
 | 行 3（所有画面） | SAVE（S，存工程）、TAP（T，Tap tempo，显示 BPM）、REC（PLAY，录音待命）、SETUP（进入 0 SETUP；在 SETUP 里是 BACK，回到进来之前的场景） |
 
@@ -242,10 +242,10 @@ PADS 与四周按键上的第二功能：
 
 | 子页面 | 内容 | GRID | ADD / SUB / ENTER |
 |---|---|---|---|
-| PROJECT | 工程名、是否未保存、四轨摘要（引擎、音色） | 行 0：SAVE / LOAD（跳到 FILES）/ NEW（SAVE AS 在 FN 菜单：要打字的操作都不放在一级界面）；行 1：BPM / SWING / TAP / PLAY（LOOP ↔ SONG 开关，SONG 时灯全亮） | 调整 BPM / SWING；ENTER 保存（焦点在 TAP 时是打拍） |
+| PROJECT | 工程名、是否未保存、四轨摘要（引擎、音色） | 行 0：SAVE / LOAD（跳到 FILES）/ NEW（SAVE AS、RENAME 在 FN 菜单：要打字的操作都不放在一级界面）；行 1：BPM / SWING / TAP / PLAY（LOOP ↔ SONG 开关，SONG 时灯全亮） | 调整 BPM / SWING；ENTER 保存（焦点在 TAP 时是打拍） |
 | FILES | 工程列表 | — | 选择；ENTER 载入（未保存时确认） |
 | KEYS | 键盘预览（中间一个八度为主，两边各半个八度、颜色更暗：F 到 F）：音阶音带点、根音带横线，按下的音用当前轨颜色亮起 | LAYOUT、SCALE、ROOT、OCTAVE / VELO、LOCK、SELECT | 选中的设置：ADD / SUB 调整，ENTER 切换选项，Fn + ENTER 恢复默认；再按一次已选中的格子切换选项或开关 |
-| SYSTEM | 音频后端、SD 卡、内存、构建日期（每次进来逐行打出） | VOLUME、KEY LED、SCREEN、LOG | 同上 |
+| SYSTEM | 音频后端、SD 卡、内存、构建日期（每次进来逐行打出） | VOLUME、KEY LED、SCREEN、LOG / THEME | 同上 |
 
 键盘（LAYOUT、SCALE、ROOT、OCTAVE、VELO、LOCK）属于工程：随工程保存和载入，改动后工程变为未保存；NEW 的工程从默认键盘开始（PIANO、C MAJOR）。SELECT 是使用习惯，存在应用设置里（卡上 `CardenzaSynth/Settings/synth.cfg`）。BPM / SWING 属于工程，PLAY 与 REC 是演奏状态；SYSTEM 是设备设置（`CardenzaSynth/Settings/system.cfg`，所有应用共用）。当前轨的步数在 SEQ TRACK 页，和弦与 ARP 在每条轨道的 INSTR 页。
 
@@ -253,7 +253,7 @@ PADS 与四周按键上的第二功能：
 
 - KEYS：LAYOUT PIANO（默认，黑白键）/ SCALE / CHROMA；SCALE 14 种音阶；ROOT C–B；OCTAVE −3…+3；VELO 演奏力度 1–127；LOCK OFF / MUTE / SNAP；SELECT ONE / MULTI。
 - PROJECT：BPM 30–300；SWING 50–75 %；PLAY LOOP / SONG。
-- SYSTEM：VOLUME 主音量 0–100，按听感：v 对应 -60 (1 - v/100)^1.5 dB（1 约 -59 dB，25 约 -39，50 约 -21，默认 70 约 -10，100 是 0 dB），小音量一端宽、大音量一端细（`Device::Audio::SetOutputVolume`；2026-11-06 以前只有 -20..0 dB，1 也很响；`sys.volume.rev` 3，旧的音量回到默认一次）；KEY LED 按键灯 0–15（选中它时，演奏区从左到右是亮度梯（感知等级 0、6、7、8、9、11、13、15，校正后是 HAL 的 0、1、2、3、4、7、10、15），方便用眼睛判断）；SCREEN 屏幕亮度；LOG 日志 ON / OFF（默认 ON，见本文 Log 规则）。
+- SYSTEM：VOLUME 主音量 0–100，按听感：v 对应 -60 (1 - v/100)^1.5 dB（1 约 -59 dB，25 约 -39，50 约 -21，默认 70 约 -10，100 是 0 dB），小音量一端宽、大音量一端细（`Device::Audio::SetOutputVolume`；2026-11-06 以前只有 -20..0 dB，1 也很响；`sys.volume.rev` 3，旧的音量回到默认一次）；KEY LED 按键灯 0–15（选中它时，演奏区从左到右是亮度梯（感知等级 0、6、7、8、9、11、13、15，校正后是 HAL 的 0、1、2、3、4、7、10、15），方便用眼睛判断）；SCREEN 屏幕亮度；LOG 日志 ON / OFF（默认 ON，见本文 Log 规则）；THEME 屏幕配色 DARK / LIGHT / RETRO（默认 DARK，见「调色板与主题」）。
 
 待机（屏保）已去掉（2026-11-04，用户要求）：机器一直显示当前的画面和键灯。
 
@@ -361,30 +361,35 @@ SONG 模式：编排非空时，播放从选中的行开始，每行播放 xN �
 
 #### 风格
 
-终端 + 新极简 + dither：纯黑底；等宽大写字；大量留白；只有状态才用颜色；面积填充一律用 4×4 Bayer 有序抖动，不用纯色块。
+终端 + 新极简 + dither：底色一片（DARK 是纯黑）；等宽大写字；大量留白；只有状态才用颜色；面积填充一律用 4×4 Bayer 有序抖动，不用纯色块。
 
-#### 调色板
+#### 调色板与主题
 
-| 名称 | 用途 | RGB |
-|---|---|---|
-| Black | 背景 | 0,0,0 |
-| Ink | 主文字 | 232,232,224 |
-| Dim | 次要文字 | 132,132,126 |
-| Faint | 空槽、刻度、未选中轮廓 | 58,58,54 |
-| ESC 红橙 | ESC 条、返回 | 255,90,54 |
-| TAB 青 | TAB 条、轨道地图 | 54,214,230 |
-| FN 黄 | FN 条、Fn 功能字 | 255,208,48 |
-| CTRL 紫 | CTRL 条、页签 | 160,112,255 |
-| Play 绿 | 播放、游标 | 72,255,120 |
-| Rec 红 | 录音、危险 | 255,52,68 |
-| T1 粉 | 轨道 1 | 255,92,176 |
-| T2 蓝 | 轨道 2 | 72,152,255 |
-| T3 黄绿 | 轨道 3 | 176,236,56 |
-| T4 琥珀 | 轨道 4 | 255,164,40 |
+屏幕有三套配色（主题），在 SETUP > SYSTEM > THEME 选，是设备设置 `sys.theme`（`dark` / `light` / `retro`，默认 DARK）：**DARK** 黑底亮字（出厂的样子）；**LIGHT** 白纸黑字，同样的色相，每个颜色压暗到纸面亮度的六分之一左右，在纸上能读（约 4.5:1），黑字压在色块上也能读（约 3:1），就像 DARK 的颜色夹在黑底和亮字之间（DARK 的黄、青、黄绿、播放绿原样放到白纸上就看不见了）；**RETRO** 背光绿色液晶，浅绿纸面、近黑墨色，颜色是略灰的染料，亮度和 LIGHT 一样取在纸面与墨色中间，dither 读起来就像液晶自己的点阵。
 
-选中使用终端反显（Ink 底、黑字）。
+画图的代码只说颜色的含义、不说具体颜色（`Render/Theme.h`）：`kBlack` 是底色（面板清成的颜色），`kInk` 是写在上面的记号，`kShade` / `kFaint` / `kDim` 是两者之间的三级，顺序在三个主题里一样，所以同一份绘图代码在 DARK 上是黑底亮字、在 LIGHT 和 RETRO 上是纸上墨字。颜色在画图时从当前调色板读（`theme::Use` 每帧开始按设置换调色板，换一次只是复制一个小结构；读颜色是一次内存读取，不是每个像素一次）；不要在静态变量或 `constexpr` 里存颜色值。主题只管屏幕：键灯是光，不分主题；屏幕两侧的边条仍然按键灯亮度画（`Animator::LedShown`），在浅色底上同样从几乎看不见到实色。
 
-轨道颜色在所有出现轨道的地方保持一致：状态行的轨号色块和下面的点线、TAB 色条里的四个点（当前轨加白框）、轨道地图、MIX 推子标题、SENDS 每格左缘、TAPE 每行的色条和轨号、SEQ TRACK 页的轨道表、SETUP KEYS 键盘预览里按下的音。
+| 名称 | 用途 | DARK | LIGHT | RETRO |
+|---|---|---|---|---|
+| Black | 底色 | 0,0,0 | 236,236,228 | 188,210,160 |
+| Ink | 主文字、反显的底 | 232,232,224 | 20,20,18 | 14,24,14 |
+| Dim | 次要文字 | 132,132,126 | 100,100,94 | 70,90,58 |
+| Faint | 空槽、刻度、未选中轮廓 | 58,58,54 | 176,176,168 | 136,160,114 |
+| Shade | 几乎看不见的底纹 | 26,26,24 | 212,212,204 | 166,190,140 |
+| ESC 红橙 | ESC 条、返回 | 255,90,54 | 185,63,36 | 153,67,45 |
+| TAB 青 | TAB 条、轨道地图 | 54,214,230 | 25,115,124 | 38,102,107 |
+| FN 黄 | FN 条、Fn 功能字 | 255,208,48 | 138,112,21 | 120,99,32 |
+| CTRL 紫 | CTRL 条、页签 | 160,112,255 | 112,77,180 | 98,76,150 |
+| Play 绿 | 播放、游标 | 72,255,120 | 28,116,51 | 35,102,48 |
+| Rec 红 | 录音、危险 | 255,52,68 | 194,37,49 | 156,55,52 |
+| T1 粉 | 轨道 1 | 255,92,176 | 171,59,116 | 141,62,98 |
+| T2 蓝 | 轨道 2 | 72,152,255 | 46,101,173 | 52,90,141 |
+| T3 黄绿 | 轨道 3 | 176,236,56 | 86,118,23 | 79,106,32 |
+| T4 琥珀 | 轨道 4 | 255,164,40 | 152,96,19 | 132,88,34 |
+
+选中使用终端反显（Ink 底、底色的字）：DARK 上是白底黑字，LIGHT / RETRO 上是黑底浅字。三级灰在三个主题里和底色的对比相同（Dim 约 5:1，Faint 约 1.8:1，Shade 约 1.2:1）；改颜色时保持这个关系，新颜色在 LIGHT 和 RETRO 上也取在纸面与墨色亮度中间。
+
+轨道颜色在所有出现轨道的地方保持一致：状态行的轨号色块和下面的点线、TAB 色条里的四个点（当前轨加 Ink 框）、轨道地图、MIX 推子标题、SENDS 每格左缘、TAPE 每行的色条和轨号、SEQ TRACK 页的轨道表、SETUP KEYS 键盘预览里按下的音。
 
 #### 布局（像素）
 
@@ -467,7 +472,7 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 
 #### 屏幕两侧和按键灯同步
 
-屏幕左右两侧的 4 + 4 个色块就是两侧 8 个键的灯：每个色块读取对应键灯此刻的亮度（`Animator::LedShown`），灭时只剩很淡的 dither（2/16），半亮时 30 % dither（5/16），全亮时变成实色块（右侧的字形变黑）。按住、切轨提示、地图、闪烁，在屏幕和键上永远一致。
+屏幕左右两侧的 4 + 4 个色块就是两侧 8 个键的灯：每个色块读取对应键灯此刻的亮度（`Animator::LedShown`），灭时只剩很淡的 dither（2/16），半亮时 30 % dither（5/16），全亮时变成实色块（右侧的字形变成底色）。浅色主题上也一样：边条的 dither 从几乎看不见到实色，跟键灯的亮度走，不跟主题。按住、切轨提示、地图、闪烁，在屏幕和键上永远一致。
 
 屏幕边条通过 `Animator::LedShown` 跟随键灯；修改灯光时遵循 Groovebox UI Rules，不能让动画把应灭的键持续点亮。
 
@@ -518,7 +523,7 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 
 ### 压力测试使用
 
-`make DEVICE=Cardenza stress` 编一个带压力测试的固件（`Applications/Synth/StressTest.cpp`，`CARDENZA_STRESS_TEST`，绝不发布），配置和正式版相同，另加任务看门狗（卡死 5 秒就变成带调用栈的崩溃记录）。用 `BUILD=build/Cardenza-stress tools/remote-flash/push.sh` 烧上去，开机 20 秒后自动开始，日志里是 `stress:` 开头的行，跑完每 20 秒重复一遍汇总。它在卡上写 `ZZ-ST-` 开头的工程和采样，挨个载入并播放；设备重启（崩溃或看门狗）后从下一个场景接着跑，并打印上次崩溃的 `!!!` 行。自动保存会变成最后一个测试工程。
+`make DEVICE=Cardenza stress` 编一个带压力测试的固件（`Applications/Synth/StressTest.cpp`，`CARDENZA_STRESS_TEST`，绝不发布），配置和正式版相同，另加任务看门狗（卡死 5 秒就变成带调用栈的崩溃记录）。在 ESP-IDF 环境里用 `cd build/Cardenza-stress && esptool.py --chip esp32s3 -p <端口> write_flash @flash_args` 烧上去，开机 20 秒后自动开始，日志里是 `stress:` 开头的行，跑完每 20 秒重复一遍汇总。它在卡上写 `ZZ-ST-` 开头的工程和采样，挨个载入并播放；设备重启（崩溃或看门狗）后从下一个场景接着跑，并打印上次崩溃的 `!!!` 行。自动保存会变成最后一个测试工程。
 
 - 场景：空工程；旧格式 v1（音色不存在）；0.1.0 正式版的 DEMO-2（格式 6）；四轨 DX7 每步六音和弦；四轨 Juno 长尾音八音和弦；300 BPM 鼓机八条全开加两轨；四轨 1/32 琶音四个八度；采样（1.5 秒进 PSRAM、20 秒从卡上流式）；效果器全部开到最大；最大工程（四轨 × 16 个 Pattern × 256 步 × 每步 8 音，文件 2.6 MB）；播放中的操作（切引擎、换音色、载入、新建、存盘、自动保存、改主效果和音量）；按键风暴（垫子成串按放、GRID、ESC、TAB、CTRL，不按 ENTER、ADD、SUB、FN、PLAY）；以上叠加；卡上每一个工程（含 0.1.0 的 `CardenzaSynth/Projects`）。
 - 每个场景量：音频每块平均和最长时间、DMA 放空（`underruns`）、丢掉的音（按住的、还没出声的、被抢的，和提前收掉的尾音）、界面最长一帧和超过 34 ms 的帧（掉帧）、音序器脉冲最晚多少、晚 5 ms 以上的次数、内部 RAM 和 PSRAM 的最低值、操作最长多久和操作期间的放空。通过：放空 0、按住的音和新音一个不丢、晚的脉冲 0、界面最长一帧 < 250 ms、内部 RAM 最低 ≥ 12 KB、没有出错。`STRESS_ONLY=card:DEMO-2,sampler STRESS_SECONDS=60` 只跑这几个。
@@ -529,7 +534,7 @@ USB 口是 CardenzaHAL 提供的一个复合设备（`usb/usb.h`）：MIDI、双
 
 - **MIDI**：电脑可以弹各轨：通道 1–4 对应轨道 1–4，其他通道弹当前轨。这些音符有主人（`GrooveApp::computerNotes_`，计入 `EndOrphanNotes`），电脑断开时结束；CC 120 / 123 也会结束它们，其他 CC 交给该轨的引擎。设备弹出的音（按键和音序器）也发给电脑，轨道 n 走通道 n。
 - **音频**：电脑录到的是设备的声音，在设备音量之前（单声道复制到两个声道）。USB 音频两个方向的通道都在，但电脑播放的声音 app 目前不用（用户 2026-11-06：先只当电脑的麦克风）：`GrooveApp` 不装 line input，设备层把一块里没人读的从 USB 收下丢掉，好让电脑的播放流一直走着（HAL 的反馈看它的 FIFO 有多满，一直满着电脑就会降到最慢）。装上（`synth::audio::SetLineInput(&Device::Audio::ReadComputerAudio)`）时，它在输出增益和限幅器之前以单位增益并入混音，带电脑自己的静音和音量，于是也回到电脑录到的声音里。电脑里设备叫「203 Systems Cardenza」，仍有它的扬声器，播进去听不到。
-- **控制台与更新**：stdout、stderr 和日志都走 HAL 的系统通道；电脑在那里读日志，也可以让设备重启进 Launcher 或 ROM 下载模式（报告 0xCB 或 SysEx F0 23，与 Matrix OS 相同）。`tools/remote-flash/gate.sh` 在板子没有串口时会自动这样做。
+- **控制台与更新**：stdout、stderr 和日志都走 HAL 的系统通道；电脑在那里读日志，也可以让设备重启进 Launcher 或 ROM 下载模式（报告 0xCB 或 SysEx F0 23，与 Matrix OS 相同）。电脑这边的命令行工具是 `tools/usb/cardenza_usb.py`（list、command identify / reboot / launcher / download、console、stats、test、guide）：板子没有串口时，`command download` 让它进 ROM 下载模式再刷。
 - 内存：静态约 8.5 KB，外加 4 KB 任务栈，不管有没有接电脑都占着。
 
 ### 教程模式
@@ -537,8 +542,8 @@ USB 口是 CardenzaHAL 提供的一个复合设备（`usb/usb.h`）：MIDI、双
 Learn 网站（`wiki/`）的入门教程（课程在 `docs/learn/guide.json`，页面在 `wiki/src/guide`，在固件上的校验是 `tools/wiki/lessons.py`）一课一课地带用户操作，设备跟着课程走：网页让设备去这一课开始的画面，让这一步要按的键闪烁，设备把每个按键和当前状态报回网页，网页据此判断这一步做完没有。设备是接在电脑上的 Cardenza（Web MIDI）：网页一打开就向浏览器要 MIDI（SysEx）权限，用户允许后，现在接着的或之后插上的 Cardenza 都自动连上；没有设备时课程只是图，用「下一步」往前走。
 
 - **通道**：短的 ASCII 文本，都以 `G` 开头（`Device::USB::ReadAppMessage` / `WriteAppMessage`）。真机上走 CardenzaHAL 的应用通道：HID 报告 0xFF，或 SysEx `F0 23 7F <文本> F7`，回复 `F0 24 7F <文本> F7`（网页用后者）。网页模拟器导出同样的文本（`cardenza_web_app_send` / `cardenza_web_app_take`，`cardenzaEmbed.guide` / `listen`），教程的浏览器测试用它扮演一台 USB 上的 Cardenza。
-- **消息**（`Applications/Synth/GrooveAppGuide.cpp`）：`G?` 问版本（`G!1 g0|1`）；`GE` 开始（`GE1`，或 `GE0 rec|card|save|mem` 说明为什么不行：在录音、没有卡、卡写失败、内存不够）；`GX` 结束；`GP` 心跳；`GQ` 要状态；`GL` 这一课的起点（`s` 场景、`p` 页、`t` 轨道 1–4、`r1` 新的练习工程、`d<n>` 「做第一首歌」前 n 课做出的歌：1 鼓 P01，2 加上 P02，3 加上 T3 电钢琴和弦，4 加上 T2 旋律，单独打开某一课也能接着做）；`GH` 这一步的键，闪（每个键两位十六进制的 `KeyIndex`，空则全灭）；`GT` 同样的键，常亮（这一步学会了）；`GK<kk><0|1>` 网页按键 / 用户按键（网页按的键不报回，也不算用户完成了这一步：说明书的「演示」用它在设备上做一遍这一步，再让设备回到这一步开始时）；`GD<56 位十六进制>` 设备的按键灯（每个键一位，0–15 是看到的亮度，变了才发，最多 20 次每秒，只发给 USB 上的网页；现在的教程页不显示它，灯在机器上看）。状态 `GS` 是字母加数字（`Controller::GuideState`：场景、页、轨道、引擎、播放、弹窗、按住的地图、这一轨 Pattern 有音符的步数、Pattern 数、当前 Pattern、音阶、键盘排列、和弦、琶音、SONG 段数、SONG 模式、SONG 光标格的 Pattern、光标所在的段和它的小节数、音色），最后是页签名。变了才发，最多 20 次每秒。
+- **消息**（`Applications/Synth/GrooveAppGuide.cpp`）：`G?` 问版本（`G!1 g0|1`）；`GE` 开始（`GE1`，或 `GE0 rec|card|save|mem` 说明为什么不行：在录音、没有卡、卡写失败、内存不够）；`GX` 结束；`GP` 心跳；`GQ` 要状态；`GL` 这一课的起点（`s` 场景、`p` 页、`t` 轨道 1–4、`r1` 新的练习工程（用用户进教程前的键盘设置：排列、音阶、主音、八度……，教程跟着用户的设置走，不改它；`f1` 则用新工程的键盘 PIANO、C 大调，给改键盘设置或按指定音的课用：音阶、电钢琴和弦、旋律）、`d<n>` 「做第一首歌」前 n 课做出的歌：1 鼓 P01，2 加上 P02，3 加上 T3 电钢琴和弦，4 加上 T2 旋律，单独打开某一课也能接着做）；`GH` 这一步的键，闪（每个键两位十六进制的 `KeyIndex`，空则全灭；一条消息最多 60 个字符，装 29 个键，其余的用 `G+` 追加到上一条 `GH` / `GT` 里，32 个琴键就是两条）；`GT` 同样的键，常亮（这一步学会了）；`GK<kk><0|1>` 网页按键 / 用户按键（网页按的键不报回，也不算用户完成了这一步：说明书的「演示」用它在设备上做一遍这一步，再让设备回到这一步开始时）；`GD<56 位十六进制>` 设备的按键灯（每个键一位，0–15 是看到的亮度，变了才发，最多 20 次每秒，只发给 USB 上的网页；现在的教程页不显示它，灯在机器上看）。状态 `GS` 是字母加数字（`Controller::GuideState`：场景、页、轨道、引擎、播放、弹窗、按住的地图、这一轨 Pattern 有音符的步数、Pattern 数、当前 Pattern、音阶、键盘排列、和弦、琶音、SONG 段数、SONG 模式、SONG 光标格的 Pattern、光标所在的段和它的小节数、音色），最后是页签名。变了才发，最多 20 次每秒。
 - **用户的工程不动**：开始时先把工作状态写进卡上的自动保存（没有卡就拒绝，`GE0 card`；写不进去 `GE0 save`），再换成一个新的练习工程；教程期间自动保存不写，也不为练习工程腾地方。网页说结束、30 秒没有消息、USB 线拔掉、或 app 被挂起时，从自动保存恢复工作状态，回到原来的画面和 SONG / LOOP。断电只丢练习工程。
-- **提示**：这一步要按的键全亮，其他键最多半亮，和网页的图一样（要按的框出，其余变暗）；提示里的边缘键也全亮（平时边缘键不超过最暗的亮度），屏幕边条跟着变。用户还没做对时这些键慢闪（每 0.5 秒亮灭一次，`GH`，`LedEffect::Hint`）；做对了（学会了）就常亮（`GT`），让用户再多按几个键试试（用户要求，2026-11-04：不要一直闪）。网页不自动翻页：「学会了」出现在说明文字下面（不遮挡图），「下一步」从灰色变亮，用户自己点。没有提示时一切照常。屏幕右上角显示 GUIDE。
+- **提示**：这一步要按的键全亮（键盘上不出声的琴键除外：PIANO 的缺口不亮，网页的图上也淡掉，网页按机器的状态 `z` 排列、`e` 引擎判断），其他键最多半亮，和网页的图一样（要按的框出，其余变暗）；提示里的边缘键也全亮（平时边缘键不超过最暗的亮度），屏幕边条跟着变。用户还没做对时这些键慢闪（每 0.5 秒亮灭一次，`GH`，`LedEffect::Hint`）；做对了（学会了）就常亮（`GT`），让用户再多按几个键试试（用户要求，2026-11-04：不要一直闪）。网页不自动翻页：「学会了」出现在说明文字下面（不遮挡图），「下一步」从灰色变亮，用户自己点。没有提示时一切照常。屏幕右上角显示 GUIDE。
 - **课程和固件对得上**：构建说明书时，每一课的每一步都在固件上（CardenzaSimShot 的 `app` 命令）按它的示范按键跑一遍，完成条件不满足就构建失败；每一步的截图就是这次跑出来的。
 - **启动器和固件课程**：由 `docs/learn/guide.json` 的 `hidden` 控制可见性；课程动画在 `wiki/src/guide/guide-anim.js`。启动器来自独立项目 `203-Systems/203-launcher`，更新课程时核对它的当前流程。

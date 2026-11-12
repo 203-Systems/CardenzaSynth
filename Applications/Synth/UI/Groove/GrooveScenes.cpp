@@ -2,6 +2,7 @@
 #include "OS/Storage/DeviceSettings.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -160,6 +161,12 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
     choice(host_.Logging() ? 1 : 0, 2, os::storage::kDefaultLogEnabled ? 1 : 0, host_.Logging() ? "ON" : "OFF");
     info.kind = synth::SynthParameterKind::Toggle;
   }
+  else if (Is(id, "sys.theme"))
+  {
+    static constexpr std::array<const char*, os::storage::kThemeCount> kThemeNames{{"DARK", "LIGHT", "RETRO"}};
+    const auto theme = std::min(static_cast<std::size_t>(host_.ScreenTheme()), os::storage::kThemeCount - 1);
+    choice(static_cast<int>(theme), static_cast<int>(os::storage::kThemeCount), static_cast<int>(os::storage::kDefaultTheme), kThemeNames[theme]);
+  }
   else return false;
   return true;
 }
@@ -205,6 +212,7 @@ void Controller::AdjustSetting(const char* id, int delta)
   else if (Is(id, "sys.led")) host_.SetLedBrightness(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.screen")) host_.SetBacklight(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.log")) host_.SetLogging(value != 0);
+  else if (Is(id, "sys.theme")) host_.SetScreenTheme(static_cast<os::storage::Theme>(value));
   // The key range moves under held pads: let them go before they map to other notes.
   if (Is(id, "keys.layout") || Is(id, "keys.octave")) ReleaseAllPads();
   // Only project data makes the project unsaved: the keyboard, the tracks' chords and arpeggiators,
@@ -442,6 +450,50 @@ void Controller::SaveProjectNamed(const std::string& name, bool overwrite)
     case SaveResult::Failed:
     default:
       ShowToast(message.empty() ? "SAVE FAILED" : message, ToastKind::Error);
+      break;
+  }
+}
+
+void Controller::RenameProject()
+{
+  std::string name = state_.projectName;
+  if (CurrentPage() == kSetupFiles)
+  {
+    if (state_.projects.empty()) return;
+    name = state_.projects[std::min(state_.fileCursor, state_.projects.size() - 1)];
+  }
+  if (name.empty())
+  {
+    // Never saved: renaming it is naming it, which saves it.
+    OpenTextEntry(TextPurpose::ProjectSaveAs, "NAME PROJECT", "SONG", 24);
+    return;
+  }
+  OpenTextEntry(TextPurpose::ProjectRename, "RENAME PROJECT", name, 24);
+  Top()->payload = name;
+}
+
+void Controller::RenameProjectNamed(const std::string& from, const std::string& to)
+{
+  if (to == from) return;
+  std::string message;
+  switch (host_.RenameProject(from, to, message))
+  {
+    case SaveResult::Ok:
+      // The open project keeps its state (saved or not) under the new name.
+      if (state_.projectName == from) state_.projectName = to;
+      RefreshProjects();
+      // On FILES the cursor stays on the project just renamed.
+      if (CurrentPage() == kSetupFiles)
+        if (const auto at = std::find(state_.projects.begin(), state_.projects.end(), to); at != state_.projects.end())
+          state_.fileCursor = static_cast<std::size_t>(at - state_.projects.begin());
+      ShowToast("RENAMED " + to, ToastKind::Ok);
+      break;
+    case SaveResult::Exists:
+      ShowToast(to + " IS TAKEN", ToastKind::Error);
+      break;
+    case SaveResult::Failed:
+    default:
+      ShowToast(message.empty() ? "RENAME FAILED" : message, ToastKind::Error);
       break;
   }
 }
@@ -1841,6 +1893,9 @@ MenuItems Controller::Menu() const
         put(0, MenuAction::NewProject, "NEW", "PROJECT");
         put(1, MenuAction::LoadProject, "LOAD", "PROJECT");
         put(2, MenuAction::SaveProjectAs, "SAVE AS", "PROJECT");
+        // FILES renames the project under the cursor, PROJECT the open one (a new one gets its first name).
+        put(3, MenuAction::RenameProject, "RENAME", page == kSetupFiles ? "SELECTED" : "PROJECT", nullptr,
+            page != kSetupFiles || !state_.projects.empty());
       }
       else if (const InstrumentPage* settings = SettingsPageShown())
       {
@@ -1945,6 +2000,7 @@ void Controller::RunMenuAction(const MenuItem& item)
       SetPage(kSetupFiles);
       break;
     case MenuAction::SaveProjectAs: SaveProject(true); break;
+    case MenuAction::RenameProject: RenameProject(); break;
     case MenuAction::None:
     default: break;
   }
