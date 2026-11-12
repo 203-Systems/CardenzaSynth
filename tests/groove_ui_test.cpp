@@ -1363,7 +1363,25 @@ void TestHeldPadEdits(Harness& h)
   assert(event(cells[0], 55).lengthPulses > gLength && event(cells[0], 51).lengthPulses == length);
   h.Tap(kEnter);
   h.Tap(kEnter);
-  h.Tap(kEnter);
+  h.Tap(kEnter);  // HITS
+  assert(h.Seq().editLane == synth::SequencerEditLane::Hits);
+  // The lane stays from one selection to the next: no OK walk back to HITS on every step.
+  h.Tap(kEsc);
+  assert(!h.Seq().hasHeldSteps && h.Seq().editLane == synth::SequencerEditLane::Hits);
+  h.Tap(Grid(cells[1]));
+  assert(h.Seq().steps[cells[1]].held && h.Seq().editLane == synth::SequencerEditLane::Hits);
+  h.Tap(Grid(cells[1]));
+  assert(!h.Seq().hasHeldSteps);
+  // Pads held + a step still put their notes in (or take them out), whatever the lane.
+  h.Down(c3);
+  h.Tap(Grid(cells[2]));
+  h.Up(c3);
+  assert((pitches(cells[2]) == std::vector<int>{48}) && !h.Seq().hasHeldSteps);
+  h.Down(c3);
+  h.Tap(Grid(cells[2]));
+  h.Up(c3);
+  assert(pitches(cells[2]).empty());
+  h.Tap(Grid(cells[0]));
   h.Tap(kEnter);  // back to NOTE
   assert(h.Seq().editLane == synth::SequencerEditLane::Note);
   h.Tap(kEsc);

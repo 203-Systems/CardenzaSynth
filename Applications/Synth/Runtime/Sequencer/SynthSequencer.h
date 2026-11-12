@@ -175,6 +175,8 @@ public:
   static bool ConsumePatternMemoryFull();
 
   // Selection editing without audition. The selection is the held-step set of the active track.
+  // Clearing it keeps the edit lane for the next selection; a track change returns it to NOTE
+  // (ClearHeldSteps, the old UI's, returns it too).
   void SetStepSelected(std::size_t step, bool selected);
   bool StepSelected(std::size_t step) const;
   void ClearSelectedSteps();
