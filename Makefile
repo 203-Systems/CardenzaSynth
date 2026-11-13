@@ -52,20 +52,11 @@ HAL_DIR := Devices/Cardenza/CardenzaHAL
 ifneq ($(HAL_DEV),)
 export CARDENZA_HAL_DEV := $(abspath $(HAL_DEV))
 endif
-HAL_NO_PUSH := no-push://CardenzaHAL-is-a-read-only-dependency
 
 hal-check:
 	@test -e $(HAL_DIR)/.git || git submodule update --init $(HAL_DIR)
-	@git -C $(HAL_DIR) config remote.origin.pushurl $(HAL_NO_PUSH)
-	@test -z "$$(git -C $(HAL_DIR) status --porcelain)" || { \
-	  echo "hal-check: $(HAL_DIR) has local changes. Change the HAL in its own clone and push it upstream (AGENT.md);" >&2; \
-	  echo "hal-check: work above it in Devices/Cardenza and restore it: git -C $(HAL_DIR) checkout -- . && git -C $(HAL_DIR) clean -fd" >&2; \
-	  git -C $(HAL_DIR) status --short >&2; exit 1; }
 	@test -z "$(HAL_DEV)" || echo "hal-check: HAL_DEV=$(HAL_DEV): building against that HAL clone, a test build, never ship it" >&2
-	@git -C $(HAL_DIR) merge-base --is-ancestor HEAD origin/main 2>/dev/null || \
-	  { git -C $(HAL_DIR) fetch -q origin && git -C $(HAL_DIR) merge-base --is-ancestor HEAD origin/main; } || { \
-	  echo "hal-check: $(HAL_DIR) is on a commit that is not on upstream main (a local commit?)." >&2; \
-	  echo "hal-check: push the HAL change upstream first, then make hal-update (HAL_DEV=<clone> for a test build)." >&2; exit 1; }
+	@python3 $(HAL_DIR)/tools/check_submodule.py --fetch
 
 # Pull the latest upstream CardenzaHAL; commit the new submodule pointer in this repository.
 hal-update:
@@ -128,7 +119,19 @@ else
 	@exit 1
 endif
 
-flash bootloader-flash app-flash erase monitor:
+# flash goes through CardenzaHAL's tools/cardenza_flash.py: it reads the board first and refuses a board
+# that has the 203 Launcher (a full flash would erase it); FLASH_ARGS=--app-into <label> writes only the
+# app into one of the Launcher's app partitions instead. PORT is required.
+flash: build
+ifeq ($(DEVICE),Cardenza)
+	@test -n "$(PORT)" || { echo "flash: PORT=<serial port> is required" >&2; exit 1; }
+	python $(HAL_DIR)/tools/cardenza_flash.py -p '$(PORT)' $(FLASH_ARGS) '$(abspath $(BUILD))'
+else
+	@echo flash is only supported for DEVICE=Cardenza
+	@exit 1
+endif
+
+bootloader-flash app-flash erase monitor:
 ifeq ($(DEVICE),Cardenza)
 	$(call RUN_IDF,$(CARDENZA_IDF_ARGS) $(IDF_PORT_ARG) $@)
 else
@@ -136,9 +139,9 @@ else
 	@exit 1
 endif
 
-flash-monitor:
+flash-monitor: flash
 ifeq ($(DEVICE),Cardenza)
-	$(call RUN_IDF,$(CARDENZA_IDF_ARGS) $(IDF_PORT_ARG) flash monitor)
+	$(call RUN_IDF,$(CARDENZA_IDF_ARGS) $(IDF_PORT_ARG) monitor)
 else
 	@echo flash-monitor is only supported for DEVICE=Cardenza
 	@exit 1
