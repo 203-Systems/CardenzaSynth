@@ -41,6 +41,7 @@ enum class PageGraphic : std::uint8_t {
   Oscillator,        // Juno DCO scope
   Lfo,               // LFO shape, rate and delay
   Waveform,
+  WaveShape,         // Wave: one oscillator's cycle at its POSITION (op 1 or 2: which oscillator)
   DrumPads,
   FxChain,           // track insert chain and sends
   Chord,             // INSTR CHORD: the chord one key plays, on a keyboard
@@ -62,7 +63,7 @@ struct InstrumentPage {
   std::array<Slot, kGridCount> slots{};
   PageGraphic graphic = PageGraphic::None;
   GraphicArea area{};
-  std::uint8_t op = 0;  // DX7 operator 1..6 for operator pages
+  std::uint8_t op = 0;  // DX7 operator 1..6 for operator pages; Wave: oscillator 1 / 2, envelope 2
 };
 
 struct InstrumentPageList {

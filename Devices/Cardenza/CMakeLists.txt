@@ -12,6 +12,10 @@ set(CARDENZA_POWERSHELL_EXE "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0/po
 option(CARDENZA_FX_IRAM "Place the audio effects' per-sample kernels in IRAM" OFF)
 # The on-board stress test (Applications/Synth/StressTest.cpp): make DEVICE=Cardenza stress. Never a release.
 option(CARDENZA_STRESS_TEST "Run the stress test 20 s after boot" OFF)
+# AMY's other sound sources and drum kits to try on the board (Library/Synth/Audio/Amy/AmyBench.h):
+# make DEVICE=Cardenza stress AMY_BENCH=1. Never a release: with the kits' samples the app outgrows the
+# Launcher's slot (partitions.bench.csv).
+option(CARDENZA_AMY_BENCH "Test build with AMY's other sound sources" OFF)
 # CardenzaHAL, an ESP-IDF component of its own: the submodule, or a HAL clone for a test build of a HAL
 # change that is not upstream yet (make HAL_DEV=<clone>). ESP-IDF names a component and its build folder
 # (esp-idf/<name>) after its directory: CardenzaHAL, like the upstream repository. This directory is the
@@ -104,6 +108,20 @@ if(DEFINED COMPONENT_DIR)
         if(CARDENZA_STRESS_TRACE)
             target_compile_definitions(${COMPONENT_LIB} PRIVATE "CARDENZA_STRESS_TRACE=\"${CARDENZA_STRESS_TRACE}\"")
         endif()
+    endif()
+    if(CARDENZA_AMY_BENCH)
+        # The Gamma9001 kits' samples, linked in: tools/audio/gamma9001_blob.py makes the file from the AMY
+        # submodule (the Makefile runs it).
+        set(CARDENZA_GAMMA9001_BIN "${CARDENZA_ROOT}/build/amy-bench/drums.bin")
+        if(NOT EXISTS "${CARDENZA_GAMMA9001_BIN}")
+            message(FATAL_ERROR "CARDENZA_AMY_BENCH needs ${CARDENZA_GAMMA9001_BIN}: "
+                                "python3 tools/audio/gamma9001_blob.py build/amy-bench/drums.bin")
+        endif()
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE CARDENZA_AMY_BENCH=1 GAMMA9001)
+        target_sources(${COMPONENT_LIB} PRIVATE ${CARDENZA_ROOT}/Devices/Cardenza/AmyBenchBlob.S)
+        set_source_files_properties(${CARDENZA_ROOT}/Devices/Cardenza/AmyBenchBlob.S PROPERTIES
+            COMPILE_DEFINITIONS "CARDENZA_GAMMA9001_BIN=\"${CARDENZA_GAMMA9001_BIN}\""
+            OBJECT_DEPENDS "${CARDENZA_GAMMA9001_BIN}")
     endif()
     if(CARDENZA_FX_IRAM)
         target_compile_definitions(${COMPONENT_LIB} PRIVATE CARDENZA_FX_IRAM=1)

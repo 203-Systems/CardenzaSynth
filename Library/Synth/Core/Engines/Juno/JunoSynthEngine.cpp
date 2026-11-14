@@ -2,6 +2,9 @@
 #include "Library/Synth/Core/Engines/Juno/JunoFactoryPresets.h"
 #include "Library/Synth/Audio/Amy/FactoryParameters.h"
 #include "Library/Synth/Audio/SynthFx.h"
+#if defined(CARDENZA_AMY_BENCH)
+#include "Library/Synth/Audio/Amy/AmyBench.h"
+#endif
 
 #include <algorithm>
 #include <string>
@@ -64,6 +67,10 @@ int JunoSynthEngine::FactoryParameterValue(const std::string& presetId, const Sy
   // The Juno patch carries its chorus; the other effects start at their defaults.
   if (fx::IsTrackParameter(parameter.id) && parameter.id != "fx.chorus") return parameter.defaultValue;
   const auto* preset = FindJunoFactoryPreset(presetId);
+#if defined(CARDENZA_AMY_BENCH)
+  // Test builds: not a Juno patch (AmyBench.h), so none of its values, its chorus included.
+  if (preset && preset->patchNumber < static_cast<int>(bench::kSources.size())) return parameter.defaultValue;
+#endif
   return preset ? factory::JunoValue(factory::kJuno[preset->patchNumber], parameter.id) : parameter.defaultValue;
 }
 

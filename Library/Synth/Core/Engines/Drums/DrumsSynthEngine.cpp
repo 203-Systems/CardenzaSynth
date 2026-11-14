@@ -1,6 +1,9 @@
 #include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
 
 #include "Library/Synth/Audio/SynthFx.h"
+#if defined(CARDENZA_AMY_BENCH)
+#include "Library/Synth/Audio/Amy/AmyBench.h"
+#endif
 
 namespace synth {
 
@@ -17,7 +20,12 @@ DrumsSynthEngine::DrumsSynthEngine()
   RegisterParameter({"master.level", "Master", "Kit", SynthParameterKind::Continuous, 0, 127, 1, 100, 100});
   preset["master.level"] = 100;
   RegisterTrackFxParameters();
+#if defined(CARDENZA_AMY_BENCH)
+  // Test builds: AMY's Gamma9001 kits (AmyBench.h), the 808 first.
+  for (const bench::DrumKit& kit : bench::kDrumKits) RegisterPreset(kit.id, kit.name, preset);
+#else
   RegisterPreset("drums.808", "808 Kit", preset);
+#endif
   (void)LoadPreset("drums.808");
 }
 

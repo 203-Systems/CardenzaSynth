@@ -133,6 +133,46 @@ constexpr std::array<InstrumentPage, 6> kSamplerPages{{
     kFxPage,
 }};
 
+// Wave: the two oscillators (a wavetable scanned by POS, or a classic shape), the filter, the
+// amplitude envelope, then what moves them: envelope 2 and the LFO, each with its amounts (> POS and
+// > VCF are the same parameters as POS ENV / POS LFO on OSC1 and ENV 2 / LFO on VCF).
+constexpr std::array<InstrumentPage, 10> kWavePages{{
+    kVoicePage,
+    kChordPage,
+    kArpPage,
+    InstrumentPage{"WAVE 1", "OSC1",
+                   {{P("osc1.wave", "WAVE"), P("osc1.position", "POS"), P("pos.env", "POS ENV"), P("pos.lfo", "POS LFO"),
+                     P("osc1.octave", "OCTAVE"), P("osc1.unison", "UNISON"), P("osc1.spread", "SPREAD"), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::WaveShape, {2, 0, 2, 4}, 1},
+    InstrumentPage{"WAVE 2", "OSC2",
+                   {{P("osc2.wave", "WAVE"), P("osc2.position", "POS"), P("osc2.tune", "TUNE"), P("osc2.fine", "FINE"),
+                     P("osc.mix", "MIX"), E(), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::WaveShape, {2, 0, 2, 4}, 2},
+    InstrumentPage{"FILTER", "VCF",
+                   {{P("vcf.type", "TYPE"), P("vcf.cutoff", "CUTOFF"), P("vcf.resonance", "RESO"), P("vcf.keyboard", "KBD"),
+                     P("vcf.env", "ENV 2"), P("vcf.lfo", "LFO"), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Filter, {2, 0, 2, 4}, 0},
+    InstrumentPage{"AMP", "ENV",
+                   {{P("env.attack", "ATTACK"), P("env.decay", "DECAY"), P("env.sustain", "SUSTAIN"), P("env.release", "RELEASE"),
+                     P("amp.level", "LEVEL"), E(), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Adsr, {2, 0, 2, 4}, 0},
+    InstrumentPage{"MOD", "ENV2",
+                   {{P("env2.attack", "ATTACK"), P("env2.decay", "DECAY"), P("env2.sustain", "SUSTAIN"), P("env2.release", "RELEASE"),
+                     P("pos.env", "> POS"), P("vcf.env", "> VCF"), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Adsr, {2, 0, 2, 4}, 2},
+    InstrumentPage{"MOD", "LFO",
+                   {{P("lfo.rate", "RATE"), P("lfo.delay", "DELAY"), P("lfo.wave", "WAVE"), P("lfo.pitch", "> PITCH"),
+                     P("pos.lfo", "> POS"), P("vcf.lfo", "> VCF"), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Lfo, {2, 0, 2, 4}, 0},
+    kFxPage,
+}};
+
 // Drums play one drum per key: no chord, no arpeggiator.
 constexpr std::array<InstrumentPage, 3> kDrumPages{{
     kVoicePage,
@@ -159,6 +199,7 @@ InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return {kJunoPages.data(), kJunoPages.size()};
     case synth::SynthEngineKind::Sampler: return {kSamplerPages.data(), kSamplerPages.size()};
     case synth::SynthEngineKind::Drums: return {kDrumPages.data(), kDrumPages.size()};
+    case synth::SynthEngineKind::Wave: return {kWavePages.data(), kWavePages.size()};
     case synth::SynthEngineKind::None:
     default: return {&kVoicePage, 1};
   }

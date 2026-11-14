@@ -8,6 +8,9 @@
 #include "Devices/Device.h"
 #include "Library/Memory/Memory.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#if defined(CARDENZA_AMY_BENCH)
+#include "Library/Synth/Audio/Amy/AmyBench.h"
+#endif
 #include "Library/Synth/Core/SynthStorage.h"
 
 #include <algorithm>
@@ -71,7 +74,7 @@ struct Result {
   std::uint16_t lostHeld;     // held notes faded: a note missing
   std::uint16_t lostUnheard;  // notes left out before they sounded: a note missing
   std::uint16_t lostStolen;   // held notes whose voice a newer one took (the track's voices all held)
-  std::uint16_t dx7Us, junoUs, drumsUs, overheadUs;  // the budget's model at the end
+  std::uint16_t dx7Us, junoUs, drumsUs, waveUs, overheadUs;  // the budget's model at the end
   std::uint16_t scalePercent;
   std::uint16_t uiMaxMs;
   std::uint16_t uiDrops;
@@ -95,7 +98,7 @@ constexpr std::uint32_t kMagic = 0x53545231u;  // "STR1"
 RTC_NOINIT_ATTR Persist g_persist;
 
 enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
-enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, AmyBench, WaveStacks };
 
 struct Scenario {
   std::string name;
@@ -103,7 +106,10 @@ struct Scenario {
   Variant variant = Variant::None;
   std::string project;  // what it loads
   std::uint32_t seconds = 20;
+  int bench = 0;        // AmyBench: a source of bench::kSources, a kit (kBenchKit +) or the Juno reference
 };
+constexpr int kBenchKit = 100;
+constexpr int kBenchJuno = 200;
 
 std::uint32_t BuildId()
 {
@@ -130,6 +136,8 @@ std::string ProjectName(Variant variant)
     case Variant::Sampler: return std::string(kPrefix) + "SAMPLER";
     case Variant::FxMax: return std::string(kPrefix) + "FXMAX";
     case Variant::MaxPatterns: return std::string(kPrefix) + "MAX";
+    case Variant::AmyBench: return std::string(kPrefix) + "AMY";
+    case Variant::WaveStacks: return std::string(kPrefix) + "WAVE";
     case Variant::None: break;
   }
   return std::string(kPrefix) + "NONE";
@@ -171,8 +179,10 @@ struct TrackSpec {
   int chorus = 1, drive = 0, filter = 64, resonance = 20, crush = 0, delay = 0, reverb = 0;
 };
 
-synth::ProjectData MakeProject(Variant variant)
+synth::ProjectData MakeProject(Variant variant, int bench = 0)
 {
+  (void)bench;
+  [[maybe_unused]] std::array<char, 9> benchPreset{"juno.a68"};
   synth::ProjectData project;
   project.sequence.reset(new (memory::slow) SynthSequencer::ProjectState);
   std::array<TrackSpec, synth::kSynthTrackCount> tracks{};
@@ -276,6 +286,47 @@ synth::ProjectData MakeProject(Variant variant)
       steps = static_cast<int>(synth::kSequencerMaxSteps);
       break;
     }
+    case Variant::WaveStacks:
+    {
+      // Four Wave tracks at their dearest: six-note chords of the presets with the most unison and
+      // both oscillators, through chorus and both sends.
+      const char* presets[] = {"wave.supersaw", "wave.choir", "wave.morph", "wave.fifths"};
+      for (std::size_t track = 0; track < tracks.size(); ++track)
+      {
+        tracks[track] = TrackSpec{SynthEngineKind::Wave, presets[track], "", 6, 2, 84, 36 + 7 * static_cast<int>(track)};
+        tracks[track].chorus = 2;
+        tracks[track].reverb = 70;
+        tracks[track].delay = 40;
+      }
+      bpm = 130;
+      break;
+    }
+    case Variant::AmyBench:
+    {
+#if defined(CARDENZA_AMY_BENCH)
+      // One of AMY's other sources (AmyBench.h) alone: every voice it has, held and struck again each
+      // beat, so the block's time is that many voices of it; or one of the drum kits, every pad on
+      // every step. The other tracks rest.
+      for (auto& track : tracks) track = TrackSpec{SynthEngineKind::Drums, "drums.808", "", 0, 1, 12, 36, true};
+      if (bench >= kBenchKit && bench < kBenchJuno)
+      {
+        tracks[0] = TrackSpec{SynthEngineKind::Drums, synth::bench::kDrumKits[static_cast<std::size_t>(bench - kBenchKit)].id, "", 8, 1, 12, 36, true};
+        bpm = 150;
+      }
+      else
+      {
+        int voices = 6;
+        if (bench < kBenchKit)
+        {
+          benchPreset = synth::bench::SourcePresetId(static_cast<std::size_t>(bench));
+          voices = synth::bench::kSources[static_cast<std::size_t>(bench)].voices;
+        }
+        tracks[1] = TrackSpec{SynthEngineKind::Juno, benchPreset.data(), "", voices, 4, 90, 48};
+      }
+      for (auto& track : tracks) track.chorus = 0;
+#endif
+      break;
+    }
     case Variant::None: break;
   }
 
@@ -368,10 +419,32 @@ std::vector<Scenario> BuildScenarios()
   add("arps-1/32", Kind::Generated, Variant::Arps, 25);
   add("sampler", Kind::Generated, Variant::Sampler, 25);
   add("fx-max", Kind::Generated, Variant::FxMax, 25);
+  add("wave-stacks", Kind::Generated, Variant::WaveStacks, 25);
   add("max-patterns", Kind::Generated, Variant::MaxPatterns, 25);
   add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
   add("ui-storm", Kind::UiStorm, Variant::JunoPads, 30);
   add("worst", Kind::Worst, Variant::FxMax, 40);
+#if defined(CARDENZA_AMY_BENCH)
+  // `make DEVICE=Cardenza stress AMY_BENCH=1`: AMY's other sources, one at a time (their cost per
+  // voice comes back as the Juno's, whose track plays them), with a Juno preset played the same way
+  // to compare.
+  const auto bench = [&](const char* name, int source) {
+    const std::size_t before = list.size();
+    add(name, Kind::Generated, Variant::AmyBench, 15);
+    if (list.size() > before) list.back().bench = source;
+  };
+  bench("amy:juno", kBenchJuno);
+  bench("amy:wavetable", 0);
+  bench("amy:supersaw", 5);
+  bench("amy:fold", 6);
+  bench("amy:pluck", 7);
+  bench("amy:harp", 8);
+  bench("amy:piano", 9);
+  bench("amy:organ", 10);
+  bench("amy:kit-808", kBenchKit);
+  bench("amy:kit-909", kBenchKit + 1);
+  bench("amy:kit-power", kBenchKit + 5);
+#endif
   for (const std::string& name : synth::ListProjects())
   {
     if (name.rfind(kPrefix, 0) == 0) continue;
@@ -465,6 +538,9 @@ void WatchTask(void*)
 
 // Each task's share of the time since the last call (FreeRTOS run-time stats, on in stress builds):
 // which task keeps a core busy, and whether its idle task ever runs (the task watchdog checks both).
+// The least stack any of our tasks has had left, as of the last PrintTaskLoad (bytes).
+std::uint32_t g_leastStackLeft = UINT32_MAX;
+
 void PrintTaskLoad(const char* label)
 {
 #if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
@@ -486,6 +562,19 @@ void PrintTaskLoad(const char* label)
     const unsigned percent = static_cast<unsigned>((tasks[index].ulRunTimeCounter - before) * 100u / elapsed);
     if (percent > 0 && length < static_cast<int>(sizeof(line)) - 24)
       length += std::snprintf(line + length, sizeof(line) - static_cast<std::size_t>(length), " %s %u%%", tasks[index].pcTaskName, percent);
+  }
+  std::printf("%s\n", line);
+  // The least each of our tasks has ever had left of its stack: one that runs over writes into the heap
+  // block below it, and something else breaks later (a WAVE engine's set-up did, 2026-11-14).
+  length = std::snprintf(line, sizeof(line), "stress: stack left %s:", label);
+  for (UBaseType_t index = 0; index < count; ++index)
+  {
+    const char* name = tasks[index].pcTaskName;
+    const bool ours = std::strncmp(name, "synth_", 6) == 0 || std::strcmp(name, "cc_runtime") == 0 || std::strcmp(name, "background") == 0;
+    if (ours && length < static_cast<int>(sizeof(line)) - 32)
+      length += std::snprintf(line + length, sizeof(line) - static_cast<std::size_t>(length), " %s %u", name,
+                              static_cast<unsigned>(tasks[index].usStackHighWaterMark));
+    if (ours) g_leastStackLeft = (std::min)(g_leastStackLeft, static_cast<std::uint32_t>(tasks[index].usStackHighWaterMark));
   }
   std::printf("%s\n", line);
   for (UBaseType_t index = 0; index < count; ++index)
@@ -539,11 +628,11 @@ void PrintResult(std::size_t index)
   const Result& r = g_persist.results[index];
   static const char* const kStates[] = {"not run", "running", "done", "RESTARTED"};
   std::printf("stress: %2u %-18s %-9s %s render %u/%u us under %u | notes lost: held %u unheard %u stolen %u (tails %u) | ui max %u ms drops %u | "
-              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | voice us dx7 %u juno %u drums %u, other %u, scale %u%% | %s\n",
+              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | voice us dx7 %u juno %u drums %u wave %u, other %u, scale %u%% | %s\n",
               static_cast<unsigned>(index), index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?", kStates[r.state & 3],
               r.state == 2 ? (r.ok ? "ok  " : "FAIL") : "    ", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
               r.lostTails, r.uiMaxMs, r.uiDrops, r.seqLatestUs, r.seqLate, r.ramMinKb, r.psramMinKb, r.opMaxMs, r.opUnderruns, r.dx7Us, r.junoUs,
-              r.drumsUs, r.overheadUs, r.scalePercent, r.note);
+              r.drumsUs, r.waveUs, r.overheadUs, r.scalePercent, r.note);
 }
 
 // One short line a scenario for the summary repeated at the end: the USB console drops long bursts.
@@ -761,10 +850,10 @@ void PrintShortResult(std::size_t index)
 {
   const Result& r = g_persist.results[index];
   static const char* const kStates[] = {"-", "running", "done", "RESTARTED"};
-  std::printf("stress: S %2u %-14s %s %s avg %u max %u under %u held %u unheard %u stolen %u ui %u late %u ram %u dx7 %u juno %u\n",
+  std::printf("stress: S %2u %-14s %s %s avg %u max %u under %u held %u unheard %u stolen %u ui %u late %u ram %u dx7 %u juno %u wave %u\n",
               static_cast<unsigned>(index), index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?", kStates[r.state & 3],
               r.state == 2 ? (r.ok ? "ok" : "FAIL") : "-", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
-              r.uiMaxMs, r.seqLatestUs, r.ramMinKb, r.dx7Us, r.junoUs);
+              r.uiMaxMs, r.seqLatestUs, r.ramMinKb, r.dx7Us, r.junoUs, r.waveUs);
 }
 
 void FinishWindow(GrooveApp& app, std::size_t index)
@@ -788,6 +877,7 @@ void FinishWindow(GrooveApp& app, std::size_t index)
   result.dx7Us = Cap16(static_cast<std::uint32_t>(model.dx7Micros));
   result.junoUs = Cap16(static_cast<std::uint32_t>(model.junoMicros));
   result.drumsUs = Cap16(static_cast<std::uint32_t>(model.drumsMicros));
+  result.waveUs = Cap16(static_cast<std::uint32_t>(model.waveMicros));
   result.overheadUs = Cap16(static_cast<std::uint32_t>(model.overheadMicros));
   result.scalePercent = Cap16(static_cast<std::uint32_t>(model.budgetScale * 100.0f));
   result.uiMaxMs = Cap16(window.uiMaxMs);
@@ -799,6 +889,10 @@ void FinishWindow(GrooveApp& app, std::size_t index)
   heap_caps_monitor_local_minimum_free_size_stop();
   result.opMaxMs = Cap16(window.opMaxMs);
   result.opUnderruns = Cap16(window.opUnderruns);
+  PrintTaskLoad(g_runner.scenarios[index].name.c_str());
+  // A task within 1 KB of the end of its stack is a failure whatever played well: the next change
+  // takes it over the end.
+  if (g_leastStackLeft < 1024 && result.note[0] == 0) CopyNote(result, "stack: " + std::to_string(g_leastStackLeft) + " bytes left");
   // Passing: nothing a user hears or sees go wrong while it plays.
   // Let-go tails fading early are polyphony giving way, which is allowed; a note that was played and
   // not heard is not (stolen voices are the tracks' voice count, reported apart).
@@ -808,7 +902,6 @@ void FinishWindow(GrooveApp& app, std::size_t index)
                   : 0;
   result.state = 2;
   PrintResult(index);
-  PrintTaskLoad(g_runner.scenarios[index].name.c_str());
 }
 
 void ReleaseKeys(GrooveApp& app)
@@ -852,11 +945,13 @@ void KeyStorm(GrooveApp& app, std::uint32_t now)
 void LiveOperation(GrooveApp& app)
 {
   std::string message;
-  const SynthEngineKind cycle[] = {SynthEngineKind::Juno, SynthEngineKind::Sampler, SynthEngineKind::Drums, SynthEngineKind::Dx7};
+  // Every engine in turn (the turn shifts by one each round of ten operations, so all five come up).
+  const SynthEngineKind cycle[] = {SynthEngineKind::Juno, SynthEngineKind::Wave, SynthEngineKind::Sampler, SynthEngineKind::Drums,
+                                   SynthEngineKind::Dx7};
   switch (g_runner.op++ % 10)
   {
     case 0: case 1: case 2: case 3:
-      Operation([&] { (void)app.SwitchEngine(3, cycle[(g_runner.op - 1) % 4], message); });
+      Operation([&] { (void)app.SwitchEngine(3, cycle[((g_runner.op - 1) + (g_runner.op - 1) / 10) % 5], message); });
       break;
     case 4:
       Operation([&] {
@@ -942,7 +1037,7 @@ bool SetUp(GrooveApp& app, const Scenario& scenario, Result& result)
           return false;
         }
       }
-      synth::ProjectData project = MakeProject(scenario.variant);
+      synth::ProjectData project = MakeProject(scenario.variant, scenario.bench);
       if (scenario.kind == Kind::Worst)
       {
         // Track 4 as the sampler scenario has it: the sample streamed from the card.

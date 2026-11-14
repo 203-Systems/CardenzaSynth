@@ -94,6 +94,7 @@ function(cardenza_collect_synth_core_cpp_sources root_dir out_var)
         ${root_dir}/Library/Synth/Core/Engines/Juno/JunoSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/PagedSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Sampler/SamplerSynthEngine.cpp
+        ${root_dir}/Library/Synth/Core/Engines/Wave/WaveSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/SynthEngineFactory.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)

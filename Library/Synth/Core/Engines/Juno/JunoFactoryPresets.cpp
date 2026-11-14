@@ -1,6 +1,9 @@
 #include "Library/Synth/Core/Engines/Juno/JunoFactoryPresets.h"
 
 #include <algorithm>
+#if defined(CARDENZA_AMY_BENCH)
+#include "Library/Synth/Audio/Amy/AmyBench.h"
+#endif
 
 namespace synth {
 namespace {
@@ -138,15 +141,26 @@ const std::array<JunoFactoryPresetDefinition, 128> kJunoFactoryPresets = {{
 
 const std::array<JunoFactoryPresetDefinition, 128>& JunoFactoryPresets()
 {
+#if defined(CARDENZA_AMY_BENCH)
+  // Test builds: the first presets play AMY's other sources (AmyBench.h) and are named for them.
+  static const std::array<JunoFactoryPresetDefinition, 128> presets = [] {
+    auto list = kJunoFactoryPresets;
+    for (std::size_t index = 0; index < bench::kSources.size(); ++index) list[index].name = bench::kSources[index].name;
+    return list;
+  }();
+  return presets;
+#else
   return kJunoFactoryPresets;
+#endif
 }
 
 const JunoFactoryPresetDefinition* FindJunoFactoryPreset(std::string_view presetId)
 {
-  const auto iterator = std::find_if(kJunoFactoryPresets.begin(), kJunoFactoryPresets.end(), [&](const JunoFactoryPresetDefinition& preset) {
+  const auto& presets = JunoFactoryPresets();
+  const auto iterator = std::find_if(presets.begin(), presets.end(), [&](const JunoFactoryPresetDefinition& preset) {
     return preset.id == presetId;
   });
-  return iterator == kJunoFactoryPresets.end() ? nullptr : &(*iterator);
+  return iterator == presets.end() ? nullptr : &(*iterator);
 }
 
 }  // namespace synth

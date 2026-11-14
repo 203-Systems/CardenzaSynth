@@ -88,6 +88,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return 6 * 1024;
     case synth::SynthEngineKind::Sampler: return 6 * 1024;
     case synth::SynthEngineKind::Drums: return 4 * 1024;
+    case synth::SynthEngineKind::Wave: return 7 * 1024;
     case synth::SynthEngineKind::None:
     default: return 0;
   }
@@ -96,7 +97,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
 std::size_t KindIndex(synth::SynthEngineKind kind)
 {
   const auto index = static_cast<std::size_t>(kind);
-  return index < 5 ? index : 0;
+  return index < synth::kSynthEngineKindCount ? index : 0;
 }
 
 os::storage::Settings& AppSettings()
@@ -1033,6 +1034,11 @@ float GrooveApp::FxReturnLevel(std::size_t bus) const
 bool GrooveApp::FxBusAvailable(std::size_t bus) const
 {
   return synth::audio::FxBusAvailable(bus);
+}
+
+void GrooveApp::WaveCycle(int wave, float position, std::int8_t* points, std::size_t count) const
+{
+  synth::audio::WaveCycle(wave, position, points, count);
 }
 
 void GrooveApp::ApplyMasterFx(const std::array<std::uint8_t, synth::fx::kMasterParamCount>& values)

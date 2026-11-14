@@ -154,7 +154,14 @@ endif
 # instead of going on to the next. STRESS_TRACE=worst traces the heap during that
 # scenario (internal RAM still held, by caller: `stress: H` lines; the RAM left each second: `stress: M`).
 # STRESS_LOOPS=4 runs the list four times over; with STRESS_TRACE the run ends at the first one that got low.
+# AMY_BENCH=1 adds AMY's other sound sources and drum kits (Library/Synth/Audio/Amy/AmyBench.h): they play
+# from a Juno track's first presets and the Drums engine's kits, and the `amy:` scenarios measure them
+# (STRESS_ONLY=amy:juno,amy:wavetable,...). The kits' samples are linked in, so that build has its own
+# folder and partition table (partitions.bench.csv, an 8 MB app): it replaces the Launcher on the board.
 STRESS_BUILD := build/Cardenza-stress
+ifneq ($(AMY_BENCH),)
+STRESS_BUILD := build/Cardenza-bench
+endif
 stress:
 ifeq ($(DEVICE),Cardenza)
 	@$(MAKE) --no-print-directory hal-check
@@ -170,8 +177,12 @@ ifeq ($(DEVICE),Cardenza)
 	         -e 's/^# CONFIG_HEAP_TRACING_STANDALONE is not set$$/CONFIG_HEAP_TRACING_STANDALONE=y/' $(STRESS_BUILD)/sdkconfig.next; \
 	  printf 'CONFIG_HEAP_TRACING_STACK_DEPTH=8\nCONFIG_HEAP_TRACE_HASH_MAP=y\nCONFIG_HEAP_TRACE_HASH_MAP_IN_EXT_RAM=y\nCONFIG_HEAP_TRACE_HASH_MAP_SIZE=1024\n' >> $(STRESS_BUILD)/sdkconfig.next; \
 	fi
+	@if [ -n "$(AMY_BENCH)" ]; then \
+	  python3 tools/audio/gamma9001_blob.py build/amy-bench/drums.bin && \
+	  sed -i.bak -e 's/"partitions\.csv"/"partitions.bench.csv"/' $(STRESS_BUILD)/sdkconfig.next && rm -f $(STRESS_BUILD)/sdkconfig.next.bak; \
+	fi
 	@cmp -s $(STRESS_BUILD)/sdkconfig.next $(STRESS_BUILD)/sdkconfig.stress || cp $(STRESS_BUILD)/sdkconfig.next $(STRESS_BUILD)/sdkconfig.stress
-	$(call RUN_IDF,-B '$(abspath $(STRESS_BUILD))' -DSDKCONFIG='$(abspath $(STRESS_BUILD))/sdkconfig.stress' -DCARDENZA_STRESS_TEST=ON -DCARDENZA_STRESS_ONLY='$(STRESS_ONLY)' -DCARDENZA_STRESS_SECONDS='$(STRESS_SECONDS)' -DCARDENZA_STRESS_START='$(STRESS_START)' -DCARDENZA_STRESS_REPEAT='$(STRESS_REPEAT)' -DCARDENZA_STRESS_TRACE='$(STRESS_TRACE)' -DCARDENZA_STRESS_LOOPS='$(STRESS_LOOPS)' build)
+	$(call RUN_IDF,-B '$(abspath $(STRESS_BUILD))' -DSDKCONFIG='$(abspath $(STRESS_BUILD))/sdkconfig.stress' -DCARDENZA_STRESS_TEST=ON -DCARDENZA_AMY_BENCH=$(if $(AMY_BENCH),ON,OFF) -DCARDENZA_STRESS_ONLY='$(STRESS_ONLY)' -DCARDENZA_STRESS_SECONDS='$(STRESS_SECONDS)' -DCARDENZA_STRESS_START='$(STRESS_START)' -DCARDENZA_STRESS_REPEAT='$(STRESS_REPEAT)' -DCARDENZA_STRESS_TRACE='$(STRESS_TRACE)' -DCARDENZA_STRESS_LOOPS='$(STRESS_LOOPS)' build)
 	@echo "stress firmware in $(STRESS_BUILD): cd $(STRESS_BUILD) && esptool.py --chip esp32s3 -p <port> write_flash @flash_args, then read the stress: lines"
 else
 	@echo stress is only supported for DEVICE=Cardenza

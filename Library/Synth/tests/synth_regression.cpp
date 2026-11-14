@@ -20,6 +20,7 @@
 #include "Library/Synth/Audio/RenderLoad.h"
 #include "Library/Synth/Audio/Fx/SynthFxDsp.h"
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
+#include "Library/Synth/Core/Engines/Wave/WaveSynthEngine.h"
 #include "Library/Synth/Core/SynthStorage.h"
 // Include the runtime once to check both rendered PCM and mapping state against AMY.
 #include "Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp"
@@ -296,6 +297,261 @@ void PrintProfile(const char* id, const std::vector<std::int16_t>& audio, std::s
   _Exit(0);
 }
 
+// What a rendered stretch holds: its loudness (RMS, dBFS) and how bright it is (the RMS of the
+// difference between neighbouring samples against the RMS: a sine's is its frequency, 0.037 at middle
+// C, and every harmonic adds to it, a saw's is seven times that).
+struct Sound {
+  double loudness = -120.0;
+  double brightness = 0.0;
+};
+
+Sound Listen(std::size_t blocks)
+{
+  std::array<std::int16_t, 256> block{};
+  double sum = 0.0, change = 0.0;
+  std::int16_t last = 0;
+  for (std::size_t index = 0; index < blocks; ++index)
+  {
+    RenderFrames(block.data(), block.size());
+    for (const std::int16_t sample : block)
+    {
+      sum += static_cast<double>(sample) * sample;
+      change += (static_cast<double>(sample) - last) * (static_cast<double>(sample) - last);
+      last = sample;
+    }
+  }
+  Sound sound;
+  sound.loudness = 20.0 * std::log10((std::max)(std::sqrt(sum / static_cast<double>(blocks * block.size())), 1.0) / 32767.0);
+  sound.brightness = sum > 0.0 ? std::sqrt(change / sum) : 0.0;
+  return sound;
+}
+
+// A held middle C of the Wave engine on `track`, after the note has settled.
+Sound WaveNote(std::size_t track, std::uint8_t note = 60)
+{
+  NoteOn(track, note, 110);
+  (void)Listen(20);
+  const Sound sound = Listen(40);
+  NoteOff(track, note);
+  (void)Listen(60);
+  return sound;
+}
+
+// Prints each Wave factory preset's level for WaveParameters.h (levelDb), then ends the program: the
+// level that brings a held middle C to the factory presets' target, as PrintPresetLevels does.
+// WAVE_WAV_DIR=<dir> also writes each preset there as a WAV file to listen to, at the level the table
+// has now: a low note, a chord, a high note, two notes left to ring.
+[[noreturn]] void PrintWaveLevels()
+{
+  constexpr double kTargetLoudness = -18.0, kHighestPeak = -6.0, kSilent = -70.0;
+  const char* wavDirectory = std::getenv("WAVE_WAV_DIR");
+  if (wavDirectory != nullptr) std::filesystem::create_directories(wavDirectory);
+  std::array<std::int16_t, 256> block{};
+  EnsureEngine(1, SynthEngineKind::Wave);
+  for (const wave::FactoryPreset& preset : wave::kFactoryPresets)
+  {
+    SetEnginePreset(1, preset.id);
+    RenderFrames(block.data(), block.size());
+    double level = 0.0;
+    for (int pass = 0; pass < 4; ++pass)
+    {
+      g_engines[1].presetGain = static_cast<float>(std::pow(10.0, level / 20.0));
+      for (std::size_t settle = 0; settle < 6; ++settle) RenderFrames(block.data(), block.size());
+      double peak = 0.0, loudness = 0.0;
+      MeasurePresetNote(1, peak, loudness);
+      if (loudness < kSilent)
+      {
+        std::fprintf(stderr, "silent: %s\n", preset.id);
+        break;
+      }
+      const double change = (std::min)(kTargetLoudness - loudness, kHighestPeak - peak);
+      if (std::abs(change) < 1.0) break;
+      level = std::clamp(level + change, -30.0, 30.0);
+    }
+    std::printf("%-14s %3d\n", preset.id, static_cast<int>(std::lround(level)));
+    if (wavDirectory != nullptr)
+    {
+      g_engines[1].presetGain = static_cast<float>(std::pow(10.0, preset.levelDb / 20.0));
+      for (std::size_t settle = 0; settle < 6; ++settle) RenderFrames(block.data(), block.size());
+      std::vector<std::int16_t> audio;
+      const auto play = [&](std::initializer_list<int> notes, std::size_t held, std::size_t after) {
+        for (const int note : notes) NoteOn(1, static_cast<std::uint8_t>(note), 105);
+        for (std::size_t index = 0; index < held + after; ++index)
+        {
+          if (index == held)
+            for (const int note : notes) NoteOff(1, static_cast<std::uint8_t>(note));
+          RenderFrames(block.data(), block.size());
+          audio.insert(audio.end(), block.begin(), block.end());
+        }
+      };
+      play({36}, 170, 80);
+      play({48, 55, 60, 64}, 340, 140);
+      play({72}, 130, 70);
+      play({60, 67}, 260, 260);
+      WriteWav(std::filesystem::path(wavDirectory) / (std::string(preset.name) + ".wav"), audio);
+    }
+  }
+  std::fflush(stdout);
+  _Exit(0);
+}
+
+// The Wave engine: every factory preset sounds and stops, the voice is the four oscillators its
+// parameters name, and the parameters reach them (filter, second oscillator, octave, wavetable
+// position, unison, envelope).
+void TestWaveEngine()
+{
+  constexpr std::size_t track = 2;
+  EnsureEngine(track, SynthEngineKind::Wave);
+  (void)Listen(4);
+  assert(amy_embed::instrument_get_oscs_per_voice(g_engines[track].synthId) == 4);
+  std::array<std::uint16_t, MAX_VOICES_PER_INSTRUMENT> voices{};
+  assert(amy_embed::instrument_get_num_voices(g_engines[track].synthId, voices.data()) == 6);
+
+  for (const wave::FactoryPreset& preset : wave::kFactoryPresets)
+  {
+    SetEnginePreset(track, preset.id);
+    (void)Listen(4);
+    // Its first 0.35 s: a pluck has gone by the time a pad has arrived.
+    NoteOn(track, 60, 110);
+    const Sound start = Listen(60);
+    NoteOff(track, 60);
+    if (start.loudness < -40.0) std::fprintf(stderr, "wave preset %s: %.1f dB\n", preset.id, start.loudness);
+    assert(start.loudness > -40.0);
+    // Let go, every preset is silent within three seconds (no voice left sounding).
+    (void)Listen(500);
+    assert(Listen(20).loudness < -80.0);
+    const NoteSet notes = HeldNotes(track);
+    assert(std::all_of(notes.begin(), notes.end(), [](std::uint32_t word) { return word == 0; }));
+  }
+
+  // A plain saw: the lowpass closes on it, the highpass takes its body away.
+  SetEnginePreset(track, "wave.init");
+  SetEngineParameter(track, "vcf.keyboard", 0);
+  const Sound open = WaveNote(track);
+  SetEngineParameter(track, "vcf.cutoff", 40);
+  const Sound closed = WaveNote(track);
+  assert(closed.brightness < open.brightness * 0.5 && closed.loudness < open.loudness - 3.0);
+  SetEngineParameter(track, "vcf.type", 3);
+  SetEngineParameter(track, "vcf.cutoff", 110);
+  const Sound high = WaveNote(track);
+  assert(high.brightness > open.brightness && high.loudness < open.loudness - 6.0);
+  SetEngineParameter(track, "vcf.type", 0);
+  SetEngineParameter(track, "vcf.cutoff", 100);
+  // Envelope 2 opens a closed filter while it lasts.
+  SetEngineParameter(track, "vcf.cutoff", 40);
+  SetEngineParameter(track, "env2.sustain", 127);
+  SetEngineParameter(track, "vcf.env", 40);
+  assert(WaveNote(track).brightness > closed.brightness * 1.5);
+  SetEngineParameter(track, "vcf.env", 0);
+  SetEngineParameter(track, "env2.sustain", 0);
+  SetEngineParameter(track, "vcf.cutoff", 100);
+
+  // An octave up is brighter; the level follows LEVEL and silence follows zero.
+  SetEngineParameter(track, "osc1.octave", 1);
+  assert(WaveNote(track).brightness > open.brightness * 1.25);
+  SetEngineParameter(track, "osc1.octave", 0);
+  SetEngineParameter(track, "amp.level", 50);
+  assert(WaveNote(track).loudness < open.loudness - 4.0);
+  SetEngineParameter(track, "amp.level", 0);
+  assert(WaveNote(track).loudness < -80.0);
+  SetEngineParameter(track, "amp.level", 100);
+
+  // The second oscillator: OFF it is not there (MIX does nothing); on, MIX crosses to it, and an
+  // octave above it makes the sound brighter.
+  SetEngineParameter(track, "osc.mix", 127);
+  assert(std::abs(WaveNote(track).loudness - open.loudness) < 1.0);
+  SetEngineParameter(track, "osc2.wave", wave::kSine + 1);
+  const Sound sine = WaveNote(track);
+  assert(sine.brightness < open.brightness * 0.5);  // the saw behind its lowpass has a third of its highs left
+  SetEngineParameter(track, "osc2.tune", 12);
+  assert(WaveNote(track).brightness > sine.brightness * 1.7);
+  SetEngineParameter(track, "osc.mix", 0);
+  assert(std::abs(WaveNote(track).brightness - open.brightness) < open.brightness * 0.15);
+  SetEngineParameter(track, "osc2.wave", 0);
+  SetEngineParameter(track, "osc2.tune", 0);
+  SetEngineParameter(track, "osc.mix", 64);
+
+  // A wavetable: POSITION changes the wave (PPG runs from a sine to ever more harmonics).
+  SetEngineParameter(track, "osc1.wave", wave::kTablePpg);
+  SetEngineParameter(track, "osc1.position", 0);
+  const Sound start = WaveNote(track);
+  SetEngineParameter(track, "osc1.position", 127);
+  const Sound end = WaveNote(track);
+  assert(start.loudness > -40.0 && end.brightness > start.brightness * 2.0);
+  // ... and envelope 2 moves it: from the sine end, a full POS ENV holds it at the other.
+  SetEngineParameter(track, "osc1.position", 0);
+  SetEngineParameter(track, "env2.sustain", 127);
+  SetEngineParameter(track, "pos.env", 63);
+  assert(WaveNote(track).brightness > start.brightness * 2.0);
+  SetEngineParameter(track, "pos.env", 0);
+  SetEngineParameter(track, "env2.sustain", 0);
+  // The last cycle of SIN-SAW is nearly all offset: the voice's DC blocker leaves none of it in a
+  // held note.
+  SetEngineParameter(track, "osc1.wave", wave::kTableSineSaw);
+  SetEngineParameter(track, "osc1.position", 127);
+  {
+    NoteOn(track, 60, 110);
+    (void)Listen(60);
+    std::array<std::int16_t, 256> block{};
+    double sum = 0.0, power = 0.0;
+    for (int index = 0; index < 40; ++index)
+    {
+      RenderFrames(block.data(), block.size());
+      for (const std::int16_t sample : block)
+      {
+        sum += sample;
+        power += static_cast<double>(sample) * sample;
+      }
+    }
+    NoteOff(track, 60);
+    (void)Listen(60);
+    const double count = 40.0 * block.size();
+    assert(power / count > 100.0 && std::abs(sum / count) < 0.05 * std::sqrt(power / count));
+  }
+  SetEngineParameter(track, "osc1.position", 0);
+  SetEngineParameter(track, "osc1.wave", wave::kSaw);
+
+  // Unison keeps the level of one copy (AMY normalises its power) and each oscillator of the voice
+  // is what the parameters say.
+  SetEngineParameter(track, "osc1.unison", 7);
+  SetEngineParameter(track, "osc1.spread", 90);
+  assert(std::abs(WaveNote(track).loudness - open.loudness) < 3.0);
+  SetEngineParameter(track, "osc1.unison", 1);
+  SetEngineParameter(track, "vcf.keyboard", 64);
+
+  // A slow attack: the note starts quieter than it becomes.
+  SetEngineParameter(track, "env.attack", 127);
+  NoteOn(track, 60, 110);
+  const Sound early = Listen(10);
+  (void)Listen(160);
+  const Sound late = Listen(20);
+  NoteOff(track, 60);
+  (void)Listen(60);
+  assert(early.loudness < late.loudness - 10.0);
+  SetEngineParameter(track, "env.attack", 2);
+
+  // The engine itself: its presets are the table's, a preset's values are the table's, and an edit
+  // shows as one.
+  WaveSynthEngine engine;
+  assert(engine.CurrentPresetId() == wave::kDefaultPreset && !engine.HasEdits());
+  SynthParameterInfo info;
+  assert(engine.GetParameterInfo("osc1.wave", info) && info.value == wave::kTablePpg);
+  assert(engine.DescribeParameterValue("osc1.wave") == "PPG" && engine.DescribeParameterValue("osc2.wave") == "PPG");
+  assert(engine.LoadPreset("wave.init") && engine.DescribeParameterValue("osc2.wave") == "OFF");
+  assert(engine.SetParameterValue("osc2.tune", 7) && engine.DescribeParameterValue("osc2.tune") == "+7" && engine.HasEdits());
+  assert(engine.ListPresets({0, 64}).totalCount == wave::kFactoryPresets.size());
+
+  // The screen's picture of a wave: a saw falls, SIN-SAW starts as a sine.
+  std::array<std::int8_t, 64> cycle{};
+  WaveCycle(wave::kSaw, 0.0f, cycle.data(), cycle.size());
+  assert(cycle.front() > 100 && cycle.back() < -100);
+  WaveCycle(wave::kTableSineSaw, 0.0f, cycle.data(), cycle.size());
+  assert(*std::max_element(cycle.begin(), cycle.end()) > 60 && *std::min_element(cycle.begin(), cycle.end()) < -60);
+
+  EnsureEngine(track, SynthEngineKind::Dx7);
+  (void)Listen(8);
+}
+
 }  // namespace
 
 int main()
@@ -325,6 +581,7 @@ int main()
 
   if (std::getenv("PRINT_PRESET_LEVELS") != nullptr) PrintPresetLevels();
   if (std::getenv("PRINT_PRESET_PROFILE") != nullptr) PrintPresetProfiles();
+  if (std::getenv("PRINT_WAVE_LEVELS") != nullptr) PrintWaveLevels();
   EnsureEngine(0, SynthEngineKind::Sampler);
   NoteOn(0, 60, 127);
   RenderFrames(pcm.data(), pcm.size());
@@ -1417,6 +1674,8 @@ int main()
     const NoteSet held = HeldNotes(1);
     assert(std::all_of(held.begin(), held.end(), [](std::uint32_t word) { return word == 0; }));
   }
+
+  TestWaveEngine();
 
   std::cout << "Synth regression passed: sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters.\n";
 }

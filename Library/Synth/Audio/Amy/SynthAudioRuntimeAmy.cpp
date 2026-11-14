@@ -4,8 +4,12 @@
 #include "Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.h"
 #include "Library/Synth/Core/Engines/Juno/JunoFactoryPresets.h"
 #include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
+#include "Library/Synth/Core/Engines/Wave/WaveParameters.h"
 #include "Library/Synth/Audio/Amy/FactoryParameters.h"
 #include "Library/Synth/Audio/Fx/SynthFxDsp.h"
+#if defined(CARDENZA_AMY_BENCH)
+#include "Library/Synth/Audio/Amy/AmyBench.h"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -82,6 +86,10 @@ extern SAMPLE core_max[AMY_MAX_CORES];
 extern SAMPLE** per_osc_fb[AMY_MAX_CORES];
 SAMPLE render_osc_wave(uint16_t osc, uint8_t core, SAMPLE* buf);
 void mix_with_pan(SAMPLE* stereo_dest, SAMPLE* mono_src, float pan_start, float pan_end, float level);
+#if defined(CARDENZA_AMY_BENCH) && defined(ESP_PLATFORM)
+// AMY's Gamma9001 sample banks, linked into a test build (Devices/Cardenza/AmyBenchBlob.S, AmyBench.h).
+extern const int16_t cardenza_gamma9001_pcm[];
+#endif
 }
 }  // namespace amy_embed
 
@@ -180,6 +188,9 @@ struct EngineState {
   std::array<bool, 128> activeNotes{};
   std::array<int, 8> drumLevels{{100, 100, 100, 100, 100, 100, 100, 100}};
   int drumMaster = 100;
+  int drumKit = 0;  // test builds (AmyBench.h): which of bench::kDrumKits the pads play
+  wave::Values wave = wave::Make({});  // the Wave engine's parameters (WaveParameters.h)
+  int waveLevelDb = 0;                 // its factory preset's level
   SamplerParams sampler{};
   std::array<SamplerVoice, kSamplerVoiceCount> samplerVoices{};
   std::uint64_t nextSamplerVoiceSerial = 1;
@@ -432,7 +443,7 @@ void UpdateSamplerFilter(SamplerParams& params)
 
 bool UsesAmy(SynthEngineKind kind)
 {
-  return kind == SynthEngineKind::Dx7 || kind == SynthEngineKind::Juno || kind == SynthEngineKind::Drums;
+  return kind == SynthEngineKind::Dx7 || kind == SynthEngineKind::Juno || kind == SynthEngineKind::Drums || kind == SynthEngineKind::Wave;
 }
 
 int VoiceCountFor(SynthEngineKind kind)
@@ -446,6 +457,7 @@ int VoiceCountFor(SynthEngineKind kind)
       return 4;
     case SynthEngineKind::Juno:
     case SynthEngineKind::Drums:
+    case SynthEngineKind::Wave:
       return 6;
     default:
       return 0;
@@ -464,6 +476,16 @@ int DefaultPatchFor(SynthEngineKind kind)
       return -1;
   }
 }
+
+#if defined(CARDENZA_AMY_BENCH)
+// Test builds (AmyBench.h): the source a Juno track plays instead of its patch, or null.
+const bench::Source* BenchSourceFor(const EngineState& engine)
+{
+  if (engine.kind != SynthEngineKind::Juno || engine.patchNumber < 0) return nullptr;
+  const auto index = static_cast<std::size_t>(engine.patchNumber);
+  return index < bench::kSources.size() ? &bench::kSources[index] : nullptr;
+}
+#endif
 
 int MapDx7Preset(std::string_view presetId)
 {
@@ -606,6 +628,29 @@ SYNTH_FX_HOT std::uint8_t ApplyTrackGainToAmyVoice(std::uint16_t osc, std::int32
   return 0;
 }
 
+#if defined(CARDENZA_AMY_BENCH)
+// The samples of the Gamma9001 kits (AMY's drums.bin): linked into the firmware; a host test reads the
+// file CARDENZA_GAMMA9001_BIN names (without it only the 808 kit sounds).
+const std::int16_t* BenchDrumSamples()
+{
+#if defined(ESP_PLATFORM)
+  return amy_embed::cardenza_gamma9001_pcm;
+#else
+  static std::vector<std::int16_t> samples;
+  const char* path = std::getenv("CARDENZA_GAMMA9001_BIN");
+  std::FILE* file = path != nullptr ? std::fopen(path, "rb") : nullptr;
+  if (file != nullptr)
+  {
+    std::int16_t frames[4096];
+    for (std::size_t count; (count = std::fread(frames, sizeof(frames[0]), std::size(frames), file)) > 0;)
+      samples.insert(samples.end(), frames, frames + count);
+    std::fclose(file);
+  }
+  return samples.empty() ? nullptr : samples.data();
+#endif
+}
+#endif
+
 void EnsureAmyInitialized()
 {
   std::call_once(g_amyInitFlag, []() {
@@ -616,7 +661,11 @@ void EnsureAmyInitialized()
     config.features.startup_bleep = 0;
     config.features.audio_in = 0;
     config.features.custom = 0;
+#if defined(CARDENZA_AMY_BENCH)
+    config.features.partials = 1;  // the piano and the organ (AmyBench.h)
+#else
     config.features.partials = 0;
+#endif
     config.features.reverb = 0;
     config.features.echo = 0;
     config.features.chorus = 0;
@@ -651,6 +700,9 @@ void EnsureAmyInitialized()
     config.max_buses = 1;
     config.amy_external_render_hook = ApplyTrackGainToAmyVoice;
     amy_start(config);
+#if defined(CARDENZA_AMY_BENCH)
+    amy_embed::amy_set_gamma9001_pcm(BenchDrumSamples());
+#endif
     g_amyInitialized = true;
   });
 }
@@ -710,11 +762,21 @@ void SendAmyNoteEventNoLock(const EngineState& engine, std::uint8_t note, float 
     // AMY no longer maps GM drum notes to its tiny PCM kit (_SYNTH_FLAGS_MIDI_DRUMS is gone): each pad
     // names the sample its GM note had there (808 kick, snare, closed and open hat, clap, tom, cowbell,
     // maraca) at the sample's own pitch, which is also the note its release finds.
-    constexpr std::array<std::uint16_t, kDrumNotes.size()> kPcmPresets{{1, 2, 6, 7, 9, 8, 10, 0}};
     const auto pad = std::find(kDrumNotes.begin(), kDrumNotes.end(), note);
     if (pad == kDrumNotes.end()) return;
+#if defined(CARDENZA_AMY_BENCH)
+    // The kit's sample for this pad at the kit's pitch and gain (the synth is set to 5; a little
+    // under AMY's gains, which bring single hits to full scale, leaves the limiter alone).
+    const auto kit = static_cast<std::size_t>(std::clamp(engine.drumKit, 0, static_cast<int>(bench::kDrumKits.size()) - 1));
+    const bench::DrumPad& drum = bench::kDrumKits[kit].pads[static_cast<std::size_t>(pad - kDrumNotes.begin())];
+    event.preset = drum.preset;
+    event.midi_note = drum.note;
+    event.velocity = velocity * drum.gain / 8.0f;
+#else
+    constexpr std::array<std::uint16_t, kDrumNotes.size()> kPcmPresets{{1, 2, 6, 7, 9, 8, 10, 0}};
     event.preset = kPcmPresets[static_cast<std::size_t>(pad - kDrumNotes.begin())];
     event.midi_note = amy_embed::pcm_map[event.preset].midinote;
+#endif
     event.wave = PCM;
     event.feedback = 0;
   }
@@ -770,6 +832,9 @@ amy_event SynthEvent(const EngineState& engine, int oscillator)
 
 void ApplyJunoParameterNoLock(EngineState& engine, std::string_view id, int value)
 {
+#if defined(CARDENZA_AMY_BENCH)
+  if (BenchSourceFor(engine) != nullptr) return;  // not a Juno voice: its oscillators mean something else
+#endif
   const int offset = factory::JunoOffset(id);
   const auto setFlag = [&](std::size_t byte, unsigned flag) {
     engine.juno[byte] = static_cast<std::uint8_t>((engine.juno[byte] & ~flag) | (value ? flag : 0u));
@@ -868,6 +933,217 @@ void VoiceJunoPatchNoLock(EngineState& engine)
   ApplyJunoParameterNoLock(engine, "dco.lfo", p[2]);
   ApplyJunoParameterNoLock(engine, "vcf.resonance", p[6]);
   ApplyJunoParameterNoLock(engine, "vca.level", p[10]);
+}
+
+// The Wave engine's voice: four AMY oscillators. The first holds the filter and both envelopes and
+// plays nothing itself (SILENT); the two that sound are chained to it, so its filter and amplitude
+// envelope act on their sum; the second is the LFO of the other three. Everything is set by typed
+// events (no patch text to parse), a group of parameters at a time.
+//
+// An amy_event is 900 bytes and these run on the audio task, whose stack is 12 KB with 7 KB used
+// before: each function below that builds an event keeps a stack frame of its own (SYNTH_OWN_FRAME)
+// and none calls another while it holds one. Folded into ConfigureAmySynthNoLock they made its frame
+// 4.6 KB, the stack ran over into the heap block below it, and a track's MIDI port mutex was found
+// broken by the UI task (2026-11-14: switching a track to WAVE restarted the device).
+#if defined(_MSC_VER)
+#define SYNTH_OWN_FRAME __declspec(noinline)
+#else
+#define SYNTH_OWN_FRAME __attribute__((noinline))
+#endif
+constexpr int kWaveControlOsc = 0;
+constexpr int kWaveLfoOsc = 1;
+constexpr int kWaveOsc1 = 2;
+constexpr int kWaveOsc2 = 3;
+constexpr int kWaveOscsPerVoice = 4;
+enum class WaveGroup { Lfo, Oscillators, Filter, Amp, ModEnvelope };
+
+// Attack 2 ms to 1 s, decay to the sustain level 5 ms to 15 s, release 5 ms to 9.5 s.
+void WaveEnvelope(std::uint32_t* times, float* levels, int attack, int decay, int sustain, int release)
+{
+  times[0] = static_cast<std::uint32_t>(2.0f + 0.06f * static_cast<float>(attack * attack));
+  levels[0] = 1.0f;
+  times[1] = static_cast<std::uint32_t>(20.0f * (std::exp2(0.075f * static_cast<float>(decay)) - 1.0f) + 5.0f);
+  levels[1] = static_cast<float>(sustain) / 127.0f;
+  times[2] = static_cast<std::uint32_t>(20.0f * (std::exp2(0.07f * static_cast<float>(release)) - 1.0f) + 5.0f);
+  levels[2] = 0.0f;
+}
+
+float WaveNormal(const EngineState& engine, wave::Param param)
+{
+  return static_cast<float>(engine.wave[param]) / 127.0f;
+}
+
+// How the voice hangs together: what an oscillator is chained to (0: nothing more) and that the LFO
+// modulates it; the control oscillator itself sounds nothing.
+SYNTH_OWN_FRAME void WaveLinkNoLock(const EngineState& engine, int osc, int chained)
+{
+  auto event = SynthEvent(engine, osc);
+  if (osc == kWaveControlOsc) event.wave = SILENT;
+  if (chained != 0) event.chained_osc = static_cast<std::uint16_t>(chained);
+  event.mod_source[0] = kWaveLfoOsc;
+  amy_add_event(&event);
+}
+
+// One of the two sounding oscillators: its wave (a wavetable by POSITION, or a classic shape), its
+// level in the mix and its pitch against the note, with the LFO's vibrato.
+SYNTH_OWN_FRAME void WaveOscillatorNoLock(const EngineState& engine, int osc, int waveIndex, int position, float level, float ratio, int copies)
+{
+  const wave::Values& v = engine.wave;
+  auto event = SynthEvent(engine, osc);
+  const float place = static_cast<float>(position) / 127.0f;
+  const float envelope = static_cast<float>(v[wave::kPositionEnv]) / 63.0f;
+  const float lfo = static_cast<float>(v[wave::kPositionLfo]) / 127.0f;
+  if (waveIndex < wave::kWavetableCount)
+  {
+    event.wave = WAVETABLE;
+    event.preset = static_cast<std::int16_t>(amy_embed::pcm_wavetable_base + waveIndex);
+    event.duty_coefs[amy_embed::COEF_CONST] = place;
+    event.duty_coefs[amy_embed::COEF_EG1] = envelope;
+    event.duty_coefs[amy_embed::COEF_MOD] = 0.5f * lfo;
+  }
+  else
+  {
+    static constexpr std::uint16_t kShapes[] = {SAW_DOWN, PULSE, TRIANGLE, SINE};
+    event.wave = kShapes[std::clamp(waveIndex - wave::kWavetableCount, 0, 3)];
+    // A pulse's POSITION is its width, from square to thin; the other shapes have none.
+    const bool pulse = waveIndex == wave::kPulse;
+    event.duty_coefs[amy_embed::COEF_CONST] = 0.5f + (pulse ? 0.45f * place : 0.0f);
+    event.duty_coefs[amy_embed::COEF_EG1] = pulse ? 0.45f * envelope : 0.0f;
+    event.duty_coefs[amy_embed::COEF_MOD] = pulse ? 0.45f * lfo : 0.0f;
+  }
+  // The control oscillator's envelope and the note's velocity shape the sum: here only the mix.
+  event.amp_coefs[amy_embed::COEF_CONST] = level;
+  event.amp_coefs[amy_embed::COEF_VEL] = 0.0f;
+  event.amp_coefs[amy_embed::COEF_EG0] = 0.0f;
+  event.freq_coefs[amy_embed::COEF_CONST] = static_cast<float>(ZERO_LOGFREQ_IN_HZ) * ratio;
+  const float vibrato = static_cast<float>(v[wave::kLfoPitch]) / 127.0f;
+  event.freq_coefs[amy_embed::COEF_MOD] = 0.085f * vibrato * vibrato;  // up to a semitone each way
+  // Unison: the copies spread evenly around the note, the outer ones quieter, up to 72 cents wide.
+  const float width = copies > 1 ? 0.06f * static_cast<float>(v[wave::kOsc1Spread]) / 127.0f : 0.0f;
+  event.unison_count = static_cast<std::uint8_t>(std::clamp(copies, 1, wave::kMaxUnison));
+  event.unison_spacing = copies > 1 ? width / static_cast<float>(copies - 1) : 0.0f;
+  event.unison_offset = -0.5f * width;
+  event.unison_blend = 0.7f;
+  amy_add_event(&event);
+}
+
+SYNTH_OWN_FRAME void WaveLfoNoLock(const EngineState& engine)
+{
+  const wave::Values& v = engine.wave;
+  auto event = SynthEvent(engine, kWaveLfoOsc);
+  static constexpr std::uint16_t kShapes[] = {TRIANGLE, SINE, SAW_DOWN, PULSE};
+  event.wave = kShapes[std::clamp(static_cast<int>(v[wave::kLfoWave]), 0, 3)];
+  event.amp_coefs[amy_embed::COEF_CONST] = 1.0f;
+  event.amp_coefs[amy_embed::COEF_VEL] = 0.0f;
+  event.amp_coefs[amy_embed::COEF_EG0] = 1.0f;
+  // 0.1 Hz to 20 Hz, whatever the note.
+  event.freq_coefs[amy_embed::COEF_CONST] = 0.1f * std::exp2(7.64f * WaveNormal(engine, wave::kLfoRate));
+  event.freq_coefs[amy_embed::COEF_NOTE] = 0.0f;
+  event.freq_coefs[amy_embed::COEF_BEND] = 0.0f;
+  // DELAY: it fades in over up to 9.5 s after the note starts.
+  event.eg0_times[0] = static_cast<std::uint32_t>(20.0f * (std::exp2(0.07f * static_cast<float>(v[wave::kLfoDelay])) - 1.0f));
+  event.eg0_values[0] = 1.0f;
+  event.eg0_times[1] = 10000;
+  event.eg0_values[1] = 0.0f;
+  amy_add_event(&event);
+}
+
+SYNTH_OWN_FRAME void WaveFilterNoLock(const EngineState& engine)
+{
+  const wave::Values& v = engine.wave;
+  auto event = SynthEvent(engine, kWaveControlOsc);
+  static constexpr std::uint8_t kTypes[] = {FILTER_LPF24, FILTER_LPF, FILTER_BPF, FILTER_HPF};
+  const int type = std::clamp(static_cast<int>(v[wave::kFilterType]), 0, 3);
+  event.filter_type = kTypes[type];
+  // The 24 dB lowpass runs one biquad twice, which squares its peak (ApplyJunoParameterNoLock): the
+  // same law as the Juno's there, more for the single ones.
+  event.resonance = 0.7f * std::exp2((type == 0 ? 2.2f : 3.0f) * WaveNormal(engine, wave::kFilterResonance));
+  event.filter_freq_coefs[amy_embed::COEF_CONST] = 20.0f * std::exp2(9.65f * WaveNormal(engine, wave::kFilterCutoff));  // 20 Hz to 16 kHz
+  event.filter_freq_coefs[amy_embed::COEF_NOTE] = WaveNormal(engine, wave::kFilterKeyboard);
+  event.filter_freq_coefs[amy_embed::COEF_VEL] = 0.0f;
+  event.filter_freq_coefs[amy_embed::COEF_EG0] = 0.0f;
+  event.filter_freq_coefs[amy_embed::COEF_EG1] = 8.0f * static_cast<float>(v[wave::kFilterEnv]) / 63.0f;  // octaves
+  event.filter_freq_coefs[amy_embed::COEF_MOD] = 2.0f * WaveNormal(engine, wave::kFilterLfo);
+  amy_add_event(&event);
+}
+
+SYNTH_OWN_FRAME void WaveAmpNoLock(const EngineState& engine)
+{
+  const wave::Values& v = engine.wave;
+  auto event = SynthEvent(engine, kWaveControlOsc);
+  event.amp_coefs[amy_embed::COEF_CONST] = WaveNormal(engine, wave::kAmpLevel);
+  event.amp_coefs[amy_embed::COEF_VEL] = 1.0f;
+  event.amp_coefs[amy_embed::COEF_EG0] = 1.0f;
+  WaveEnvelope(event.eg0_times, event.eg0_values, v[wave::kEnvAttack], v[wave::kEnvDecay], v[wave::kEnvSustain], v[wave::kEnvRelease]);
+  amy_add_event(&event);
+}
+
+// Envelope 2 on one oscillator: it moves the filter (the control oscillator's) and the POSITION of
+// each sounding oscillator, which reads its own envelope, so all three get the same one.
+SYNTH_OWN_FRAME void WaveModEnvelopeNoLock(const EngineState& engine, int osc)
+{
+  const wave::Values& v = engine.wave;
+  auto event = SynthEvent(engine, osc);
+  WaveEnvelope(event.eg1_times, event.eg1_values, v[wave::kEnv2Attack], v[wave::kEnv2Decay], v[wave::kEnv2Sustain], v[wave::kEnv2Release]);
+  amy_add_event(&event);
+}
+
+// No event of its own: see SYNTH_OWN_FRAME above.
+void ApplyWaveGroupNoLock(EngineState& engine, WaveGroup group)
+{
+  const wave::Values& v = engine.wave;
+  switch (group)
+  {
+    case WaveGroup::Lfo:
+      WaveLfoNoLock(engine);
+      break;
+    case WaveGroup::Oscillators:
+    {
+      // MIX crosses the two at equal power; without the second the first is whole.
+      const bool second = v[wave::kOsc2Wave] > 0;
+      const float mix = WaveNormal(engine, wave::kOscMix) * 1.5707963f;
+      const float octave = static_cast<float>(v[wave::kOsc1Octave]);
+      const float detune = static_cast<float>(v[wave::kOsc2Tune]) / 12.0f + static_cast<float>(v[wave::kOsc2Fine]) / 1200.0f;
+      WaveOscillatorNoLock(engine, kWaveOsc1, v[wave::kOsc1Wave], v[wave::kOsc1Position], second ? std::cos(mix) : 1.0f, std::exp2(octave),
+                           v[wave::kOsc1Unison]);
+      WaveOscillatorNoLock(engine, kWaveOsc2, second ? v[wave::kOsc2Wave] - 1 : static_cast<int>(wave::kSine), v[wave::kOsc2Position],
+                           second ? std::sin(mix) : 0.0f, std::exp2(octave + detune), 1);
+      break;
+    }
+    case WaveGroup::Filter:
+      WaveFilterNoLock(engine);
+      break;
+    case WaveGroup::Amp:
+      WaveAmpNoLock(engine);
+      break;
+    case WaveGroup::ModEnvelope:
+      for (const int osc : {kWaveControlOsc, kWaveOsc1, kWaveOsc2}) WaveModEnvelopeNoLock(engine, osc);
+      break;
+  }
+}
+
+// The whole voice from the engine's values, after its oscillators were allocated. No event of its
+// own, and not folded into ConfigureAmySynthNoLock, which still holds one.
+SYNTH_OWN_FRAME void VoiceWavePatchNoLock(EngineState& engine)
+{
+  WaveLinkNoLock(engine, kWaveControlOsc, kWaveOsc1);
+  WaveLinkNoLock(engine, kWaveOsc1, kWaveOsc2);
+  WaveLinkNoLock(engine, kWaveOsc2, 0);
+  for (const WaveGroup group : {WaveGroup::Lfo, WaveGroup::Oscillators, WaveGroup::Filter, WaveGroup::Amp, WaveGroup::ModEnvelope})
+    ApplyWaveGroupNoLock(engine, group);
+}
+
+void ApplyWaveParameterNoLock(EngineState& engine, std::string_view id, int value)
+{
+  const int index = wave::ParamIndex(id);
+  if (index < 0) return;
+  const wave::ParamInfo& info = wave::kParams[static_cast<std::size_t>(index)];
+  engine.wave[static_cast<std::size_t>(index)] = static_cast<std::int8_t>(std::clamp(value, static_cast<int>(info.minimum), static_cast<int>(info.maximum)));
+  if (index == wave::kLfoPitch || index <= wave::kOscMix) ApplyWaveGroupNoLock(engine, WaveGroup::Oscillators);
+  else if (index <= wave::kFilterKeyboard) ApplyWaveGroupNoLock(engine, WaveGroup::Filter);
+  else if (index <= wave::kAmpLevel) ApplyWaveGroupNoLock(engine, WaveGroup::Amp);
+  else if (index <= wave::kEnv2Release) ApplyWaveGroupNoLock(engine, WaveGroup::ModEnvelope);
+  else ApplyWaveGroupNoLock(engine, WaveGroup::Lfo);
 }
 
 float Dx7Level(int value)
@@ -1060,7 +1336,11 @@ constexpr std::int8_t kPresetLevels[256] = {
 
 float PresetGainFor(const EngineState& engine)
 {
+  if (engine.kind == SynthEngineKind::Wave) return std::pow(10.0f, static_cast<float>(engine.waveLevelDb) / 20.0f);
   if (engine.kind != SynthEngineKind::Juno && engine.kind != SynthEngineKind::Dx7) return 1.0f;
+#if defined(CARDENZA_AMY_BENCH)
+  if (const bench::Source* source = BenchSourceFor(engine)) return std::pow(10.0f, static_cast<float>(source->levelDb) / 20.0f);
+#endif
   const int patch = engine.patchNumber < 0 ? DefaultPatchFor(engine.kind) : engine.patchNumber;
   return std::pow(10.0f, static_cast<float>(kPresetLevels[std::clamp(patch, 0, 255)]) / 20.0f);
 }
@@ -1090,6 +1370,37 @@ int CachedAmyPatchNoLock(const EngineState& engine, int patch)
   return slot;
 }
 
+#if defined(CARDENZA_AMY_BENCH)
+// A bench source in the track's memory patch, as CachedAmyPatchNoLock keeps a ROM patch there. A ROM
+// patch is loaded as it is: only AMY's table says how many oscillators the piano's voice has (25); the
+// same text stored as a memory patch counts one, and the voices' partials would overlap.
+int BenchPatchNoLock(const EngineState& engine, const bench::Source& source)
+{
+  if (source.romPatch >= 0) return source.romPatch;
+  const auto track = static_cast<std::size_t>(engine.synthId - 1);
+  if (track >= kSynthTrackCount) return DefaultPatchFor(engine.kind);
+  const int slot = kFirstMemoryPatch + static_cast<int>(track);
+  const int key = -2 - static_cast<int>(&source - bench::kSources.data());
+  if (g_cachedAmyPatch[track] != key)
+  {
+    // The wire with its %d, if it has one, as the wavetable's PCM preset.
+    char wire[512];
+    const char* mark = std::strstr(source.wire, "%d");
+    if (mark != nullptr)
+      std::snprintf(wire, sizeof(wire), "%.*s%d%s", static_cast<int>(mark - source.wire), source.wire,
+                    static_cast<int>(amy_embed::pcm_wavetable_base) + source.wavetable, mark + 2);
+    else
+      std::snprintf(wire, sizeof(wire), "%s", source.wire);
+    amy_embed::patches_reset_patch(slot);
+    amy_event store = amy_default_event();
+    store.patch_number = static_cast<std::uint16_t>(slot);
+    amy_embed::patches_store_patch(&store, wire);
+    g_cachedAmyPatch[track] = key;
+  }
+  return slot;
+}
+#endif
+
 void ConfigureAmySynthNoLock(EngineState& engine)
 {
   if (!UsesAmy(engine.kind))
@@ -1113,12 +1424,25 @@ void ConfigureAmySynthNoLock(EngineState& engine)
     event.synth_flags = 0;
     event.amp_coefs[amy_embed::COEF_CONST] = 5.0f * Normalize(engine.drumMaster, 0, 127);
   }
+  else if (engine.kind == SynthEngineKind::Wave)
+  {
+    // No patch: the oscillators of a voice, then VoiceWavePatchNoLock sets them.
+    event.oscs_per_voice = kWaveOscsPerVoice;
+  }
+#if defined(CARDENZA_AMY_BENCH)
+  else if (const bench::Source* source = BenchSourceFor(engine))
+  {
+    event.num_voices = static_cast<uint16_t>(source->voices);
+    event.patch_number = static_cast<uint16_t>(BenchPatchNoLock(engine, *source));
+  }
+#endif
   else
   {
     event.patch_number = static_cast<uint16_t>(CachedAmyPatchNoLock(engine, engine.patchNumber < 0 ? DefaultPatchFor(engine.kind) : engine.patchNumber));
   }
   amy_add_event(&event);
   if (engine.kind == SynthEngineKind::Juno) VoiceJunoPatchNoLock(engine);
+  if (engine.kind == SynthEngineKind::Wave) VoiceWavePatchNoLock(engine);
 
   // AMY's Juno ROM models its HPF with global EQ. In this four-track rack that
   // would recolor every track and make project sound depend on preset load order.
@@ -1623,12 +1947,39 @@ void ApplyPendingEvent(const PendingEvent& event)
         std::copy_n(factory::kJuno[engine.patchNumber], engine.juno.size(), engine.juno.begin());
         ConfigureAmySynthNoLock(engine);
       }
+      else if (engine.kind == SynthEngineKind::Wave)
+      {
+        // The preset's values are here (WaveParameters.h); what was edited since comes as parameters.
+        const wave::FactoryPreset* preset = wave::FindFactoryPreset(event.text);
+        engine.wave = preset != nullptr ? preset->values : wave::Make({});
+        engine.waveLevelDb = preset != nullptr ? preset->levelDb : 0;
+        ConfigureAmySynthNoLock(engine);
+      }
+#if defined(CARDENZA_AMY_BENCH)
+      else if (engine.kind == SynthEngineKind::Drums)
+      {
+        const auto kit = std::find_if(bench::kDrumKits.begin(), bench::kDrumKits.end(), [&](const bench::DrumKit& entry) { return event.text == entry.id; });
+        if (kit != bench::kDrumKits.end())
+        {
+          engine.drumKit = static_cast<int>(kit - bench::kDrumKits.begin());
+          engine.drumLevels.fill(100);
+          engine.drumMaster = 100;
+          ConfigureAmySynthNoLock(engine);
+        }
+      }
+      if (BenchSourceFor(engine) != nullptr)
+      {
+        ResetTrackFxNoLock(event.engineIndex, 0);
+        break;
+      }
+#else
       else if (engine.kind == SynthEngineKind::Drums && event.text == "drums.808")
       {
         engine.drumLevels.fill(100);
         engine.drumMaster = 100;
         ConfigureAmySynthNoLock(engine);
       }
+#endif
       // Every preset starts from neutral effects, except the Juno chorus stored in the patch.
       ResetTrackFxNoLock(event.engineIndex, engine.kind == SynthEngineKind::Juno ?
           factory::JunoValue(factory::kJuno[std::clamp(engine.patchNumber, 0, 127)], "fx.chorus") : 0);
@@ -1647,6 +1998,9 @@ void ApplyPendingEvent(const PendingEvent& event)
           break;
         case SynthEngineKind::Juno:
           ApplyJunoParameterNoLock(engine, event.text, event.value);
+          break;
+        case SynthEngineKind::Wave:
+          ApplyWaveParameterNoLock(engine, event.text, event.value);
           break;
         case SynthEngineKind::Drums:
           if (event.text == "master.level")
@@ -1958,6 +2312,7 @@ bool HasHeldNotes(const EngineState& engine)
   {
     case SynthEngineKind::Dx7:
     case SynthEngineKind::Juno:
+    case SynthEngineKind::Wave:
       return std::any_of(engine.activeNotes.begin(), engine.activeNotes.end(), [](bool active) { return active; });
     case SynthEngineKind::Sampler:
       return std::any_of(engine.samplerVoices.begin(), engine.samplerVoices.end(), [](const SamplerVoice& voice) {
@@ -2141,6 +2496,7 @@ int VoiceWeight(std::size_t track)
   {
     case SynthEngineKind::Dx7: return 8;
     case SynthEngineKind::Juno: return 3;
+    case SynthEngineKind::Wave: return 3;
     default: return 1;
   }
 }
@@ -2181,8 +2537,9 @@ constexpr float kHeavyWaitBudgetShare = 0.6f;  // while a heavy event waits for 
 constexpr float kHelperShareMicros = 0.45f * kBlockMicros;
 // How long after the audio core the helper starts on the voices (woken through a task notification).
 constexpr float kHelperStartMicros = 150.0f;
-constexpr std::size_t kKindCount = 5;  // SynthEngineKind None..Drums
-std::array<float, kKindCount> g_runCostMicros{50.0f, 700.0f, 650.0f, 200.0f, 150.0f};
+constexpr std::size_t kKindCount = kSynthEngineKindCount;
+// By SynthEngineKind: None, DX7, Juno, Sampler, Drums, three kinds not here, Wave.
+std::array<float, kKindCount> g_runCostMicros{50.0f, 700.0f, 650.0f, 200.0f, 150.0f, 0.0f, 0.0f, 0.0f, 450.0f};
 std::array<std::array<float, kKindCount>, AMY_MAX_CORES> g_runCostSum{};
 std::array<std::array<std::uint16_t, kKindCount>, AMY_MAX_CORES> g_runCostCount{};
 float g_overheadMicros = 1500.0f;  // the rest of a block: deltas, effects, output
@@ -2287,6 +2644,28 @@ bool VoiceUnheardNoLock(std::uint16_t osc)
 
 // What amy_render does for each oscillator, for one run; a fading run goes to silence over the block and
 // stops.
+// A Wave voice ends in a DC blocker (one pole at 27 Hz, a shift, no multiply): many cycles of AMY's
+// wavetables are not centred (the last of SIN-SAW is nearly all offset), which the envelope would turn
+// into a thump and six voices into headroom the limiter takes from everything else. By the voice's
+// first oscillator, which holds its filter and so renders the whole voice.
+std::array<SAMPLE, kAmyMaxOscs> g_waveDcIn{};
+std::array<SAMPLE, kAmyMaxOscs> g_waveDcOut{};
+
+void BlockWaveDc(std::uint16_t osc, SAMPLE* buffer)
+{
+  SAMPLE in = g_waveDcIn[osc];
+  SAMPLE out = g_waveDcOut[osc];
+  for (std::size_t frame = 0; frame < AMY_BLOCK_SIZE; ++frame)
+  {
+    const SAMPLE sample = buffer[frame];
+    out = sample - in + out - (out >> 8);
+    in = sample;
+    buffer[frame] = out;
+  }
+  g_waveDcIn[osc] = in;
+  g_waveDcOut[osc] = out;
+}
+
 SAMPLE RenderVoiceRunNoLock(const VoiceRun& run, std::uint8_t core)
 {
   const bool fading = VoiceFading(run.from);
@@ -2300,6 +2679,7 @@ SAMPLE RenderVoiceRunNoLock(const VoiceRun& run, std::uint8_t core)
     SAMPLE* buffer = amy_embed::per_osc_fb[core][bus];
     std::memset(buffer, 0, AMY_BLOCK_SIZE * sizeof(SAMPLE));
     const SAMPLE peak = amy_embed::render_osc_wave(osc, core, buffer);
+    if (run.kind == static_cast<std::uint8_t>(SynthEngineKind::Wave) && osc == run.from) BlockWaveDc(osc, buffer);
     if (fading)
       for (std::size_t frame = 0; frame < AMY_BLOCK_SIZE; ++frame)
         buffer[frame] = static_cast<SAMPLE>(static_cast<std::int64_t>(buffer[frame]) * static_cast<std::int64_t>(AMY_BLOCK_SIZE - frame) /
@@ -3403,12 +3783,52 @@ std::uint32_t FadedVoiceCount()
   return g_fadedVoices.load(std::memory_order_relaxed);
 }
 
+void WaveCycle(int waveIndex, float position, std::int8_t* points, std::size_t count)
+{
+  position = std::clamp(position, 0.0f, 1.0f);
+  if (waveIndex >= 0 && waveIndex < wave::kWavetableCount && waveIndex < static_cast<int>(amy_embed::pcm_wavetable_samples))
+  {
+    // As AMY renders it (render_wavetable): 256 samples a cycle, the two cycles around POSITION crossed.
+    constexpr std::size_t kCycle = 256;
+    const amy_embed::pcm_map_t& table = amy_embed::pcm_map[amy_embed::pcm_wavetable_base + waveIndex];
+    const int cycles = static_cast<int>(table.length / kCycle);
+    if (cycles >= 2)
+    {
+      const float place = position * static_cast<float>(cycles - 1);
+      const int cycle = (std::min)(static_cast<int>(place), cycles - 2);
+      const float blend = place - static_cast<float>(cycle);
+      const std::int16_t* samples = amy_embed::pcm + table.offset + static_cast<std::size_t>(cycle) * kCycle;
+      for (std::size_t index = 0; index < count; ++index)
+      {
+        const std::size_t at = index * kCycle / count;
+        const float value = static_cast<float>(samples[at]) * (1.0f - blend) + static_cast<float>(samples[at + kCycle]) * blend;
+        points[index] = static_cast<std::int8_t>(std::clamp(value / 258.0f, -127.0f, 127.0f));
+      }
+      return;
+    }
+  }
+  for (std::size_t index = 0; index < count; ++index)
+  {
+    const float phase = (static_cast<float>(index) + 0.5f) / static_cast<float>(count);
+    float value = 0.0f;
+    switch (waveIndex)
+    {
+      case wave::kSaw: value = 1.0f - 2.0f * phase; break;
+      case wave::kPulse: value = phase < 0.5f + 0.45f * position ? 1.0f : -1.0f; break;
+      case wave::kTriangle: value = phase < 0.5f ? 4.0f * phase - 1.0f : 3.0f - 4.0f * phase; break;
+      default: value = std::sin(kTwoPi * phase); break;
+    }
+    points[index] = static_cast<std::int8_t>(value * 127.0f);
+  }
+}
+
 RenderModel CurrentRenderModel()
 {
   RenderModel model;
   model.dx7Micros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Dx7)];
   model.junoMicros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Juno)];
   model.drumsMicros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Drums)];
+  model.waveMicros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Wave)];
   model.overheadMicros = g_overheadMicros;
   model.budgetScale = g_budgetScale;
   return model;

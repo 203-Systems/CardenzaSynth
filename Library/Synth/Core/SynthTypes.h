@@ -11,7 +11,12 @@ enum class SynthEngineKind {
   Juno,
   Sampler,
   Drums = 4,
+  // Project files store these numbers: a kind keeps its own for good. 5, 6 and 7 are left to the
+  // engines in progress on other branches (Plaits, Braids, Vocal each took 5 there).
+  Wave = 8,  // wavetable and classic oscillators through AMY (Library/Synth/Core/Engines/Wave)
 };
+// One more than the highest kind: tables indexed by kind.
+inline constexpr std::size_t kSynthEngineKindCount = 9;
 
 enum class OverlayPage {
   None,

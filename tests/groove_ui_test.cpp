@@ -3220,6 +3220,64 @@ void TestGuide(Harness& h)
 // big steps to both ends, ENTER, picked from the pads; then every parameter of every engine at both ends,
 // and every preset. Whatever falls over here shows as an assertion or under ASan. Running out of memory
 // does not show on a host: see the on-board sweep in Applications/Synth/StressTest.cpp.
+// The Wave engine in the UI: the picker's fifth engine (the first key of its second row), its ten
+// pages with their pictures, and a project that keeps it, with an edit, through a save and a load.
+void TestWaveEngineUi(Harness& h)
+{
+  using Kind = synth::SynthEngineKind;
+  auto& app = h.App();
+  const auto closeModals = [&]() { for (int i = 0; i < 6 && h.Modal() != nullptr; ++i) h.Tap(kEsc); };
+  closeModals();
+  h.Chord(kEsc, Key{0, 9 + static_cast<std::size_t>(Scene::Instrument)});
+  h.Chord(kTab, Key{0, 10});
+  closeModals();
+  assert(h.State().scene == Scene::Instrument && h.State().track == 1);
+  std::string error;
+  assert(app.EngineKind(1) == Kind::Juno || app.SwitchEngine(1, Kind::Juno, error));
+  while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  h.Tap(Grid(0));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 5);
+  assert(h.Modal()->items[4].label == "WAVE");
+  h.Render();
+  h.Tap(Grid(4));
+  if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);  // the Juno had edits
+  assert(app.EngineKind(1) == Kind::Wave && h.Modal() == nullptr);
+  assert(app.Engine(1)->CurrentPresetId() == "wave.ppg" && !app.Engine(1)->HasEdits());
+  assert(app.Ui().PageCount(Scene::Instrument) == 10);
+  // Every page draws, with a note held (the pictures follow what sounds) and oscillator 2 off and on.
+  h.Down(Key{2, 2});
+  for (std::size_t page = 0; page < 10; ++page)
+  {
+    h.Chord(kCtrl, Grid(page));
+    assert(app.Ui().CurrentPage() == page);
+    h.Render();
+  }
+  h.Up(Key{2, 2});
+  assert(app.Engine(1)->SetParameterValue("osc2.wave", 0));
+  h.Chord(kCtrl, Grid(4));
+  h.Render();
+  // A cell of the OSC1 page changes its parameter: POS up from the preset's 10.
+  h.Chord(kCtrl, Grid(3));
+  h.Tap(Grid(1));
+  h.Tap(kAdd);
+  synth::SynthParameterInfo info;
+  assert(app.Engine(1)->GetParameterInfo("osc1.position", info) && info.value == 11 && app.Engine(1)->HasEdits());
+
+  // The project keeps the engine, its preset and the edits.
+  std::string message;
+  groove::ProjectUiSettings settings;
+  assert(app.SaveProject("WAVE TEST", true, settings, message) == groove::SaveResult::Ok);
+  assert(app.SwitchEngine(1, Kind::Juno, error) && app.EngineKind(1) == Kind::Juno);
+  assert(app.LoadProject("WAVE TEST", settings, message));
+  h.Frames(4);
+  assert(app.EngineKind(1) == Kind::Wave && app.Engine(1)->CurrentPresetId() == "wave.ppg");
+  assert(app.Engine(1)->GetParameterInfo("osc1.position", info) && info.value == 11);
+  assert(app.Engine(1)->GetParameterInfo("osc2.wave", info) && info.value == 0);
+  closeModals();
+  assert(app.SwitchEngine(1, Kind::Juno, error));
+  h.Frames(4);
+}
+
 void TestEveryParameter(Harness& h)
 {
   using Kind = synth::SynthEngineKind;
@@ -3241,8 +3299,9 @@ void TestEveryParameter(Harness& h)
       for (std::size_t track = 0; track < 4; ++track) (void)app.Sequencer().SetStepNotes(track, step, notes, 1 + track, 110);
     }
   };
-  const std::array<std::array<Kind, 4>, 2> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
-                                                 {{Kind::Juno, Kind::Dx7, Kind::Sampler, Kind::Drums}}}};
+  const std::array<std::array<Kind, 4>, 3> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
+                                                 {{Kind::Juno, Kind::Dx7, Kind::Sampler, Kind::Drums}},
+                                                 {{Kind::Wave, Kind::Drums, Kind::Wave, Kind::Juno}}}};
   struct Walk { groove::Scene scene; std::size_t track; };
   const std::array<Walk, 10> walks{{{groove::Scene::Tape, 0},
                                     {groove::Scene::Instrument, 0}, {groove::Scene::Instrument, 1},
@@ -3392,6 +3451,7 @@ int main()
   TestNoStuckNotes(h);
   TestComputerMidi(h);
   TestGuide(h);
+  TestWaveEngineUi(h);
   TestEveryParameter(h);
   // Last: it runs every item of the SEQ menu, which changes the pattern.
   TestMenuFeedback(h);

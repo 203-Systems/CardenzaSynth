@@ -56,10 +56,14 @@ struct RenderModel {
   float dx7Micros = 0.0f;
   float junoMicros = 0.0f;
   float drumsMicros = 0.0f;
+  float waveMicros = 0.0f;
   float overheadMicros = 0.0f;
   float budgetScale = 1.0f;
 };
 RenderModel CurrentRenderModel();
+// One cycle of a Wave engine oscillator's wave (wave::Wave, WaveParameters.h) at a POSITION of 0..1, as
+// `count` points of -127..127: what the screen draws. Read from AMY's tables, no audio state.
+void WaveCycle(int waveIndex, float position, std::int8_t* points, std::size_t count);
 // The notes a track holds, one bit per MIDI note, as of the last rendered block: played and not let
 // go, tails not counted. A drum track holds nothing, its hits end by themselves.
 using NoteSet = std::array<std::uint32_t, 4>;

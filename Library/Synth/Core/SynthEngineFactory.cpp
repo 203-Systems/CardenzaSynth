@@ -4,6 +4,7 @@
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
 #include "Library/Synth/Core/Engines/Sampler/SamplerSynthEngine.h"
 #include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
+#include "Library/Synth/Core/Engines/Wave/WaveSynthEngine.h"
 
 namespace synth {
 
@@ -19,6 +20,8 @@ std::unique_ptr<ISynthEngine> CreateSynthEngine(SynthEngineKind kind)
       return std::make_unique<SamplerSynthEngine>();
     case SynthEngineKind::Drums:
       return std::make_unique<DrumsSynthEngine>();
+    case SynthEngineKind::Wave:
+      return std::make_unique<WaveSynthEngine>();
     case SynthEngineKind::None:
     default:
       return nullptr;
@@ -37,6 +40,8 @@ std::string ToString(SynthEngineKind kind)
       return "Sampler";
     case SynthEngineKind::Drums:
       return "Drums";
+    case SynthEngineKind::Wave:
+      return "Wave";
     case SynthEngineKind::None:
     default:
       return "Empty";
