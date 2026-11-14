@@ -15,6 +15,7 @@
 
 - Do not start builds from the agent unless the user explicitly asks for one.
 - Prefer static validation such as `get_errors`, targeted searches, and diff inspection when editing the Cardenza HAL layer.
+- `203.json` (root) is this firmware on the 203 community: Cardenza Synth, code `V6QK28`, author 203 Systems. It has no `version` on purpose (`version.txt` is the version) and `publish_source: false` (official releases come from CI through the Launcher hub, not from `203c`); its `publish` block tells a fork's `203c publish` where the BIN (`build/Cardenza/CardenzaSynthFirmware.bin`) and the ESP-IDF project (`Devices/Cardenza`) are: keep them in step when those move. Forks start with `203c fork V6QK28` and follow CardenzaHAL's `docs/FIRMWARE-PROJECT.md` (https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md).
 
 ## Storage Rules
 

@@ -62,6 +62,23 @@ make web-serve
 - [开发规则与设计](AGENT.md)
 - [Demo 生成工具](tools/demo/README.md)
 
+## 做自己的版本
+
+想在 CardenzaSynth 上改出自己的固件并分享，请用 203 社区的命令行 `203c`（需要 Node.js 18 以上）：
+
+```sh
+curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
+203c login                       # 打印链接和验证码，登录社区后打开链接批准
+203c fork V6QK28 my-synth        # 克隆源码，在社区建 Fork，写好 203.json（forked_from）
+cd my-synth && git submodule update --init --recursive
+# 改 203.json 的 name 和 summary，改代码，提高 version.txt，然后
+make DEVICE=Cardenza build
+203c publish --dry-run
+203c publish
+```
+
+工程规则（环境、必需的文件、HAL 的用法、社区发布前检查什么、版本与渠道、Fork、绝不能提交的东西）只有一份：CardenzaHAL 的 [docs/FIRMWARE-PROJECT.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md)，社区的[开发指引](https://cardenza.203.io/community/develop)也从它开始。根目录的 `203.json` 是这个固件在社区里的信息（Cardenza Synth，代码 `V6QK28`）；版本号就是 `version.txt`，所以 `203.json` 里没有 `version`。官方版本由 CI 经 Launcher hub 发布，不用 203c。
+
 ## 致谢
 
 - **[M5Stack Cardputer](https://docs.m5stack.com/en/core/Cardputer)**：一个很棒的项目。它是鸣片的灵感来源，也是我们动手做鸣片的初衷，谢谢 M5Stack 团队。鸣片不兼容 M5Stack 的设备，这里的固件也只为鸣片构建。
