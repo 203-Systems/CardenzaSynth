@@ -130,12 +130,13 @@ void TestBraids(Harness& h)
   }
   GoToInstrumentPage(h, "VOICE");
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 5);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 8);
   assert(h.Modal()->items[4].label == "BRAIDS" && h.Modal()->items[1].marked);
   h.Render();
-  // The fifth engine is the first key of the GRID's second row; its light shows it can be chosen.
+  // The fifth engine is the first key of the GRID's second row; its light shows it can be chosen
+  // (the row holds the four engines added since the first release).
   app.UpdateLeds();
-  assert(Device::LED::Brightness(1, 9) != 0 && Device::LED::Brightness(1, 10) == 0);
+  assert(Device::LED::Brightness(1, 9) != 0 && Device::LED::Brightness(1, 12) != 0 && Device::LED::Brightness(2, 9) == 0);
   h.Tap(Grid(4));
   assert(h.Modal() == nullptr && app.EngineKind(1) == Kind::Braids);
   assert(app.Engine(1)->CurrentPresetName() == "CS Saw" && !app.Engine(1)->HasEdits());
@@ -3363,7 +3364,7 @@ void TestPlaits(Harness& h)
   const auto pick = [&](std::size_t cell, synth::SynthEngineKind kind) {
     GoToInstrumentPage(h, "VOICE");
     h.Tap(Grid(0));
-    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 5);
+    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 8);
     h.Render();
     h.Tap(Grid(cell));
     // A sound with edits asks before it is replaced.
@@ -3382,7 +3383,7 @@ void TestPlaits(Harness& h)
   h.Chord(kTab, Grid(1));
   assert(h.State().track == 1);
 
-  pick(4, synth::SynthEngineKind::Plaits);
+  pick(5, synth::SynthEngineKind::Plaits);
   assert(std::string(groove::EngineShortName(app.EngineKind(1))) == "PLAITS");
   // A new Plaits track starts on the pair of analog waves.
   assert(app.Engine(1)->CurrentPresetId() == "plaits.analog" && app.Engine(1)->DescribeParameterValue("osc.model") == "ANALOG");
@@ -3392,7 +3393,7 @@ void TestPlaits(Harness& h)
 
   // VOICE, CHORD, ARP, then its own two pages and FX.
   GoToInstrumentPage(h, "OSC");
-  assert(app.Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::Macro);
+  assert(app.Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::PlaitsMacro);
   h.Render();
   // HARM is the second cell: its key chooses it, ADD and SUB move it.
   h.Tap(Grid(1));
@@ -3443,10 +3444,10 @@ void TestWaveEngineUi(Harness& h)
   assert(app.EngineKind(1) == Kind::Juno || app.SwitchEngine(1, Kind::Juno, error));
   while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 5);
-  assert(h.Modal()->items[4].label == "WAVE");
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 8);
+  assert(h.Modal()->items[7].label == "WAVE");
   h.Render();
-  h.Tap(Grid(4));
+  h.Tap(Grid(7));
   if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);  // the Juno had edits
   assert(app.EngineKind(1) == Kind::Wave && h.Modal() == nullptr);
   assert(app.Engine(1)->CurrentPresetId() == "wave.ppg" && !app.Engine(1)->HasEdits());
@@ -3632,9 +3633,9 @@ void TestVocal(Harness& h)
   h.Chord(kTab, Grid(1));
   while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 5);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 8);
   h.Render();
-  h.Tap(Grid(4));
+  h.Tap(Grid(6));
   if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
   h.Wait(100);
   assert(h.Modal() == nullptr && app.EngineKind(1) == synth::SynthEngineKind::Vocal);
@@ -3876,7 +3877,7 @@ void TestVocal(Harness& h)
   {
     std::ifstream file(synth::storage::ProjectDirectory() + "/VOCAL SONG.ccproj");
     const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    assert(text.find("CARDENZA_PROJECT 7\n") == 0 && text.find("TRACK 1 5 \"vocal.plain\" \"vocal.plain\" \"Plain\" \"Test Voice.vocal\"") != std::string::npos);
+    assert(text.find("CARDENZA_PROJECT 7\n") == 0 && text.find("TRACK 1 7 \"vocal.plain\" \"vocal.plain\" \"Plain\" \"Test Voice.vocal\"") != std::string::npos);
     assert(text.find("\"voice.word\" 9\n") != std::string::npos && text.find("\"word.") == std::string::npos);
   }
   assert(app.SwitchEngine(1, synth::SynthEngineKind::Juno, error) && sequencer.TrackWords(1) == 0);
