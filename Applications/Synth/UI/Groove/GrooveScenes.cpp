@@ -1,4 +1,6 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
+#include "Applications/Synth/Runtime/Vocal/VoicePacks.h"
+#include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
 #include "OS/Storage/DeviceSettings.h"
 
 #include <algorithm>
@@ -549,6 +551,9 @@ void Controller::InstrumentGrid(std::size_t index)
     return;
   }
   auto& focus = state_.instrumentFocus[std::min<std::size_t>(CurrentPage(), state_.instrumentFocus.size() - 1)];
+  // SING's WORD cell: held, the pads show the singer's pronunciations, from the page with this one.
+  if (const synth::VocalSynthEngine* vocal = ActiveVocal(); vocal != nullptr && slot.IsParameter() && std::strcmp(slot.id, "voice.word") == 0)
+    state_.wordPickPage = static_cast<std::uint8_t>(static_cast<std::size_t>(std::max(0, vocal->Word())) / kWordPickPadCount);
   synth::SynthParameterInfo info;
   std::string text;
   // A second press on a focused switch flips it and steps a choice (wrapping), like ENTER; HOLD flips
@@ -557,6 +562,114 @@ void Controller::InstrumentGrid(std::size_t index)
   if ((focus == index || performanceSwitch) && SlotValue(slot, info, text) && info.kind != synth::SynthParameterKind::Continuous)
     state_.cellPress.stepOnRelease = true;
   focus = static_cast<std::uint8_t>(index);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Vocal tracks: words (Library/Synth/Audio/SynthVocal.h)
+
+const synth::VocalSynthEngine* Controller::ActiveVocal() const
+{
+  return synth::VocalSynthEngine::From(ActiveEngine());
+}
+
+synth::VocalSynthEngine* Controller::ActiveVocal()
+{
+  return synth::VocalSynthEngine::From(ActiveEngine());
+}
+
+bool Controller::WordCellPickerActive() const
+{
+  if (state_.scene != Scene::Instrument || ActiveVocal() == nullptr || !CellPickerActive()) return false;
+  const Slot& slot = CurrentInstrumentPage()->slots[state_.cellPress.index];
+  return slot.IsParameter() && std::strcmp(slot.id, "voice.word") == 0;
+}
+
+bool Controller::StepWordPickerActive() const
+{
+  if (state_.scene != Scene::Sequence || CurrentPage() != 0 || TopModal() != nullptr || ActiveVocal() == nullptr) return false;
+  // While a left key is held the GRID chooses and the pads are silent.
+  for (const auto& left : state_.left)
+    if (left.down) return false;
+  const auto& sequencer = host_.Sequencer();
+  return sequencer.HasHeldSteps() && sequencer.EditLane() == synth::SequencerEditLane::Word;
+}
+
+int Controller::WordPickCurrent() const
+{
+  const synth::VocalSynthEngine* vocal = ActiveVocal();
+  if (vocal == nullptr) return -1;
+  if (!StepWordPickerActive()) return vocal->Word();
+  const auto& sequencer = host_.Sequencer();
+  return sequencer.StepWord(state_.track, sequencer.BuildUiState(state_.track).primaryHeldStep);
+}
+
+std::size_t Controller::WordPickPage() const
+{
+  // The steps' table shows the page their word is on; the cell's is flipped by hand.
+  const std::size_t page = StepWordPickerActive() ? static_cast<std::size_t>(std::max(0, WordPickCurrent())) / kWordPickPadCount : state_.wordPickPage;
+  return std::min<std::size_t>(page, WordPickPageCount() - 1);
+}
+
+std::size_t Controller::WordPickPageCount() const
+{
+  const synth::VocalSynthEngine* vocal = ActiveVocal();
+  return vocal == nullptr ? 1 : (vocal->Pack().EntryCount() + kWordPickPadCount - 1) / kWordPickPadCount;
+}
+
+void Controller::PickWord(std::size_t row, std::size_t column)
+{
+  synth::VocalSynthEngine* vocal = ActiveVocal();
+  if (vocal == nullptr) return;
+  const bool steps = StepWordPickerActive();
+  const std::size_t pad = row * kPadColumns + (column - kPadFirstColumn);
+  const std::size_t word = WordPickPage() * kWordPickPadCount + pad;
+  if (!steps) state_.cellPress.picked = true;
+  if (pad >= state_.padNote.size() || word >= vocal->Pack().EntryCount()) return;
+  auto& sequencer = host_.Sequencer();
+  // What the word is heard on: the step's lowest note, or a note in the middle of the keyboard.
+  int note = std::clamp(60 + state_.keyboard.octave * 12, 36, 96);
+  if (steps)
+  {
+    const auto ui = sequencer.BuildUiState(state_.track);
+    if (sequencer.SetWordOnSelectedSteps(static_cast<int>(word))) MarkDirty();
+    ShowStepWordHud();
+    if (sequencer.Playing()) return;  // the pattern is what is heard
+    if (ui.primaryLowestNote >= 0) note = ui.primaryLowestNote;
+  }
+  else if (vocal->Word() != static_cast<int>(word))
+  {
+    vocal->SetWord(static_cast<int>(word));
+    MarkDirty();
+  }
+  // Sung as it is chosen, for as long as the pad is down: the word's key, then the note.
+  if (state_.padNote[pad] != kNoNote) return;
+  const std::uint8_t key = synth::vocal::KeyNoteOfWord(static_cast<int>(word));
+  host_.NoteOn(state_.track, key, synth::vocal::KeyVelocityOfWord(static_cast<int>(word)));
+  host_.NoteOff(state_.track, key);
+  state_.padNote[pad] = static_cast<std::uint8_t>(note);
+  state_.padChord[pad] = {};
+  state_.padChord[pad][0] = static_cast<std::uint8_t>(note);
+  state_.padChordCount[pad] = 1;
+  state_.padTrack[pad] = static_cast<std::uint8_t>(state_.track);
+  state_.padVelocity[pad] = state_.keyboard.velocity;
+  state_.padArp[pad] = false;
+  state_.padEdit[pad] = PadEdit{};
+  state_.padPreview[pad] = true;
+  state_.lastTrackNoteAt[state_.track] = state_.now;
+  SoundPad(pad, true, false);
+}
+
+// The WORD lane's feedback: the word the first selected step sings now.
+void Controller::ShowStepWordHud()
+{
+  const synth::VocalSynthEngine* vocal = ActiveVocal();
+  if (vocal == nullptr) return;
+  const auto& sequencer = host_.Sequencer();
+  const int word = sequencer.StepWord(state_.track, sequencer.BuildUiState(state_.track).primaryHeldStep);
+  // A step without a word of its own sings the track's.
+  if (word < 0) ShowHud("WORD", "TRACK'S " + vocal->WordName(vocal->Word()));
+  else ShowHud("WORD " + std::to_string(word + 1), vocal->WordName(word),
+               static_cast<float>(word) / static_cast<float>(std::max(1u, vocal->Pack().EntryCount() - 1)));
 }
 
 void Controller::StepCell(std::size_t index)
@@ -677,6 +790,11 @@ void Controller::PickCellValue(std::size_t row, std::size_t column)
   std::string label, text;
   synth::SynthParameterInfo info;
   CellPress& press = state_.cellPress;
+  if (WordCellPickerActive())
+  {
+    PickWord(row, column);
+    return;
+  }
   if (!CellParameter(press.index, label, info, text)) return;
   const std::size_t pad = row * kPadColumns + (column - kPadFirstColumn);
   if (pad >= CellPickCount(info)) return;
@@ -689,6 +807,8 @@ void Controller::ShowCellHud()
 {
   std::string label, text;
   synth::SynthParameterInfo info;
+  // The word table is its own display (the pads' pronunciations fill the screen).
+  if (WordCellPickerActive()) return;
   if (!CellParameter(state_.cellPress.index, label, info, text)) return;
   // Up for as long as the cell is held: it pops in once, then stays at this age.
   constexpr std::uint32_t kSettledMs = 200;
@@ -739,7 +859,11 @@ void Controller::InstrumentEnter()
   if (info.kind == synth::SynthParameterKind::Toggle) InstrumentAdjust(info.value == info.maxValue ? -1 : 1, false);
   else if (info.kind == synth::SynthParameterKind::Choice)
   {
-    if (info.value >= info.maxValue)
+    // A vocal track's word ends with its singer's list, not with the parameter's range.
+    int last = info.maxValue;
+    if (const synth::VocalSynthEngine* vocal = ActiveVocal(); vocal != nullptr && std::strcmp(slot.id, "voice.word") == 0)
+      last = static_cast<int>(vocal->Pack().EntryCount()) - 1;
+    if (info.value >= last)
     {
       if (IsSetting(slot.id)) StepSetting(slot.id);
       else if (synth::ISynthEngine* engine = ActiveEngine(); engine != nullptr && engine->SetParameterValue(slot.id, info.minValue)) MarkDirty();
@@ -829,6 +953,7 @@ void Controller::RunSlotAction(SlotAction action)
       break;
     }
     case SlotAction::SamplePreview: host_.PreviewSample(state_.track); break;
+    case SlotAction::VoicePack: OpenVoiceBrowser(); break;
     case SlotAction::None:
     default: break;
   }
@@ -895,6 +1020,13 @@ bool Controller::AdjustHeldPadNotes(int delta, bool coarse)
   if (lane == synth::SequencerEditLane::Note)
   {
     MovePadNotes(pads.data(), padCount, delta, coarse);
+    return true;
+  }
+  if (lane == synth::SequencerEditLane::Word)
+  {
+    // The word belongs to the step, not to one of its notes: a held pad changes nothing about that.
+    if (sequencer.AdjustSelectedSteps(delta, coarse)) MarkDirty();
+    ShowStepWordHud();
     return true;
   }
   // The held pads' notes together, each once.
@@ -1037,6 +1169,9 @@ void Controller::StepKeyPress(std::size_t index)
   }
   key.wasSelected = ui.steps[index].held;
   key.wasOnly = key.wasSelected && ui.heldStepCount == 1;
+  // On the WORD lane the pads are the word table: going from step to step stays on it, so a line is
+  // written step, word, step, word (an emptied selection goes back to NOTE).
+  const bool wordLane = ui.hasHeldSteps && ui.editLane == synth::SequencerEditLane::Word;
   // Another step key down (KeyEvent made it a hold): this step joins it.
   bool joining = false;
   for (std::size_t other = 0; other < kGridCount; ++other)
@@ -1044,6 +1179,7 @@ void Controller::StepKeyPress(std::size_t index)
   if (joining) key.used = true;
   else if (!state_.keyboard.multiSelect && !key.wasOnly) sequencer.ClearSelectedSteps();
   sequencer.SetStepSelected(step, true);
+  if (wordLane) sequencer.SetEditLane(synth::SequencerEditLane::Word);
   AuditionStep(index, step);
 }
 
@@ -1081,6 +1217,12 @@ void Controller::AuditionStep(std::size_t index, std::size_t step)
   StepAudition& audition = state_.stepAudition;
   audition.track = static_cast<std::uint8_t>(state_.track);
   audition.key = static_cast<std::uint8_t>(index);
+  // A vocal track's step sings its word: the word's key first.
+  if (const int word = sequencer.StepWord(state_.track, step); word >= 0)
+  {
+    host_.NoteOn(state_.track, synth::vocal::KeyNoteOfWord(word), synth::vocal::KeyVelocityOfWord(word));
+    host_.NoteOff(state_.track, synth::vocal::KeyNoteOfWord(word));
+  }
   for (std::size_t slot = 0; slot < count; ++slot)
   {
     host_.NoteOn(state_.track, notes[slot].note, notes[slot].velocity);
@@ -1200,6 +1342,7 @@ void Controller::SequenceAdjust(int delta, bool coarse)
           return;
         }
         if (sequencer.AdjustSelectedSteps(delta, coarse)) MarkDirty();
+        if (ui.editLane == synth::SequencerEditLane::Word) ShowStepWordHud();
         return;
       }
       if (!coarse)
@@ -1829,6 +1972,8 @@ MenuItems Controller::Menu() const
         put(9, MenuAction::SampleRecord, "RECORD", "SAMPLE");
         put(10, MenuAction::SamplePreview, "PREVIEW", "SAMPLE");
       }
+      if (const synth::VocalSynthEngine* vocal = ActiveVocal())
+        put(8, MenuAction::VoicePack, "SINGER", vocal->BuiltinPack() ? std::string("BUILTIN") : synth::VoicePackLabel(vocal->PackFileName()));
       break;
     }
     case Scene::Sequence:
@@ -1963,6 +2108,7 @@ void Controller::RunMenuAction(const MenuItem& item)
     case MenuAction::SampleFiles: RunSlotAction(SlotAction::SampleFile); break;
     case MenuAction::SampleRecord: RunSlotAction(SlotAction::SampleRecord); break;
     case MenuAction::SamplePreview: RunSlotAction(SlotAction::SamplePreview); break;
+    case MenuAction::VoicePack: RunSlotAction(SlotAction::VoicePack); break;
     case MenuAction::Default:
     case MenuAction::Capture:
     case MenuAction::SongMode: FnEnter(); break;

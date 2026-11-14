@@ -220,6 +220,29 @@ constexpr std::array<InstrumentPage, 6> kPlaitsPages{{
     kFxPage,
 }};
 
+// The Vocal engine (Library/Synth/Audio/SynthVocal.h). VOICE has the singer beside the preset. SING
+// is how notes are sung, first of all WORD: what a note sings when its step names no word (and what
+// the pads sing when played by hand); holding that cell lays the singer's pronunciations out on the
+// pads. AMP is how loud.
+constexpr std::array<InstrumentPage, 6> kVocalPages{{
+    InstrumentPage{"PRESET", "VOICE",
+                   {{A(SlotAction::Engine, "ENGINE"), A(SlotAction::Preset, "PRESET"), A(SlotAction::VoicePack, "SINGER"), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Voice, {1, 0, 3, 4}, 0},
+    kChordPage,
+    kArpPage,
+    InstrumentPage{"WORD", "SING",
+                   {{P("voice.word", "WORD"), P("voice.mode", "MODE"), P("voice.glide", "GLIDE"), P("voice.tune", "TUNE"),
+                     P("vib.depth", "VIBRATO"), P("vib.rate", "RATE"), P("vib.delay", "DELAY"), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Sing, {2, 0, 2, 4}, 0},
+    InstrumentPage{"LEVEL", "AMP",
+                   {{P("amp.level", "LEVEL"), P("env.attack", "ATTACK"), P("env.release", "RELEASE"), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::VocalAmp, {1, 0, 3, 4}, 0},
+    kFxPage,
+}};
+
 // Drums play one drum per key: no chord, no arpeggiator.
 constexpr std::array<InstrumentPage, 3> kDrumPages{{
     kVoicePage,
@@ -249,6 +272,7 @@ InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Plaits: return {kPlaitsPages.data(), kPlaitsPages.size()};
     case synth::SynthEngineKind::Wave: return {kWavePages.data(), kWavePages.size()};
     case synth::SynthEngineKind::Braids: return {kBraidsPages.data(), kBraidsPages.size()};
+    case synth::SynthEngineKind::Vocal: return {kVocalPages.data(), kVocalPages.size()};
     case synth::SynthEngineKind::None:
     default: return {&kVoicePage, 1};
   }

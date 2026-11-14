@@ -4,6 +4,9 @@
 #include <cctype>
 #include <cstdio>
 
+#include "Applications/Synth/Runtime/Vocal/VoicePacks.h"
+#include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
+
 namespace groove {
 
 namespace {
@@ -170,11 +173,11 @@ void Controller::OpenEnginePicker()
   modal.title = "ENGINE";
   const auto current = ActiveKind();
   // In the order the picker draws them (ModalRender: DrawEnginePicker), four to a row: the first
-  // row the engines of the first release, the second the ones added since.
-  const std::array<synth::SynthEngineKind, 7> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
+  // row the engines of the first release, the second the ones added since. Eight fill the two rows.
+  const std::array<synth::SynthEngineKind, 8> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
                                                       synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums,
                                                       synth::SynthEngineKind::Braids, synth::SynthEngineKind::Plaits,
-                                                      synth::SynthEngineKind::Wave}};
+                                                      synth::SynthEngineKind::Vocal, synth::SynthEngineKind::Wave}};
   for (std::size_t index = 0; index < kinds.size(); ++index)
   {
     modal.items.push_back({std::to_string(static_cast<int>(kinds[index])), std::string(EngineShortName(kinds[index])), kinds[index] == current});
@@ -206,6 +209,35 @@ void Controller::RefreshSampleBrowser()
     if (modal->items[index].marked) { modal->cursor = index; break; }
 }
 
+// The singer of a vocal track: the built-in voice, then the packs on the card.
+void Controller::OpenVoiceBrowser()
+{
+  const synth::VocalSynthEngine* vocal = ActiveVocal();
+  if (vocal == nullptr) return;
+  Modal modal;
+  modal.kind = ModalKind::VoiceBrowser;
+  modal.title = "SINGER";
+  modal.items.push_back({"", "BUILT-IN", vocal->BuiltinPack()});
+  for (const std::string& file : host_.ListVoicePacks()) modal.items.push_back({file, synth::VoicePackLabel(file), file == vocal->PackFileName()});
+  for (std::size_t index = 0; index < modal.items.size(); ++index)
+    if (modal.items[index].marked) modal.cursor = index;
+  OpenModal(std::move(modal));
+}
+
+void Controller::ApplyVoicePack(const std::string& fileName)
+{
+  std::string message;
+  if (!host_.SetVoicePack(state_.track, fileName, message))
+  {
+    ShowToast(message.empty() ? "SINGER NOT LOADED" : message, ToastKind::Error);
+    return;
+  }
+  ReleaseAllPads();
+  MarkDirty();
+  const synth::VocalSynthEngine* vocal = ActiveVocal();
+  ShowToast("SINGER " + Upper(vocal != nullptr ? std::string(vocal->Pack().Name()) : fileName), ToastKind::Ok);
+}
+
 void Controller::OpenSampleRecord()
 {
   Modal modal;
@@ -229,6 +261,7 @@ void Controller::ModalAdjust(int delta, bool coarse)
     case ModalKind::EnginePicker:
     case ModalKind::SampleBrowser:
     case ModalKind::SampleOptions:
+    case ModalKind::VoiceBrowser:
     {
       if (modal->Count() == 0) return;
       const int count = static_cast<int>(modal->Count());
@@ -322,6 +355,15 @@ void Controller::ModalEnter()
         Top()->payload = file;
       }
       else OpenConfirm(ConfirmPurpose::DeleteSample, "DELETE " + Upper(file) + "?", "THE WAV FILE IS REMOVED FROM THE CARD", true, file);
+      return;
+    }
+    case ModalKind::VoiceBrowser:
+    {
+      if (modal->items.empty() || ActiveVocal() == nullptr) return;
+      // Nothing is lost by another singer (the words stay where they are in the list): no question.
+      const std::string file = modal->items[modal->cursor].id;
+      CloseModal();
+      ApplyVoicePack(file);
       return;
     }
     case ModalKind::SampleRecord:

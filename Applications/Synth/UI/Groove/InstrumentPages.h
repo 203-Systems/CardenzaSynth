@@ -17,6 +17,7 @@ enum class SlotAction : std::uint8_t {
   SampleFile,
   SampleRecord,
   SamplePreview,
+  VoicePack,  // Vocal: the singer (the voice packs on the card)
 };
 
 // A GRID slot on an INSTR page: an engine parameter id, a "keys.*" keyboard setting, or an action.
@@ -52,6 +53,8 @@ enum class PageGraphic : std::uint8_t {
   Arp,               // INSTR ARP: the order the track's arpeggiator plays a chord in
   Keys,              // SETUP KEYS: the scale on a keyboard
   System,            // SETUP SYSTEM: storage, memory and audio status
+  Sing,              // Vocal SING: a slur's glide and the vibrato coming in, as a pitch line
+  VocalAmp,          // Vocal AMP: the attack and the release
 };
 
 struct GraphicArea {

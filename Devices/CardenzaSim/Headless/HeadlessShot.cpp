@@ -38,13 +38,15 @@ constexpr std::size_t kRows = static_cast<std::size_t>(Device::Keyboard::kRows);
 constexpr std::size_t kColumns = static_cast<std::size_t>(Device::Keyboard::kColumns);
 
 constexpr const char* kUsage =
-    "usage: CardenzaSimShot --script <file> --out <dir> [--scale N] [--root <dir>] [--no-card]\n"
+    "usage: CardenzaSimShot --script <file> --out <dir> [--scale N] [--root <dir>] [--no-card] [--audio]\n"
     "  --script <file>  key script (.script/.simdebug format: wait/tap/down/up/screenshot/quit)\n"
     "  --out <dir>      directory for <name>.png and <name>.leds.txt (created if missing)\n"
     "  --scale N        nearest-neighbour upscale factor 1..4 (default 1)\n"
     "  --root <dir>     chdir here before boot; the card is <dir>/sdcard (docs/app-storage-protocol.md)\n"
     "                   (default: the caller's working directory)\n"
-    "  --no-card        start without the card: the run touches no card, as on the device\n";
+    "  --no-card        start without the card: the run touches no card, as on the device\n"
+    "  --audio          render the synth as the frames go by (the sound is dropped): what the audio\n"
+    "                   reports to the screen moves, as on the device (a vocal track's words)\n";
 
 struct Options {
   fs::path scriptPath;
@@ -52,6 +54,7 @@ struct Options {
   fs::path rootDirectory;
   int scale = 1;
   bool noCard = false;
+  bool audio = false;
 };
 
 bool ParseArguments(int argc, char** argv, Options& options, std::string& errorMessage)
@@ -76,6 +79,11 @@ bool ParseArguments(int argc, char** argv, Options& options, std::string& errorM
     if (argument == "--no-card" && !hasValue)
     {
       options.noCard = true;
+      continue;
+    }
+    if (argument == "--audio" && !hasValue)
+    {
+      options.audio = true;
       continue;
     }
     if (argument != "--script" && argument != "--out" && argument != "--scale" && argument != "--root")
@@ -288,6 +296,8 @@ private:
   {
     os::system::RunFrame();
     ++frames_;
+    // One frame's worth of sound (16 ms at 44.1 kHz), rendered and dropped.
+    if (options_.audio) CardenzaSim::Input::RenderAudio(706);
     // What the firmware said to the computer (the guide), in <out>/app.log after what was sent.
     std::string message;
     while (CardenzaSim::Input::TakeDeviceApp(message)) LogApp('<', message);

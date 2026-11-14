@@ -1,6 +1,7 @@
 #include "Applications/Synth/Runtime/Sequencer/SynthSequencer.h"
 
 #include "Library/Memory/Memory.h"
+#include "Library/Synth/Audio/SynthVocal.h"
 
 #include <algorithm>
 #include <chrono>
@@ -98,6 +99,14 @@ constexpr std::size_t kPatternHeapFloorBytes = 24 * 1024;
 #if defined(CARDENZA_SEQUENCER_TEST_HOOKS)
 int testPageBudget = -1;
 #endif
+
+// The word a step's key names (notes below `keys` are word keys), -1 when the step holds none.
+int StepWordOf(const SynthSequencer::StepData& step, std::uint8_t keys)
+{
+  for (const SynthSequencer::NoteEvent& event : step.notes)
+    if (event.active && event.note < keys) return vocal::WordOfKey(event.note, event.velocity);
+  return -1;
+}
 
 std::size_t ClampedPatternCount(const SynthSequencer::TrackData& track)
 {
@@ -938,10 +947,76 @@ std::size_t SynthSequencer::StepNoteEvents(std::size_t trackIndex, std::size_t s
   std::size_t count = 0;
   for (const NoteEvent& event : ActivePatternLocked(tracks_[trackIndex]).steps[stepIndex].notes)
   {
-    if (!event.active || count >= notes.size()) continue;
+    if (!event.active || count >= notes.size() || event.note < keyNotes_[trackIndex]) continue;
     notes[count++] = StepNoteView{event.note, event.velocity, event.lengthPulses, event.microstep, event.Hits()};
   }
   return count;
+}
+
+void SynthSequencer::SetTrackWords(std::size_t track, std::uint16_t count)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (track >= keyNotes_.size()) return;
+  wordCount_[track] = count;
+  keyNotes_[track] = count != 0 ? vocal::kWordKeyCount : std::uint8_t{0};
+  // The WORD lane is only there for a track whose steps carry words.
+  if (editLane_ == SequencerEditLane::Word && keyNotes_[std::min(activeTrack_, keyNotes_.size() - 1)] == 0) editLane_ = SequencerEditLane::Note;
+}
+
+std::uint16_t SynthSequencer::TrackWords(std::size_t track) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return track < wordCount_.size() ? wordCount_[track] : std::uint16_t{0};
+}
+
+bool SynthSequencer::ClearWords(std::size_t trackIndex)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (trackIndex >= tracks_.size() || keyNotes_[trackIndex] == 0) return false;
+  const std::uint8_t keys = keyNotes_[trackIndex];
+  TrackData& track = tracks_[trackIndex];
+  const auto isKey = [&](const NoteEvent& event) { return event.active && event.note < keys; };
+  bool changed = false;
+  for (std::size_t pattern = 0; pattern < ClampedPatternCount(track); ++pattern)
+  {
+    if (!track.patterns.Allocated(pattern)) continue;
+    StepStore& steps = track.patterns[pattern].steps;
+    for (std::size_t step = steps.NextInUse(0); step < steps.size(); step = steps.NextInUse(step + 1))
+    {
+      const auto& notes = std::as_const(steps)[step].notes;
+      if (std::none_of(notes.begin(), notes.end(), isKey)) continue;
+      StepData* edit = steps.TryEdit(step);
+      if (edit == nullptr) continue;
+      for (NoteEvent& event : edit->notes)
+        if (isKey(event)) event = NoteEvent{};
+      changed = true;
+    }
+  }
+  ReleaseEmptyPagesLocked();
+  return changed;
+}
+
+int SynthSequencer::StepWord(std::size_t trackIndex, std::size_t stepIndex) const
+{
+  if (trackIndex >= kSynthTrackCount || stepIndex >= kSequencerMaxSteps) return -1;
+  std::lock_guard<std::mutex> lock(mutex_);
+  return StepWordOf(ActivePatternLocked(tracks_[trackIndex]).steps[stepIndex], keyNotes_[trackIndex]);
+}
+
+bool SynthSequencer::SetWordOnSelectedSteps(int word)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (activeTrack_ >= tracks_.size() || keyNotes_[activeTrack_] == 0 || word >= static_cast<int>(wordCount_[activeTrack_])) return false;
+  PatternData& pattern = ActivePatternLocked(tracks_[activeTrack_]);
+  bool changed = false;
+  for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
+  {
+    if (!heldSteps_[stepIndex]) continue;
+    StepData* step = pattern.steps.TryEdit(stepIndex);
+    if (step != nullptr) changed = SetStepWordLocked(*step, keyNotes_[activeTrack_], word < 0 ? -1 : word) || changed;
+  }
+  ReleaseEmptyPagesLocked();
+  return changed;
 }
 
 bool SynthSequencer::SetStepNotes(std::size_t trackIndex, std::size_t stepIndex, const std::uint8_t* notes, std::size_t count,
@@ -1121,7 +1196,7 @@ std::size_t SynthSequencer::StepNotes(std::size_t stepIndex, std::array<std::uin
   // A 128-entry presence table orders the pitches without sorting a fixed buffer.
   std::array<bool, 128> present{};
   for (const NoteEvent& note : ActivePatternLocked(tracks_[activeTrack_]).steps[stepIndex].notes)
-    if (note.active && note.note < present.size()) present[note.note] = true;
+    if (note.active && note.note < present.size() && note.note >= keyNotes_[activeTrack_]) present[note.note] = true;
   std::size_t count = 0;
   for (std::size_t pitch = 0; pitch < present.size() && count < notes.size(); ++pitch)
     if (present[pitch]) notes[count++] = static_cast<std::uint8_t>(pitch);
@@ -1410,6 +1485,8 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     }
   }
   const StepData* primaryHeldStep = nullptr;
+  // Notes below this are the track's keys (a vocal track's words), not pitches.
+  const std::uint8_t keys = activeTrack < keyNotes_.size() ? keyNotes_[activeTrack] : std::uint8_t{0};
   if (track != nullptr)
   {
     state.viewPage = ViewPageLocked(activeTrack);
@@ -1424,7 +1501,7 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     state.primaryHeldStep = stepIndex;
     if (primaryHeldStep != nullptr)
       for (const NoteEvent& note : primaryHeldStep->notes)
-        if (note.active && (state.primaryLowestNote < 0 || note.note < state.primaryLowestNote)) state.primaryLowestNote = note.note;
+        if (note.active && note.note >= keys && (state.primaryLowestNote < 0 || note.note < state.primaryLowestNote)) state.primaryLowestNote = note.note;
     break;
   }
   for (std::size_t cellIndex = 0; cellIndex < state.steps.size(); ++cellIndex)
@@ -1432,10 +1509,20 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     const std::size_t stepIndex = state.firstViewStep + cellIndex;
     const StepData* step = track != nullptr ? &ActivePatternLocked(*track).steps[stepIndex] : nullptr;
     auto& cell = state.steps[cellIndex];
+    bool holdsKey = false;
     if (step != nullptr)
       for (const NoteEvent& note : step->notes)
         if (note.active)
         {
+          if (note.note < keys)
+          {
+            // The step's word: it counts as content (and as a change), not as a note of the step.
+            holdsKey = true;
+            cell.contentFingerprint = cell.contentFingerprint * 16777619u ^
+                (0x4B000000u | static_cast<std::uint32_t>(note.note) << 8 | static_cast<std::uint32_t>(note.velocity));
+            if (cell.word < 0) cell.word = static_cast<std::int16_t>(vocal::WordOfKey(note.note, note.velocity));
+            continue;
+          }
           ++cell.noteCount;
           // Includes every editable value so UI feedback also catches chord,
           // length and timing changes without retaining a second pattern copy.
@@ -1447,7 +1534,7 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
           cell.velocity = std::max(cell.velocity, note.velocity);
           cell.hits = std::max(cell.hits, note.Hits());
         }
-    cell.hasEvents = cell.noteCount > 0;
+    cell.hasEvents = cell.noteCount > 0 || holdsKey;
     cell.held = heldSteps_[stepIndex];
     cell.playing = playing_ && state.currentStep == stepIndex;
   }
@@ -1457,7 +1544,7 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
     // A 128-note presence table gives stable pitch order without allocating a chord copy.
     std::array<bool, 128> pitches{};
     for (const NoteEvent& note : primaryHeldStep->notes)
-      if (note.active && note.note < pitches.size()) pitches[note.note] = true;
+      if (note.active && note.note < pitches.size() && note.note >= keys) pitches[note.note] = true;
     static constexpr std::array<const char*, 12> names{{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}};
     for (std::size_t pitch = 0; pitch < pitches.size(); ++pitch)
     {
@@ -1469,7 +1556,7 @@ SequencerUiState SynthSequencer::BuildUiState(std::size_t activeTrack) const
   }
   state.valueLabel = ValueLabelLocked(primaryHeldStep);
   PopulateEditValueStateLocked(state, primaryHeldStep);
-  if (track != nullptr && editLane_ != SequencerEditLane::Note)
+  if (track != nullptr && editLane_ != SequencerEditLane::Note && editLane_ != SequencerEditLane::Word)
   {
     int firstValue = -1;
     for (std::size_t index = 0; index < heldSteps_.size(); ++index)
@@ -2092,12 +2179,14 @@ bool SynthSequencer::MoveNotesOnSelectedSteps(const std::uint8_t* from, const st
 
 void SynthSequencer::SetEditLane(SequencerEditLane lane)
 {
-  if (lane > SequencerEditLane::Hits)
+  if (lane > SequencerEditLane::Word)
   {
     return;
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
+  // WORD only where there are keys to edit.
+  if (lane == SequencerEditLane::Word && keyNotes_[std::min(activeTrack_, keyNotes_.size() - 1)] == 0) return;
   editLane_ = lane;
   ReleaseEmptyPagesLocked();
 }
@@ -2107,7 +2196,12 @@ void SynthSequencer::CycleEditLane()
   std::lock_guard<std::mutex> lock(mutex_);
   switch (editLane_)
   {
-    case SequencerEditLane::Note: editLane_ = SequencerEditLane::Length; break;
+    case SequencerEditLane::Note:
+      // A track with keys (a vocal track's words) has one lane more, right after the notes: what a
+      // step sings is set as often as its pitch.
+      editLane_ = keyNotes_[std::min(activeTrack_, keyNotes_.size() - 1)] != 0 ? SequencerEditLane::Word : SequencerEditLane::Length;
+      break;
+    case SequencerEditLane::Word: editLane_ = SequencerEditLane::Length; break;
     case SequencerEditLane::Length: editLane_ = SequencerEditLane::Velocity; break;
     case SequencerEditLane::Velocity: editLane_ = SequencerEditLane::Micro; break;
     case SequencerEditLane::Micro: editLane_ = SequencerEditLane::Hits; break;
@@ -2115,6 +2209,48 @@ void SynthSequencer::CycleEditLane()
     default: editLane_ = SequencerEditLane::Note; break;
   }
   ReleaseEmptyPagesLocked();
+}
+
+bool SynthSequencer::SetStepWordLocked(StepData& step, std::uint8_t keys, int word)
+{
+  // The step's word key, and where a new one would start: with the step's first note.
+  NoteEvent* key = nullptr;
+  NoteEvent* free = nullptr;
+  std::uint8_t microstep = 0;
+  bool anyNote = false;
+  for (NoteEvent& event : step.notes)
+  {
+    if (!event.active)
+    {
+      if (free == nullptr) free = &event;
+      continue;
+    }
+    if (event.note < keys)
+    {
+      if (key == nullptr) key = &event;
+      continue;
+    }
+    if (!anyNote || event.microstep < microstep) microstep = event.microstep;
+    anyNote = true;
+  }
+  if (word < 0)
+  {
+    if (key == nullptr) return false;
+    *key = NoteEvent{};
+    return true;
+  }
+  const std::uint8_t note = vocal::KeyNoteOfWord(word);
+  const std::uint8_t velocity = vocal::KeyVelocityOfWord(word);
+  if (key != nullptr)
+  {
+    if (key->note == note && key->velocity == velocity) return false;
+    key->note = note;
+    key->velocity = velocity;
+    return true;
+  }
+  if (free == nullptr) return false;  // the step is full of notes
+  *free = NoteEvent(note, velocity, kSequencerPulsesPerMicrostep, microstep, true);
+  return true;
 }
 
 bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
@@ -2131,6 +2267,28 @@ bool SynthSequencer::AdjustSelectedSteps(int delta, bool coarse)
   }
 
   TrackData& track = tracks_[activeTrack_];
+  if (editLane_ == SequencerEditLane::Word)
+  {
+    // The word each selected step sings, on a step with notes or without (a word that changes under
+    // a note still held): none is the place below the singer's first word. Coarse goes a page of the
+    // word table (32) at a time.
+    const std::uint8_t keys = keyNotes_[activeTrack_];
+    const int last = static_cast<int>(wordCount_[activeTrack_]) - 1;
+    if (keys == 0 || last < 0) return false;
+    PatternData& pattern = ActivePatternLocked(track);
+    bool changed = false;
+    for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
+    {
+      if (!heldSteps_[stepIndex]) continue;
+      StepData* step = pattern.steps.TryEdit(stepIndex);
+      if (step == nullptr) continue;
+      const int current = std::min(StepWordOf(*step, keys), last);
+      const int target = std::clamp(current + delta * (coarse ? 32 : 1), -1, last);
+      if (target != current) changed = SetStepWordLocked(*step, keys, target) || changed;
+    }
+    ReleaseEmptyPagesLocked();
+    return changed;
+  }
   bool selectionHasNotes = false;
   const PatternData& readPattern = ActivePatternLocked(std::as_const(track));
   for (std::size_t stepIndex = 0; stepIndex < heldSteps_.size(); ++stepIndex)
@@ -2271,6 +2429,9 @@ bool SynthSequencer::AdjustLaneLocked(StepData& step, std::size_t stepIndex, std
     slots[insertionIndex] = slot;
   }
 
+  // A vocal track's word keys are no notes: the NOTE and VEL lanes leave them as they are, and no
+  // note moves among them.
+  const int lowest = activeTrack_ < keyNotes_.size() ? keyNotes_[activeTrack_] : 0;
   bool changed = false;
   switch (editLane_)
   {
@@ -2281,7 +2442,8 @@ bool SynthSequencer::AdjustLaneLocked(StepData& step, std::size_t stepIndex, std
       {
         // Raise from the top and lower from the bottom.
         NoteEvent& event = step.notes[slots[amount > 0 ? slotCount - 1 - order : order]];
-        const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.note) + amount, 0, 127));
+        if (event.note < lowest) continue;
+        const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.note) + amount, lowest, 127));
         if (target == event.note) continue;
         const bool collides = std::any_of(step.notes.begin(), step.notes.end(),
                                           [&](const NoteEvent& other) { return other.active && other.note == target; });
@@ -2305,6 +2467,7 @@ bool SynthSequencer::AdjustLaneLocked(StepData& step, std::size_t stepIndex, std
       for (std::size_t order = 0; order < slotCount; ++order)
       {
         NoteEvent& event = step.notes[slots[order]];
+        if (event.note < lowest) continue;  // a word key's velocity is its word
         const auto target = static_cast<std::uint8_t>(std::clamp(static_cast<int>(event.velocity) + delta * (coarse ? 10 : 1), 1, 127));
         if (target == event.velocity) continue;
         event.velocity = target;
@@ -3216,6 +3379,12 @@ std::string SynthSequencer::ValueLabelLocked(const StepData* step) const
     }
     return SequencerEditLaneLabel(editLane_);
   }
+  if (editLane_ == SequencerEditLane::Word)
+  {
+    // The step's word by number; the UI, which knows the singer, shows its name.
+    const int word = StepWordOf(*step, activeTrack_ < keyNotes_.size() ? keyNotes_[activeTrack_] : std::uint8_t{0});
+    return word < 0 ? "WORD --" : "WORD " + std::to_string(word + 1);
+  }
 
   const NoteEvent* note = nullptr;
   for (const NoteEvent& event : step->notes)
@@ -3280,9 +3449,28 @@ void SynthSequencer::FireStepNotesLocked(std::size_t trackIndex,
                                          std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events,
                                          std::size_t& count)
 {
+  // A vocal track's step says its word with a word key (SetTrackWords). The key goes out right before
+  // the notes of the step that start, each time any does (a note's TIME and its later hits are the
+  // note's own, and every one of them sings the step's word), and by its own timing only on a step
+  // that holds no note: there it changes the word of a note still held.
+  const std::uint8_t keys = trackIndex < keyNotes_.size() ? keyNotes_[trackIndex] : std::uint8_t{0};
+  const NoteEvent* key = nullptr;
+  bool pitched = false;
+  if (keys != 0)
+  {
+    for (const NoteEvent& note : step.notes)
+    {
+      if (!note.active) continue;
+      if (note.note >= keys) pitched = true;
+      else if (key == nullptr) key = &note;
+    }
+  }
+  bool keySent = false;
   for (const NoteEvent& note : step.notes)
   {
     if (!note.active || note.microstep >= kSequencerMicrostepCount) continue;
+    const bool isKey = note.note < keys;
+    if (isKey && (pitched || &note != key)) continue;
     // The note's first hit is on its own offset (TIME and swing included); HITS adds more, a spacing
     // apart (whole pulses), each ended before the next one starts: a note-off due on this pulse was
     // sent before these note-ons.
@@ -3298,8 +3486,16 @@ void SynthSequencer::FireStepNotesLocked(std::size_t trackIndex,
       continue;
     }
 
-    if (ScheduleNoteOffLocked(trackIndex, note.note, pulse + SequencerHitGatePulses(hits, hit, std::max<std::uint16_t>(1, note.lengthPulses))))
-      AddPendingMidi(events, count, trackIndex, midi::MidiPacket::NoteOn(0, note.note, note.velocity));
+    if (!ScheduleNoteOffLocked(trackIndex, note.note, pulse + SequencerHitGatePulses(hits, hit, std::max<std::uint16_t>(1, note.lengthPulses))))
+      continue;
+    if (!isKey && key != nullptr && !keySent)
+    {
+      // A key sounds nothing and is never held: its note-off goes with it.
+      AddPendingMidi(events, count, trackIndex, midi::MidiPacket::NoteOn(0, key->note, key->velocity));
+      AddPendingMidi(events, count, trackIndex, midi::MidiPacket::NoteOff(0, key->note, 0));
+      keySent = true;
+    }
+    AddPendingMidi(events, count, trackIndex, midi::MidiPacket::NoteOn(0, note.note, note.velocity));
   }
 }
 

@@ -5,6 +5,7 @@
 #include "Library/Synth/Core/Engines/Juno/JunoFactoryPresets.h"
 #include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
 #include "Library/Synth/Core/Engines/Wave/WaveParameters.h"
+#include "Library/Synth/Core/Engines/Vocal/VocalTrack.h"
 #include "Library/Synth/Audio/Amy/FactoryParameters.h"
 #include "Library/Synth/Audio/Braids/BraidsModels.h"
 #include "Library/Synth/Audio/Braids/BraidsVoice.h"
@@ -217,6 +218,9 @@ struct EngineState {
   // A Plaits track's voices (Plaits/PlaitsTrack.h), there while the track is one. Null when it could
   // not be allocated: the track is silent then.
   std::unique_ptr<PlaitsTrack> plaits;
+  // A vocal track's singer (its held keys and voices: about 1 KB), there only while the track is a
+  // vocal one. Without memory for it the track stays silent.
+  std::unique_ptr<vocal::Track> vocal;
 };
 static_assert(braids::kVoiceCount == 4, "EngineState::braidsOsc lists every voice");
 
@@ -225,6 +229,7 @@ enum class PendingEventType {
   SetPreset,
   SetParameter,
   SetSamplerFrames,
+  SetVocalPack,
   NoteOn,
   NoteOff,
   AllNotesOff,
@@ -242,6 +247,7 @@ struct PendingEvent {
   int value = 0;
   std::string text;
   SharedSampleBuffer frames;
+  vocal::PackRef pack;
   std::uint32_t sampleRate = kSampleRate;
   float gain = 1.0f;
 };
@@ -472,11 +478,12 @@ bool UsesAmy(SynthEngineKind kind)
          kind == SynthEngineKind::Braids;
 }
 
-// Tracks whose voices the runtime renders itself, in float, after AMY's block: the sampler and Plaits.
-// They share the mixing (RenderOwnTrackNoLock), the track gain ramp and the effects routing.
+// Tracks whose voices the runtime renders itself, in float, after AMY's block: the sampler, Plaits and
+// Vocal. They share the mixing (RenderOwnTrackNoLock), the track gain ramp and the effects routing.
+// (The Plaits and Vocal branches each added this; it is one predicate since they were put together.)
 bool RendersOwnVoices(SynthEngineKind kind)
 {
-  return kind == SynthEngineKind::Sampler || kind == SynthEngineKind::Plaits;
+  return kind == SynthEngineKind::Sampler || kind == SynthEngineKind::Plaits || kind == SynthEngineKind::Vocal;
 }
 
 int VoiceCountFor(SynthEngineKind kind)
@@ -1775,7 +1782,7 @@ std::array<std::atomic<std::int8_t>, kSynthTrackCount> g_plaitsVoiceCount{};
 
 std::int64_t VoiceClockMicros();
 
-// A sampler or Plaits track's voices for `frames` frames (at most a block), added into `out` at the
+// A sampler, Plaits or vocal track's voices for `frames` frames (at most a block), added into `out` at the
 // track's level, which moves toward `target` frame by frame.
 std::array<float, kAmyFramesPerBlock> g_samplerVoiceMix{};
 
@@ -1800,6 +1807,10 @@ void RenderOwnTrackNoLock(EngineState& engine, TrackMixState& trackMix, float ta
         cost = cost == 0.0f ? measured : cost + kPlaitsCostGain * (measured - cost);
       }
     }
+  }
+  else if (engine.kind == SynthEngineKind::Vocal)
+  {
+    if (engine.vocal) engine.vocal->Render(voices, frames);
   }
   else
   {
@@ -1839,6 +1850,8 @@ void ResetEngineNoLock(EngineState& engine, std::size_t engineIndex, SynthEngine
   const std::size_t plaitsVoices = engine.plaits ? engine.plaits->VoiceCount() : 0;
   g_plaitsVoiceCount[engineIndex].store(kind != SynthEngineKind::Plaits ? std::int8_t{0} : plaitsVoices == 0 ? std::int8_t{-1} : static_cast<std::int8_t>(plaitsVoices),
                                         std::memory_order_relaxed);
+  // Its voices are read for every frame: internal RAM (a block this small stays there).
+  if (kind == SynthEngineKind::Vocal) engine.vocal.reset(new (std::nothrow) vocal::Track());
   RebuildAmyOscTrackMapNoLock();
 }
 
@@ -2258,10 +2271,17 @@ void ApplyPendingEvent(const PendingEvent& event)
         case SynthEngineKind::Plaits:
           if (engine.plaits) engine.plaits->SetParameter(event.text, event.value);
           break;
+        case SynthEngineKind::Vocal:
+          if (engine.vocal) (void)engine.vocal->SetParameter(event.text, event.value);
+          break;
         case SynthEngineKind::None:
         default:
           break;
       }
+      break;
+    case PendingEventType::SetVocalPack:
+      // A pack on its way to a track that is no vocal track any more is dropped.
+      if (engine.kind == SynthEngineKind::Vocal && engine.vocal) engine.vocal->SetPack(event.pack);
       break;
     case PendingEventType::SetSamplerFrames:
       engine.sampler.sampleFrames = event.frames;
@@ -2277,6 +2297,13 @@ void ApplyPendingEvent(const PendingEvent& event)
     case PendingEventType::NoteOn:
       if (!engine.configured || engine.kind == SynthEngineKind::None)
       {
+        return;
+      }
+      // A vocal track's word keys sound nothing: they say which word the notes of their instant
+      // sing (the key's velocity is the word), and pass a mute.
+      if (engine.kind == SynthEngineKind::Vocal && vocal::IsWordKey(event.note))
+      {
+        if (engine.vocal && event.velocity != 0) engine.vocal->WordKey(event.note, event.velocity);
         return;
       }
       // A muted track drops new notes. Velocity-0 note-ons act as releases, so they still pass.
@@ -2332,6 +2359,19 @@ void ApplyPendingEvent(const PendingEvent& event)
         BumpTrackActivityNoLock(event.engineIndex, velocity);
         return;
       }
+      if (engine.kind == SynthEngineKind::Vocal)
+      {
+        if (!engine.vocal) return;
+        if (event.velocity == 0)
+        {
+          engine.vocal->NoteOff(event.note);
+          return;
+        }
+        const float velocity = std::clamp(static_cast<float>(event.velocity) / 127.0f, 0.0f, 1.0f);
+        engine.vocal->NoteOn(event.note, velocity);
+        BumpTrackActivityNoLock(event.engineIndex, velocity);
+        return;
+      }
 
       {
         if (!SamplerHasSample(engine.sampler)) return;
@@ -2356,6 +2396,11 @@ void ApplyPendingEvent(const PendingEvent& event)
         if (engine.plaits) engine.plaits->NoteOff(event.note);
         return;
       }
+      if (engine.kind == SynthEngineKind::Vocal)
+      {
+        if (engine.vocal) engine.vocal->NoteOff(event.note);
+        return;
+      }
 
       ReleaseSamplerNoteNoLock(engine, event.note);
       break;
@@ -2370,6 +2415,7 @@ void ApplyPendingEvent(const PendingEvent& event)
         if (engine.plaits) engine.plaits->AllNotesOff();
         return;
       }
+      if (engine.vocal) engine.vocal->AllNotesOff();
 
       for (SamplerVoice& voice : engine.samplerVoices)
       {
@@ -2525,11 +2571,12 @@ bool HasAmyEnginesNoLock()
   return false;
 }
 
-// A sampler or Plaits track with a voice to render.
+// A track that renders its own voices (sampler, Plaits, vocal) with a voice to render.
 bool HasActiveOwnVoices(const EngineState& engine)
 {
   if (!engine.configured) return false;
   if (engine.kind == SynthEngineKind::Plaits) return engine.plaits && engine.plaits->Sounding();
+  if (engine.kind == SynthEngineKind::Vocal) return engine.vocal && engine.vocal->Active();
   return engine.kind == SynthEngineKind::Sampler &&
          std::any_of(engine.samplerVoices.begin(), engine.samplerVoices.end(), [](const SamplerVoice& voice) { return voice.active; });
 }
@@ -2589,6 +2636,8 @@ bool HasHeldNotes(const EngineState& engine)
       });
     case SynthEngineKind::Plaits:
       return engine.plaits && engine.plaits->HoldsNotes();
+    case SynthEngineKind::Vocal:
+      return engine.vocal && engine.vocal->Held();
     default:
       // Drum pads are one-shots: their meter follows the note-on bump only.
       return false;
@@ -3616,6 +3665,9 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
   }
 
   (void)DrainPendingEvents(kEventBlockMicros, HeavyEventFitsNoLock());
+  // Vocal tracks count time whether they sound or not (a word key waits only so long for its note).
+  for (EngineState& engine : g_engines)
+    if (engine.vocal) engine.vocal->Tick(frameCount);
   UpdateFxNoLock();
 
   SettleIdleSamplerGainsNoLock();
@@ -3762,6 +3814,20 @@ void SetSamplerFrames(std::size_t engineIndex, SharedSampleBuffer frames, std::u
   event.engineIndex = engineIndex;
   event.frames = std::move(frames);
   event.sampleRate = sampleRate;
+  QueuePendingEvent(std::move(event));
+}
+
+void SetVocalPack(std::size_t engineIndex, vocal::PackRef pack)
+{
+  if (engineIndex >= g_engines.size())
+  {
+    return;
+  }
+
+  PendingEvent event;
+  event.type = PendingEventType::SetVocalPack;
+  event.engineIndex = engineIndex;
+  event.pack = std::move(pack);
   QueuePendingEvent(std::move(event));
 }
 
@@ -4017,6 +4083,7 @@ bool ShedVoiceNoLock()
 }
 
 std::array<std::array<std::atomic<std::uint32_t>, 4>, kSynthTrackCount> g_heldNotes{};
+std::array<std::atomic<std::uint32_t>, kSynthTrackCount> g_vocalStatus{};
 std::atomic<std::uint32_t> g_orphanVoices{0};
 std::uint32_t g_orphanVoiceCheckBlocks = 0;
 
@@ -4037,6 +4104,10 @@ void PublishHeldNotesNoLock()
       {
         if (engine.plaits) engine.plaits->AddHeldNotes(held);
       }
+      else if (engine.kind == SynthEngineKind::Vocal)
+      {
+        if (engine.vocal) engine.vocal->AddHeldNotes(held);
+      }
       else
       {
         for (const SamplerVoice& voice : engine.samplerVoices)
@@ -4044,6 +4115,15 @@ void PublishHeldNotesNoLock()
       }
     }
     for (std::size_t word = 0; word < held.size(); ++word) g_heldNotes[track][word].store(held[word], std::memory_order_relaxed);
+    // The word a vocal track sings, in one 32-bit value (the word + 1, and the low 16 bits of the
+    // count of words started).
+    std::uint32_t status = 0;
+    if (engine.configured && engine.kind == SynthEngineKind::Vocal && engine.vocal)
+    {
+      const vocal::Status now = engine.vocal->CurrentStatus();
+      status = static_cast<std::uint32_t>(now.singing + 1) | (now.onsets & 0xFFFFu) << 16;
+    }
+    g_vocalStatus[track].store(status, std::memory_order_relaxed);
   }
 }
 
@@ -4255,6 +4335,16 @@ NoteSet HeldNotes(std::size_t engineIndex)
   if (engineIndex >= g_heldNotes.size()) return held;
   for (std::size_t word = 0; word < held.size(); ++word) held[word] = g_heldNotes[engineIndex][word].load(std::memory_order_relaxed);
   return held;
+}
+
+vocal::Status VocalStatus(std::size_t engineIndex)
+{
+  vocal::Status status;
+  if (engineIndex >= g_vocalStatus.size()) return status;
+  const std::uint32_t packed = g_vocalStatus[engineIndex].load(std::memory_order_relaxed);
+  status.singing = static_cast<std::int16_t>(static_cast<int>(packed & 0xFFFFu) - 1);
+  status.onsets = packed >> 16;
+  return status;
 }
 
 std::uint32_t ReleasedOrphanVoiceCount()

@@ -152,8 +152,8 @@ void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, 
 {
   Title(g, "ENGINE  T" + std::to_string(controller.State().track + 1), kTab);
   // Four to a row, as the GRID keys that choose them (a row below, under the title).
-  static constexpr std::array<const char*, 7> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT", "MACRO OSCILLATOR  47 MODELS",
-                                                              "MACRO OSCILLATOR  24 MODELS", "WAVETABLE SYNTH"}};
+  static constexpr std::array<const char*, 8> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT", "MACRO OSCILLATOR  47 MODELS",
+                                                              "MACRO OSCILLATOR  24 MODELS", "SINGS WORDS", "WAVETABLE SYNTH"}};
   for (std::size_t index = 0; index < modal.items.size() && index < 2 * kGridColumns; ++index)
   {
     const Rect cell = Cell(1 + index / kGridColumns, index % kGridColumns);
@@ -351,6 +351,7 @@ void ModalContent(Gfx& g, const Controller& controller, Animator& animator, cons
     case ModalKind::PresetBrowser:
     case ModalKind::SampleBrowser: DrawList(g, controller, animator, modal, true); break;
     case ModalKind::SampleOptions: DrawList(g, controller, animator, modal, false); break;
+    case ModalKind::VoiceBrowser: DrawList(g, controller, animator, modal, false); break;
     case ModalKind::EnginePicker: DrawEnginePicker(g, controller, animator, modal); break;
     case ModalKind::SampleRecord: DrawSampleRecord(g, controller, animator); break;
     case ModalKind::Menu: MenuContent(g, controller, animator, 1.0f); break;
@@ -371,6 +372,7 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
     case ModalKind::PresetBrowser: return "ENTER LOAD   FN+F SEARCH   ESC BACK";
     case ModalKind::SampleBrowser: return "ENTER LOAD  FN+F SEARCH  FN+ENTER EDIT";
     case ModalKind::SampleOptions: return "ENTER CHOOSE   ESC BACK";
+    case ModalKind::VoiceBrowser: return "ENTER SINGS AS   ESC BACK";
     case ModalKind::EnginePicker: return "GRID OR SUB ADD   ENTER SWITCH";
     case ModalKind::Menu: return "GRID RUNS   FN OR ESC CLOSES";
     case ModalKind::Record: return "+- BAR  OK NEW PATTERN  FN+OK MERGE";

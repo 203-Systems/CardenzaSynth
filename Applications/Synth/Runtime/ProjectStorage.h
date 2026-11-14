@@ -41,6 +41,8 @@ struct ProjectData {
 
   std::array<SynthEngineKind, kSynthTrackCount> kinds{};
   std::array<SynthEngineState, kSynthTrackCount> engines{};
+  // Each track's file, by name: a sampler track's sample (Samples/), a vocal track's voice pack
+  // (Voices/; empty for the built-in voice). The TRACK line's last field.
   std::array<std::string, kSynthTrackCount> samples{};
   std::unique_ptr<SynthSequencer::ProjectState> sequence;
   std::size_t activeTrack = kDefaultActiveTrack;

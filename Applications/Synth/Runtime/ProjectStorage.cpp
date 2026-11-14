@@ -68,6 +68,7 @@ bool IsProjectEngineKind(int kind) {
     case static_cast<int>(SynthEngineKind::Wave):
     case static_cast<int>(SynthEngineKind::Braids):
     case static_cast<int>(SynthEngineKind::Plaits):
+    case static_cast<int>(SynthEngineKind::Vocal):
       return true;
     default:
       return false;
@@ -92,8 +93,10 @@ bool ValidMetadata(const ProjectData& project) {
     if (!IsProjectEngineKind(static_cast<int>(project.kinds[track])) ||
         state.basePresetId.empty() || !ValidText(state.basePresetId, 128) || !ValidText(state.presetId, 128) ||
         !ValidText(state.presetName, 64) || state.values.size() > 128) return false;
+    // The track's file: a sampler's sample, a vocal track's voice pack (none: the built-in voice).
     const auto& sample = project.samples[track];
-    if (!sample.empty() && (project.kinds[track] != SynthEngineKind::Sampler || !ValidText(sample, 96) ||
+    const bool takesFile = project.kinds[track] == SynthEngineKind::Sampler || project.kinds[track] == SynthEngineKind::Vocal;
+    if (!sample.empty() && (!takesFile || !ValidText(sample, 96) ||
         sample == "." || sample == ".." || sample.find_first_of("/\\:\r\n") != std::string::npos)) return false;
     for (const auto& parameter : state.values)
       if (parameter.first.empty() || !ValidText(parameter.first, 64)) return false;

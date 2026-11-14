@@ -174,6 +174,7 @@ std::string_view EngineShortName(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Wave: return "WAVE";
     case synth::SynthEngineKind::Braids: return "BRAIDS";
     case synth::SynthEngineKind::Plaits: return "PLAITS";
+    case synth::SynthEngineKind::Vocal: return "VOCAL";
     case synth::SynthEngineKind::None:
     default: return "---";
   }
@@ -190,6 +191,7 @@ std::string_view EngineCode(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Wave: return "WAV";
     case synth::SynthEngineKind::Braids: return "BRD";
     case synth::SynthEngineKind::Plaits: return "PLT";
+    case synth::SynthEngineKind::Vocal: return "VOC";
     case synth::SynthEngineKind::None:
     default: return "---";
   }

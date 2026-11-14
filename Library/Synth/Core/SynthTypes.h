@@ -17,6 +17,8 @@ enum class SynthEngineKind {
   // The Plaits macro oscillator (Library/third_party/eurorack), rendered by the runtime itself like
   // the sampler.
   Plaits = 6,
+  // A singer: pronunciations of a voice pack (Library/Synth/Audio/SynthVocal.h).
+  Vocal = 7,
   Wave = 8,    // wavetable and classic oscillators through AMY (Library/Synth/Core/Engines/Wave)
 };
 // One more than the highest kind: tables indexed by kind.

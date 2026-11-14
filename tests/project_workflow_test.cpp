@@ -46,6 +46,7 @@ std::string SampleDirectory() { return (storageRoot / "Sample").string(); }
 std::string ProjectDirectory() { return (storageRoot / "Project").string(); }
 std::string PresetDirectory(std::string_view instrument) { return (storageRoot / "Preset" / std::string(instrument)).string(); }
 std::string SessionDirectory() { return (storageRoot / "Session").string(); }
+std::string VoiceDirectory() { return (storageRoot / "Voices").string(); }
 bool EnsureLayout() {
   std::error_code error;
   for (const char* directory : {"Sample", "Project", "Session", "Preset/DX7", "Preset/Juno", "Preset/Sampler", "Preset/Drums"}) {
@@ -1097,7 +1098,7 @@ void TestDrumsWorkflow() {
   std::ifstream stored(storageRoot / "Project" / "drums-saved.ccproj");
   std::string serialized((std::istreambuf_iterator<char>(stored)), std::istreambuf_iterator<char>());
   assert(serialized.find("CARDENZA_PROJECT 4\n") == 0 && serialized.find("TRACK 0 4 ") != std::string::npos);
-  saved.kinds[0] = static_cast<SynthEngineKind>(99);
+  saved.kinds[0] = static_cast<SynthEngineKind>(kSynthEngineKindCount);
   assert(SaveProjectFile("drums-invalid", saved, false) == ProjectResult::Invalid);
   saved.kinds[0] = SynthEngineKind::Drums;
   saved.samples[0] = "wrong.wav";

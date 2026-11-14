@@ -15,6 +15,9 @@ enum class SequencerEditLane : std::uint8_t {
   Velocity,
   Micro,
   Hits,
+  // Only on a track whose steps carry words (SynthSequencer::SetTrackWords, a vocal track): the word
+  // a step sings. OK reaches it right after NOTE.
+  Word,
 };
 
 // HITS: a step's note fires 1..kSequencerMaxHits times inside its step (the drummer's ratchet), evenly
@@ -134,6 +137,8 @@ inline const char* SequencerEditLaneLabel(SequencerEditLane lane)
       return "TIME";
     case SequencerEditLane::Hits:
       return "HITS";
+    case SequencerEditLane::Word:
+      return "WORD";
     default:
       return "SEQ";
   }
@@ -151,6 +156,9 @@ struct SequencerStepUiState {
   std::uint8_t velocity = 0;
   // Most HITS among the step's active notes (1 for a plain or empty step).
   std::uint8_t hits = 1;
+  // The word the step sings on a track whose steps carry words (a vocal track), -1 for none. The
+  // fields above are the step's notes alone; hasEvents is true for a step that holds only a word.
+  std::int16_t word = -1;
 };
 
 struct SequencerTrackUiState {

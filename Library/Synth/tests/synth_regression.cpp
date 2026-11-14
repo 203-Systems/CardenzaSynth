@@ -24,6 +24,8 @@
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
 #include "Library/Synth/Core/Engines/Wave/WaveSynthEngine.h"
 #include "Library/Synth/Core/Engines/Plaits/PlaitsSynthEngine.h"
+#include "Library/Synth/Core/Engines/Vocal/VocalBuiltinPack.h"
+#include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
 #include "Library/Synth/Core/SynthStorage.h"
 // Include the runtime once to check both rendered PCM and mapping state against AMY.
 #include "Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp"
@@ -52,7 +54,7 @@ namespace synth::storage {
 std::string PresetDirectory(std::string_view instrument) { return (storageRoot / std::string(instrument)).string(); }
 bool EnsureLayout()
 {
-  for (const char* engine : {"DX7", "Juno", "Sampler", "Drums", "Braids", "Plaits", "Wave"}) std::filesystem::create_directories(storageRoot / engine);
+  for (const char* engine : {"DX7", "Juno", "Sampler", "Drums", "Braids", "Plaits", "Vocal", "Wave"}) std::filesystem::create_directories(storageRoot / engine);
   return true;
 }
 }
@@ -2106,5 +2108,194 @@ int main()
     assert(PlaitsVoiceCount(0) == 0);
   }
 
-  std::cout << "Synth regression passed: sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters, Braids (voices, tuning, every model, modulation, delay-line memory, presets, levels).\n";
+  // The Vocal engine in the runtime: a track sings once it has its pack, a note sings the track's own
+  // word or the one its word key names, word keys never sound, the track's level, mute and effects act
+  // on it like on a sampler track, and nothing of it is left when the track becomes another engine.
+  {
+    constexpr int kA = 0, kI = 1, kO = 4, kMi = 8, kKu = 9, kMa = 10, kSa = 12;  // the built-in pack's words
+    const auto wordKey = [](std::size_t track, int word) {
+      NoteOn(track, vocal::KeyNoteOfWord(word), vocal::KeyVelocityOfWord(word));
+      NoteOff(track, vocal::KeyNoteOfWord(word));
+    };
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track) EnsureEngine(track, SynthEngineKind::None);
+    resetMasterFx();
+    settle(4);
+    EnsureEngine(0, SynthEngineKind::Vocal);
+    NoteOn(0, 60, 110);
+    settle(2);
+    assert(energy() == 0 && g_engines[0].vocal && !g_engines[0].vocal->Active());  // no pack yet: silence
+    NoteOff(0, 60);
+    const vocal::PackRef pack = vocal::Pack::Builtin();
+    SetVocalPack(0, pack);
+    for (const char* id : {"amp.level", "env.attack", "env.release", "voice.glide", "vib.depth", "vib.rate", "vib.delay", "voice.tune", "voice.mode"})
+      SetEngineParameter(0, id, std::string_view(id) == "amp.level" ? 96 : std::string_view(id) == "env.release" ? 22 : std::string_view(id) == "env.attack" ? 8 : 0);
+    SetEngineParameter(0, "voice.word", kMi);
+    settle(1);
+    assert(VocalStatus(0).singing == -1 && VocalStatus(1).singing == -1);
+    // A word key alone: nothing sounds, nothing is held, and it does not wait for a note that comes
+    // later (the next one sings the track's word).
+    wordKey(0, kKu);
+    settle(2);
+    assert(energy() == 0 && VocalStatus(0).singing == -1);
+    NoteSet held = HeldNotes(0);
+    assert(std::all_of(held.begin(), held.end(), [](std::uint32_t word) { return word == 0; }));
+    NoteOn(0, 60, 110);
+    settle(2);
+    assert(energy() > 0 && VocalStatus(0).singing == kMi && TrackActivity(0) > 0.0f);
+    held = HeldNotes(0);
+    assert(held[1] == 1u << (60 - 32) && held[0] == 0);
+    const std::uint64_t loud = energy();
+    // The track's fader and mute act on the voice; a muted track still takes its word keys, and a key
+    // under a held note changes its word.
+    SetTrackGain(0, 0.5f);
+    settle(8);
+    assert(energy() > loud / 4 && energy() < loud * 3 / 4);
+    SetTrackMuted(0, true);
+    settle(8);
+    assert(energy() == 0);
+    const std::uint32_t onsets = VocalStatus(0).onsets;
+    wordKey(0, kKu);
+    settle(1);
+    assert(VocalStatus(0).singing == kKu && VocalStatus(0).onsets == onsets + 1);
+    SetTrackMuted(0, false);
+    SetTrackGain(0, 1.0f);
+    settle(8);
+    assert(energy() > loud / 2);
+    // Let go, the release fades and the track falls silent.
+    NoteOff(0, 60);
+    settle(8);
+    assert(energy() == 0 && VocalStatus(0).singing == -1);
+    // A key and a note of the same instant (a step holds both): the note sings the key's word, in
+    // either order, and the note after it the track's again.
+    wordKey(0, kSa);
+    NoteOn(0, 62, 110);
+    settle(1);
+    assert(VocalStatus(0).singing == kSa);
+    NoteOff(0, 62);
+    settle(8);
+    NoteOn(0, 62, 110);
+    wordKey(0, kKu);
+    settle(1);
+    assert(VocalStatus(0).singing == kKu);
+    NoteOff(0, 62);
+    settle(8);
+    NoteOn(0, 62, 110);
+    settle(1);
+    assert(VocalStatus(0).singing == kMi);
+    NoteOff(0, 62);
+    settle(8);
+    // A key for a word the singer does not have is no key: the note sings the track's word.
+    NoteOn(0, 2, 127);
+    NoteOff(0, 2);
+    NoteOn(0, 62, 110);
+    settle(1);
+    assert(VocalStatus(0).singing == kMi);
+    NoteOff(0, 62);
+    settle(8);
+    assert(energy() == 0);
+    // Through the track's effects: the insert path renders it (a closed filter takes the highs), and a
+    // delay send echoes it after the note has ended.
+    NoteOn(0, 72, 110);
+    settle(6);
+    const std::uint64_t dry = energy();
+    SetEngineParameter(0, "fx.filter", 8);
+    settle(12);
+    assert(g_fx.core && g_fx.insertRouted[0] && energy() > 0 && energy() < dry / 2);
+    SetEngineParameter(0, "fx.filter", fx::kFilterCenter);
+    SetEngineParameter(0, "fx.delay", 100);
+    settle(12);
+    NoteOff(0, 72);
+    settle(6);
+    assert(!g_engines[0].vocal->Active());
+    bool echo = false;
+    for (int block = 0; block < 12 && !echo; ++block)
+    {
+      settle(1);
+      echo = energy() > 0;
+    }
+    assert(echo);
+    SetEngineParameter(0, "fx.delay", 0);
+    drainFx(400);
+    // More notes than voices at once (POLY), then all notes off: nothing held, nothing stuck.
+    SetEngineParameter(0, "voice.mode", 1);
+    for (std::uint8_t note = 60; note < 70; ++note) NoteOn(0, note, 100);
+    settle(2);
+    assert(energy() > 0 && g_engines[0].vocal->Held());
+    AllNotesOff(0);
+    settle(8);
+    held = HeldNotes(0);
+    assert(energy() == 0 && std::all_of(held.begin(), held.end(), [](std::uint32_t word) { return word == 0; }));
+    // Another engine on the track: the singer goes with it, and a pack sent late is dropped.
+    NoteOn(0, 60, 100);
+    settle(1);
+    EnsureEngine(0, SynthEngineKind::Sampler);
+    SetVocalPack(0, pack);
+    settle(4);
+    assert(!g_engines[0].vocal && energy() == 0 && VocalStatus(0).singing == -1 && VocalStatus(0).onsets == 0 && pack.use_count() >= 2);
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track) EnsureEngine(track, SynthEngineKind::None);
+    settle(2);
+
+    // The built-in voice at the engine's defaults is as loud as a factory preset of the other engines
+    // (PresetLevels.inc evens those out at -18 dB, their peaks under -6 dB): vocal::kVoiceGain.
+    EnsureEngine(0, SynthEngineKind::Vocal);
+    SetVocalPack(0, pack);
+    for (const auto& [id, value] : std::initializer_list<std::pair<const char*, int>>{{"amp.level", 96}, {"env.attack", 8}, {"env.release", 22}})
+      SetEngineParameter(0, id, value);
+    double loudestWord = -100.0, quietestWord = 0.0, highestPeak = -100.0;
+    for (const int word : {kA, kI, kO, kMi, kMa})
+    {
+      SetEngineParameter(0, "voice.word", word);
+      settle(2);
+      double peak = 0.0, loudness = 0.0;
+      MeasurePresetNote(0, peak, loudness);
+      if (std::getenv("PRINT_VOCAL_LEVEL") != nullptr) std::printf("vocal word %d: %.1f dB, peak %.1f dB\n", word, loudness, peak);
+      loudestWord = (std::max)(loudestWord, loudness);
+      quietestWord = (std::min)(quietestWord, loudness);
+      highestPeak = (std::max)(highestPeak, peak);
+    }
+    assert(loudestWord < -14.0 && quietestWord > -22.0 && highestPeak < -6.0);
+    EnsureEngine(0, SynthEngineKind::None);
+    settle(2);
+  }
+
+  // The Vocal engine's own parameters and presets: presets are how the voice sounds, the track's word
+  // stays with the track.
+  {
+    auto engine = CreateSynthEngine(SynthEngineKind::Vocal);
+    auto* vocal = VocalSynthEngine::From(engine.get());
+    assert(vocal != nullptr && engine->Descriptor().id == "vocal" && ToString(SynthEngineKind::Vocal) == "Vocal");
+    assert(vocal->BuiltinPack() && vocal->Word() == 0 && vocal->WordName(0) == "A" && vocal->WordName(8) == "MI" && vocal->WordName(12) == "SA" &&
+           vocal->WordName(13) == "?" && vocal->WordName(-1) == "?");
+    assert(engine->CurrentPresetId() == "vocal.plain" && !engine->HasEdits());
+    assert(engine->DescribeParameterValue("env.attack") == "4MS" && engine->DescribeParameterValue("env.release") == "30MS" &&
+           engine->DescribeParameterValue("voice.mode") == "MONO" && engine->DescribeParameterValue("voice.word") == "A" &&
+           engine->DescribeParameterValue("vib.depth") == "OFF");
+    // The word steps through the pack's pronunciations and stops at its ends (the parameter's own range
+    // is the largest a pack may have).
+    assert(engine->AdjustParameterValue("voice.word", 1) && vocal->Word() == 1);
+    assert(engine->AdjustParameterValue("voice.word", 100) && vocal->Word() == 12 && engine->DescribeParameterValue("voice.word") == "SA");
+    assert(engine->AdjustParameterValue("voice.word", -100) && vocal->Word() == 0);
+    vocal->SetWord(99);
+    assert(vocal->Word() == 12);
+    vocal->SetWord(8);
+    // Loading a preset keeps the word; it is no edit of the preset, and a saved state has it.
+    assert(!engine->HasEdits());
+    assert(engine->LoadPreset("vocal.choir") && vocal->Word() == 8 && engine->DescribeParameterValue("voice.mode") == "POLY");
+    assert(engine->SetParameterValue("vib.depth", 99) && engine->HasEdits());
+    const SynthEngineState changes = engine->CaptureChanges();
+    assert(changes.values.count("voice.word") == 1 && changes.values.at("voice.word") == 8 && changes.values.at("vib.depth") == 99 &&
+           changes.values.size() <= 16);
+    auto other = CreateSynthEngine(SynthEngineKind::Vocal);
+    assert(other->CanRestore(changes) && other->RestoreState(changes));
+    assert(VocalSynthEngine::From(other.get())->Word() == 8 && other->CurrentPresetId() == "vocal.choir");
+    // Another singer: a word is a place in the singer's list, so it stays where it is when the new
+    // pack has that many, and goes to the pack's default when it has not.
+    vocal->SetPack(vocal::Pack::Load(vocal::kBuiltinPack.data(), vocal::kBuiltinPack.size()), "Copy.vocal");
+    assert(!vocal->BuiltinPack() && vocal->PackFileName() == "Copy.vocal" && vocal->Word() == 8 && vocal->WordName(8) == "MI");
+    assert(engine->SetParameterValue("voice.word", 200) && vocal->Word() == 200 && vocal->WordName(vocal->Word()) == "?");
+    vocal->SetPack({}, "ignored");
+    assert(vocal->BuiltinPack() && vocal->PackFileName().empty() && vocal->Word() == 0);
+  }
+
+  std::cout << "Synth regression passed: sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters, Braids (voices, tuning, every model, modulation, delay-line memory, presets, levels), the Vocal engine.\n";
 }

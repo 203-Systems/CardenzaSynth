@@ -20,6 +20,8 @@
 #include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Library/Synth/Core/SynthStorage.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Core/Engines/Vocal/VocalBuiltinPack.h"
+#include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
 #include "Devices/Device.h"
@@ -3505,11 +3507,12 @@ void TestEveryParameter(Harness& h)
     }
   };
   // Every engine on some track, and each new one beside the others.
-  const std::array<std::array<Kind, 4>, 5> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
+  const std::array<std::array<Kind, 4>, 6> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
                                                  {{Kind::Juno, Kind::Dx7, Kind::Sampler, Kind::Drums}},
                                                  {{Kind::Wave, Kind::Drums, Kind::Wave, Kind::Juno}},
                                                  {{Kind::Braids, Kind::Drums, Kind::Braids, Kind::Juno}},
-                                                 {{Kind::Plaits, Kind::Drums, Kind::Plaits, Kind::Juno}}}};
+                                                 {{Kind::Plaits, Kind::Drums, Kind::Plaits, Kind::Juno}},
+                                                 {{Kind::Vocal, Kind::Drums, Kind::Juno, Kind::Vocal}}}};
   struct Walk { groove::Scene scene; std::size_t track; };
   const std::array<Walk, 10> walks{{{groove::Scene::Tape, 0},
                                     {groove::Scene::Instrument, 0}, {groove::Scene::Instrument, 1},
@@ -3600,6 +3603,320 @@ void TestEveryParameter(Harness& h)
   closeModals();
 }
 
+// A vocal track from end to end: the engine in the picker, its pages, the track's own word and the
+// word table, another singer from the card, a project that keeps all of it, and a step's word on the
+// note page's WORD lane.
+void TestVocal(Harness& h)
+{
+  auto& app = h.App();
+  auto& sequencer = app.Sequencer();
+  std::array<std::int16_t, 256> block{};
+  const auto heard = [&]() { for (int index = 0; index < 4; ++index) synth::audio::RenderFrames(block.data(), block.size()); };
+  const auto sung = [&]() { h.Frames(2); heard(); return static_cast<int>(app.VocalStatus(1).singing); };
+  const Key pad{3, 1}, otherPad{3, 2};  // C3 and D3 on the piano layout
+  // The word table's pads, in the pack's order: A I U E O M K S / MI KU MA KA SA.
+  const auto wordPad = [](std::size_t word) { return Key{word / groove::kPadColumns, groove::kPadFirstColumn + word % groove::kPadColumns}; };
+  constexpr int kA = 0, kI = 1, kMi = 8, kKu = 9, kMa = 10, kSa = 12;
+
+  // The track as a new project has it (the tests before left a chord and an arpeggiator on it): the
+  // piano keyboard, one note a pad, played at once.
+  groove::ProjectUiSettings fresh;
+  fresh.activeTrack = 1;
+  app.Ui().Restore(fresh, h.State().projectName, h.State().dirty);
+  sequencer.SetArpSettings(1, synth::ArpSettings{});
+  sequencer.Stop();
+  // The fifth engine of the picker, on the GRID key under it.
+  std::string error;
+  assert(app.EngineKind(1) == synth::SynthEngineKind::Juno || app.SwitchEngine(1, synth::SynthEngineKind::Juno, error));
+  GoToScene(h, 1);
+  h.Chord(kTab, Grid(1));
+  while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  h.Tap(Grid(0));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 5);
+  h.Render();
+  h.Tap(Grid(4));
+  if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
+  h.Wait(100);
+  assert(h.Modal() == nullptr && app.EngineKind(1) == synth::SynthEngineKind::Vocal);
+  synth::VocalSynthEngine* vocal = synth::VocalSynthEngine::From(app.Engine(1));
+  assert(vocal != nullptr && static_cast<const groove::Controller&>(app.Ui()).ActiveVocal() == vocal &&
+         synth::VocalSynthEngine::From(app.Engine(0)) == nullptr);
+  // Its pages, in signal order, and every one draws.
+  const groove::InstrumentPageList pages = app.Ui().InstrumentPages();
+  const std::array<const char*, 6> tabs{{"VOICE", "CHORD", "ARP", "SING", "AMP", "FX"}};
+  assert(pages.count == tabs.size());
+  for (std::size_t page = 0; page < pages.count; ++page)
+  {
+    assert(std::string(pages.pages[page].tab) == tabs[page]);
+    h.Chord(kCtrl, Grid(page));
+    h.Wait(200);
+    h.Render();
+  }
+  // The built-in voice, singing its first word; the sequencer knows this track's steps carry words.
+  assert(vocal->BuiltinPack() && std::string(vocal->Pack().Name()) == "Synthetic Vowels" && vocal->Pack().EntryCount() == 13);
+  assert(vocal->Word() == kA && vocal->WordName(kA) == "A" && vocal->WordName(kMi) == "MI" && vocal->WordName(kSa) == "SA" && vocal->WordName(13) == "?");
+  assert(sequencer.TrackWords(1) == 13 && sequencer.TrackWords(0) == 0 && sequencer.TrackWords(2) == 0);
+  assert(app.Engine(1)->CurrentPresetName() == "Plain" && !app.Engine(1)->HasEdits());
+
+  // SING: the pads sing the track's own word, every note anew; a note played over a held one is a slur.
+  GoToInstrumentPage(h, "SING");
+  assert(sung() == -1);
+  h.Down(pad);
+  assert(sung() == kA);
+  h.Render();
+  std::uint32_t onsets = app.VocalStatus(1).onsets;
+  h.Down(otherPad);
+  assert(sung() == kA && app.VocalStatus(1).onsets == onsets);
+  h.Up(otherPad);
+  h.Up(pad);
+  assert(sung() == -1);
+  // WORD is the page's first cell. With the focus on it, ADD / SUB step it through the singer's
+  // pronunciations (FN ten at a time; to the last one, no further), and a tap steps it too and goes
+  // round.
+  h.Tap(Grid(2));
+  h.Tap(Grid(0));
+  assert(app.Ui().InstrumentFocus() == 0 && vocal->Word() == kA);
+  h.Tap(kAdd);
+  assert(vocal->Word() == kI && h.State().dirty);
+  h.Chord(kFn, kAdd);
+  assert(vocal->WordName(vocal->Word()) == "KA");
+  h.Tap(kAdd);
+  h.Tap(kAdd);
+  assert(vocal->Word() == kSa);
+  h.Tap(Grid(0));
+  assert(vocal->Word() == kA);
+  h.Tap(Grid(0));
+  assert(vocal->Word() == kI);
+  h.Tap(kSub);
+  h.Tap(kSub);
+  assert(vocal->Word() == kA);
+
+  // The cell held: the pads are the singer's pronunciations (the word table), and one of them becomes
+  // the track's word, heard as it is chosen.
+  h.Hold(Grid(0), groove::kCellPickMs + 60);
+  assert(app.Ui().WordPickerActive() && app.Ui().WordCellPickerActive() && !app.Ui().StepWordPickerActive() && app.Ui().CellPickerActive());
+  assert(app.Ui().WordPickPageCount() == 1 && app.Ui().WordPickPage() == 0 && app.Ui().WordPickCurrent() == kA);
+  assert(app.Ui().AdjustKeysMean() == groove::AdjustMeaning::None);
+  h.Render();
+  std::array<std::uint8_t, groove::kKeyCount> leds{};
+  app.Ui().ComputeLeds(leds);
+  const auto padLed = [&](std::size_t word) { return leds[groove::KeyIndex(word / groove::kPadColumns, groove::kPadFirstColumn + word % groove::kPadColumns)]; };
+  // The track's word full, the singer's other words half, the pads past its last dark.
+  assert(padLed(kA) == groove::kLedFull && padLed(kMi) == groove::kLedHalf && padLed(kSa) == groove::kLedHalf && padLed(13) == groove::kLedOff);
+  h.Down(wordPad(kMi));
+  assert(vocal->Word() == kMi && app.Ui().IsPadDown(1, groove::kPadFirstColumn) && sung() == kMi);
+  h.Render();
+  h.Up(wordPad(kMi));
+  h.Down(wordPad(31));  // a pad past the pack's last pronunciation: nothing
+  h.Up(wordPad(31));
+  assert(vocal->Word() == kMi);
+  h.Up(Grid(0));
+  assert(!app.Ui().WordPickerActive() && vocal->Word() == kMi && sung() == -1);
+  h.Down(pad);
+  assert(sung() == kMi);
+  h.Up(pad);
+  h.Render();
+  GoToInstrumentPage(h, "AMP");
+  h.Render();
+
+  // Presets are how the voice sounds: loading one leaves the track's word alone, and the word is no
+  // edit of the preset.
+  assert(app.Engine(1)->LoadPreset("vocal.choir") && ParameterValue(app, 1, "voice.mode") == 1);
+  assert(vocal->Word() == kMi && !app.Engine(1)->HasEdits());
+  vocal->SetWord(kKu);
+  assert(!app.Engine(1)->HasEdits());
+  assert(app.Engine(1)->LoadPreset("vocal.plain") && vocal->Word() == kKu);
+
+  // The singer: the built-in voice, and the packs in Voices/ on the card.
+  GoToInstrumentPage(h, "VOICE");
+  h.Tap(Grid(2));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::VoiceBrowser && h.Modal()->items.size() == 1 && h.Modal()->items[0].marked);
+  h.Render();
+  h.Tap(kEsc);
+  {
+    std::filesystem::create_directories(synth::storage::VoiceDirectory());
+    std::ofstream pack(synth::storage::VoiceDirectory() + "/Test Voice.vocal", std::ios::binary);
+    pack.write(reinterpret_cast<const char*>(synth::vocal::kBuiltinPack.data()), static_cast<std::streamsize>(synth::vocal::kBuiltinPack.size()));
+    std::ofstream bad(synth::storage::VoiceDirectory() + "/Broken.vocal", std::ios::binary);
+    bad.write(reinterpret_cast<const char*>(synth::vocal::kBuiltinPack.data()), 500);
+    std::ofstream other(synth::storage::VoiceDirectory() + "/notes.txt");
+    other << "not a pack";
+  }
+  const auto voices = app.ListVoicePacks();
+  assert(voices.size() == 2 && voices[0] == "Broken.vocal" && voices[1] == "Test Voice.vocal");
+  h.Tap(Grid(2));
+  assert(h.Modal() != nullptr && h.Modal()->items.size() == 3 && h.Modal()->items[2].label == "TEST VOICE");
+  assert(app.Ui().AdjustKeysMean() == groove::AdjustMeaning::List);
+  h.Tap(kSub);
+  h.Tap(kEnter);  // the broken file: refused, and nothing changes
+  assert(vocal->BuiltinPack() && vocal->Word() == kKu && h.State().toast.kind == groove::ToastKind::Error);
+  if (h.Modal() == nullptr) h.Tap(Grid(2));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::VoiceBrowser);
+  while (h.Modal()->cursor != 2) h.Tap(kSub);
+  h.Tap(kEnter);  // another singer, at once: the words are places in its list, so they stay
+  assert(h.Modal() == nullptr && vocal->PackFileName() == "Test Voice.vocal" && !vocal->BuiltinPack());
+  assert(vocal->Word() == kKu && h.State().toast.text == "SINGER SYNTHETIC VOWELS" && sequencer.TrackWords(1) == 13);
+  h.Render();
+  h.Down(pad);
+  assert(sung() == kKu);
+  h.Up(pad);
+  h.Tap(Grid(2));
+  assert(h.Modal() != nullptr && h.Modal()->cursor == 2 && h.Modal()->items[2].marked);
+  h.Tap(kEsc);
+  // The menu names the singer.
+  const groove::MenuItems menu = app.Ui().Menu();
+  assert(menu[8].action == groove::MenuAction::VoicePack && menu[8].detail == "TEST VOICE");
+
+  // SEQ: a step's notes are its pitches; its word is beside them, set on the WORD lane, which OK
+  // reaches right after NOTE.
+  h.Chord(kTab, Grid(1));
+  GoToScene(h, 2);
+  while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  const std::size_t pattern = sequencer.ActivePattern(1);
+  (void)sequencer.ClearPatternEvents(1, pattern);
+  h.Down(pad);
+  h.Tap(Grid(0));
+  h.Tap(Grid(2));
+  h.Up(pad);
+  assert(h.Seq().steps[0].hasEvents && h.Seq().steps[0].word == -1 && sequencer.StepWord(1, 0) == -1);
+  h.Tap(Grid(0));
+  assert(h.Seq().hasHeldSteps && h.Seq().editLane == synth::SequencerEditLane::Note && !app.Ui().StepWordPickerActive());
+  h.Tap(kEnter);
+  assert(h.Seq().editLane == synth::SequencerEditLane::Word && h.Seq().valueLabel == "WORD --");
+  // On the WORD lane the pads are the word table: the step's word full (none yet), every word half.
+  assert(app.Ui().StepWordPickerActive() && app.Ui().WordPickerActive() && !app.Ui().WordCellPickerActive() && app.Ui().WordPickCurrent() == -1);
+  h.Render();
+  app.Ui().ComputeLeds(leds);
+  assert(padLed(kA) == groove::kLedHalf && padLed(kSa) == groove::kLedHalf && padLed(13) == groove::kLedOff);
+  // A pad gives the step its word, and sings it on the step's note while it is down.
+  h.Down(wordPad(kKu));
+  assert(sequencer.StepWord(1, 0) == kKu && h.Seq().steps[0].word == kKu && h.State().hud.label == "WORD 10" && h.State().hud.value == "KU");
+  assert(sung() == kKu && app.Ui().IsPadDown(1, groove::kPadFirstColumn + 1) && h.State().dirty);
+  app.Ui().ComputeLeds(leds);
+  assert(padLed(kKu) == groove::kLedFull && padLed(kA) == groove::kLedHalf);
+  h.Render();
+  h.Up(wordPad(kKu));
+  assert(sung() == -1 && h.Seq().valueLabel == "WORD 10");
+  // The word is no note of the step: the pad wrote none, and the views see the pitch alone.
+  std::array<synth::SynthSequencer::StepNoteView, 8> events{};
+  std::array<std::uint8_t, 8> pitches{};
+  assert(sequencer.StepNoteEvents(1, 0, events) == 1 && events[0].note == 48 && sequencer.StepNotes(0, pitches) == 1 && pitches[0] == 48);
+  assert(h.Seq().steps[0].noteCount == 1 && h.Seq().steps[0].lowestNote == 48 && h.Seq().primaryLowestNote == 48 && h.Seq().noteNames == "C3");
+  // ADD / SUB step it too: below the singer's first word the step has none and sings the track's;
+  // FN goes a page of the table at a time.
+  h.Tap(kAdd);
+  assert(sequencer.StepWord(1, 0) == kMa && h.State().hud.value == "MA");
+  h.Chord(kFn, kSub);
+  assert(sequencer.StepWord(1, 0) == -1 && h.State().hud.label == "WORD" && h.State().hud.value == "TRACK'S KU");
+  h.Tap(kSub);
+  assert(sequencer.StepWord(1, 0) == -1);
+  h.Tap(kAdd);
+  assert(sequencer.StepWord(1, 0) == kA && h.State().hud.label == "WORD 1" && h.State().hud.value == "A");
+  h.Chord(kFn, kAdd);
+  assert(sequencer.StepWord(1, 0) == kSa);
+  // Another step: the lane stays WORD, so a line is written step, word, step, word. A step without a
+  // note takes a word too.
+  h.Tap(Grid(2));
+  assert(h.Seq().editLane == synth::SequencerEditLane::Word && h.Seq().primaryHeldStep == 2 && h.Seq().heldStepCount == 1 && app.Ui().StepWordPickerActive());
+  h.Down(wordPad(kMi));
+  h.Up(wordPad(kMi));
+  assert(sequencer.StepWord(1, 2) == kMi && sequencer.StepWord(1, 0) == kSa);
+  h.Tap(Grid(5));
+  h.Down(wordPad(kA));
+  h.Up(wordPad(kA));
+  assert(sequencer.StepWord(1, 5) == kA && h.Seq().steps[5].hasEvents && h.Seq().steps[5].noteCount == 0 && sequencer.StepNoteEvents(1, 5, events) == 0);
+  h.Chord(kFn, kSub);
+  assert(sequencer.StepWord(1, 5) == -1 && !h.Seq().steps[5].hasEvents);
+  // The lanes after it, in order, and back to NOTE (the pads are the keyboard again): moving the
+  // notes leaves the word where it is.
+  h.Tap(Grid(0));
+  for (const auto lane : {synth::SequencerEditLane::Length, synth::SequencerEditLane::Velocity, synth::SequencerEditLane::Micro,
+                          synth::SequencerEditLane::Hits, synth::SequencerEditLane::Note})
+  {
+    h.Tap(kEnter);
+    assert(h.Seq().editLane == lane && !app.Ui().StepWordPickerActive());
+    h.Render();
+  }
+  h.Tap(kAdd);
+  h.Chord(kFn, kSub);
+  assert(sequencer.StepNoteEvents(1, 0, events) == 1 && events[0].note == 37 && sequencer.StepWord(1, 0) == kSa);
+  h.Chord(kFn, kSub);
+  h.Chord(kFn, kSub);
+  h.Chord(kFn, kSub);
+  h.Chord(kFn, kSub);
+  assert(sequencer.StepNoteEvents(1, 0, events) == 1 && events[0].note >= synth::vocal::kWordKeyCount && sequencer.StepWord(1, 0) == kSa);
+  h.Tap(kEsc);
+  assert(!h.Seq().hasHeldSteps);
+  // Both views draw the word; stopped, a held step sings its word, and one without sings the track's.
+  h.Render();
+  h.Tap(kEnter);
+  h.Render();
+  h.Tap(kEnter);
+  h.Down(Grid(0));
+  assert(sung() == kSa);
+  h.Up(Grid(0));
+  h.Tap(kEsc);
+  assert(sequencer.SetStepNotes(1, 6, pitches.data(), 1, 100));
+  h.Down(Grid(6));
+  assert(sung() == kKu);
+  h.Up(Grid(6));
+  h.Tap(kEsc);
+  // A track without words has no WORD lane.
+  h.Chord(kTab, Grid(2));
+  assert(sequencer.TrackWords(2) == 0);
+  sequencer.SetEditLane(synth::SequencerEditLane::Word);
+  assert(sequencer.EditLane() == synth::SequencerEditLane::Note);
+  h.Chord(kTab, Grid(1));
+
+  // A project keeps the track: its engine, its singer's file, its own word, its settings and its
+  // steps' words.
+  assert(app.Engine(1)->SetParameterValue("vib.depth", 40));
+  std::string message;
+  assert(app.SaveProject("VOCAL SONG", true, app.Ui().Settings(), message) == groove::SaveResult::Ok);
+  {
+    std::ifstream file(synth::storage::ProjectDirectory() + "/VOCAL SONG.ccproj");
+    const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    assert(text.find("CARDENZA_PROJECT 7\n") == 0 && text.find("TRACK 1 5 \"vocal.plain\" \"vocal.plain\" \"Plain\" \"Test Voice.vocal\"") != std::string::npos);
+    assert(text.find("\"voice.word\" 9\n") != std::string::npos && text.find("\"word.") == std::string::npos);
+  }
+  assert(app.SwitchEngine(1, synth::SynthEngineKind::Juno, error) && sequencer.TrackWords(1) == 0);
+  groove::ProjectUiSettings settings;
+  assert(app.LoadProject("VOCAL SONG", settings, message));
+  app.Ui().Restore(settings, "VOCAL SONG");
+  vocal = synth::VocalSynthEngine::From(app.Engine(1));
+  assert(vocal != nullptr && vocal->PackFileName() == "Test Voice.vocal" && vocal->Word() == kKu && ParameterValue(app, 1, "vib.depth") == 40);
+  assert(sequencer.TrackWords(1) == 13 && sequencer.StepWord(1, 0) == kSa && sequencer.StepWord(1, 2) == kMi && sequencer.StepWord(1, 6) == -1);
+  assert(sequencer.StepNoteEvents(1, 2, events) == 1 && events[0].note == 48);
+  // A project whose singer is not on the card does not load, and nothing changes.
+  std::filesystem::rename(synth::storage::VoiceDirectory() + "/Test Voice.vocal", synth::storage::VoiceDirectory() + "/Away.vocal");
+  assert(app.SwitchEngine(1, synth::SynthEngineKind::Juno, error));
+  assert(!app.LoadProject("VOCAL SONG", settings, message) && message == "VOICE MISSING" && app.EngineKind(1) == synth::SynthEngineKind::Juno);
+  std::filesystem::rename(synth::storage::VoiceDirectory() + "/Away.vocal", synth::storage::VoiceDirectory() + "/Test Voice.vocal");
+  assert(app.LoadProject("VOCAL SONG", settings, message));
+  app.Ui().Restore(settings, "VOCAL SONG");
+  vocal = synth::VocalSynthEngine::From(app.Engine(1));
+  assert(vocal != nullptr && sequencer.StepWord(1, 0) == kSa);
+
+  // Back to a Juno, as the tests around this one expect; nothing is left sounding. The steps' words
+  // go with the singer (another engine would play their keys as very low notes), the notes stay.
+  h.Wait(100);
+  heard();
+  assert(app.SwitchEngine(1, synth::SynthEngineKind::Juno, error) && sequencer.TrackWords(1) == 0);
+  {
+    const auto state = sequencer.CaptureState();
+    const std::size_t loaded = sequencer.ActivePattern(1);
+    std::size_t notes = 0;
+    for (const auto& note : state->tracks[1].patterns[loaded].steps[0].notes) notes += note.active;
+    assert(notes == 1 && sequencer.StepNoteEvents(1, 0, events) == 1 && sequencer.StepNoteEvents(1, 2, events) == 1 && events[0].note == 48);
+    (void)sequencer.ClearPatternEvents(1, loaded);
+  }
+  std::filesystem::remove(synth::storage::ProjectDirectory() + "/VOCAL SONG.ccproj");
+  std::filesystem::remove_all(synth::storage::VoiceDirectory());
+  std::filesystem::create_directories(synth::storage::VoiceDirectory());
+  GoToScene(h, 1);
+  h.Chord(kTab, Grid(synth::kDefaultActiveTrack));
+}
+
 int main()
 {
   // Projects and samples go to a scratch card under the test's working directory.
@@ -3661,6 +3978,7 @@ int main()
   TestGuide(h);
   TestWaveEngineUi(h);
   TestPlaits(h);
+  TestVocal(h);
   TestEveryParameter(h);
   TestBraids(h);
   // Last: it runs every item of the SEQ menu, which changes the pattern.

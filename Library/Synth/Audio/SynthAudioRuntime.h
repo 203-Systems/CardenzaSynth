@@ -7,7 +7,12 @@
 #include <string_view>
 
 #include "Library/Synth/Audio/SynthFx.h"
+#include "Library/Synth/Audio/SynthVocal.h"
 #include "Library/Synth/Core/SynthTypes.h"
+
+namespace synth::vocal {
+class Pack;
+}
 
 namespace synth::audio {
 
@@ -27,6 +32,12 @@ void EnsureEngine(std::size_t engineIndex, SynthEngineKind kind);
 void SetEnginePreset(std::size_t engineIndex, std::string_view presetId);
 void SetEngineParameter(std::size_t engineIndex, std::string_view parameterId, int value);
 void SetSamplerFrames(std::size_t engineIndex, SharedSampleBuffer frames, std::uint32_t sampleRate);
+// A vocal track's voice pack (Library/Synth/Core/Engines/Vocal/VocalPack.h); the notes it sings stop.
+// Queued like every other call; ignored when the track is not a vocal one by then.
+void SetVocalPack(std::size_t engineIndex, std::shared_ptr<const vocal::Pack> pack);
+// A vocal track as of the last rendered block: the word a held note sings (-1 for none) and a count of
+// the words started (its low 16 bits). None and zero for any other track.
+vocal::Status VocalStatus(std::size_t engineIndex);
 // Sound from outside the synth (a computer playing over USB), mixed in before the output stage at
 // unity gain: interleaved stereo int16 frames, the number given back. Null for none.
 using LineInput = std::size_t (*)(std::int16_t* stereoFrames, std::size_t frameCount);

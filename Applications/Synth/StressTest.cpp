@@ -99,7 +99,7 @@ constexpr std::uint32_t kMagic = 0x53545233u;  // "STR3": Result gained the new 
 RTC_NOINIT_ATTR Persist g_persist;
 
 enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
-enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, AmyBench, WaveStacks, Braids, Plaits };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, AmyBench, WaveStacks, Braids, Plaits, Vocal };
 
 struct Scenario {
   std::string name;
@@ -141,6 +141,7 @@ std::string ProjectName(Variant variant)
     case Variant::WaveStacks: return std::string(kPrefix) + "WAVE";
     case Variant::Braids: return std::string(kPrefix) + "BRAIDS";
     case Variant::Plaits: return std::string(kPrefix) + "PLAITS";
+    case Variant::Vocal: return std::string(kPrefix) + "VOCAL";
     case Variant::None: break;
   }
   return std::string(kPrefix) + "NONE";
@@ -362,6 +363,19 @@ synth::ProjectData MakeProject(Variant variant, int bench = 0)
       tracks[1].delay = 60;
       break;
     }
+    case Variant::Vocal:
+    {
+      // Four singers (the built-in voice), each a choir: a chord of four on every step, every voice
+      // of every track busy, through the sends.
+      for (std::size_t track = 0; track < tracks.size(); ++track)
+      {
+        tracks[track] = TrackSpec{SynthEngineKind::Vocal, "vocal.choir", "", 4, 1, 20, 48 + 5 * static_cast<int>(track)};
+        tracks[track].chorus = 0;
+        tracks[track].delay = 40;
+        tracks[track].reverb = 60;
+      }
+      break;
+    }
     case Variant::None: break;
   }
 
@@ -456,6 +470,7 @@ std::vector<Scenario> BuildScenarios()
   add("braids", Kind::Generated, Variant::Braids, 30);
   add("fx-max", Kind::Generated, Variant::FxMax, 25);
   add("wave-stacks", Kind::Generated, Variant::WaveStacks, 25);
+  add("vocal", Kind::Generated, Variant::Vocal, 25);
   add("max-patterns", Kind::Generated, Variant::MaxPatterns, 25);
   add("plaits", Kind::Generated, Variant::Plaits, 30);
   add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
@@ -987,7 +1002,7 @@ void LiveOperation(GrooveApp& app)
   // Every engine in turn, round after round: a Plaits track is set up with its four voices (their
   // memory and every model's tables) by the audio thread while the others play.
   const SynthEngineKind cycle[] = {SynthEngineKind::Juno, SynthEngineKind::Wave, SynthEngineKind::Sampler, SynthEngineKind::Drums,
-                                   SynthEngineKind::Dx7, SynthEngineKind::Braids, SynthEngineKind::Plaits};
+                                   SynthEngineKind::Dx7, SynthEngineKind::Braids, SynthEngineKind::Plaits, SynthEngineKind::Vocal};
   constexpr std::uint32_t kCycle = sizeof(cycle) / sizeof(cycle[0]);
   switch (g_runner.op++ % 10)
   {
