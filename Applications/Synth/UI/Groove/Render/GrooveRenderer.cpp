@@ -273,6 +273,26 @@ void DrawTabs(Gfx& g, const Controller& controller, Animator& animator)
       right -= Gfx::Measure(pages) + 6;
     }
   }
+  // SONG with more columns than the GRID's four: the cursor's column of how many, between a < and a >
+  // that light up when there are columns that way (FN + ADD / SUB walk them).
+  if (controller.State().scene == Scene::Tape && current == kTapeSong)
+  {
+    const UiState& ui = controller.State();
+    const std::size_t length = controller.HostView().Sequencer().SongLength();
+    const std::size_t columns = std::min(length + 1, synth::kSongMaxRows);
+    if (columns > kGridColumns)
+    {
+      const std::string at = ui.songRow < length ? std::to_string(ui.songRow + 1) : "+";
+      const std::string where = at + "/" + std::to_string(length);
+      int x = kFooterRight - Gfx::Measure(">");
+      g.Text(x, kFooterY, ">", ui.songScroll + kGridColumns < columns ? kInk : kFaint);
+      x -= Gfx::Measure(where) + 3;
+      g.Text(x, kFooterY, where, kDim);
+      x -= Gfx::Measure("<") + 3;
+      g.Text(x, kFooterY, "<", ui.songScroll > 0 ? kInk : kFaint);
+      right = x - 6;
+    }
+  }
   if (total > right - left)
   {
     char counter[24];
