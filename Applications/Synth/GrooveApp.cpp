@@ -588,6 +588,25 @@ void GrooveApp::Tick()
   CheckCard(now);
   KeepSessionCurrent(now);
   EndOrphanNotes(now);
+  WatchSampleStreams(now);
+}
+
+void GrooveApp::WatchSampleStreams(std::uint32_t now)
+{
+  const synth::audio::StreamCounters counters = synth::audio::SampleStreamCounters();
+  if (counters.failures != streamFailuresSeen_)
+  {
+    // The stream itself retries a few times and then waits for the card to come back (CheckCard).
+    streamFailuresSeen_ = counters.failures;
+    os::storage::ReportCardIoError();
+  }
+  if (counters.lateBlocks == streamLateLogged_ || now - streamLoggedAt_ < 10000) return;
+  // A voice reached a block the card had not delivered yet: it held its last frame, a gap.
+  printf("Groove: stream late blocks=%u (+%u) reads=%u opens=%u slowest read=%u us cache=%u KB\n", static_cast<unsigned>(counters.lateBlocks),
+         static_cast<unsigned>(counters.lateBlocks - streamLateLogged_), static_cast<unsigned>(counters.reads), static_cast<unsigned>(counters.opens),
+         static_cast<unsigned>(counters.slowestReadMicros), static_cast<unsigned>(counters.cacheBlocks * 8));
+  streamLateLogged_ = counters.lateBlocks;
+  streamLoggedAt_ = now;
 }
 
 // The safety net under every path that starts a note: the audio side's notes against those someone
