@@ -15,8 +15,9 @@ usage: python3 tools/usb/cardenza_usb.py list | command <identify|reboot|launche
   test      plays and records through its USB audio and checks the counts (this firmware)
   guide     walks the Learn guide link (SysEx F0 23 7F) through a start, a lesson, a key and the end
 
-Needs: pip install hidapi (HID), sounddevice numpy (list audio, test). MIDI goes through macOS CoreMIDI
-(no package); elsewhere the MIDI parts report that and the HID parts still work.
+Needs: pip install hidapi (HID; on macOS command, stats and console work without it, through IOKit),
+sounddevice numpy (list audio, test). MIDI goes through macOS CoreMIDI (no package); elsewhere the MIDI
+parts report that and the HID parts still work.
 """
 
 import collections
@@ -41,8 +42,111 @@ def hid_devices():
     return [d for d in hid.enumerate(VENDOR_ID, 0) if d.get("usage_page") == 0xFF00]
 
 
+class IoKitHid:
+    """The Cardenza's vendor HID interface through macOS IOKit (ctypes: no package to build), with the
+    calls of a hidapi device this tool uses: write and read take and give the report ID first."""
+
+    def __init__(self):
+        import ctypes
+        import ctypes.util
+        self.ctypes = ctypes
+        cf = self.cf = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreFoundation"))
+        io = self.io = ctypes.cdll.LoadLibrary(ctypes.util.find_library("IOKit"))
+        pointer, index = ctypes.c_void_p, ctypes.c_long
+        cf.CFStringCreateWithCString.restype = pointer
+        cf.CFStringCreateWithCString.argtypes = [pointer, ctypes.c_char_p, ctypes.c_uint32]
+        cf.CFNumberCreate.restype = pointer
+        cf.CFNumberCreate.argtypes = [pointer, index, pointer]
+        cf.CFDictionaryCreateMutable.restype = pointer
+        cf.CFDictionaryCreateMutable.argtypes = [pointer, index, pointer, pointer]
+        cf.CFDictionarySetValue.argtypes = [pointer, pointer, pointer]
+        cf.CFSetGetCount.restype = index
+        cf.CFSetGetCount.argtypes = [pointer]
+        cf.CFSetGetValues.argtypes = [pointer, ctypes.POINTER(pointer)]
+        cf.CFRunLoopGetCurrent.restype = pointer
+        cf.CFRunLoopRunInMode.restype = ctypes.c_int32
+        cf.CFRunLoopRunInMode.argtypes = [pointer, ctypes.c_double, ctypes.c_ubyte]
+        cf.CFRelease.argtypes = [pointer]
+        io.IOHIDManagerCreate.restype = pointer
+        io.IOHIDManagerCreate.argtypes = [pointer, ctypes.c_uint32]
+        io.IOHIDManagerSetDeviceMatching.argtypes = [pointer, pointer]
+        io.IOHIDManagerCopyDevices.restype = pointer
+        io.IOHIDManagerCopyDevices.argtypes = [pointer]
+        io.IOHIDDeviceOpen.restype = ctypes.c_int32
+        io.IOHIDDeviceOpen.argtypes = [pointer, ctypes.c_uint32]
+        io.IOHIDDeviceClose.argtypes = [pointer, ctypes.c_uint32]
+        io.IOHIDDeviceSetReport.restype = ctypes.c_int32
+        io.IOHIDDeviceSetReport.argtypes = [pointer, ctypes.c_int, index, ctypes.c_char_p, index]
+        self.callback_type = ctypes.CFUNCTYPE(None, pointer, ctypes.c_int32, pointer, ctypes.c_int, ctypes.c_uint32,
+                                              ctypes.POINTER(ctypes.c_uint8), index)
+        io.IOHIDDeviceRegisterInputReportCallback.argtypes = [pointer, ctypes.POINTER(ctypes.c_uint8), index, self.callback_type, pointer]
+        io.IOHIDDeviceScheduleWithRunLoop.argtypes = [pointer, pointer, pointer]
+        io.IOHIDDeviceUnscheduleFromRunLoop.argtypes = [pointer, pointer, pointer]
+        self.mode = pointer.in_dll(cf, "kCFRunLoopDefaultMode")
+
+        def text(value):
+            return cf.CFStringCreateWithCString(None, value.encode(), 0x08000100)
+
+        def number(value):
+            return cf.CFNumberCreate(None, 3, ctypes.byref(ctypes.c_int32(value)))  # kCFNumberSInt32Type
+
+        matching = cf.CFDictionaryCreateMutable(None, 0, ctypes.addressof(ctypes.c_char.in_dll(cf, "kCFTypeDictionaryKeyCallBacks")),
+                                                ctypes.addressof(ctypes.c_char.in_dll(cf, "kCFTypeDictionaryValueCallBacks")))
+        for key, value in (("VendorID", VENDOR_ID), ("DeviceUsagePage", 0xFF00)):
+            cf.CFDictionarySetValue(matching, text(key), number(value))
+        self.manager = io.IOHIDManagerCreate(None, 0)
+        io.IOHIDManagerSetDeviceMatching(self.manager, matching)
+        found = io.IOHIDManagerCopyDevices(self.manager)
+        count = cf.CFSetGetCount(found) if found else 0
+        if count == 0:
+            raise OSError("no Cardenza HID device")
+        devices = (pointer * count)()
+        cf.CFSetGetValues(found, devices)
+        self.device = devices[0]
+        status = io.IOHIDDeviceOpen(self.device, 0)
+        if status != 0:
+            raise OSError("IOHIDDeviceOpen failed (0x%08x)" % (status & 0xFFFFFFFF))
+        self.reports = collections.deque()
+        self.buffer = (ctypes.c_uint8 * 256)()
+        self.callback = self.callback_type(lambda context, result, sender, kind, report_id, report, length:
+                                           self.reports.append(bytes(report[:length])))
+        io.IOHIDDeviceRegisterInputReportCallback(self.device, self.buffer, len(self.buffer), self.callback, None)
+        io.IOHIDDeviceScheduleWithRunLoop(self.device, cf.CFRunLoopGetCurrent(), self.mode)
+
+    def set_nonblocking(self, value):
+        pass
+
+    def write(self, data):
+        data = bytes(data)
+        status = self.io.IOHIDDeviceSetReport(self.device, 1, data[0], data, len(data))  # an output report
+        if status != 0:
+            raise OSError("IOHIDDeviceSetReport failed (0x%08x)" % (status & 0xFFFFFFFF))
+        return len(data)
+
+    def read(self, size, timeout_ms=0):
+        end = time.monotonic() + timeout_ms / 1000.0
+        while not self.reports:
+            left = end - time.monotonic()
+            if left <= 0:
+                return []
+            self.cf.CFRunLoopRunInMode(self.mode, left, 1)
+        return list(self.reports.popleft()[:size])
+
+    def close(self):
+        self.io.IOHIDDeviceUnscheduleFromRunLoop(self.device, self.cf.CFRunLoopGetCurrent(), self.mode)
+        self.io.IOHIDDeviceClose(self.device, 0)
+
+
 def open_hid():
-    import hid
+    try:
+        import hid
+    except ImportError:
+        if sys.platform != "darwin":
+            return None, "hidapi not installed (pip install hidapi)"
+        try:
+            return IoKitHid(), None
+        except (OSError, AttributeError, ValueError) as error:
+            return None, "IOKit HID: %s" % error
     devices = hid_devices()
     if not devices:
         return None, "no Cardenza HID device"

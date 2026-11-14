@@ -1,0 +1,8 @@
+# Test builds with AMY's Gamma9001 sample banks linked in (make DEVICE=Cardenza stress AMY_BENCH=1,
+# Library/Synth/Audio/Amy/AmyBench.h): the app is about 6 MB, more than the 4 MB slot of partitions.csv
+# and of the Launcher. Flashed whole, over the Launcher (flash the Launcher again afterwards); never
+# shipped, and partitions.csv stays as it is.
+# Name,   Type, SubType, Offset,   Size, Flags
+nvs,      data, nvs,     0x9000,   24K,
+phy_init, data, phy,     0xf000,   4K,
+factory,  app,  factory, 0x10000,  8M,

@@ -104,7 +104,10 @@ std::size_t RenderSynthFrames(std::int16_t* destination, std::size_t frameCount)
 constexpr std::size_t kRenderFrameCount = 256;
 constexpr BaseType_t kAudioTaskPinnedCore = 1;
 constexpr UBaseType_t kAudioTaskPriority = 6;
-constexpr uint32_t kAudioTaskStackSize = 12 * 1024;  // Measured: 7 KB.
+// Measured 2026-11-14: 9.4 KB used (2.6 KB left) from the start on, and no more under the stress test.
+// Setting up an engine is the deepest it goes (ConfigureAmySynthNoLock: two 900-byte amy_events in its
+// frame, one more in what it calls); the stress test fails a scenario that leaves under 1 KB.
+constexpr uint32_t kAudioTaskStackSize = 12 * 1024;
 constexpr int64_t kRenderBudgetUs =
   static_cast<int64_t>((1000000ULL * kRenderFrameCount) / device::kDefaultSynthAudioSampleRate);
 constexpr uint32_t kTimingLogBlockInterval = 1024;

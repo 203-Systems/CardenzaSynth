@@ -83,6 +83,9 @@ public:
   // Decaying 0..1 level of a bus return (synth::fx::kBusDelay / kBusReverb).
   virtual float FxReturnLevel(std::size_t bus) const = 0;
   virtual bool FxBusAvailable(std::size_t bus) const = 0;
+  // One cycle of a Wave engine oscillator's wave (its WAVE value: the wavetables, then the classic
+  // shapes) at a POSITION of 0..1, as `count` points of -127..127, for the OSC pages' picture.
+  virtual void WaveCycle(int wave, float position, std::int8_t* points, std::size_t count) const = 0;
 
   // Projects.
   virtual std::vector<std::string> ListProjects() const = 0;

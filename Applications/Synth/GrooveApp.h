@@ -84,6 +84,7 @@ public:
   int MasterFx(std::size_t param) const override;
   float FxReturnLevel(std::size_t bus) const override;
   bool FxBusAvailable(std::size_t bus) const override;
+  void WaveCycle(int wave, float position, std::int8_t* points, std::size_t count) const override;
   std::vector<std::string> ListProjects() const override;
   groove::SaveResult SaveProject(const std::string& name, bool overwrite, const groove::ProjectUiSettings& settings, std::string& message) override;
   groove::SaveResult RenameProject(const std::string& from, const std::string& to, std::string& message) override;
@@ -213,7 +214,7 @@ private:
   std::uint32_t (*clock_)() = nullptr;
   HeapProbe heapProbe_ = nullptr;
   // By SynthEngineKind: the most an engine of the kind gave back when destroyed (0 = none yet).
-  std::array<std::size_t, 5> engineBytes_{};
+  std::array<std::size_t, synth::kSynthEngineKindCount> engineBytes_{};
   synth::SynthRack rack_;
   synth::SamplerManager sampler_;
   synth::SynthSequencer sequencer_;

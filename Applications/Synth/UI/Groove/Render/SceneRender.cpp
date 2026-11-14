@@ -424,10 +424,13 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
     }
     case PageGraphic::Adsr:
     {
-      const float sustain = Glide(animator, track, engine, "env.sustain");
+      // The Wave engine's second envelope has a page of its own (op 2).
+      const bool second = page.op == 2;
+      const float sustain = Glide(animator, track, engine, second ? "env2.sustain" : "env.sustain");
       widgets::Envelope(g, Rect{area.x + 2, area.y + 4, area.width - 4, area.height - 6},
-                        {{0.05f + Glide(animator, track, engine, "env.attack"), 0.05f + Glide(animator, track, engine, "env.decay"), 0.02f, 0.7f,
-                          0.05f + Glide(animator, track, engine, "env.release")}},
+                        {{0.05f + Glide(animator, track, engine, second ? "env2.attack" : "env.attack"),
+                          0.05f + Glide(animator, track, engine, second ? "env2.decay" : "env.decay"), 0.02f, 0.7f,
+                          0.05f + Glide(animator, track, engine, second ? "env2.release" : "env.release")}},
                         {{1.0f, sustain, sustain, sustain, 0.0f}}, kInk);
       // While notes sound, a play head runs along the envelope.
       if (activity > 0.02f)
@@ -468,12 +471,50 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
       const float delay = dx7 ? 0.0f : 0.6f * Glide(animator, track, engine, "lfo.delay");
       const float depth = dx7 ? std::max(0.25f, std::max(Glide(animator, track, engine, "global.lfo_pitch"), Glide(animator, track, engine, "global.lfo_amp")))
                               : 1.0f;
-      const int wave = dx7 ? EngineRaw(engine, "global.lfo_wave") : 0;
+      // The Wave engine's shapes (TRI, SINE, SAW, SQR) in the widget's order.
+      const bool waveEngine = host.EngineKind(track) == synth::SynthEngineKind::Wave;
+      static constexpr std::array<int, 4> kWaveLfoShapes{{0, 4, 1, 3}};
+      const int wave = dx7 ? EngineRaw(engine, "global.lfo_wave")
+                           : waveEngine ? kWaveLfoShapes[static_cast<std::size_t>(std::clamp(EngineRaw(engine, "lfo.wave"), 0, 3))] : 0;
       const float cycles = 1.0f + rate * 7.0f;
       const float phase = std::fmod(static_cast<float>(now) * (0.0002f + rate * 0.0012f), 1.0f);
       const Rect graph{area.x + 2, area.y + 9, area.width - 4, area.height - 11};
-      g.Text(area.x + 2, area.y, dx7 ? "LFO > PITCH / AMP" : "LFO > DCO / VCF", kDim);
+      g.Text(area.x + 2, area.y, dx7 ? "LFO > PITCH / AMP" : waveEngine ? "LFO > PITCH / POS / VCF" : "LFO > DCO / VCF", kDim);
       widgets::LfoShape(g, graph, wave, cycles, delay, depth, phase, activity > 0.02f ? kTab : kInk);
+      break;
+    }
+    case PageGraphic::WaveShape:
+    {
+      // The oscillator's wave as AMY plays it at POS: two cycles, with where POS is in the wavetable
+      // (or how thin the pulse is) on a scale underneath.
+      const bool second = page.op == 2;
+      const int wave = EngineRaw(engine, second ? "osc2.wave" : "osc1.wave") - (second ? 1 : 0);
+      const Rect graph{area.x + 2, area.y + 2, area.width - 4, area.height - 8};
+      const int mid = graph.y + graph.height / 2;
+      g.DottedHLine(graph.x, mid, graph.width, kFaint, 3);
+      if (wave < 0)
+      {
+        g.TextAligned(Rect{graph.x, mid - 12, graph.width, 10}, "OSC 2 OFF", kFaint, Font::Small, Align::Center);
+        break;
+      }
+      const float position = Glide(animator, track, engine, second ? "osc2.position" : "osc1.position");
+      std::array<std::int8_t, 64> cycle{};
+      host.WaveCycle(wave, position, cycle.data(), cycle.size());
+      const Color color = activity > 0.02f ? kTab : kInk;
+      const int reach = graph.height / 2 - 1;
+      int previous = mid;
+      for (int column = 0; column < graph.width; ++column)
+      {
+        const std::size_t index = static_cast<std::size_t>(column) * 2 * cycle.size() / static_cast<std::size_t>(graph.width) % cycle.size();
+        const int y = mid - cycle[index] * reach / 127;
+        // Dithered between the wave and its centre line, the wave itself solid.
+        if (y != mid) g.Dither(Rect{graph.x + column, (std::min)(y, mid), 1, std::abs(y - mid)}, color, 5);
+        if (column > 0) g.Line(graph.x + column - 1, previous, graph.x + column, y, color);
+        previous = y;
+      }
+      const int scaleY = area.y + area.height - 3;
+      g.DottedHLine(graph.x, scaleY, graph.width, kFaint, 1);
+      g.Fill(Rect{graph.x + static_cast<int>(position * static_cast<float>(graph.width - 3)), scaleY - 1, 3, 3}, kInk);
       break;
     }
     case PageGraphic::FxChain:
