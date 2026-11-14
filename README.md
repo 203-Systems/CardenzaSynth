@@ -68,7 +68,7 @@ make web-serve
 
 ```sh
 curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
-203c login                       # 打印链接和验证码，登录社区后打开链接批准
+203c login                       # 打开浏览器，在社区网站上批准（远程时加 --no-browser）
 203c fork V6QK28 my-synth        # 克隆源码，在社区建 Fork，写好 203.json（forked_from）
 cd my-synth && git submodule update --init --recursive
 # 改 203.json 的 name 和 summary，改代码，提高 version.txt，然后
