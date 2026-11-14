@@ -612,4 +612,15 @@ namespace CardenzaSim::Input {
 void SetMicrophonePresent(bool present) { g_microphone = present ? Microphone::Simulated : Microphone::Absent; }
 void FeedMicrophone(std::size_t frames) { g_simulatedMicrophoneFrames += frames; }
 
+void RenderAudio(std::size_t frames)
+{
+  std::array<std::int16_t, 256> block{};
+  while (frames > 0)
+  {
+    const std::size_t count = (std::min)(frames, block.size());
+    (void)RenderSynthFrames(block.data(), count);
+    frames -= count;
+  }
+}
+
 }  // namespace CardenzaSim::Input

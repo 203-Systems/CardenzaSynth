@@ -318,6 +318,7 @@ bool PagedSynthEngine::LoadPreset(const std::string& presetId)
   for (std::size_t index = 0; index < parameters_.size(); ++index)
   {
     SynthParameterInfo& parameter = parameters_[index];
+    if (!PresetCarries(parameter)) continue;
     const PresetValue* value = stored ? FindPresetValue(*stored, index) : nullptr;
     parameter.value = value ? ClampToParameterRange(parameter, value->value) : FactoryParameterValue(stored ? stored->basePresetId : presetId, parameter);
   }
@@ -349,6 +350,8 @@ bool PagedSynthEngine::SavePreset(const std::string& presetId, const std::string
     return false;
   }
   SynthEngineState saved = CaptureState();
+  for (const auto& parameter : parameters_)
+    if (!PresetCarries(parameter)) saved.values.erase(parameter.id);
   saved.presetId = resolvedId;
   saved.presetName = NormalizePresetName(presetName.empty() ? currentPresetName_ : presetName);
   if (!ValidState(saved))
@@ -426,6 +429,7 @@ bool PagedSynthEngine::HasEdits() const
   for (std::size_t index = 0; index < parameters_.size(); ++index)
   {
     const SynthParameterInfo& parameter = parameters_[index];
+    if (!PresetCarries(parameter)) continue;
     const PresetValue* value = stored ? FindPresetValue(*stored, index) : nullptr;
     const int loaded = value ? ClampToParameterRange(parameter, value->value)
                              : FactoryParameterValue(stored ? stored->basePresetId : currentPresetId_, parameter);
@@ -809,7 +813,16 @@ void PagedSynthEngine::SyncRuntimeState()
     }
     audio::SetEngineParameter(engineIndex_, parameter.id, parameter.value);
   }
+  OnRuntimeSynced();
 }
+
+bool PagedSynthEngine::PresetCarries(const SynthParameterInfo& parameter) const
+{
+  (void)parameter;
+  return true;
+}
+
+void PagedSynthEngine::OnRuntimeSynced() {}
 
 bool PagedSynthEngine::ShouldSyncParameterToRuntime(const SynthParameterInfo& parameter) const
 {

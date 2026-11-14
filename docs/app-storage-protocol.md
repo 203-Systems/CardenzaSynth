@@ -23,8 +23,11 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
     Juno/user.ccpreset
     Sampler/user.ccpreset
     Drums/user.ccpreset
+    Vocal/user.ccpreset
   Samples/
     <name>.wav                 samples, referenced by file name; any app may use them
+  Voices/
+    <name>.vocal               voice packs of the Vocal engine, referenced by file name (put there by the user)
   Session/
     autosave.ccproj            the working state (the autosave), in the project format
     autosave.txt               its generation, name and unsaved mark
@@ -58,11 +61,19 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 | `Session/autosave.txt`, `Session/restoring.txt` | `key=value` lines | Written whole by the groovebox; other keys are not kept |
 | `Presets/<engine>/user.ccpreset` | Text beginning with `CARDENZA_PRESETS 1 "<engine-id>"` | Preset format 1 |
 | `Samples/*.wav`, `Session/take-*.wav` | Mono PCM16 WAV | File names and project references stay valid |
+| `Voices/*.vocal` | Voice pack (`NPVOCAL`, at most 128 KB; `Library/Synth/Core/Engines/Vocal/VocalPack.h`) | Read only; the firmware never writes one |
 | `Logs/log*.txt` | Text, one line per console line | Read by people |
 
 Storage protocol 2 describes the layout and how settings are kept; it does not version the project,
 preset or WAV formats. Project format 6 added the keyboard and each track's chord and arpeggiator;
-format 7 gives every pattern its own length (up to 256 steps). Version 5 was only written by
+format 7 gives every pattern its own length (up to 256 steps). A vocal track (engine kind 5, from the
+firmware that has the Vocal engine) is written in the same format: the `TRACK` line's last field, a
+sampler track's sample, names its voice pack in `Voices/` (empty: the built-in voice). A word is a
+pronunciation of the pack, named by its place in the pack's list (0 for the first). The track's own
+word is the engine parameter `voice.word` on the `PARAM` lines, and the word a step sings is a note
+of that step, a word key: one of the notes 0–2 of the track, whose velocity says which word
+(word = note × 127 + velocity − 1). Firmware without the Vocal engine refuses a project with such a
+track. Version 5 was only written by
 unreleased development builds (its `PLAY` line is skipped). Format 8 adds HITS (a note fired 1–4
 times in its step): each `T` line gains the track's new-note hits after its new-note length, and every
 note line a seventh number, the note's hits. It is read already and written from the one format bump
@@ -186,8 +197,9 @@ wrong.
 | What | Where |
 |---|---|
 | projects `<name>.ccproj` | `Projects/` |
-| user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums}/` |
+| user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums,Vocal}/` |
 | samples (WAV) | `Samples/` |
+| voice packs (`.vocal`) for vocal tracks | `Voices/` (created with the layout, filled by the user; read with `synth::LoadVoicePack`) |
 | app preferences (SELECT) | `Settings/synth.cfg` |
 | working state (autosave) | `Session/autosave.ccproj` and `autosave.txt` |
 | sample take | `Session/take-<track>.wav`: a sample recording in progress or not saved yet; removed when it is saved or discarded |

@@ -26,6 +26,11 @@ std::string PresetDirectory(std::string_view group)
   return AppFolder().Presets(group);
 }
 
+std::string VoiceDirectory()
+{
+  return AppFolder().Folder("Voices");
+}
+
 std::string SessionDirectory()
 {
   return AppFolder().Session();
@@ -34,8 +39,9 @@ std::string SessionDirectory()
 bool EnsureLayout()
 {
   // One preset folder per engine (SynthDescriptor::displayName).
-  static const std::vector<std::string> engines{"DX7", "Juno", "Sampler", "Drums"};
-  return os::storage::EnsureAppLayout(AppFolder(), engines);
+  static const std::vector<std::string> engines{"DX7", "Juno", "Sampler", "Drums", "Vocal"};
+  // Voices/ is where the user puts voice packs: there from the start, so it is found.
+  return os::storage::EnsureAppLayout(AppFolder(), engines) && os::storage::CreateDirectories(VoiceDirectory());
 }
 
 }  // namespace synth::storage

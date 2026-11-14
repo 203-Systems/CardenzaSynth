@@ -14,6 +14,8 @@ std::string ProjectDirectory();
 std::string SampleDirectory();
 // User preset banks, one folder per engine (`group` is the engine's display name).
 std::string PresetDirectory(std::string_view group);
+// Voice packs of the Vocal engine (<name>.vocal); projects name them by file name.
+std::string VoiceDirectory();
 // The working state: the autosave, and sample recordings not saved yet.
 std::string SessionDirectory();
 // Creates every folder above, the preset folder of each engine included. False without a

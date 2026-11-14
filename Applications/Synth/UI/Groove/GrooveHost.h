@@ -62,6 +62,16 @@ public:
   virtual void PreviewSample(std::size_t track) = 0;
   virtual std::vector<std::string> ListSamples() const = 0;
 
+  // Vocal tracks. The voice packs on the card by file name (CardenzaSynth/Voices/<name>.vocal), and a
+  // track's singer: one of them, or the built-in voice for an empty name. The words of the track and
+  // of its steps are places in the singer's list and stay as they are: they name what the new singer
+  // has there. False with `message` when the file is missing or no pack, or the track is not a vocal
+  // one.
+  virtual std::vector<std::string> ListVoicePacks() const = 0;
+  virtual bool SetVoicePack(std::size_t track, const std::string& fileName, std::string& message) = 0;
+  // The word a held note of the track is singing, as the audio plays it.
+  virtual synth::vocal::Status VocalStatus(std::size_t track) const = 0;
+
   // Mixer. Level is 0..100; solo silences every non-soloed track.
   virtual void SetTrackLevel(std::size_t track, std::uint8_t level) = 0;
   virtual std::uint8_t TrackLevel(std::size_t track) const = 0;

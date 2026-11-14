@@ -10,6 +10,10 @@
 #include "Applications/Synth/UI/Groove/GrooveTypes.h"
 #include "Applications/Synth/UI/Groove/InstrumentPages.h"
 
+namespace synth {
+class VocalSynthEngine;
+}
+
 namespace groove {
 
 // UiState::padNote of a pad that is not down.
@@ -52,6 +56,7 @@ enum class ModalKind : std::uint8_t {
   SampleBrowser,
   SampleOptions,
   SampleRecord,
+  VoiceBrowser,  // Vocal: the singer, the built-in voice or a pack on the card
   Menu,    // a tap on FN: the menu of the screen underneath, kept open
   Record,  // SEQ: hold OK. Live recording, the note view and the captured takes
 };
@@ -291,6 +296,7 @@ enum class MenuAction : std::uint8_t {
   SampleFiles,
   SampleRecord,
   SamplePreview,
+  VoicePack,  // Vocal: choose the singer
   // SEQ
   Copy,
   Paste,
@@ -462,6 +468,10 @@ struct UiState {
   std::array<std::uint8_t, kRows * kPadColumns> padTrack{};
   std::array<bool, kRows * kPadColumns> padArp{};  // the pad feeds the arpeggiator
   std::array<PadEdit, kRows * kPadColumns> padEdit{};  // SEQ note page: what a held pad does to the selected steps
+  // Vocal tracks: the page of the singer's pronunciations the pads show while SING's WORD cell is held
+  // (WordPickerActive), and the pads that sound a word being picked (no notes for the steps).
+  std::uint8_t wordPickPage = 0;
+  std::array<bool, kRows * kPadColumns> padPreview{};
   // SETUP settings pages (KEYS, SYSTEM): the focused setting of each.
   std::array<std::uint8_t, kSettingsPageCount> settingsFocus{};
   RecordState record;
@@ -514,6 +524,21 @@ public:
   // current value, as for ADD / SUB. Returns false for a cell that holds no parameter.
   bool CellPickerActive() const;
   bool CellParameter(std::size_t index, std::string& label, synth::SynthParameterInfo& info, std::string& text) const;
+  // A vocal track: its engine, or null.
+  const synth::VocalSynthEngine* ActiveVocal() const;
+  // The word table: the pads as the singer's pronunciations, a page of kWordPickPadCount at a time in
+  // the pack's order, shown on screen as they lie. Two ways in. INSTR: SING's WORD cell held (the
+  // track's own word; ADD / SUB flip the page). SEQ: steps selected on the WORD lane (the word those
+  // steps sing; the page is the one with their word, ADD / SUB step the word, FN a page at a time).
+  // A pad puts its pronunciation there and sings it while it is down.
+  bool WordCellPickerActive() const;
+  bool StepWordPickerActive() const;
+  bool WordPickerActive() const { return WordCellPickerActive() || StepWordPickerActive(); }
+  static constexpr std::size_t kWordPickPadCount = kRows * kPadColumns;
+  std::size_t WordPickPage() const;
+  std::size_t WordPickPageCount() const;
+  // The word the table would change: the track's own, or the first selected step's (-1: none yet).
+  int WordPickCurrent() const;
   // Marks the notes the pads held down are sounding on a track, one bit per MIDI note.
   void AddHeldPadNotes(std::size_t track, std::array<std::uint32_t, 4>& notes) const;
   void UsePianoRollOnDrums(bool roll) { state_.record.drumView = roll ? SeqView::Roll : SeqView::Step; }  // Tests: the drum tracks' view.
@@ -769,6 +794,13 @@ private:
   void FillPresetRows(Modal& modal) const;
   void SetCellParameter(std::size_t index, int value);
   void PickCellValue(std::size_t row, std::size_t column);
+  synth::VocalSynthEngine* ActiveVocal();
+  // A pad of the word table (WordPickerActive): its pronunciation becomes the track's word or the
+  // selected steps', and is sung for as long as the pad is down.
+  void PickWord(std::size_t row, std::size_t column);
+  void OpenVoiceBrowser();
+  void ApplyVoicePack(const std::string& fileName);
+  void ShowStepWordHud();
   void ShowCellHud();
   void StepCell(std::size_t index);
   void OpenEnginePicker();

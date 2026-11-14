@@ -75,6 +75,14 @@ add_executable(CardenzaSamplerTests
 target_include_directories(CardenzaSamplerTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaSamplerTests COMMAND CardenzaSamplerTests)
 
+# The Vocal engine below the audio runtime: voice packs, a voice's sound, a track's words.
+add_executable(CardenzaVocalTests
+  vocal_test.cpp
+  ${PROJECT_SOURCE_DIR}/Library/Synth/Core/Engines/Vocal/VocalPack.cpp
+)
+target_include_directories(CardenzaVocalTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaVocalTests COMMAND CardenzaVocalTests)
+
 set(cardenza_ui_tests)
 if(NOT CARDENZA_GROOVE_UI)
 add_executable(CardenzaUiTests

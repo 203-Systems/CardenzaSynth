@@ -24,11 +24,13 @@
 
 #include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Applications/Synth/Runtime/SynthStorage.h"
+#include "Applications/Synth/Runtime/Vocal/VoicePacks.h"
 #include "Applications/Synth/UI/Groove/Render/Gfx.h"
 #include "Applications/Synth/UI/Groove/Render/GrooveRenderer.h"
 #include "Devices/Device.h"
 #include "Devices/LedLight.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
 #include "OS/MIDI/MIDI.h"
 #include "OS/Storage/DeviceSettings.h"
 #include "OS/Storage/Settings.h"
@@ -88,6 +90,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return 6 * 1024;
     case synth::SynthEngineKind::Sampler: return 6 * 1024;
     case synth::SynthEngineKind::Drums: return 4 * 1024;
+    case synth::SynthEngineKind::Vocal: return 8 * 1024;
     case synth::SynthEngineKind::None:
     default: return 0;
   }
@@ -96,7 +99,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
 std::size_t KindIndex(synth::SynthEngineKind kind)
 {
   const auto index = static_cast<std::size_t>(kind);
-  return index < 5 ? index : 0;
+  return index < synth::kSynthEngineKindCount ? index : 0;
 }
 
 os::storage::Settings& AppSettings()
@@ -176,6 +179,7 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
     rack_.AttachEngine(track, kDefaultKinds[track]);
     sampler_.OnTrackEngineChanged(track, kDefaultKinds[track]);
   }
+  SyncTrackKeys();
   storageReady_ = synth::storage::EnsureLayout();
   ApplyMix();
   ApplyMasterFx(synth::ProjectData::DefaultMasterFx());
@@ -338,6 +342,14 @@ void GrooveApp::ApplyPendingSamples()
     if (pendingSamples_[track].empty()) continue;
     const std::string name = std::move(pendingSamples_[track]);
     pendingSamples_[track].clear();
+    if (auto* vocal = synth::VocalSynthEngine::From(rack_.Slot(track).engine.get()))
+    {
+      // The voice the track sang with: its words are still the ones of that pack.
+      if (!vocal->BuiltinPack()) continue;
+      if (synth::vocal::PackRef pack = synth::LoadVoicePack(name)) vocal->SetPack(std::move(pack), name);
+      SyncTrackKeys();
+      continue;
+    }
     if (rack_.Slot(track).kind != synth::SynthEngineKind::Sampler || !sampler_.BuildUiState(track).sampleFileName.empty()) continue;
     synth::SamplerManager::PreparedSample sample;
     if (!synth::SamplerManager::PrepareSample(name, sample)) continue;
@@ -795,9 +807,24 @@ bool GrooveApp::SwitchEngine(std::size_t track, synth::SynthEngineKind kind, std
   engine->ReplaceBinding(*slot.engine);
   std::swap(slot.engine, engine);
   DropEngine(engine, slot.kind);
+  // The words go with the singer: the word keys in the track's steps would be very low notes to any
+  // other engine.
+  if (slot.kind == synth::SynthEngineKind::Vocal && sequencer_.ClearWords(track))
+    std::printf("Groove: track %u is no vocal track any more: its steps lost their words\n", static_cast<unsigned>(track + 1));
   slot.kind = kind;
   sampler_.OnTrackEngineChanged(track, kind);
+  SyncTrackKeys();
   return true;
+}
+
+void GrooveApp::SyncTrackKeys()
+{
+  // A vocal track's steps carry words, as many as its singer has.
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    const auto* vocal = synth::VocalSynthEngine::From(rack_.Slot(track).engine.get());
+    sequencer_.SetTrackWords(track, vocal != nullptr ? static_cast<std::uint16_t>(vocal->Pack().EntryCount()) : std::uint16_t{0});
+  }
 }
 
 void GrooveApp::NoteOn(std::size_t track, std::uint8_t note, std::uint8_t velocity)
@@ -1041,6 +1068,55 @@ void GrooveApp::ApplyMasterFx(const std::array<std::uint8_t, synth::fx::kMasterP
 }
 
 // ---------------------------------------------------------------------------------------------
+// Vocal tracks
+
+std::vector<std::string> GrooveApp::ListVoicePacks() const
+{
+  return synth::ListVoicePacks();
+}
+
+bool GrooveApp::SetVoicePack(std::size_t track, const std::string& fileName, std::string& message)
+{
+  auto* vocal = track < synth::kSynthTrackCount ? synth::VocalSynthEngine::From(rack_.Slot(track).engine.get()) : nullptr;
+  if (vocal == nullptr)
+  {
+    message = "NOT A VOCAL TRACK";
+    return false;
+  }
+  synth::vocal::PackRef pack;
+  if (fileName.empty())
+  {
+    pack = synth::vocal::Pack::Builtin();
+  }
+  else
+  {
+    // Another track that sings from the same file shares its pack.
+    for (std::size_t other = 0; other < synth::kSynthTrackCount && !pack; ++other)
+      if (const auto* sharing = synth::VocalSynthEngine::From(rack_.Slot(other).engine.get());
+          sharing != nullptr && sharing != vocal && sharing->PackFileName() == fileName)
+        pack = sharing->SharedPack();
+    if (!pack) pack = synth::LoadVoicePack(fileName);
+  }
+  if (!pack)
+  {
+    message = os::storage::CardPresent() ? "BAD VOICE FILE" : "NO SD CARD";
+    return false;
+  }
+  std::printf("Groove: track %u sings with %s\n", static_cast<unsigned>(track + 1), fileName.empty() ? "the built-in voice" : fileName.c_str());
+  // The steps' words are places in the singer's list: they stay, and name what the new singer has
+  // there.
+  vocal->SetPack(std::move(pack), fileName);
+  pendingSamples_[track].clear();
+  SyncTrackKeys();
+  return true;
+}
+
+synth::vocal::Status GrooveApp::VocalStatus(std::size_t track) const
+{
+  return synth::audio::VocalStatus(track);
+}
+
+// ---------------------------------------------------------------------------------------------
 // Projects
 
 std::vector<std::string> GrooveApp::ListProjects() const
@@ -1067,9 +1143,11 @@ bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth:
     }
     project.kinds[track] = slot.kind;
     project.engines[track] = forSession ? slot.engine->CaptureChanges() : slot.engine->CaptureState();
-    project.samples[track] = sample.sampleFileName;
+    const auto* vocal = synth::VocalSynthEngine::From(slot.engine.get());
+    project.samples[track] = vocal != nullptr ? vocal->PackFileName() : sample.sampleFileName;
     // Still waiting for the card it is on.
-    if (forSession && sample.sampleFileName.empty() && slot.kind == synth::SynthEngineKind::Sampler) project.samples[track] = pendingSamples_[track];
+    if (forSession && project.samples[track].empty() && (slot.kind == synth::SynthEngineKind::Sampler || vocal != nullptr))
+      project.samples[track] = pendingSamples_[track];
   }
   project.sequence = sequencer_.CaptureState();
   if (!project.sequence)
@@ -1323,9 +1401,28 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   }
   std::array<synth::SamplerManager::PreparedSample, synth::kSynthTrackCount> samples;
   std::array<std::string, synth::kSynthTrackCount> pending;
+  // The voice packs of the vocal tracks (tracks naming the same file share one).
+  std::array<synth::vocal::PackRef, synth::kSynthTrackCount> voices;
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
-    if (project.samples[track].empty()) continue;
+    if (project.kinds[track] != synth::SynthEngineKind::Vocal || project.samples[track].empty()) continue;
+    for (std::size_t previous = 0; previous < track && !voices[track]; ++previous)
+      if (project.kinds[previous] == synth::SynthEngineKind::Vocal && project.samples[previous] == project.samples[track]) voices[track] = voices[previous];
+    if (!voices[track]) voices[track] = synth::LoadVoicePack(project.samples[track]);
+    if (voices[track]) continue;
+    // The working state does not fall over a file that is not there (the card may just not be in): the
+    // track sings with the built-in voice until its own comes back.
+    if (workingState)
+    {
+      pending[track] = project.samples[track];
+      continue;
+    }
+    message = "VOICE MISSING";
+    return false;
+  }
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    if (project.samples[track].empty() || project.kinds[track] != synth::SynthEngineKind::Sampler) continue;
     bool shared = false;
     for (std::size_t previous = 0; previous < track; ++previous)
       if (project.samples[previous] == project.samples[track])
@@ -1363,6 +1460,9 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
       std::printf("Groove: track %u lost its sound while loading\n", static_cast<unsigned>(track + 1));
     // Its values are in the engine now: they go back to the heap before the next track is built.
     project.engines[track].values.clear();
+    // A vocal track's singer, before the engine takes the track (it hands the pack to the audio then).
+    if (auto* vocal = synth::VocalSynthEngine::From(engine.get()); vocal != nullptr && voices[track])
+      vocal->SetPack(voices[track], project.samples[track]);
     if (!engine || !engine->CanReplace(*slot.engine))
     {
       std::printf("Groove: track %u kept its engine while loading\n", static_cast<unsigned>(track + 1));
@@ -1376,10 +1476,11 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
     DropEngine(engine, slot.kind);
     slot.kind = project.kinds[track];
     sampler_.OnTrackEngineChanged(track, slot.kind);
-    if (!project.samples[track].empty()) (void)sampler_.ApplySample(track, samples[track]);
+    if (!project.samples[track].empty() && slot.kind == synth::SynthEngineKind::Sampler) (void)sampler_.ApplySample(track, samples[track]);
     // The engine already carries the project's saved trim.
     (void)sampler_.ConsumeTrimReset(track);
   }
+  SyncTrackKeys();
   sequencer_.RestoreState(*project.sequence);
   // Mixer levels, mute, solo and the master bus belong to the project (the play settings too, applied
   // by ApplyPlaySettings); volume, key LEDs and screen do not.

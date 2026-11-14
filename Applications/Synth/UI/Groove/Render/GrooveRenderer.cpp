@@ -11,6 +11,8 @@
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Applications/Synth/UI/Groove/Render/Widgets.h"
 
+#include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
+
 namespace groove {
 
 namespace {
@@ -371,19 +373,26 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
     if (seq.hasHeldSteps)
     {
       // Step inspector: lane chooser (ENTER) with a gliding highlight, and the notes or the value.
-      static constexpr std::array<const char*, 5> kLanes{{"NOTE", "LEN", "VEL", "TIME", "HITS"}};
-      std::array<int, kLanes.size()> laneX{};
+      // In the order OK walks them. A vocal track has one lane more, after NOTE: the word a step sings.
+      static constexpr std::array<const char*, 5> kPlainLanes{{"NOTE", "LEN", "VEL", "TIME", "HITS"}};
+      static constexpr std::array<const char*, 6> kVocalLanes{{"NOTE", "WORD", "LEN", "VEL", "TIME", "HITS"}};
+      const synth::VocalSynthEngine* vocal = controller.ActiveVocal();
+      const std::size_t laneCount = vocal != nullptr ? kVocalLanes.size() : kPlainLanes.size();
+      const char* const* kLanes = vocal != nullptr ? kVocalLanes.data() : kPlainLanes.data();
+      std::array<int, kVocalLanes.size()> laneX{};
       int x = kFooterX;
-      for (std::size_t lane = 0; lane < kLanes.size(); ++lane)
+      for (std::size_t lane = 0; lane < laneCount; ++lane)
       {
         laneX[lane] = x;
-        x += Gfx::Measure(kLanes[lane]) + 6;
+        x += Gfx::Measure(kLanes[lane]) + (vocal != nullptr ? 4 : 6);
       }
-      const std::size_t lane = static_cast<std::size_t>(seq.editLane);
+      std::size_t lane = static_cast<std::size_t>(seq.editLane);
+      if (vocal != nullptr) lane = seq.editLane == synth::SequencerEditLane::Note ? 0 : seq.editLane == synth::SequencerEditLane::Word ? 1 : lane + 1;
+      lane = std::min(lane, laneCount - 1);
       const float boxX = animator.Smooth(Animator::Key("lane"), static_cast<float>(laneX[lane] - 2), 45.0f);
       const float boxW = animator.Smooth(Animator::Key("lane", 1), static_cast<float>(Gfx::Measure(kLanes[lane]) + 4), 45.0f);
       g.Fill(Rect{static_cast<int>(std::lround(boxX)), kFooterY - 1, static_cast<int>(std::lround(boxW)), 9}, kInk);
-      for (std::size_t index = 0; index < kLanes.size(); ++index)
+      for (std::size_t index = 0; index < laneCount; ++index)
       {
         const bool covered = laneX[index] >= boxX - 1 && laneX[index] + Gfx::Measure(kLanes[index]) <= boxX + boxW + 1;
         g.Text(laneX[index], kFooterY, kLanes[index], covered ? kBlack : kFaint);
@@ -396,6 +405,12 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
       }
       std::string detail = seq.valueLabel.empty() ? notes : seq.valueLabel;
       if (seq.editLane == synth::SequencerEditLane::Note) detail = notes;
+      if (seq.editLane == synth::SequencerEditLane::Word && vocal != nullptr)
+      {
+        // The step's word by name; a step without one sings the track's own.
+        const int word = sequencer.StepWord(state.track, seq.primaryHeldStep);
+        detail = word < 0 ? "TRACK'S " + vocal->WordName(vocal->Word()) : vocal->WordName(word);
+      }
       g.TextFit(x + 4, kFooterY, kFooterRight - x - 4, detail, kInk);
       return;
     }

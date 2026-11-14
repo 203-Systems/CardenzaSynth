@@ -95,7 +95,7 @@ constexpr std::uint32_t kMagic = 0x53545231u;  // "STR1"
 RTC_NOINIT_ATTR Persist g_persist;
 
 enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
-enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, Vocal };
 
 struct Scenario {
   std::string name;
@@ -130,6 +130,7 @@ std::string ProjectName(Variant variant)
     case Variant::Sampler: return std::string(kPrefix) + "SAMPLER";
     case Variant::FxMax: return std::string(kPrefix) + "FXMAX";
     case Variant::MaxPatterns: return std::string(kPrefix) + "MAX";
+    case Variant::Vocal: return std::string(kPrefix) + "VOCAL";
     case Variant::None: break;
   }
   return std::string(kPrefix) + "NONE";
@@ -276,6 +277,19 @@ synth::ProjectData MakeProject(Variant variant)
       steps = static_cast<int>(synth::kSequencerMaxSteps);
       break;
     }
+    case Variant::Vocal:
+    {
+      // Four singers (the built-in voice), each a choir: a chord of four on every step, every voice
+      // of every track busy, through the sends.
+      for (std::size_t track = 0; track < tracks.size(); ++track)
+      {
+        tracks[track] = TrackSpec{SynthEngineKind::Vocal, "vocal.choir", "", 4, 1, 20, 48 + 5 * static_cast<int>(track)};
+        tracks[track].chorus = 0;
+        tracks[track].delay = 40;
+        tracks[track].reverb = 60;
+      }
+      break;
+    }
     case Variant::None: break;
   }
 
@@ -368,6 +382,7 @@ std::vector<Scenario> BuildScenarios()
   add("arps-1/32", Kind::Generated, Variant::Arps, 25);
   add("sampler", Kind::Generated, Variant::Sampler, 25);
   add("fx-max", Kind::Generated, Variant::FxMax, 25);
+  add("vocal", Kind::Generated, Variant::Vocal, 25);
   add("max-patterns", Kind::Generated, Variant::MaxPatterns, 25);
   add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
   add("ui-storm", Kind::UiStorm, Variant::JunoPads, 30);

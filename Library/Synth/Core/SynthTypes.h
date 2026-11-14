@@ -11,7 +11,11 @@ enum class SynthEngineKind {
   Juno,
   Sampler,
   Drums = 4,
+  // A singer: pronunciations of a voice pack (Library/Synth/Audio/SynthVocal.h).
+  Vocal = 5,
 };
+// One more than the highest kind: tables indexed by kind.
+inline constexpr std::size_t kSynthEngineKindCount = 6;
 
 enum class OverlayPage {
   None,

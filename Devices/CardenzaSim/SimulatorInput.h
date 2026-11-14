@@ -17,6 +17,9 @@ void SetCardInserted(bool inserted);
 // host has one), so a test sees the device without one.
 void SetMicrophonePresent(bool present);
 void FeedMicrophone(std::size_t frames);
+// Renders the synth for `frames` frames and drops the sound: a host without an audio device (the
+// headless runner) keeps what the audio publishes moving (a vocal track's words, the meters).
+void RenderAudio(std::size_t frames);
 
 // A computer on the USB port (Device::USB): plug it in or out, send the device MIDI packets, and take
 // what the device sent back.

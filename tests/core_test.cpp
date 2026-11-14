@@ -1,4 +1,5 @@
 #include "Applications/Synth/Runtime/ProjectStorage.h"
+#include "Library/Synth/Audio/SynthVocal.h"
 
 #include <algorithm>
 #include <array>
@@ -482,6 +483,128 @@ void TestSwingPlayback() {
   // The swung last step sounds after the wrap of the pass it belongs to, not in the first pass.
   assert(CountHits(ons, 54, 1) == 0 && CountHits(ons, 54, 2, 8) == 1);
   assert(off.position == 12 && CountHits(offs, 54, 2, 12) == 1);
+  sequencer.reset();
+}
+
+// A vocal track's steps carry words (a word key beside the notes): the WORD lane sets them, the views
+// and the note edits see the pitches alone, and in playback the key goes out right before every note
+// the step starts (its later hits and a late note too), by its own timing only on a step without notes.
+void TestStepWords() {
+  using namespace synth;
+  using midi::MidiStatus;
+  PulseProbe probe;
+  auto sequencer = std::make_unique<SynthSequencer>();
+  probe.sequencer = sequencer.get();
+  sequencer->SetMidiSink(ProbeSink, &probe);
+  const auto keyNote = [](int word) { return vocal::KeyNoteOfWord(word); };
+  const auto keyVelocity = [](int word) { return vocal::KeyVelocityOfWord(word); };
+
+  auto state = sequencer->CaptureState();
+  state->bpm = 300;
+  SetNote(*state, 1, 0, 0, 60, 100, 6, 0);
+  state->tracks[1].patterns[0].steps.Edit(0).notes[0].SetHits(3);
+  // A note two microsteps late whose key is on the grid: the key still goes with the note.
+  SetNote(*state, 1, 0, 8, 62, 100, 6, 2);
+  SetNote(*state, 1, 0, 8, keyNote(1), keyVelocity(1), 6, 0);
+  assert(sequencer->RestoreState(*state));
+  sequencer->SetActiveTrack(1);
+
+  // A track without words has no WORD lane, takes no word, and its low notes are notes.
+  std::array<SynthSequencer::StepNoteView, 8> events{};
+  std::array<std::uint8_t, 8> pitches{};
+  sequencer->SetStepSelected(0, true);
+  sequencer->SetEditLane(SequencerEditLane::Word);
+  assert(sequencer->EditLane() == SequencerEditLane::Note && !sequencer->SetWordOnSelectedSteps(3) && sequencer->TrackWords(1) == 0);
+  assert(sequencer->StepWord(1, 8) == -1 && sequencer->StepNoteEvents(1, 8, events) == 2);
+  sequencer->SetTrackWords(1, 13);
+  assert(sequencer->TrackWords(1) == 13 && sequencer->TrackWords(0) == 0);
+  assert(sequencer->StepWord(1, 8) == 1 && sequencer->StepNoteEvents(1, 8, events) == 1 && events[0].note == 62);
+
+  // The WORD lane: none, then the singer's words in order; coarse a page of the word table at a time.
+  sequencer->SetEditLane(SequencerEditLane::Word);
+  assert(sequencer->EditLane() == SequencerEditLane::Word && sequencer->StepWord(1, 0) == -1);
+  assert(sequencer->BuildUiState(1).valueLabel == "WORD --");
+  assert(!sequencer->AdjustSelectedSteps(-1, false));
+  assert(sequencer->AdjustSelectedSteps(1, false) && sequencer->StepWord(1, 0) == 0);
+  assert(sequencer->AdjustSelectedSteps(1, true) && sequencer->StepWord(1, 0) == 12);
+  assert(!sequencer->AdjustSelectedSteps(1, false));
+  assert(sequencer->AdjustSelectedSteps(-3, false) && sequencer->StepWord(1, 0) == 9);
+  assert(!sequencer->SetWordOnSelectedSteps(13) && !sequencer->SetWordOnSelectedSteps(9));
+  // The word is no note of the step: the views see the pitch alone.
+  assert(sequencer->StepNoteEvents(1, 0, events) == 1 && events[0].note == 60 && events[0].hits == 3);
+  assert(sequencer->StepNotes(0, pitches) == 1 && pitches[0] == 60);
+  auto ui = sequencer->BuildUiState(1);
+  assert(ui.steps[0].word == 9 && ui.steps[0].noteCount == 1 && ui.steps[0].lowestNote == 60 && ui.valueLabel == "WORD 10" && ui.noteNames == "C4" &&
+         ui.steps[8].word == 1 && ui.steps[1].word == -1);
+  // NOTE moves the pitch and stops above the keys; VEL changes the note, not the key (its velocity is
+  // its word).
+  sequencer->SetEditLane(SequencerEditLane::Note);
+  assert(sequencer->AdjustSelectedSteps(-9, true));
+  assert(sequencer->StepNoteEvents(1, 0, events) == 1 && events[0].note == vocal::kWordKeyCount && sequencer->StepWord(1, 0) == 9);
+  assert(sequencer->AdjustSelectedSteps(60 - vocal::kWordKeyCount, false));
+  sequencer->SetEditLane(SequencerEditLane::Velocity);
+  assert(sequencer->AdjustSelectedSteps(5, false));
+  assert(sequencer->StepNoteEvents(1, 0, events) == 1 && events[0].note == 60 && events[0].velocity == 105 && sequencer->StepWord(1, 0) == 9);
+  // A step without notes takes a word too (it changes the word of a note still held), and reads as
+  // a step with something in it.
+  sequencer->ClearSelectedSteps();
+  sequencer->SetStepSelected(4, true);
+  sequencer->SetEditLane(SequencerEditLane::Word);
+  assert(sequencer->SetWordOnSelectedSteps(12) && sequencer->StepWord(1, 4) == 12);
+  ui = sequencer->BuildUiState(1);
+  assert(ui.steps[4].hasEvents && ui.steps[4].noteCount == 0 && ui.steps[4].word == 12 && ui.steps[4].lowestNote < 0);
+  assert(sequencer->SetWordOnSelectedSteps(-1) && sequencer->StepWord(1, 4) == -1 && !sequencer->BuildUiState(1).steps[4].hasEvents);
+  assert(sequencer->SetWordOnSelectedSteps(12));
+  sequencer->ClearSelectedSteps();
+
+  Arm(probe, 1, MidiStatus::NoteOff, 62);
+  sequencer->Play();
+  (void)WaitFrozen(probe);
+  Release(probe);
+  sequencer->Stop();
+  sequencer->SetMidiSink(nullptr, nullptr);
+
+  const auto ons = Hits(probe, 1, MidiStatus::NoteOn);
+  const auto offs = Hits(probe, 1, MidiStatus::NoteOff);
+  // Step 0: three hits a third of a step apart, its word with each. Step 4: the word alone, on the
+  // step. Step 8: the word with the late note, not on the grid where its key is.
+  for (const int position : {0, 8, 16}) assert(CountHits(ons, 60, 1, position) == 1 && CountHits(ons, keyNote(9), 1, position) == 1);
+  assert(CountHits(ons, 60, 1) == 3 && CountHits(ons, 62, 1) == 1 && CountHits(ons, 62, 1, 200) == 1);
+  assert(CountHits(ons, 0, 1, 96) == 1 && CountHits(offs, 0, 1, 100) == 1);
+  assert(CountHits(ons, 0, 1, 192) == 0 && CountHits(ons, 0, 1, 200) == 1 && CountHits(ons, 0, 1) == 5);
+  {
+    // Before a note the step's word, never held: key on, key off, note on, in one pulse.
+    std::lock_guard<std::mutex> lock(probe.mutex);
+    std::size_t sung = 0, alone = 0;
+    for (std::size_t index = 0; index < probe.events.size(); ++index) {
+      const auto& event = probe.events[index];
+      if (event.track != 1 || event.status != MidiStatus::NoteOn) continue;
+      if (event.note < vocal::kWordKeyCount) {
+        alone += event.velocity == keyVelocity(12);
+        continue;
+      }
+      const int word = event.note == 60 ? 9 : 1;
+      assert(index >= 2);
+      const auto& on = probe.events[index - 2];
+      const auto& off = probe.events[index - 1];
+      assert(on.track == 1 && on.status == MidiStatus::NoteOn && on.note == keyNote(word) && on.velocity == keyVelocity(word) &&
+             on.position == event.position);
+      assert(off.track == 1 && off.status == MidiStatus::NoteOff && off.note == on.note && off.position == event.position);
+      ++sung;
+    }
+    assert(sung == 4 && alone == 1);
+  }
+
+  // The track becomes another engine: the words leave every step, the notes stay.
+  assert(sequencer->ClearWords(1) && !sequencer->ClearWords(1));
+  assert(sequencer->StepWord(1, 0) == -1 && sequencer->StepWord(1, 4) == -1 && sequencer->StepWord(1, 8) == -1);
+  assert(sequencer->StepNoteEvents(1, 0, events) == 1 && events[0].note == 60 && sequencer->StepNoteEvents(1, 8, events) == 1 && events[0].note == 62);
+  assert(!sequencer->BuildUiState(1).steps[4].hasEvents);
+  sequencer->SetStepSelected(0, true);
+  sequencer->SetEditLane(SequencerEditLane::Word);
+  assert(sequencer->EditLane() == SequencerEditLane::Word);
+  sequencer->SetTrackWords(1, 0);
+  assert(sequencer->EditLane() == SequencerEditLane::Note);
   sequencer.reset();
 }
 
@@ -1655,6 +1778,7 @@ int main() {
   TestSequencerSettings();
   TestLiveRecording();
   TestSwingPlayback();
+  TestStepWords();
   TestQueuedPatterns();
   TestTrackStepCounts();
   TestSongEditing();

@@ -22,6 +22,7 @@ function(cardenza_collect_synth_app_cpp_sources root_dir out_var)
         ${root_dir}/Applications/Synth/Runtime/Sequencer/SynthSequencer.cpp
         ${root_dir}/Applications/Synth/Runtime/SynthRack.cpp
         ${root_dir}/Applications/Synth/Runtime/SynthStorage.cpp
+        ${root_dir}/Applications/Synth/Runtime/Vocal/VoicePacks.cpp
     )
     cardenza_groove_ui_enabled(groove_ui)
     if(groove_ui)
@@ -94,6 +95,8 @@ function(cardenza_collect_synth_core_cpp_sources root_dir out_var)
         ${root_dir}/Library/Synth/Core/Engines/Juno/JunoSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/PagedSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Sampler/SamplerSynthEngine.cpp
+        ${root_dir}/Library/Synth/Core/Engines/Vocal/VocalPack.cpp
+        ${root_dir}/Library/Synth/Core/Engines/Vocal/VocalSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/SynthEngineFactory.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)

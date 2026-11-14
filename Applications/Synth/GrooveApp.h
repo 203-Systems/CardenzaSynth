@@ -69,6 +69,9 @@ public:
   const synth::SamplerManager& Sampler() const override { return sampler_; }
   void PreviewSample(std::size_t track) override;
   std::vector<std::string> ListSamples() const override;
+  std::vector<std::string> ListVoicePacks() const override;
+  bool SetVoicePack(std::size_t track, const std::string& fileName, std::string& message) override;
+  synth::vocal::Status VocalStatus(std::size_t track) const override;
   void SetTrackLevel(std::size_t track, std::uint8_t level) override;
   std::uint8_t TrackLevel(std::size_t track) const override;
   void SetTrackMuted(std::size_t track, bool muted) override;
@@ -165,6 +168,9 @@ private:
   bool Quiet(std::uint32_t now) const;
   void CheckCard(std::uint32_t now);
   void ApplyPendingSamples();
+  // Tells the sequencer which tracks' steps carry words (the vocal ones) and how many their singers
+  // have, after an engine or a singer changed.
+  void SyncTrackKeys();
   static void SendSequencerMidi(void* context, std::size_t trackIndex, const midi::MidiPacket& packet);
 
   bool initialized_ = false;
@@ -186,6 +192,8 @@ private:
   bool autosaveFailureShown_ = false;
   bool cardWasMounted_ = false;
   int keysHeld_ = 0;
+  // The file each track's autosave names that could not be read yet (the card was out): a sampler
+  // track's sample, a vocal track's voice pack.
   std::array<std::string, synth::kSynthTrackCount> pendingSamples_;
   std::uint32_t lastKeyAt_ = 0;
   void EndOrphanNotes(std::uint32_t now);
@@ -213,7 +221,7 @@ private:
   std::uint32_t (*clock_)() = nullptr;
   HeapProbe heapProbe_ = nullptr;
   // By SynthEngineKind: the most an engine of the kind gave back when destroyed (0 = none yet).
-  std::array<std::size_t, 5> engineBytes_{};
+  std::array<std::size_t, synth::kSynthEngineKindCount> engineBytes_{};
   synth::SynthRack rack_;
   synth::SamplerManager sampler_;
   synth::SynthSequencer sequencer_;

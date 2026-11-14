@@ -96,6 +96,15 @@ protected:
   virtual bool ShouldSyncParameterToRuntime(const SynthParameterInfo& parameter) const;
   virtual bool ShouldSyncParameterOnPresetLoad(const SynthParameterInfo& parameter) const;
   virtual int FactoryParameterValue(const std::string& presetId, const SynthParameterInfo& parameter) const;
+  // Whether presets hold this parameter. One they do not hold belongs to the track: loading a preset
+  // leaves it alone, saving one leaves it out, and it never counts as an edit of the preset (the Vocal
+  // engine's words). Projects keep it like any other.
+  virtual bool PresetCarries(const SynthParameterInfo& parameter) const;
+  // The runtime was just given this engine's kind, preset and parameters: an engine that has more to
+  // hand it (the Vocal engine's pack) does it here.
+  virtual void OnRuntimeSynced();
+  // The track this engine plays on, static_cast<std::size_t>(-1) before Init.
+  std::size_t EngineIndex() const { return engineIndex_; }
 
 private:
   static constexpr std::size_t kNoFactoryPreset = static_cast<std::size_t>(-1);

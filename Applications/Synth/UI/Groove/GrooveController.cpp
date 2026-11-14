@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <string_view>
 
+#include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
+
 namespace groove {
 
 namespace {
@@ -228,7 +230,7 @@ std::size_t Controller::CollectHeldNotes(std::array<std::uint8_t, kRows * kPadCo
   std::size_t count = 0;
   for (std::size_t index = 0; index < state_.padNote.size(); ++index)
   {
-    if (state_.padNote[index] == kNoNote || state_.padTrack[index] != state_.track) continue;
+    if (state_.padNote[index] == kNoNote || state_.padTrack[index] != state_.track || state_.padPreview[index]) continue;
     for (std::size_t voice = 0; voice < state_.padChordCount[index] && count < notes.size(); ++voice)
     {
       const std::uint8_t note = state_.padChord[index][voice];
@@ -298,6 +300,7 @@ void Controller::ReleaseAllPads()
     state_.padNote[index] = kNoNote;
     state_.padChordCount[index] = 0;
     state_.padEdit[index] = PadEdit{};
+    state_.padPreview[index] = false;
   }
 }
 
@@ -553,6 +556,12 @@ void Controller::PressPad(std::size_t row, std::size_t column)
     PickCellValue(row, column);
     return;
   }
+  // A vocal track's selected steps on the WORD lane: the pads are the singer's pronunciations.
+  if (StepWordPickerActive())
+  {
+    PickWord(row, column);
+    return;
+  }
 
   int note = 0;
   if (!PadNoteFor(row, column, note)) return;
@@ -618,6 +627,7 @@ void Controller::ReleasePad(std::size_t row, std::size_t column)
   SoundPad(index, false);
   state_.padNote[index] = kNoNote;
   state_.padChordCount[index] = 0;
+  state_.padPreview[index] = false;
   // A tap on a lit pad: its notes come out of the selected steps now. Holding it never took them out.
   if (edit.active && edit.removeOnRelease && !edit.used && state_.padTrack[index] == state_.track && state_.scene == Scene::Sequence &&
       CurrentPage() == 0 && TopModal() == nullptr && host_.Sequencer().ToggleNotesOnSelectedSteps(edit.notes.data(), edit.count, edit.velocity))
@@ -964,6 +974,14 @@ void Controller::Adjust(int delta, bool coarse)
     ModalAdjust(delta, coarse);
     return;
   }
+  // SING's WORD cell held: ADD / SUB flip the pads' page of pronunciations.
+  if (WordCellPickerActive())
+  {
+    const int last = static_cast<int>(WordPickPageCount()) - 1;
+    state_.wordPickPage = static_cast<std::uint8_t>(std::clamp(static_cast<int>(state_.wordPickPage) + delta, 0, last));
+    state_.cellPress.picked = true;
+    return;
+  }
   switch (state_.scene)
   {
     case Scene::Instrument: InstrumentAdjust(delta, coarse); break;
@@ -992,6 +1010,7 @@ AdjustMeaning Controller::AdjustKeysMean() const
       case ModalKind::PresetBrowser:
       case ModalKind::SampleBrowser:
       case ModalKind::SampleOptions:
+      case ModalKind::VoiceBrowser:
         return AdjustMeaning::List;
       case ModalKind::EnginePicker:
         return AdjustMeaning::Sideways;
@@ -1007,6 +1026,8 @@ AdjustMeaning Controller::AdjustKeysMean() const
   // The page map and the track map step through what they show.
   const auto& ctrl = state_.left[LeftIndex(KeyRole::Ctrl)];
   if ((ctrl.down && !ctrl.suppressed) || state_.left[LeftIndex(KeyRole::Tab)].down) return AdjustMeaning::Sideways;
+  // SING's WORD cell held: the pages of the singer's pronunciations.
+  if (WordCellPickerActive()) return WordPickPageCount() > 1 ? AdjustMeaning::Sideways : AdjustMeaning::None;
   switch (state_.scene)
   {
     case Scene::Instrument:
@@ -1488,7 +1509,7 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
     if (modal->kind == ModalKind::SampleRecord)
       for (std::size_t index = 0; index < 4; ++index) setGrid(index, choice(index < 2 && modal->trimMarker == index));
     if (modal->kind == ModalKind::EnginePicker)
-      for (std::size_t index = 0; index < modal->items.size() && index < 4; ++index) setGrid(index, choice(index == modal->cursor));
+      for (std::size_t index = 0; index < modal->items.size() && index < kGridCount; ++index) setGrid(index, choice(index == modal->cursor));
     if (modal->kind == ModalKind::Record)
     {
       const RecordState& rec = state_.record;
@@ -1652,7 +1673,27 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
       break;
   }
   // A parameter's cell held: the pads are its values, the current one full.
-  if (CellPickerActive())
+  if (const synth::VocalSynthEngine* vocal = ActiveVocal(); vocal != nullptr && WordPickerActive())
+  {
+    // The word table (SING's WORD cell held, or steps selected on the WORD lane): the pads are a page
+    // of the singer's pronunciations, the word they would change full (and the one a pad is singing).
+    const int current = WordPickCurrent();
+    const std::size_t first = WordPickPage() * kWordPickPadCount;
+    for (std::size_t row = 0; row < kRows; ++row)
+      for (std::size_t column = 0; column < kPadColumns; ++column)
+      {
+        const std::size_t entry = first + row * kPadColumns + column;
+        const bool chosen = static_cast<int>(entry) == current || IsPadDown(row, kPadFirstColumn + column);
+        set(KeyIndex(row, kPadFirstColumn + column), entry >= vocal->Pack().EntryCount() ? kLedOff : choice(chosen));
+      }
+    if (WordCellPickerActive())
+    {
+      const bool pages = WordPickPageCount() > 1;
+      set(addKey, pages ? kLedHalf : kLedOff);
+      set(subKey, pages ? kLedHalf : kLedOff);
+    }
+  }
+  else if (CellPickerActive())
   {
     std::string label, text;
     synth::SynthParameterInfo info;

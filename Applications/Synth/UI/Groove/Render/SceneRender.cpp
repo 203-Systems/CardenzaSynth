@@ -1,16 +1,20 @@
 #include "Applications/Synth/UI/Groove/Render/GrooveRenderer.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
 
 #include "CardenzaBuildInfo.h"
+#include "Applications/Synth/Runtime/Vocal/VoicePacks.h"
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Applications/Synth/UI/Groove/Render/Widgets.h"
+#include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
 
 namespace groove::render {
 
@@ -63,6 +67,14 @@ std::string Pad2(std::size_t value)
   char text[12];
   std::snprintf(text, sizeof(text), "%02u", static_cast<unsigned>(value));
   return text;
+}
+
+// The name of the word a step of a vocal track sings ("?" for one its singer does not have); empty
+// for a step without a word of its own, and on any other track.
+std::string StepWord(const Controller& controller, int word)
+{
+  const synth::VocalSynthEngine* vocal = controller.ActiveVocal();
+  return vocal == nullptr || word < 0 ? std::string() : vocal->WordName(word);
 }
 
 void GridRipple(Gfx& g, Animator& animator, std::size_t index, Color color)
@@ -221,7 +233,14 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
   const int infoY = area.y + (huge ? 23 : 21);
   int x = g.Text(area.x, infoY, EngineShortName(host.EngineKind(state.track)), TrackColor(state.track));
   if (engine != nullptr && engine->CurrentPresetId().rfind("user.", 0) == 0) x = g.Text(x + 6, infoY, "USER", kFn);
-  if (host.EngineKind(state.track) != synth::SynthEngineKind::Drums)
+  if (const synth::VocalSynthEngine* vocal = synth::VocalSynthEngine::From(engine))
+  {
+    // A vocal track: who sings (the pack's own name), in place of the keyboard's layout.
+    std::string singer = vocal->Pack().Name();
+    std::transform(singer.begin(), singer.end(), singer.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    g.TextFit(x + 8, infoY, area.x + area.width - x - 8, "SINGER " + singer, kDim);
+  }
+  else if (host.EngineKind(state.track) != synth::SynthEngineKind::Drums)
   {
     const KeyboardSettings& keys = state.keyboard;
     std::string detail = std::string(kLayoutNames[static_cast<std::size_t>(keys.layout)]);
@@ -598,6 +617,71 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
     case PageGraphic::DrumPads:
       DrawPads(g, controller, animator, area, engine);
       break;
+    case PageGraphic::Sing:
+    {
+      // How a note is sung, as its pitch over time: a first note, the next one played over it (MONO
+      // glides to it, POLY starts a voice of its own), then the vibrato coming in after its delay.
+      const bool poly = EngineRaw(engine, "voice.mode") != 0;
+      const float glide = Glide(animator, track, engine, "voice.glide");
+      const float depth = Glide(animator, track, engine, "vib.depth");
+      const float rate = Glide(animator, track, engine, "vib.rate", 0.5f);
+      const float delay = Glide(animator, track, engine, "vib.delay");
+      g.Text(area.x + 2, area.y, poly ? "POLY  NOTES TOGETHER = A CHORD" : "MONO  NOTES TOGETHER = A SLUR", kDim);
+      // The track's own word, and the one being sung now when a step's word (or a picked one) sounds.
+      if (const synth::VocalSynthEngine* vocal = synth::VocalSynthEngine::From(engine))
+      {
+        const int singing = host.VocalStatus(track).singing;
+        const std::string text = singing >= 0 && singing != vocal->Word() ? "SINGING " + vocal->WordName(singing)
+                                                                           : "SINGS " + vocal->WordName(vocal->Word()) + " WHERE A STEP HAS NO WORD";
+        g.TextFit(area.x + 2, area.y + 9, area.width - 4, text, singing >= 0 ? TrackColor(track) : kDim);
+      }
+      const Rect graph{area.x + 2, area.y + 20, area.width - 4, area.height - 22};
+      const int low = graph.y + graph.height - 6;
+      const int high = graph.y + 8;
+      const int first = graph.width / 5;                                             // the first note
+      const int slide = poly ? 0 : static_cast<int>(glide * static_cast<float>(graph.width) * 0.22f);
+      const int vibrato = first + slide + 6 + static_cast<int>(delay * static_cast<float>(graph.width) * 0.3f);
+      const Color line = activity > 0.02f ? TrackColor(track) : kInk;
+      g.DottedHLine(graph.x, low, graph.width, kFaint, 3);
+      g.DottedHLine(graph.x, high, graph.width, kFaint, 3);
+      g.HLine(graph.x, low, first, line);
+      if (poly) g.HLine(graph.x + first, low, graph.width - first, kDim);  // the first voice goes on under the second
+      const float phase = activity > 0.02f ? static_cast<float>(now) / 160.0f : 0.0f;
+      int previous = poly ? high : low;
+      for (int x = first; x < graph.width; ++x)
+      {
+        float y = static_cast<float>(high);
+        if (!poly && x < first + slide) y = static_cast<float>(low) + static_cast<float>(high - low) * static_cast<float>(x - first) / static_cast<float>(std::max(1, slide));
+        if (x > vibrato)
+        {
+          const float fade = std::min(1.0f, static_cast<float>(x - vibrato) / 14.0f);
+          y += std::sin(static_cast<float>(x - vibrato) * (0.25f + rate * 0.5f) + phase) * depth * 6.0f * fade;
+        }
+        const int row = static_cast<int>(std::lround(y));
+        g.VLine(graph.x + x, std::min(row, previous), std::abs(row - previous) + 1, line);
+        previous = row;
+      }
+      if (depth > 0.0f) g.DottedVLine(graph.x + vibrato, graph.y, graph.height, kFaint, 2);
+      break;
+    }
+    case PageGraphic::VocalAmp:
+    {
+      // The level over a note: the attack, the note held, the release after it is let go. The times
+      // are drawn by their settings (short ones are most of the range).
+      const float level = Glide(animator, track, engine, "amp.level", 0.75f);
+      const Rect graph{area.x + 2, area.y + 12, area.width - 4, area.height - 14};
+      g.Text(area.x + 2, area.y, "NOTE ON", kDim);
+      widgets::Envelope(g, graph,
+                        {{0.03f + 0.6f * Glide(animator, track, engine, "env.attack"), 0.02f, 0.02f, 0.5f,
+                          0.03f + 0.6f * Glide(animator, track, engine, "env.release")}},
+                        {{level, level, level, level, 0.0f}}, kInk);
+      if (activity > 0.02f)
+      {
+        const float position = std::fmod(static_cast<float>(now) / 900.0f, 1.0f);
+        g.VLine(graph.x + static_cast<int>(position * static_cast<float>(graph.width)), graph.y, graph.height, kTab);
+      }
+      break;
+    }
     case PageGraphic::None:
     default:
       break;
@@ -653,11 +737,74 @@ void DrawSlotPage(Gfx& g, const Controller& controller, Animator& animator, cons
   }
 }
 
+// The word table of a vocal track (Controller::WordPickerActive): the pads are the singer's
+// pronunciations, laid out as the pads are (four rows of eight), a page of them at a time. The word
+// the table would change is inverse; the one a pad is singing fills with the track's colour.
+void DrawWordPicker(Gfx& g, const Controller& controller, Animator& animator)
+{
+  const UiState& state = controller.State();
+  const synth::VocalSynthEngine* vocal = controller.ActiveVocal();
+  if (vocal == nullptr) return;
+  (void)animator;
+  const synth::vocal::Pack& pack = vocal->Pack();
+  const int current = controller.WordPickCurrent();
+  const std::size_t page = controller.WordPickPage();
+  const std::size_t pages = controller.WordPickPageCount();
+  // What is being given a word: the track (SING's WORD cell), or the selected steps.
+  int x = kContentX;
+  if (controller.StepWordPickerActive())
+  {
+    const auto seq = controller.HostView().Sequencer().BuildUiState(state.track);
+    const std::string steps = seq.heldStepCount > 1 ? std::to_string(seq.heldStepCount) + " STEPS" : "STEP " + std::to_string(seq.primaryHeldStep + 1);
+    x = g.Text(x, kContentY, steps, kCtrl);
+    x = g.Text(x + 6, kContentY, current < 0 ? "TRACK'S " + vocal->WordName(vocal->Word()) : vocal->WordName(current), current < 0 ? kDim : kInk);
+  }
+  else
+  {
+    x = g.Text(x, kContentY, "WORD", kCtrl);
+    x = g.Text(x + 6, kContentY, vocal->WordName(current), kInk);
+  }
+  g.Text(x + 8, kContentY, "PADS PICK", kFaint);
+  if (pages > 1)
+  {
+    const std::string count = std::to_string(page + 1) + "/" + std::to_string(pages);
+    g.Text(kContentRight - Gfx::Measure(count), kContentY, count, kFn);
+  }
+  g.DottedHLine(kContentX, kContentY + 10, kContentWidth, kFaint);
+  const int top = kContentY + 14;
+  const int columnWidth = kContentWidth / static_cast<int>(kPadColumns);
+  const int rowHeight = (kContentY + kContentHeight - top) / static_cast<int>(kRows);
+  for (std::size_t row = 0; row < kRows; ++row)
+    for (std::size_t column = 0; column < kPadColumns; ++column)
+    {
+      const std::size_t entry = page * Controller::kWordPickPadCount + row * kPadColumns + column;
+      const Rect cell{kContentX + static_cast<int>(column) * columnWidth, top + static_cast<int>(row) * rowHeight, columnWidth - 2, rowHeight - 2};
+      if (entry >= pack.EntryCount())
+      {
+        g.Pixel(cell.x + cell.width / 2, cell.y + cell.height / 2, kShade);
+        continue;
+      }
+      const bool chosen = static_cast<int>(entry) == current;
+      const bool sung = controller.IsPadDown(row, kPadFirstColumn + column);
+      if (sung) g.Fill(cell, TrackColor(state.track));
+      else if (chosen) g.Fill(cell, kInk);
+      else g.Stroke(cell, kFaint);
+      const std::string_view name = pack.EntryNameAt(static_cast<unsigned>(entry));
+      const int width = std::min(cell.width - 2, Gfx::Measure(name));
+      g.TextFit(cell.x + 1 + (cell.width - 2 - width) / 2, cell.y + (cell.height - 7) / 2, cell.width - 2, name, sung || chosen ? kBlack : kInk);
+    }
+}
+
 void InstrumentScene(Gfx& g, const Controller& controller, Animator& animator, std::uint8_t pageIndex)
 {
   const InstrumentPageList list = controller.InstrumentPages();
   const std::size_t index = std::min<std::size_t>(pageIndex, list.count - 1);
   const UiState& state = controller.State();
+  if (index == controller.CurrentPage() && controller.WordCellPickerActive())
+  {
+    DrawWordPicker(g, controller, animator);
+    return;
+  }
   const std::uint8_t focus = state.instrumentFocus[std::min<std::size_t>(index, state.instrumentFocus.size() - 1)];
   DrawSlotPage(g, controller, animator, list.pages[index], focus, index == controller.CurrentPage(),
                Animator::Key("instr-focus", static_cast<std::uint32_t>(state.track) * 16u + static_cast<std::uint32_t>(index)));
@@ -913,6 +1060,18 @@ void DrawPianoRoll(Gfx& g, const Controller& controller, Animator& animator, con
     else g.Stroke(cell, kShade);
     if (step % 4 == 0) g.Text(cell.x, stripY - 8, std::to_string(first + step + 1), kFaint, Font::Micro);
   }
+  // A vocal track: the word each step sings, along the top of its column (as much of its name as the
+  // column holds).
+  if (controller.ActiveVocal() != nullptr)
+    for (std::size_t step = 0; step < steps; ++step)
+    {
+      const std::string word = StepWord(controller, seq.steps[step].word);
+      if (word.empty()) continue;
+      const int x = x0 + static_cast<int>(step) * column;
+      const std::string_view shown = std::string_view(word).substr(0, static_cast<std::size_t>(std::max(1, column / Gfx::Advance(Font::Micro))));
+      g.Fill(Rect{x + 1, top, column - 1, 8}, seq.steps[step].held ? kInk : kBlack);
+      g.Text(x + 1, top, shown, seq.steps[step].held ? kBlack : trackColor, Font::Micro);
+    }
   // An empty pattern says how to fill it, unless a held note's row is to be seen.
   if (seq.populatedStepCount == 0 && pressedHigh < 0)
   {
@@ -1156,6 +1315,9 @@ void DrawStepMachine(Gfx& g, const Controller& controller, Animator& animator, c
     if (velocity != 0 && late != 0)
       g.Fill(Rect{cell.x + (cell.width - 4) * late / (synth::kSequencerMicrostepCount - 1), cell.y + cell.height - 3, 4, 2}, marked ? kBlack : kInk);
     g.Text(cell.x + 2, cell.y + 2, Pad2(step + 1), marked ? kBlack : (velocity != 0 ? kInk : (index % 4 == 0 ? kDim : kFaint)), Font::Micro);
+    // A vocal track: the word the step sings, under its number.
+    if (const std::string word = StepWord(controller, info.word); !word.empty() && cell.height >= 18)
+      g.TextFit(cell.x + 2, cell.y + 10, cell.width - 3, word, marked ? kBlack : (velocity != 0 ? kInk : trackColor), Font::Micro);
   }
 }
 
@@ -1170,6 +1332,12 @@ void SequenceScene(Gfx& g, const Controller& controller, Animator& animator, std
   {
     case 0:
     {
+      // A vocal track's selected steps on the WORD lane: the word table, as the pads now lie.
+      if (controller.StepWordPickerActive())
+      {
+        DrawWordPicker(g, controller, animator);
+        break;
+      }
       // ROLL or STEP (the machine), drum and melodic tracks alike.
       if (controller.View() == SeqView::Roll) DrawPianoRoll(g, controller, animator, seq);
       else DrawStepMachine(g, controller, animator, seq);

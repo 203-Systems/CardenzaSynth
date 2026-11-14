@@ -151,10 +151,11 @@ void DrawConfirm(Gfx& g, Animator& animator, const Modal& modal)
 void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, const Modal& modal)
 {
   Title(g, "ENGINE  T" + std::to_string(controller.State().track + 1), kTab);
-  static constexpr std::array<const char*, 4> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT"}};
-  for (std::size_t index = 0; index < modal.items.size() && index < 4; ++index)
+  static constexpr std::array<const char*, 5> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT", "SINGS WORDS"}};
+  // Four to a row, from the second row down, as the GRID's keys choose them.
+  for (std::size_t index = 0; index < modal.items.size() && index < 8; ++index)
   {
-    const Rect cell = Cell(1, index);
+    const Rect cell = Cell(1 + index / 4, index % 4);
     const bool selected = index == modal.cursor;
     const auto& item = modal.items[index];
     if (selected)
@@ -167,9 +168,9 @@ void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, 
     if (item.marked) g.Text(cell.x + 3, cell.y + 15, "NOW", selected ? kBlack : kTab);
   }
   if (modal.cursor < kDetails.size())
-    fx::DecodeText(g, Cell(2, 0).x, Cell(2, 0).y + 6, kDetails[modal.cursor], kDim, Font::Micro,
+    fx::DecodeText(g, Cell(3, 0).x, Cell(3, 0).y + 3, kDetails[modal.cursor], kDim, Font::Micro,
                    fx::Progress(animator.Now(), animator.ModalOpenedAt(), 400), static_cast<std::uint32_t>(modal.cursor) + animator.Now() / 50);
-  g.Text(Cell(3, 0).x, Cell(3, 0).y + 6, "THE TRACK SOUND IS REPLACED", kFaint);
+  g.Text(Cell(3, 0).x, Cell(3, 0).y + 14, "THE TRACK SOUND IS REPLACED", kFaint);
 }
 
 void DrawSampleRecord(Gfx& g, const Controller& controller, Animator& animator)
@@ -349,6 +350,7 @@ void ModalContent(Gfx& g, const Controller& controller, Animator& animator, cons
     case ModalKind::PresetBrowser:
     case ModalKind::SampleBrowser: DrawList(g, controller, animator, modal, true); break;
     case ModalKind::SampleOptions: DrawList(g, controller, animator, modal, false); break;
+    case ModalKind::VoiceBrowser: DrawList(g, controller, animator, modal, false); break;
     case ModalKind::EnginePicker: DrawEnginePicker(g, controller, animator, modal); break;
     case ModalKind::SampleRecord: DrawSampleRecord(g, controller, animator); break;
     case ModalKind::Menu: MenuContent(g, controller, animator, 1.0f); break;
@@ -369,6 +371,7 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
     case ModalKind::PresetBrowser: return "ENTER LOAD   FN+F SEARCH   ESC BACK";
     case ModalKind::SampleBrowser: return "ENTER LOAD  FN+F SEARCH  FN+ENTER EDIT";
     case ModalKind::SampleOptions: return "ENTER CHOOSE   ESC BACK";
+    case ModalKind::VoiceBrowser: return "ENTER SINGS AS   ESC BACK";
     case ModalKind::EnginePicker: return "GRID OR SUB ADD   ENTER SWITCH";
     case ModalKind::Menu: return "GRID RUNS   FN OR ESC CLOSES";
     case ModalKind::Record: return "+- BAR  OK NEW PATTERN  FN+OK MERGE";

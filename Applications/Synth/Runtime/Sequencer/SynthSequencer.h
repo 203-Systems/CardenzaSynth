@@ -27,6 +27,24 @@ public:
   void SetMidiSink(MidiSink sink, void* context);
   void SetActiveTrack(std::size_t trackIndex);
 
+  // A vocal track's steps carry words: `count` is how many the singer has (0: the track has none).
+  // A step's word is kept as a note of the step, a word key (Library/Synth/Audio/SynthVocal.h: a note
+  // below vocal::kWordKeyCount whose velocity says which word), so it plays, copies and pastes with
+  // the step like any note and needs nothing of the project format. It is no note to look at or edit:
+  // StepNotes, StepNoteEvents and the UI state's step fields leave it out (StepWord and
+  // SequencerStepUiState::word have it), NOTE and VEL edits neither change it nor move a note among
+  // the keys, and the WORD lane edits it (AdjustSelectedSteps: none, then word 0 to count - 1).
+  // Not project data: the app sets it for the engine and the singer a track has.
+  void SetTrackWords(std::size_t track, std::uint16_t count);
+  std::uint16_t TrackWords(std::size_t track) const;
+  // The word a step of the track's active pattern sings, -1 for none.
+  int StepWord(std::size_t track, std::size_t step) const;
+  // Gives every selected step this word (-1: none). True when a step changed.
+  bool SetWordOnSelectedSteps(int word);
+  // Takes the word out of every step of every pattern of the track: for a vocal track about to become
+  // another engine, which would play the word keys as very low notes. True when any was there.
+  bool ClearWords(std::size_t track);
+
   void Play();
   void Resume();
   void Stop();
@@ -559,6 +577,11 @@ private:
   std::array<PlaybackNote, kMaxPlaybackNotes> playbackNotes_{};
   std::size_t activeTrack_ = 0;
   SequencerEditLane editLane_ = SequencerEditLane::Note;
+  // Words a track's steps may carry (0: none), and the notes below which are its word keys then.
+  std::array<std::uint16_t, kSynthTrackCount> wordCount_{};
+  std::array<std::uint8_t, kSynthTrackCount> keyNotes_{};
+  // Gives a step its word (-1: none) as a word key. False when nothing changed.
+  bool SetStepWordLocked(StepData& step, std::uint8_t keys, int word);
   bool playing_ = false;
   std::size_t playbackStep_ = 0;
   std::uint64_t absolutePulse_ = 0;
