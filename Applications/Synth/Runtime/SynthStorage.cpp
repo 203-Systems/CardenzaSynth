@@ -34,7 +34,7 @@ std::string SessionDirectory()
 bool EnsureLayout()
 {
   // One preset folder per engine (SynthDescriptor::displayName).
-  static const std::vector<std::string> engines{"DX7", "Juno", "Sampler", "Drums"};
+  static const std::vector<std::string> engines{"DX7", "Juno", "Sampler", "Drums", "Braids"};
   return os::storage::EnsureAppLayout(AppFolder(), engines);
 }
 

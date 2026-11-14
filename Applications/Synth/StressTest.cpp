@@ -71,7 +71,7 @@ struct Result {
   std::uint16_t lostHeld;     // held notes faded: a note missing
   std::uint16_t lostUnheard;  // notes left out before they sounded: a note missing
   std::uint16_t lostStolen;   // held notes whose voice a newer one took (the track's voices all held)
-  std::uint16_t dx7Us, junoUs, drumsUs, overheadUs;  // the budget's model at the end
+  std::uint16_t dx7Us, junoUs, drumsUs, braidsUs, overheadUs;  // the budget's model at the end
   std::uint16_t scalePercent;
   std::uint16_t uiMaxMs;
   std::uint16_t uiDrops;
@@ -91,11 +91,11 @@ struct Persist {
   Result results[kMaxScenarios];
 };
 static_assert(std::is_trivially_default_constructible_v<Persist>, "a constructor would clear it at every start");
-constexpr std::uint32_t kMagic = 0x53545231u;  // "STR1"
+constexpr std::uint32_t kMagic = 0x53545232u;  // "STR2": Result gained braidsUs
 RTC_NOINIT_ATTR Persist g_persist;
 
 enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
-enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, Braids };
 
 struct Scenario {
   std::string name;
@@ -130,6 +130,7 @@ std::string ProjectName(Variant variant)
     case Variant::Sampler: return std::string(kPrefix) + "SAMPLER";
     case Variant::FxMax: return std::string(kPrefix) + "FXMAX";
     case Variant::MaxPatterns: return std::string(kPrefix) + "MAX";
+    case Variant::Braids: return std::string(kPrefix) + "BRAIDS";
     case Variant::None: break;
   }
   return std::string(kPrefix) + "NONE";
@@ -276,6 +277,22 @@ synth::ProjectData MakeProject(Variant variant)
       steps = static_cast<int>(synth::kSequencerMaxSteps);
       break;
     }
+    case Variant::Braids:
+    {
+      // Four Braids tracks, every voice of each busy, on its dearest models: the swarm of saws, four
+      // wavetable voices a note, the plucked strings (with their delay lines in PSRAM) and the bell's
+      // eleven partials, with a chorus and both sends on top.
+      const char* presets[] = {"braids.swarm", "braids.chord", "braids.pluck", "braids.bell"};
+      for (std::size_t track = 0; track < tracks.size(); ++track)
+      {
+        tracks[track] = TrackSpec{SynthEngineKind::Braids, presets[track], "", 4, track < 2 ? 2 : 1, track < 2 ? 96 : 24, 40 + 7 * static_cast<int>(track)};
+        tracks[track].chorus = 2;
+        tracks[track].reverb = 70;
+        tracks[track].delay = 40;
+      }
+      bpm = 140;
+      break;
+    }
     case Variant::None: break;
   }
 
@@ -367,6 +384,7 @@ std::vector<Scenario> BuildScenarios()
   add("drums-300bpm", Kind::Generated, Variant::DrumsFast, 25);
   add("arps-1/32", Kind::Generated, Variant::Arps, 25);
   add("sampler", Kind::Generated, Variant::Sampler, 25);
+  add("braids", Kind::Generated, Variant::Braids, 30);
   add("fx-max", Kind::Generated, Variant::FxMax, 25);
   add("max-patterns", Kind::Generated, Variant::MaxPatterns, 25);
   add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
@@ -539,11 +557,11 @@ void PrintResult(std::size_t index)
   const Result& r = g_persist.results[index];
   static const char* const kStates[] = {"not run", "running", "done", "RESTARTED"};
   std::printf("stress: %2u %-18s %-9s %s render %u/%u us under %u | notes lost: held %u unheard %u stolen %u (tails %u) | ui max %u ms drops %u | "
-              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | voice us dx7 %u juno %u drums %u, other %u, scale %u%% | %s\n",
+              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | voice us dx7 %u juno %u drums %u braids %u, other %u, scale %u%% | %s\n",
               static_cast<unsigned>(index), index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?", kStates[r.state & 3],
               r.state == 2 ? (r.ok ? "ok  " : "FAIL") : "    ", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
               r.lostTails, r.uiMaxMs, r.uiDrops, r.seqLatestUs, r.seqLate, r.ramMinKb, r.psramMinKb, r.opMaxMs, r.opUnderruns, r.dx7Us, r.junoUs,
-              r.drumsUs, r.overheadUs, r.scalePercent, r.note);
+              r.drumsUs, r.braidsUs, r.overheadUs, r.scalePercent, r.note);
 }
 
 // One short line a scenario for the summary repeated at the end: the USB console drops long bursts.
@@ -788,6 +806,7 @@ void FinishWindow(GrooveApp& app, std::size_t index)
   result.dx7Us = Cap16(static_cast<std::uint32_t>(model.dx7Micros));
   result.junoUs = Cap16(static_cast<std::uint32_t>(model.junoMicros));
   result.drumsUs = Cap16(static_cast<std::uint32_t>(model.drumsMicros));
+  result.braidsUs = Cap16(static_cast<std::uint32_t>(model.braidsMicros));
   result.overheadUs = Cap16(static_cast<std::uint32_t>(model.overheadMicros));
   result.scalePercent = Cap16(static_cast<std::uint32_t>(model.budgetScale * 100.0f));
   result.uiMaxMs = Cap16(window.uiMaxMs);

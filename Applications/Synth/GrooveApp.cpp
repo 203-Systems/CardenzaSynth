@@ -28,6 +28,7 @@
 #include "Applications/Synth/UI/Groove/Render/GrooveRenderer.h"
 #include "Devices/Device.h"
 #include "Devices/LedLight.h"
+#include "Library/Synth/Audio/Braids/BraidsVoice.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "OS/MIDI/MIDI.h"
 #include "OS/Storage/DeviceSettings.h"
@@ -88,6 +89,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return 6 * 1024;
     case synth::SynthEngineKind::Sampler: return 6 * 1024;
     case synth::SynthEngineKind::Drums: return 4 * 1024;
+    case synth::SynthEngineKind::Braids: return 6 * 1024;
     case synth::SynthEngineKind::None:
     default: return 0;
   }
@@ -96,7 +98,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
 std::size_t KindIndex(synth::SynthEngineKind kind)
 {
   const auto index = static_cast<std::size_t>(kind);
-  return index < 5 ? index : 0;
+  return index < 6 ? index : 0;
 }
 
 os::storage::Settings& AppSettings()
@@ -1033,6 +1035,11 @@ float GrooveApp::FxReturnLevel(std::size_t bus) const
 bool GrooveApp::FxBusAvailable(std::size_t bus) const
 {
   return synth::audio::FxBusAvailable(bus);
+}
+
+bool GrooveApp::BraidsWave(int model, int timbre, int color, std::int8_t* out, std::size_t count) const
+{
+  return synth::braids::RenderPreview(model, timbre, color, out, count);
 }
 
 void GrooveApp::ApplyMasterFx(const std::array<std::uint8_t, synth::fx::kMasterParamCount>& values)

@@ -11,6 +11,7 @@ enum class SynthEngineKind {
   Juno,
   Sampler,
   Drums = 4,
+  Braids = 5,  // Mutable Instruments' macro oscillator (Library/third_party/braids)
 };
 
 enum class OverlayPage {

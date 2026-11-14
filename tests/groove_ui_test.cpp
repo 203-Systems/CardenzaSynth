@@ -107,6 +107,133 @@ void GoToInstrumentPage(Harness& h, const char* tab)
   assert(std::string(h.App().Ui().CurrentInstrumentPage()->tab) == tab);
 }
 
+// The Braids engine through the UI: chosen in the ENGINE picker, its pages in signal order, the OSC
+// page's waveform for every model on every theme, a note played and let go, and a project that keeps it.
+void TestBraids(Harness& h)
+{
+  using Kind = synth::SynthEngineKind;
+  auto& app = h.App();
+  std::array<std::int16_t, 256> block{};
+  const auto render = [&](int blocks) { for (int index = 0; index < blocks; ++index) synth::audio::RenderFrames(block.data(), block.size()); };
+  const auto closeModals = [&]() { for (int i = 0; i < 6 && h.Modal() != nullptr; ++i) h.Tap(kEsc); };
+  closeModals();
+  GoToScene(h, 1);
+  h.Chord(kTab, Grid(1));  // T2
+  assert(h.State().track == 1);
+  {
+    // Whatever T2 holds, with no edits to ask about.
+    std::string error;
+    assert(app.EngineKind(1) == Kind::Juno || app.SwitchEngine(1, Kind::Juno, error));
+    assert(app.Engine(1)->LoadPreset(app.Engine(1)->CurrentPresetId()));
+  }
+  GoToInstrumentPage(h, "VOICE");
+  h.Tap(Grid(0));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 5);
+  assert(h.Modal()->items[4].label == "BRAIDS" && h.Modal()->items[1].marked);
+  h.Render();
+  // The fifth engine is the first key of the GRID's second row; its light shows it can be chosen.
+  app.UpdateLeds();
+  assert(Device::LED::Brightness(1, 9) != 0 && Device::LED::Brightness(1, 10) == 0);
+  h.Tap(Grid(4));
+  assert(h.Modal() == nullptr && app.EngineKind(1) == Kind::Braids);
+  assert(app.Engine(1)->CurrentPresetName() == "CS Saw" && !app.Engine(1)->HasEdits());
+  h.Render();
+
+  // Its pages: the preset, the track's MIDI effects, the oscillator, the envelopes, the LFO, the inserts.
+  const groove::InstrumentPageList pages = app.Ui().InstrumentPages();
+  const std::array<const char*, 8> tabs{{"VOICE", "CHORD", "ARP", "OSC", "ENV", "MOD", "LFO", "FX"}};
+  assert(pages.count == tabs.size());
+  for (std::size_t page = 0; page < pages.count; ++page) assert(std::string(pages.pages[page].tab) == tabs[page]);
+  // Every parameter of the engine is on a page (the effects on FX).
+  {
+    synth::SynthPageRequest request;
+    request.limit = 64;
+    for (const synth::SynthParameterInfo& parameter : app.Engine(1)->ListParameters(request).items)
+    {
+      bool shown = false;
+      for (std::size_t page = 0; page < pages.count; ++page)
+        for (const groove::Slot& slot : pages.pages[page].slots) shown = shown || (slot.IsParameter() && parameter.id == slot.id);
+      assert(shown);
+    }
+  }
+
+  // OSC: MODEL is a choice (ADD steps through the models), the waveform draws for every one of them,
+  // on every theme, with the delay-line models among them.
+  GoToInstrumentPage(h, "OSC");
+  assert(app.Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::Macro);
+  h.Tap(Grid(1));  // TIMBRE first: a tap on the cell in focus would step a choice
+  h.Tap(Grid(0));
+  assert(ParameterValue(app, 1, "osc.model") == 0);
+  h.Tap(kAdd);
+  assert(ParameterValue(app, 1, "osc.model") == 1 && app.Engine(1)->DescribeParameterValue("osc.model") == "MORPH");
+  assert(app.Engine(1)->HasEdits());
+  h.Tap(Grid(0));  // in focus now: the next model
+  assert(ParameterValue(app, 1, "osc.model") == 2);
+  h.Tap(kSub);
+  h.Tap(kSub);
+  h.Tap(kSub);
+  assert(ParameterValue(app, 1, "osc.model") == 0);
+  synth::SynthParameterInfo model;
+  assert(app.Engine(1)->GetParameterInfo("osc.model", model) && model.minValue == 0 && model.maxValue == 46);
+  const os::storage::Theme themeBefore = app.ScreenTheme();
+  for (const os::storage::Theme theme : {os::storage::Theme::Dark, os::storage::Theme::Light, os::storage::Theme::Retro})
+  {
+    app.SetScreenTheme(theme);
+    for (int value = model.minValue; value <= model.maxValue; ++value)
+    {
+      assert(app.Engine(1)->SetParameterValue("osc.model", value));
+      h.Frames();
+      h.Render();
+    }
+  }
+  app.SetScreenTheme(themeBefore);
+  std::array<std::int8_t, 192> wave{};
+  assert(app.BraidsWave(28, 64, 64, wave.data(), wave.size()));  // PLUCK: with delay lines
+  assert(app.BraidsWave(0, 40, 64, wave.data(), wave.size()));
+  assert(std::any_of(wave.begin(), wave.end(), [](std::int8_t sample) { return sample > 20; }) &&
+         std::any_of(wave.begin(), wave.end(), [](std::int8_t sample) { return sample < -20; }));
+  // The other pages draw too, with something set on each.
+  assert(app.Engine(1)->SetParameterValue("osc.model", 3) && app.Engine(1)->SetParameterValue("mod.timbre", 30) &&
+         app.Engine(1)->SetParameterValue("mod.pitch", -12) && app.Engine(1)->SetParameterValue("lfo.color", 50));
+  for (const char* tab : {"ENV", "MOD", "LFO", "FX"})
+  {
+    GoToInstrumentPage(h, tab);
+    h.Render();
+  }
+  assert(app.Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::FxChain);
+  GoToInstrumentPage(h, "MOD");
+  assert(app.Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::ModEnvelope);
+
+  // A pad plays it: the track sounds, holds its note, and lets it go.
+  render(4);
+  const Key pad{3, 4};
+  h.Down(pad);
+  render(8);
+  assert(app.TrackActivity(1) > 0.0f);
+  const synth::audio::NoteSet held = synth::audio::HeldNotes(1);
+  assert(std::any_of(held.begin(), held.end(), [](std::uint32_t word) { return word != 0; }));
+  h.Render();
+  h.Up(pad);
+  render(8);
+  const synth::audio::NoteSet released = synth::audio::HeldNotes(1);
+  assert(std::all_of(released.begin(), released.end(), [](std::uint32_t word) { return word == 0; }));
+
+  // A project keeps the engine and its sound: saved, replaced by a new project, loaded again.
+  groove::ProjectUiSettings settings = app.Ui().Settings();
+  std::string message;
+  assert(app.SaveProject("BRAIDS TEST", true, settings, message) == groove::SaveResult::Ok);
+  assert(app.NewProject(settings, message) && app.EngineKind(1) == Kind::Juno);
+  assert(app.LoadProject("BRAIDS TEST", settings, message));
+  assert(app.EngineKind(1) == Kind::Braids);
+  assert(ParameterValue(app, 1, "osc.model") == 3 && ParameterValue(app, 1, "mod.timbre") == 30 && ParameterValue(app, 1, "mod.pitch") == -12 &&
+         ParameterValue(app, 1, "lfo.color") == 50);
+  render(4);
+  // Back to the rack the other tests expect.
+  assert(app.NewProject(settings, message) && app.EngineKind(1) == Kind::Juno);
+  render(4);
+  h.Frames(4);
+}
+
 // Every engine: the preset list opens, every row draws, and a sound loads.
 void TestPresetBrowsers(Harness& h)
 {
@@ -3241,8 +3368,9 @@ void TestEveryParameter(Harness& h)
       for (std::size_t track = 0; track < 4; ++track) (void)app.Sequencer().SetStepNotes(track, step, notes, 1 + track, 110);
     }
   };
-  const std::array<std::array<Kind, 4>, 2> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
-                                                 {{Kind::Juno, Kind::Dx7, Kind::Sampler, Kind::Drums}}}};
+  const std::array<std::array<Kind, 4>, 3> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
+                                                 {{Kind::Juno, Kind::Dx7, Kind::Sampler, Kind::Drums}},
+                                                 {{Kind::Braids, Kind::Drums, Kind::Braids, Kind::Juno}}}};
   struct Walk { groove::Scene scene; std::size_t track; };
   const std::array<Walk, 10> walks{{{groove::Scene::Tape, 0},
                                     {groove::Scene::Instrument, 0}, {groove::Scene::Instrument, 1},
@@ -3393,6 +3521,7 @@ int main()
   TestComputerMidi(h);
   TestGuide(h);
   TestEveryParameter(h);
+  TestBraids(h);
   // Last: it runs every item of the SEQ menu, which changes the pattern.
   TestMenuFeedback(h);
 

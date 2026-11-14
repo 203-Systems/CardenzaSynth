@@ -83,6 +83,9 @@ public:
   // Decaying 0..1 level of a bus return (synth::fx::kBusDelay / kBusReverb).
   virtual float FxReturnLevel(std::size_t bus) const = 0;
   virtual bool FxBusAvailable(std::size_t bus) const = 0;
+  // A Braids model's waveform for the OSC page: `count` samples (-127..127), two periods, at these
+  // TIMBRE and COLOR (0..127). False without memory for it.
+  virtual bool BraidsWave(int model, int timbre, int color, std::int8_t* out, std::size_t count) const = 0;
 
   // Projects.
   virtual std::vector<std::string> ListProjects() const = 0;
