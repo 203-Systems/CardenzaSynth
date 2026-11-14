@@ -2237,6 +2237,7 @@ void ApplyPendingEvent(const PendingEvent& event)
           break;
         case SynthEngineKind::Wave:
           ApplyWaveParameterNoLock(engine, event.text, event.value);
+          break;
         case SynthEngineKind::Braids:
           ApplyBraidsParameterNoLock(engine, event.text, event.value);
           break;
