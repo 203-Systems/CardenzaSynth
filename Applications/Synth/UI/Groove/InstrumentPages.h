@@ -45,6 +45,8 @@ enum class PageGraphic : std::uint8_t {
   ModEnvelope,       // Braids: the AD envelope and how far it moves TIMBRE, COLOR and the pitch
   Waveform,
   WaveShape,         // Wave: one oscillator's cycle at its POSITION (op 1 or 2: which oscillator)
+  ChopFile,          // chop SAMPLE: the whole file and its slices
+  ChopSlice,         // chop SLICE: the picked slice, magnified, with its start and end
   DrumPads,
   PlaitsMacro,       // Plaits: the model and its three macro controls
   LowPassGate,       // Plaits: the low-pass gate over a note, and what its envelope moves

@@ -90,6 +90,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Dx7: return 14 * 1024;
     case synth::SynthEngineKind::Juno: return 6 * 1024;
     case synth::SynthEngineKind::Sampler: return 6 * 1024;
+    case synth::SynthEngineKind::Chop: return 8 * 1024;
     case synth::SynthEngineKind::Drums: return 4 * 1024;
     case synth::SynthEngineKind::Wave: return 7 * 1024;
     case synth::SynthEngineKind::Braids: return 6 * 1024;
@@ -356,7 +357,8 @@ void GrooveApp::ApplyPendingSamples()
       SyncTrackKeys();
       continue;
     }
-    if (rack_.Slot(track).kind != synth::SynthEngineKind::Sampler || !sampler_.BuildUiState(track).sampleFileName.empty()) continue;
+    const auto kind = rack_.Slot(track).kind;
+    if ((kind != synth::SynthEngineKind::Sampler && kind != synth::SynthEngineKind::Chop) || !sampler_.BuildUiState(track).sampleFileName.empty()) continue;
     synth::SamplerManager::PreparedSample sample;
     if (!synth::SamplerManager::PrepareSample(name, sample)) continue;
     (void)sampler_.ApplySample(track, sample);
@@ -1057,6 +1059,11 @@ std::uint8_t GrooveApp::MasterVolume() const
   return os::storage::OutputVolume();
 }
 
+std::int32_t GrooveApp::ChopPlayhead(std::size_t track) const
+{
+  return synth::audio::ChopPlayhead(track);
+}
+
 float GrooveApp::TrackActivity(std::size_t track) const
 {
   return synth::audio::TrackActivity(track);
@@ -1187,7 +1194,8 @@ bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth:
     const auto* vocal = synth::VocalSynthEngine::From(slot.engine.get());
     project.samples[track] = vocal != nullptr ? vocal->PackFileName() : sample.sampleFileName;
     // Still waiting for the card it is on.
-    if (forSession && project.samples[track].empty() && (slot.kind == synth::SynthEngineKind::Sampler || vocal != nullptr))
+    if (forSession && project.samples[track].empty() &&
+        (slot.kind == synth::SynthEngineKind::Sampler || slot.kind == synth::SynthEngineKind::Chop || vocal != nullptr))
       project.samples[track] = pendingSamples_[track];
   }
   project.sequence = sequencer_.CaptureState();
@@ -1463,7 +1471,8 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   }
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
-    if (project.samples[track].empty() || project.kinds[track] != synth::SynthEngineKind::Sampler) continue;
+    // A sample of a sampler or a chop track (a vocal track's file is its voice pack, above).
+    if (project.samples[track].empty() || (project.kinds[track] != synth::SynthEngineKind::Sampler && project.kinds[track] != synth::SynthEngineKind::Chop)) continue;
     bool shared = false;
     for (std::size_t previous = 0; previous < track; ++previous)
       if (project.samples[previous] == project.samples[track])
@@ -1517,7 +1526,8 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
     DropEngine(engine, slot.kind);
     slot.kind = project.kinds[track];
     sampler_.OnTrackEngineChanged(track, slot.kind);
-    if (!project.samples[track].empty() && slot.kind == synth::SynthEngineKind::Sampler) (void)sampler_.ApplySample(track, samples[track]);
+    if (!project.samples[track].empty() && (slot.kind == synth::SynthEngineKind::Sampler || slot.kind == synth::SynthEngineKind::Chop))
+      (void)sampler_.ApplySample(track, samples[track]);
     // The engine already carries the project's saved trim.
     (void)sampler_.ConsumeTrimReset(track);
   }

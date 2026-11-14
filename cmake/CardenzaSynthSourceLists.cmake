@@ -196,6 +196,7 @@ function(cardenza_collect_synth_core_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Library/Synth/Core/Engines/Braids/BraidsFactoryPresets.cpp
         ${root_dir}/Library/Synth/Core/Engines/Braids/BraidsSynthEngine.cpp
+        ${root_dir}/Library/Synth/Core/Engines/Chop/ChopSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Drums/DrumsSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.cpp
         ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.cpp

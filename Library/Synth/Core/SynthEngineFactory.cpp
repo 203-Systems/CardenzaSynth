@@ -4,6 +4,7 @@
 #include "Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.h"
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
 #include "Library/Synth/Core/Engines/Sampler/SamplerSynthEngine.h"
+#include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
 #include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
 #include "Library/Synth/Core/Engines/Wave/WaveSynthEngine.h"
 #include "Library/Synth/Core/Engines/Plaits/PlaitsSynthEngine.h"
@@ -31,6 +32,8 @@ std::unique_ptr<ISynthEngine> CreateSynthEngine(SynthEngineKind kind)
       return std::make_unique<PlaitsSynthEngine>();
     case SynthEngineKind::Vocal:
       return std::make_unique<VocalSynthEngine>();
+    case SynthEngineKind::Chop:
+      return std::make_unique<ChopSynthEngine>();
     case SynthEngineKind::None:
     default:
       return nullptr;
@@ -57,6 +60,8 @@ std::string ToString(SynthEngineKind kind)
       return "Plaits";
     case SynthEngineKind::Vocal:
       return "Vocal";
+    case SynthEngineKind::Chop:
+      return "Chop";
     case SynthEngineKind::None:
     default:
       return "Empty";

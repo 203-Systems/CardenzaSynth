@@ -69,6 +69,8 @@ bool IsProjectEngineKind(int kind) {
     case static_cast<int>(SynthEngineKind::Braids):
     case static_cast<int>(SynthEngineKind::Plaits):
     case static_cast<int>(SynthEngineKind::Vocal):
+    // Firmware before these engines does not know their kinds and refuses the file (INVALID SOUND).
+    case static_cast<int>(SynthEngineKind::Chop):
       return true;
     default:
       return false;
@@ -95,7 +97,9 @@ bool ValidMetadata(const ProjectData& project) {
         !ValidText(state.presetName, 64) || state.values.size() > 128) return false;
     // The track's file: a sampler's sample, a vocal track's voice pack (none: the built-in voice).
     const auto& sample = project.samples[track];
-    const bool takesFile = project.kinds[track] == SynthEngineKind::Sampler || project.kinds[track] == SynthEngineKind::Vocal;
+    // The TRACK line's last field names a file: a sample (sampler, chop) or a voice pack (vocal).
+    const bool takesFile = project.kinds[track] == SynthEngineKind::Sampler || project.kinds[track] == SynthEngineKind::Chop ||
+                           project.kinds[track] == SynthEngineKind::Vocal;
     if (!sample.empty() && (!takesFile || !ValidText(sample, 96) ||
         sample == "." || sample == ".." || sample.find_first_of("/\\:\r\n") != std::string::npos)) return false;
     for (const auto& parameter : state.values)

@@ -1,5 +1,7 @@
 #include "Applications/Synth/UI/Groove/GrooveTypes.h"
 
+#include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
+
 #include <algorithm>
 #include <string>
 
@@ -74,6 +76,19 @@ bool PadNote(const KeyboardSettings& settings, synth::SynthEngineKind kind, std:
   return note >= 0 && note <= 127;
 }
 
+bool ChopPadSlice(std::size_t slices, std::size_t row, std::size_t column, std::size_t& slice)
+{
+  if (row >= kRows || column < kPadFirstColumn || column >= kPadFirstColumn + kPadColumns) return false;
+  if (ChopRowVelocity(slices))
+  {
+    slice = column - kPadFirstColumn;
+    return slice < slices;
+  }
+  if (column < kChopBlockFirstColumn || column >= kChopBlockFirstColumn + kChopBlockColumns) return false;
+  slice = row * kChopBlockColumns + (column - kChopBlockFirstColumn);
+  return slice < slices && slice < synth::kChopSliceCount;
+}
+
 bool InScale(const KeyboardSettings& settings, int note)
 {
   const std::uint16_t mask = kScales[std::min(settings.scale, kScales.size() - 1)].mask;
@@ -101,7 +116,8 @@ std::size_t PadNotes(const KeyboardSettings& settings, const ChordSettings& shap
                      std::array<std::uint8_t, kMaxPadNotes>& notes)
 {
   if (note < 0 || note > 127) return 0;
-  if (kind == synth::SynthEngineKind::Drums)
+  // A drum, or a slice of a chop: one note, no scale and no chord.
+  if (kind == synth::SynthEngineKind::Drums || kind == synth::SynthEngineKind::Chop)
   {
     notes[0] = static_cast<std::uint8_t>(note);
     return 1;
@@ -175,6 +191,7 @@ std::string_view EngineShortName(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Braids: return "BRAIDS";
     case synth::SynthEngineKind::Plaits: return "PLAITS";
     case synth::SynthEngineKind::Vocal: return "VOCAL";
+    case synth::SynthEngineKind::Chop: return "CHOP";
     case synth::SynthEngineKind::None:
     default: return "---";
   }
@@ -192,6 +209,7 @@ std::string_view EngineCode(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Braids: return "BRD";
     case synth::SynthEngineKind::Plaits: return "PLT";
     case synth::SynthEngineKind::Vocal: return "VOC";
+    case synth::SynthEngineKind::Chop: return "CHP";
     case synth::SynthEngineKind::None:
     default: return "---";
   }
@@ -202,6 +220,12 @@ std::string_view DrumName(int note)
   for (std::size_t index = 0; index < kDrumNotes.size(); ++index)
     if (kDrumNotes[index] == note) return kDrumNames[index];
   return {};
+}
+
+std::string SliceName(int note)
+{
+  const int slice = synth::ChopNoteSlice(note);
+  return slice < 0 ? std::string() : std::to_string(slice + 1);
 }
 
 std::string NoteName(int note)

@@ -19,6 +19,7 @@
 #include "Applications/Synth/GrooveApp.h"
 #include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Library/Synth/Core/SynthStorage.h"
+#include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalBuiltinPack.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
@@ -130,13 +131,13 @@ void TestBraids(Harness& h)
   }
   GoToInstrumentPage(h, "VOICE");
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 8);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
   assert(h.Modal()->items[4].label == "BRAIDS" && h.Modal()->items[1].marked);
   h.Render();
   // The fifth engine is the first key of the GRID's second row; its light shows it can be chosen
   // (the row holds the four engines added since the first release).
   app.UpdateLeds();
-  assert(Device::LED::Brightness(1, 9) != 0 && Device::LED::Brightness(1, 12) != 0 && Device::LED::Brightness(2, 9) == 0);
+  assert(Device::LED::Brightness(1, 9) != 0 && Device::LED::Brightness(1, 12) != 0 && Device::LED::Brightness(2, 10) == 0);
   h.Tap(Grid(4));
   assert(h.Modal() == nullptr && app.EngineKind(1) == Kind::Braids);
   assert(app.Engine(1)->CurrentPresetName() == "CS Saw" && !app.Engine(1)->HasEdits());
@@ -2642,6 +2643,161 @@ void TestCellPicker(Harness& h)
   GoToScene(h, 1);
 }
 
+// A mono 16-bit WAV of `frames` frames on the card, a burst at the start of every sixteenth.
+void WriteTestWav(const std::filesystem::path& path, std::size_t frames)
+{
+  std::ofstream file(path, std::ios::binary);
+  const auto put32 = [&](std::uint32_t value) { file.write(reinterpret_cast<const char*>(&value), 4); };
+  const auto put16 = [&](std::uint16_t value) { file.write(reinterpret_cast<const char*>(&value), 2); };
+  file.write("RIFF", 4);
+  put32(static_cast<std::uint32_t>(36 + frames * 2));
+  file.write("WAVEfmt ", 8);
+  put32(16);
+  put16(1);
+  put16(1);
+  put32(44100);
+  put32(88200);
+  put16(2);
+  put16(16);
+  file.write("data", 4);
+  put32(static_cast<std::uint32_t>(frames * 2));
+  for (std::size_t frame = 0; frame < frames; ++frame)
+  {
+    const std::size_t inSlice = frame % (frames / 16);
+    const auto value = static_cast<std::int16_t>(inSlice < 2000 ? ((frame / 7) % 2 == 0 ? 12000 : -12000) * (2000 - static_cast<int>(inSlice)) / 2000 : 0);
+    put16(static_cast<std::uint16_t>(value));
+  }
+}
+
+// The chop engine on a track: the picker offers it, its pages and pads, the slice the pads pick is the
+// one its SLICE page edits, EVEN, eight slices played as a kit, its own SEQ view, its notes ending,
+// and a project keeping all of it.
+void TestChop(Harness& h)
+{
+  auto& app = h.App();
+  using Kind = synth::SynthEngineKind;
+  const std::size_t track = 1;
+  // Heard whatever the tests before left on the mixer (they may end with tracks muted).
+  for (std::size_t index = 0; index < groove::kTrackCount; ++index)
+  {
+    app.SetTrackSoloed(index, false);
+    app.SetTrackMuted(index, false);
+  }
+  // The pads: sixteen slices a 4 x 4 block in the middle, eight a column each.
+  std::size_t slice = 0;
+  assert(groove::ChopPadSlice(16, 0, 3, slice) && slice == 0 && groove::ChopPadSlice(16, 3, 6, slice) && slice == 15);
+  assert(!groove::ChopPadSlice(16, 0, 1, slice) && !groove::ChopPadSlice(16, 0, 7, slice) && !groove::ChopPadSlice(16, 0, 9, slice));
+  assert(groove::ChopPadSlice(8, 3, 1, slice) && slice == 0 && groove::ChopPadSlice(8, 0, 8, slice) && slice == 7);
+
+  h.Chord(kTab, Grid(track));
+  GoToInstrumentPage(h, "VOICE");
+  h.Tap(Grid(0));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
+  h.Render();
+  h.Tap(Grid(8));
+  if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
+  assert(app.EngineKind(track) == Kind::Chop && h.Modal() == nullptr);
+  const auto& ui = app.Ui();
+  assert(ui.PageCount(Scene::Instrument) == 4);
+  assert(ui.PageTab(Scene::Instrument, 1) == "SAMPLE" && ui.PageTab(Scene::Instrument, 2) == "SLICE" && ui.PageTab(Scene::Instrument, 3) == "FX");
+  h.Render();
+
+  // A sample from the card, through SAMPLE's FILE.
+  WriteTestWav(std::filesystem::path(synth::storage::SampleDirectory()) / "CHOPTEST.wav", 32000);
+  GoToInstrumentPage(h, "SAMPLE");
+  h.Tap(Grid(0));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::SampleBrowser);
+  while (h.Modal()->items[h.Modal()->cursor].id != "CHOPTEST.wav") h.Tap(kSub);
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && app.Sampler().BuildUiState(track).sampleFileName == "CHOPTEST.wav");
+  h.Render();
+
+  // A pad plays its slice and picks it: SLICE edits that one, ADD moves its start a pixel of the
+  // waveform (the window around the slice), the time shown where it is in the sample.
+  std::array<std::int16_t, 256> block{};
+  h.Down(Key{0, 4});
+  synth::audio::RenderFrames(block.data(), block.size());
+  assert(ui.ChopSlice() == 1 && (synth::audio::HeldNotes(track)[1] & (1u << (37 - 32))) != 0);
+  h.Up(Key{0, 4});
+  synth::audio::RenderFrames(block.data(), block.size());
+  assert(synth::audio::HeldNotes(track)[1] == 0);
+  GoToInstrumentPage(h, "SLICE");
+  assert(ui.EngineParameterId("slice.start") == "slice.02.start" && ui.EngineParameterId("arp.mode") == "arp.mode");
+  h.Tap(Grid(0));
+  const int before = ParameterValue(app, track, "slice.02.start");
+  h.Tap(kAdd);
+  const int after = ParameterValue(app, track, "slice.02.start");
+  const groove::ChopWindow window = ui.ChopView();
+  assert(window.slice == 1 && window.first <= before && window.last >= after);
+  assert(after - before == std::max(1, (window.last - window.first) / groove::kChopWaveformWidth));
+  synth::SynthParameterInfo info;
+  std::string text;
+  assert(ui.SlotValue(ui.CurrentInstrumentPage()->slots[0], info, text) && text.back() == 'S' && text.find('.') != std::string::npos);
+  // The pads light the slice the page edits.
+  std::array<std::uint8_t, groove::kKeyCount> levels{};
+  ui.ComputeLeds(levels);
+  assert(levels[groove::KeyIndex(0, 4)] == groove::kLedFull && levels[groove::KeyIndex(0, 3)] == groove::kLedHalf && levels[groove::KeyIndex(0, 1)] == groove::kLedOff);
+  h.Render();
+  // EVEN (FN menu, confirmed): equal slices from the first start to the last end.
+  assert(app.Engine(track)->SetParameterValue("slice.01.start", 2000));
+  h.Chord(kFn, Grid(9));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm);
+  h.Render();
+  h.Tap(kEnter);
+  assert(ParameterValue(app, track, "slice.01.start") == 2000 && ParameterValue(app, track, "slice.02.start") == 2500 &&
+         ParameterValue(app, track, "slice.16.end") == synth::kChopPositionMax);
+
+  // Eight slices: a column each, the rows how hard, as on a drum track; in SEQ a pad held and a step
+  // tapped puts the slice in at its row's velocity. A chop's SEQ page is a row per slice (STEP).
+  assert(app.Engine(track)->SetParameterValue(synth::kChopSlicesId, 0));
+  h.Frames(2);
+  GoToScene(h, 2);
+  while (ui.CurrentPage() != 0) h.Tap(kCtrl);
+  assert(ui.View() == groove::SeqView::Step && ui.PageTab(Scene::Sequence, 0) == "SLICES");
+  (void)app.Sequencer().ClearPatternEvents(track, h.Seq().tracks[track].activePattern);
+  h.Down(Key{0, 3});
+  h.Tap(Grid(0));
+  h.Up(Key{0, 3});
+  std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+  assert(app.Sequencer().StepNoteEvents(track, 0, notes) == 1 && notes[0].note == 38 && notes[0].velocity == groove::kDrumRowVelocity[0]);
+  h.Render();
+  // The NOTE lane does not move a slice to a note that is none.
+  h.Tap(Grid(0));
+  assert(h.Seq().hasHeldSteps);
+  h.Tap(kAdd);
+  assert(app.Sequencer().StepNoteEvents(track, 0, notes) == 1 && notes[0].note == 38);
+  h.Tap(kEsc);
+  h.Tap(kEnter);  // OK: the roll
+  assert(ui.View() == groove::SeqView::Roll);
+  h.Render();
+  h.Tap(kEnter);
+  // Played, its slices end when their steps do; nothing is left for the safety net.
+  const std::uint32_t orphans = app.EndedOrphanNotes();
+  h.Tap(kPlay);
+  for (int frame = 0; frame < 120; ++frame)
+  {
+    h.Frames(1);
+    synth::audio::RenderFrames(block.data(), block.size());
+  }
+  h.Render();
+  h.Tap(kPlay);
+  h.Wait(600);
+  synth::audio::RenderFrames(block.data(), block.size());
+  assert(app.EndedOrphanNotes() == orphans);
+
+  // A project keeps the engine, its sample and its slices.
+  groove::ProjectUiSettings settings = ui.Settings();
+  std::string message;
+  assert(app.SaveProject("CHOP TEST", true, settings, message) == groove::SaveResult::Ok);
+  std::string error;
+  assert(app.SwitchEngine(track, Kind::Juno, error));
+  assert(app.LoadProject("CHOP TEST", settings, message));
+  assert(app.EngineKind(track) == Kind::Chop && app.Sampler().BuildUiState(track).sampleFileName == "CHOPTEST.wav");
+  assert(ParameterValue(app, track, "slice.01.start") == 2000 && ParameterValue(app, track, synth::kChopSlicesId) == 0);
+  assert(app.SwitchEngine(track, Kind::Juno, error));
+  h.Chord(kTab, Grid(synth::kDefaultActiveTrack));
+}
+
 // A note held while anything else happens ends when its key does, whatever happened in between.
 void TestHeldNotesEnd(Harness& h)
 {
@@ -3364,7 +3520,7 @@ void TestPlaits(Harness& h)
   const auto pick = [&](std::size_t cell, synth::SynthEngineKind kind) {
     GoToInstrumentPage(h, "VOICE");
     h.Tap(Grid(0));
-    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 8);
+    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
     h.Render();
     h.Tap(Grid(cell));
     // A sound with edits asks before it is replaced.
@@ -3444,7 +3600,7 @@ void TestWaveEngineUi(Harness& h)
   assert(app.EngineKind(1) == Kind::Juno || app.SwitchEngine(1, Kind::Juno, error));
   while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 8);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
   assert(h.Modal()->items[7].label == "WAVE");
   h.Render();
   h.Tap(Grid(7));
@@ -3508,12 +3664,13 @@ void TestEveryParameter(Harness& h)
     }
   };
   // Every engine on some track, and each new one beside the others.
-  const std::array<std::array<Kind, 4>, 6> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
+  const std::array<std::array<Kind, 4>, 7> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
                                                  {{Kind::Juno, Kind::Dx7, Kind::Sampler, Kind::Drums}},
                                                  {{Kind::Wave, Kind::Drums, Kind::Wave, Kind::Juno}},
                                                  {{Kind::Braids, Kind::Drums, Kind::Braids, Kind::Juno}},
                                                  {{Kind::Plaits, Kind::Drums, Kind::Plaits, Kind::Juno}},
-                                                 {{Kind::Vocal, Kind::Drums, Kind::Juno, Kind::Vocal}}}};
+                                                 {{Kind::Vocal, Kind::Drums, Kind::Juno, Kind::Vocal}},
+                                                 {{Kind::Chop, Kind::Juno, Kind::Chop, Kind::Drums}}}};
   struct Walk { groove::Scene scene; std::size_t track; };
   const std::array<Walk, 10> walks{{{groove::Scene::Tape, 0},
                                     {groove::Scene::Instrument, 0}, {groove::Scene::Instrument, 1},
@@ -3546,7 +3703,7 @@ void TestEveryParameter(Harness& h)
           if (app.Ui().CurrentPage() != page) h.Chord(kCtrl, Grid(page));
           closeModals();
           assert(app.Ui().CurrentPage() == page);
-          if (app.Sequencer().Playing() != (pass == 1)) app.Sequencer().TogglePlayback();
+          if (app.Sequencer().Playing() != (pass >= 1)) app.Sequencer().TogglePlayback();
           h.Tap(Grid(cell));
           closeModals();
           for (const auto& [modifier, key] : std::array<std::pair<bool, Key>, 7>{{{false, kAdd}, {true, kAdd}, {true, kAdd}, {false, kSub}, {true, kSub}, {true, kSub}, {true, kSub}}})
@@ -3633,7 +3790,7 @@ void TestVocal(Harness& h)
   h.Chord(kTab, Grid(1));
   while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 8);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
   h.Render();
   h.Tap(Grid(6));
   if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
@@ -3975,6 +4132,7 @@ int main()
   TestCellPicker(h);
   TestHeldNotesEnd(h);
   TestNoStuckNotes(h);
+  TestChop(h);
   TestComputerMidi(h);
   TestGuide(h);
   TestWaveEngineUi(h);

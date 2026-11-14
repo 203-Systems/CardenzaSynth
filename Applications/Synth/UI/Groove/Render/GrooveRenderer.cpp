@@ -403,6 +403,12 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
         notes = seq.primaryLowestNote >= 0 ? std::string(DrumName(seq.primaryLowestNote)) : std::string{};
         if (seq.noteCount > 1) notes += "+" + std::to_string(seq.noteCount - 1);
       }
+      else if (controller.ChopTrack())
+      {
+        // Slices by number, not as the notes they are sent as.
+        notes = seq.primaryLowestNote >= 0 && !SliceName(seq.primaryLowestNote).empty() ? "S" + SliceName(seq.primaryLowestNote) : std::string{};
+        if (seq.noteCount > 1) notes += "+" + std::to_string(seq.noteCount - 1);
+      }
       std::string detail = seq.valueLabel.empty() ? notes : seq.valueLabel;
       if (seq.editLane == synth::SequencerEditLane::Note) detail = notes;
       if (seq.editLane == synth::SequencerEditLane::Word && vocal != nullptr)

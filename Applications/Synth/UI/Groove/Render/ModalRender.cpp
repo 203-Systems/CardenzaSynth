@@ -151,10 +151,11 @@ void DrawConfirm(Gfx& g, Animator& animator, const Modal& modal)
 void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, const Modal& modal)
 {
   Title(g, "ENGINE  T" + std::to_string(controller.State().track + 1), kTab);
-  // Four to a row, as the GRID keys that choose them (a row below, under the title).
-  static constexpr std::array<const char*, 8> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT", "MACRO OSCILLATOR  47 MODELS",
-                                                              "MACRO OSCILLATOR  24 MODELS", "SINGS WORDS", "WAVETABLE SYNTH"}};
-  for (std::size_t index = 0; index < modal.items.size() && index < 2 * kGridColumns; ++index)
+  // Four to a row, each a row under its GRID key (the title takes the first), three rows at most.
+  static constexpr std::array<const char*, 9> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT", "MACRO OSCILLATOR  47 MODELS",
+                                                        "MACRO OSCILLATOR  24 MODELS", "SINGS WORDS", "WAVETABLE SYNTH", "SLICED SAMPLE"}};
+  const std::size_t shown = (std::min)(modal.items.size(), std::size_t{3 * kGridColumns});
+  for (std::size_t index = 0; index < shown; ++index)
   {
     const Rect cell = Cell(1 + index / kGridColumns, index % kGridColumns);
     const bool selected = index == modal.cursor;
@@ -168,10 +169,15 @@ void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, 
     g.TextFit(cell.x + 3, cell.y + 3, cell.width - 5, item.label, selected ? kBlack : kInk, Font::Small);
     if (item.marked) g.Text(cell.x + 3, cell.y + 15, "NOW", selected ? kBlack : kTab);
   }
+  // What the engine is and the warning: in the cells left after the last engine on its row, or in the
+  // row under the engines when theirs is full.
+  const std::size_t lastRow = shown == 0 ? 1 : 1 + (shown - 1) / kGridColumns;
+  const std::size_t freeColumn = shown % kGridColumns;
+  const Rect text = freeColumn != 0 ? CellSpan(lastRow, freeColumn, 1, kGridColumns - freeColumn) : CellSpan(lastRow + 1, 0, 1, kGridColumns);
   if (modal.cursor < kDetails.size())
-    fx::DecodeText(g, Cell(3, 0).x, Cell(3, 0).y + 2, kDetails[modal.cursor], kDim, Font::Micro,
+    fx::DecodeText(g, text.x + (freeColumn != 0 ? 3 : 0), text.y + 2, kDetails[modal.cursor], kDim, Font::Micro,
                    fx::Progress(animator.Now(), animator.ModalOpenedAt(), 400), static_cast<std::uint32_t>(modal.cursor) + animator.Now() / 50);
-  g.Text(Cell(3, 0).x, Cell(3, 0).y + 13, "THE TRACK SOUND IS REPLACED", kFaint);
+  g.TextFit(text.x + (freeColumn != 0 ? 3 : 0), text.y + 13, text.width - 3, "THE TRACK SOUND IS REPLACED", kFaint);
 }
 
 void DrawSampleRecord(Gfx& g, const Controller& controller, Animator& animator)

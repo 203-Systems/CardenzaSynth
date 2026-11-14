@@ -11,7 +11,7 @@ enum class SynthEngineKind {
   Juno,
   Sampler,
   Drums = 4,
-  // Project files store these numbers: a kind keeps its own for good. The four engines below were
+  // Project files store these numbers: a kind keeps its own for good. The five engines below were
   // written on separate branches (each first took 5) and numbered here when they were put together.
   Braids = 5,  // Mutable Instruments' macro oscillator (Library/third_party/braids)
   // The Plaits macro oscillator (Library/third_party/eurorack), rendered by the runtime itself like
@@ -20,9 +20,11 @@ enum class SynthEngineKind {
   // A singer: pronunciations of a voice pack (Library/Synth/Audio/SynthVocal.h).
   Vocal = 7,
   Wave = 8,    // wavetable and classic oscillators through AMY (Library/Synth/Core/Engines/Wave)
+  // One sample cut into slices: a pad plays a part of the file, never a pitch (ChopSynthEngine).
+  Chop = 9,
 };
 // One more than the highest kind: tables indexed by kind.
-inline constexpr std::size_t kSynthEngineKindCount = 9;
+inline constexpr std::size_t kSynthEngineKindCount = 10;
 
 enum class OverlayPage {
   None,

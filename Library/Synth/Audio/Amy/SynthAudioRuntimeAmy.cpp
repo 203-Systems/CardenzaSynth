@@ -3,6 +3,7 @@
 #include "Library/Synth/Audio/RenderLoad.h"
 #include "Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.h"
 #include "Library/Synth/Core/Engines/Juno/JunoFactoryPresets.h"
+#include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
 #include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
 #include "Library/Synth/Core/Engines/Wave/WaveParameters.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalTrack.h"
@@ -131,6 +132,16 @@ constexpr float kOutputCeiling = 0.97f;
 constexpr float kLimiterReleasePerFrame = 0.00008f;
 constexpr std::size_t kLimiterShortestAttackFrames = 4;
 constexpr float kSamplerVoiceGain = 0.3f;
+// A chop slice: a fade in this long against the click of a slice that starts mid-waveform (half a
+// millisecond keeps the attack), and a fade out this long when another slice cuts it.
+constexpr float kChopAttackStep = 1.0f / 24.0f;
+constexpr float kChopCutStep = 1.0f / 128.0f;
+// The sampler's level at its defaults (gain and level 96): a chop has the gain only.
+constexpr float kChopLevel = 96.0f / 127.0f;
+// A slice from the card waits for its first block (about a block, 6 ms, when it was not on hand) rather
+// than lose its attack; one still not there after this many blocks (the card is busy or gone) is
+// dropped, never heard.
+constexpr std::uint8_t kChopWaitBlocks = 16;
 constexpr float kDx7MaxAmyVelocity = 88.0f / 127.0f;
 constexpr float kTwoPi = 6.28318530717958647692f;
 
@@ -177,6 +188,38 @@ struct SamplerVoice {
   float filterLow = 0.0f;
   float filterBand = 0.0f;
   std::uint64_t serial = 0;
+  // A chop voice plays its slice once, [sampleCursor, endCursor), at the lower of two ramps: `rise`, a
+  // short fade in, and `fall`, from fadeCursor on the slice's fade to nothing at its end (or a quick one
+  // once it is cut).
+  std::uint64_t endCursor = 0;
+  std::uint64_t fadeCursor = 0;
+  float rise = 0.0f;
+  float fall = 1.0f;
+  float fadeStep = 0.0f;
+  float filterG = 0.0f;  // the slice's lowpass, 0 when open
+  float filterInverse = 1.0f;
+  std::uint8_t waitBlocks = 0;
+  bool fading = false;
+  bool cut = false;      // another slice (or its mute group, or a stop) took over
+  bool waiting = false;  // from the card: its first block is not there yet
+  bool heard = false;    // has played a frame: from then on it can only fade
+};
+
+// A chop track's slices (ChopSynthEngine): where each is in the file, 0..kChopPositionMax, and how it
+// plays.
+struct ChopSliceParams {
+  std::uint16_t start = 0;
+  std::uint16_t end = 0;
+  std::uint8_t fade = 0;
+  std::uint8_t cutoff = kChopCutoffOpen;
+  std::uint8_t mute = 0;
+};
+
+struct ChopParams {
+  std::array<ChopSliceParams, kChopSliceCount> slices{};
+  std::uint8_t sliceCount = static_cast<std::uint8_t>(kChopSliceCount);
+  std::uint8_t voices = 1;
+  std::uint8_t lastSlice = 0;  // started last: its start stays on hand when the sample is on the card
 };
 
 // What AMY does for a Braids voice: its amplitude envelope and level (the oscillator's own parameters
@@ -207,6 +250,7 @@ struct EngineState {
   wave::Values wave = wave::Make({});  // the Wave engine's parameters (WaveParameters.h)
   int waveLevelDb = 0;                 // its factory preset's level
   SamplerParams sampler{};
+  ChopParams chop{};
   std::array<SamplerVoice, kSamplerVoiceCount> samplerVoices{};
   std::uint64_t nextSamplerVoiceSerial = 1;
   // Braids: the track's voices, the AMY oscillator each one plays as (RebuildAmyOscTrackMapNoLock), and
@@ -478,12 +522,20 @@ bool UsesAmy(SynthEngineKind kind)
          kind == SynthEngineKind::Braids;
 }
 
-// Tracks whose voices the runtime renders itself, in float, after AMY's block: the sampler, Plaits and
-// Vocal. They share the mixing (RenderOwnTrackNoLock), the track gain ramp and the effects routing.
-// (The Plaits and Vocal branches each added this; it is one predicate since they were put together.)
+// Tracks whose voices the runtime renders itself, in float, after AMY's block: the sampler, the chop,
+// Plaits and Vocal. They share the mixing (RenderOwnTrackNoLock), the track gain ramp and the effects
+// routing. (The Plaits, Vocal and chop branches each added this; it is one predicate since they were
+// put together.)
 bool RendersOwnVoices(SynthEngineKind kind)
 {
-  return kind == SynthEngineKind::Sampler || kind == SynthEngineKind::Plaits || kind == SynthEngineKind::Vocal;
+  return kind == SynthEngineKind::Sampler || kind == SynthEngineKind::Chop || kind == SynthEngineKind::Plaits ||
+         kind == SynthEngineKind::Vocal;
+}
+
+// Engines whose voices play a sample (SamplerVoice): the sampler and the chop.
+bool PlaysSamples(SynthEngineKind kind)
+{
+  return kind == SynthEngineKind::Sampler || kind == SynthEngineKind::Chop;
 }
 
 int VoiceCountFor(SynthEngineKind kind)
@@ -1782,7 +1834,210 @@ std::array<std::atomic<std::int8_t>, kSynthTrackCount> g_plaitsVoiceCount{};
 
 std::int64_t VoiceClockMicros();
 
-// A sampler, Plaits or vocal track's voices for `frames` frames (at most a block), added into `out` at the
+// ---------------------------------------------------------------------------------------------
+// Chop: a slice a voice, at the file's own speed, played to its end whatever the key does after.
+
+// A position of the file (0..kChopPositionMax) as a frame of it.
+std::size_t ChopFrame(const SamplerParams& params, int position)
+{
+  const std::size_t frames = params.sampleFrames ? params.sampleFrames->frameCount : 0;
+  return static_cast<std::size_t>(static_cast<std::uint64_t>(frames) * static_cast<std::uint64_t>(std::clamp(position, 0, kChopPositionMax)) /
+                                  static_cast<std::uint64_t>(kChopPositionMax));
+}
+
+// A slice that is cut fades out over the next few milliseconds where it is; one never heard (not one
+// frame played yet, or still waiting for the card) goes at once, which no one can hear.
+void CutChopVoiceNoLock(SamplerVoice& voice)
+{
+  if (!voice.active || voice.cut) return;
+  if (!voice.heard)
+  {
+    voice = SamplerVoice{};
+    return;
+  }
+  voice.cut = true;
+  voice.fading = true;
+}
+
+bool ChopVoiceSounds(const SamplerVoice& voice) { return voice.active && !voice.cut; }
+
+// A slice starts: it cuts the same slice still sounding, the others of its mute group and, past VOICES,
+// the oldest of the track's slices. A track's voices are its own: nothing here touches another track.
+void StartChopVoiceNoLock(std::size_t engineIndex, EngineState& engine, std::size_t slice, std::uint8_t velocity)
+{
+  SamplerParams& params = engine.sampler;
+  const ChopSliceParams& shape = engine.chop.slices[slice];
+  const std::size_t startFrame = ChopFrame(params, shape.start);
+  const std::size_t endFrame = ChopFrame(params, shape.end);
+  if (endFrame <= startFrame) return;  // a slice with no length is silent
+  const auto note = static_cast<std::uint8_t>(ChopSliceNote(slice));
+  for (SamplerVoice& voice : engine.samplerVoices)
+  {
+    if (!ChopVoiceSounds(voice)) continue;
+    const int other = ChopNoteSlice(voice.note);
+    if (voice.note == note || (shape.mute != 0 && other >= 0 && engine.chop.slices[static_cast<std::size_t>(other)].mute == shape.mute))
+      CutChopVoiceNoLock(voice);
+  }
+  const std::size_t voices = std::clamp<std::size_t>(engine.chop.voices, 1, kChopMaxVoices);
+  for (;;)
+  {
+    std::size_t sounding = 0;
+    SamplerVoice* oldest = nullptr;
+    for (SamplerVoice& voice : engine.samplerVoices)
+    {
+      if (!ChopVoiceSounds(voice)) continue;
+      ++sounding;
+      if (oldest == nullptr || voice.serial < oldest->serial) oldest = &voice;
+    }
+    if (sounding < voices || oldest == nullptr) break;
+    CutChopVoiceNoLock(*oldest);
+  }
+  // A free voice; with none (cut slices still fading in all of them), the one that has faded furthest.
+  SamplerVoice* slot = nullptr;
+  for (SamplerVoice& voice : engine.samplerVoices)
+  {
+    if (!voice.active)
+    {
+      slot = &voice;
+      break;
+    }
+    if (voice.cut && (slot == nullptr || voice.fall < slot->fall)) slot = &voice;
+  }
+  if (slot == nullptr) return;  // cannot happen: VOICES leaves a voice for the cut ones
+  if (slot->active) g_lostTails.fetch_add(1, std::memory_order_relaxed);
+  SamplerVoice& voice = *slot;
+  voice = SamplerVoice{};
+  voice.active = true;
+  voice.serial = engine.nextSamplerVoiceSerial++;
+  voice.note = note;
+  voice.velocity = static_cast<float>(velocity) * (1.0f / 127.0f);
+  const std::uint32_t rate = params.sampleRate == 0 ? kSampleRate : params.sampleRate;
+  voice.cursorStep = (static_cast<std::uint64_t>(rate) << 32) / kSampleRate;
+  voice.sampleCursor = static_cast<std::uint64_t>(startFrame) << 32;
+  voice.endCursor = static_cast<std::uint64_t>(endFrame) << 32;
+  // The fade ends at the slice's end: as long as FADE says, at most the whole slice.
+  const auto sliceFrames = static_cast<std::uint64_t>((voice.endCursor - voice.sampleCursor) / voice.cursorStep);
+  const auto fadeFrames = (std::max<std::uint64_t>)(1, (std::min<std::uint64_t>)(sliceFrames, static_cast<std::uint64_t>(ChopFadeSeconds(shape.fade) * static_cast<float>(kSampleRate))));
+  voice.fadeStep = 1.0f / static_cast<float>(fadeFrames);
+  const std::uint64_t fadeSpan = fadeFrames * voice.cursorStep;
+  voice.fadeCursor = voice.endCursor - (std::min)(fadeSpan, voice.endCursor - voice.sampleCursor);
+  if (shape.cutoff < kChopCutoffOpen)
+  {
+    const float cutoff = 80.0f + std::pow(Normalize(shape.cutoff, 0, 127), 2.2f) * 12000.0f;
+    voice.filterG = std::tan(0.5f * kTwoPi * cutoff / static_cast<float>(kSampleRate));
+    voice.filterInverse = 1.0f / (1.0f + voice.filterG * (voice.filterG + 1.4142f));
+  }
+  // From the card: it starts once its first block is there (RenderChopVoiceBlock).
+  voice.waiting = params.sampleFrames->stream != nullptr;
+  engine.chop.lastSlice = static_cast<std::uint8_t>(slice);
+  BumpTrackActivityNoLock(engineIndex, voice.velocity);
+}
+
+template <bool kFiltered>
+void RenderChopVoiceFrames(const SampleBuffer& buffer, float level, SamplerVoice& voice, float* out, std::size_t frames)
+{
+  const std::int16_t* const memory = buffer.frames.get();
+  const SampleStream* const stream = buffer.stream.get();
+  const std::size_t last = buffer.frameCount - 1;
+  const std::uint64_t step = voice.cursorStep;
+  const std::uint64_t endCursor = voice.endCursor;
+  const std::uint64_t fadeCursor = voice.fadeCursor;
+  const float down = voice.cut ? (std::max)(voice.fadeStep, kChopCutStep) : voice.fadeStep;
+  const float g = voice.filterG;
+  const float filterInverse = voice.filterInverse;
+  std::uint64_t cursor = voice.sampleCursor;
+  float rise = voice.rise;
+  float fall = voice.fall;
+  bool fading = voice.fading;
+  float low = voice.filterLow;
+  float band = voice.filterBand;
+  for (std::size_t frame = 0; frame < frames; ++frame)
+  {
+    if (!fading && cursor >= fadeCursor) fading = true;
+    if (fading) fall -= down;
+    if (rise < 1.0f) rise = (std::min)(1.0f, rise + kChopAttackStep);
+    if (fall <= 0.0f || cursor >= endCursor)
+    {
+      voice = SamplerVoice{};
+      return;
+    }
+    const std::size_t index0 = static_cast<std::size_t>(cursor >> 32);
+    const std::size_t index1 = (std::min)(last, index0 + 1);
+    const float fraction = static_cast<float>(static_cast<std::uint32_t>(cursor)) * (1.0f / 4294967296.0f);
+    const float sample0 = static_cast<float>(stream != nullptr ? stream->Read(voice.stream, index0) : memory[index0]) * (1.0f / 32768.0f);
+    const float sample1 = static_cast<float>(stream != nullptr ? stream->Read(voice.stream, index1) : memory[index1]) * (1.0f / 32768.0f);
+    float sample = sample0 + (sample1 - sample0) * fraction;
+    if constexpr (kFiltered)
+    {
+      const float bandNext = (band + g * (sample - low)) * filterInverse;
+      const float lowNext = low + g * bandNext;
+      band = 2.0f * bandNext - band;
+      low = 2.0f * lowNext - low;
+      sample = lowNext;
+    }
+    out[frame] += sample * (rise < fall ? rise : fall) * level;
+    cursor += step;
+  }
+  voice.sampleCursor = cursor;
+  voice.rise = rise;
+  voice.fall = fall;
+  voice.fading = fading;
+  voice.filterLow = low;
+  voice.filterBand = band;
+  voice.heard = true;
+}
+
+// One chop voice for `frames` frames (at most a block), added into `out` (RenderSamplerVoiceBlock's
+// scale: the two engines play a file equally loud).
+void RenderChopVoiceBlock(const SamplerParams& params, SamplerVoice& voice, float* out, std::size_t frames)
+{
+  if (!voice.active || !SamplerHasSample(params))
+  {
+    voice = SamplerVoice{};
+    return;
+  }
+  const SampleBuffer& buffer = *params.sampleFrames;
+  if (voice.waiting)
+  {
+    // Its reader is out at the slice's start (PublishSampleStreamsNoLock), so the card's worker brings
+    // the block in; until then the slice waits rather than play its attack as silence.
+    StreamCursor probe{};
+    (void)buffer.stream->Read(probe, static_cast<std::size_t>(voice.sampleCursor >> 32));
+    if (probe.block == nullptr)
+    {
+      if (++voice.waitBlocks > kChopWaitBlocks)
+      {
+        g_lostUnheard.fetch_add(1, std::memory_order_relaxed);
+        voice = SamplerVoice{};
+      }
+      return;
+    }
+    voice.stream = probe;
+    voice.waiting = false;
+  }
+  const float level = (0.2f + 0.8f * voice.velocity) * Normalize(params.sampleGain, 0, 127) * kChopLevel * kSamplerVoiceGain;
+  if (voice.filterG > 0.0f) RenderChopVoiceFrames<true>(buffer, level, voice, out, frames);
+  else RenderChopVoiceFrames<false>(buffer, level, voice, out, frames);
+}
+
+// The frame a chop track plays now (its newest slice sounding) + 1, 0 when none: for the waveform on its
+// page. Written once a block, read by the UI.
+std::array<std::atomic<std::int32_t>, kSynthTrackCount> g_chopPlayhead{};
+
+void PublishChopPlayheadNoLock(std::size_t engineIndex, const EngineState& engine)
+{
+  std::int32_t frame = 0;
+  if (engine.configured && engine.kind == SynthEngineKind::Chop)
+  {
+    const SamplerVoice* newest = nullptr;
+    for (const SamplerVoice& voice : engine.samplerVoices)
+      if (ChopVoiceSounds(voice) && !voice.waiting && (newest == nullptr || voice.serial > newest->serial)) newest = &voice;
+    if (newest != nullptr) frame = static_cast<std::int32_t>(newest->sampleCursor >> 32) + 1;
+  }
+  g_chopPlayhead[engineIndex].store(frame, std::memory_order_relaxed);
+}
+
+// A sampler, chop, Plaits or vocal track's voices for `frames` frames (at most a block), added into `out` at the
 // track's level, which moves toward `target` frame by frame.
 std::array<float, kAmyFramesPerBlock> g_samplerVoiceMix{};
 
@@ -1814,8 +2069,14 @@ void RenderOwnTrackNoLock(EngineState& engine, TrackMixState& trackMix, float ta
   }
   else
   {
+    // The sampler's voices; a chop's are the same voices playing slices.
+    const bool chop = engine.kind == SynthEngineKind::Chop;
     for (SamplerVoice& voice : engine.samplerVoices)
-      if (voice.active) RenderSamplerVoiceBlock(engine.sampler, voice, voices, frames);
+    {
+      if (!voice.active) continue;
+      if (chop) RenderChopVoiceBlock(engine.sampler, voice, voices, frames);
+      else RenderSamplerVoiceBlock(engine.sampler, voice, voices, frames);
+    }
   }
   for (std::size_t frame = 0; frame < frames; ++frame)
   {
@@ -1852,6 +2113,16 @@ void ResetEngineNoLock(EngineState& engine, std::size_t engineIndex, SynthEngine
                                         std::memory_order_relaxed);
   // Its voices are read for every frame: internal RAM (a block this small stays there).
   if (kind == SynthEngineKind::Vocal) engine.vocal.reset(new (std::nothrow) vocal::Track());
+  if (kind == SynthEngineKind::Chop)
+  {
+    // The engine's own first preset (every value follows from it, ShouldSyncParameterOnPresetLoad).
+    const ChopPoints points = ChopEvenPoints(0, kChopPositionMax, kChopSliceCount);
+    for (std::size_t slice = 0; slice < kChopSliceCount; ++slice)
+    {
+      engine.chop.slices[slice].start = static_cast<std::uint16_t>(points[ChopPointIndex(slice, false)]);
+      engine.chop.slices[slice].end = static_cast<std::uint16_t>(points[ChopPointIndex(slice, true)]);
+    }
+  }
   RebuildAmyOscTrackMapNoLock();
 }
 
@@ -2275,6 +2546,29 @@ void ApplyPendingEvent(const PendingEvent& event)
         case SynthEngineKind::Vocal:
           if (engine.vocal) (void)engine.vocal->SetParameter(event.text, event.value);
           break;
+        case SynthEngineKind::Chop:
+        {
+          // A slice's value applies from its next start: a slice is short, and one playing keeps the
+          // shape it started with.
+          std::size_t slice = 0;
+          ChopField field = ChopField::Start;
+          if (ParseChopParameterId(event.text, slice, field))
+          {
+            ChopSliceParams& shape = engine.chop.slices[slice];
+            switch (field)
+            {
+              case ChopField::Start: shape.start = static_cast<std::uint16_t>(std::clamp(event.value, 0, kChopPositionMax)); break;
+              case ChopField::End: shape.end = static_cast<std::uint16_t>(std::clamp(event.value, 0, kChopPositionMax)); break;
+              case ChopField::Fade: shape.fade = static_cast<std::uint8_t>(std::clamp(event.value, 0, 127)); break;
+              case ChopField::Cutoff: shape.cutoff = static_cast<std::uint8_t>(std::clamp(event.value, 0, kChopCutoffOpen)); break;
+              case ChopField::Mute: shape.mute = static_cast<std::uint8_t>(std::clamp(event.value, 0, kChopMuteGroups)); break;
+            }
+          }
+          else if (event.text == kChopSlicesId) engine.chop.sliceCount = static_cast<std::uint8_t>(event.value != 0 ? kChopSliceCount : kChopFewSlices);
+          else if (event.text == kChopVoicesId) engine.chop.voices = static_cast<std::uint8_t>(std::clamp(event.value, 1, kChopMaxVoices));
+          else if (event.text == kChopGainId) engine.sampler.sampleGain = std::clamp(event.value, 0, 127);
+          break;
+        }
         case SynthEngineKind::None:
         default:
           break;
@@ -2373,6 +2667,19 @@ void ApplyPendingEvent(const PendingEvent& event)
         BumpTrackActivityNoLock(event.engineIndex, velocity);
         return;
       }
+      if (engine.kind == SynthEngineKind::Chop)
+      {
+        // A note that is no slice in play (a pattern from another engine) plays nothing.
+        const int slice = ChopNoteSlice(event.note);
+        if (event.velocity == 0)
+        {
+          ReleaseSamplerNoteNoLock(engine, event.note);
+          return;
+        }
+        if (slice < 0 || slice >= engine.chop.sliceCount || !SamplerHasSample(engine.sampler)) return;
+        StartChopVoiceNoLock(event.engineIndex, engine, static_cast<std::size_t>(slice), event.velocity);
+        return;
+      }
 
       {
         if (!SamplerHasSample(engine.sampler)) return;
@@ -2403,6 +2710,7 @@ void ApplyPendingEvent(const PendingEvent& event)
         return;
       }
 
+      // A chop slice plays to its end: the key going up only says nobody holds it any more.
       ReleaseSamplerNoteNoLock(engine, event.note);
       break;
     case PendingEventType::AllNotesOff:
@@ -2421,6 +2729,8 @@ void ApplyPendingEvent(const PendingEvent& event)
       for (SamplerVoice& voice : engine.samplerVoices)
       {
         voice.releasing = true;
+        // A stop does stop a chop slice, over a few milliseconds.
+        if (engine.kind == SynthEngineKind::Chop) CutChopVoiceNoLock(voice);
       }
       break;
     case PendingEventType::SetTrackGain:
@@ -2578,7 +2888,7 @@ bool HasActiveOwnVoices(const EngineState& engine)
   if (!engine.configured) return false;
   if (engine.kind == SynthEngineKind::Plaits) return engine.plaits && engine.plaits->Sounding();
   if (engine.kind == SynthEngineKind::Vocal) return engine.vocal && engine.vocal->Active();
-  return engine.kind == SynthEngineKind::Sampler &&
+  return PlaysSamples(engine.kind) &&
          std::any_of(engine.samplerVoices.begin(), engine.samplerVoices.end(), [](const SamplerVoice& voice) { return voice.active; });
 }
 
@@ -2590,7 +2900,11 @@ void PublishSampleStreamsNoLock()
   {
     const EngineState& engine = g_engines[engineIndex];
     const SampleStream* stream = engine.sampler.sampleFrames ? engine.sampler.sampleFrames->stream.get() : nullptr;
-    if (stream != nullptr) stream->PublishStart(SamplerStartFrame(engine.sampler));
+    // A chop keeps the start of the slice it played last at hand (a kick played on every beat).
+    const bool chop = engine.kind == SynthEngineKind::Chop;
+    if (stream != nullptr)
+      stream->PublishStart(chop ? ChopFrame(engine.sampler, engine.chop.slices[engine.chop.lastSlice].start) : SamplerStartFrame(engine.sampler));
+    PublishChopPlayheadNoLock(engineIndex, engine);
     for (std::size_t voiceIndex = 0; voiceIndex < engine.samplerVoices.size(); ++voiceIndex)
     {
       const SamplerVoice& voice = engine.samplerVoices[voiceIndex];
@@ -2632,6 +2946,7 @@ bool HasHeldNotes(const EngineState& engine)
     case SynthEngineKind::Braids:
       return std::any_of(engine.activeNotes.begin(), engine.activeNotes.end(), [](bool active) { return active; });
     case SynthEngineKind::Sampler:
+    case SynthEngineKind::Chop:
       return std::any_of(engine.samplerVoices.begin(), engine.samplerVoices.end(), [](const SamplerVoice& voice) {
         return voice.active && !voice.releasing;
       });
@@ -2860,11 +3175,11 @@ constexpr float kHelperShareMicros = 0.45f * kBlockMicros;
 // How long after the audio core the helper starts on the voices (woken through a task notification).
 constexpr float kHelperStartMicros = 150.0f;
 constexpr std::size_t kKindCount = kSynthEngineKindCount;
-// By SynthEngineKind: None, DX7, Juno, Sampler, Drums, Braids, Plaits, Vocal, Wave. Only the kinds
-// whose voices AMY renders have a cost here (Plaits and Vocal render their own). Braids' is a guess
+// By SynthEngineKind: None, DX7, Juno, Sampler, Drums, Braids, Plaits, Vocal, Wave, Chop. Only the kinds
+// whose voices AMY renders have a cost here (Plaits, Vocal and the chop render their own). Braids' is a guess
 // until the board has rendered a few voices (its models differ by a factor of three, and the estimate
 // follows the one playing).
-std::array<float, kKindCount> g_runCostMicros{50.0f, 700.0f, 650.0f, 200.0f, 150.0f, 500.0f, 0.0f, 0.0f, 450.0f};
+std::array<float, kKindCount> g_runCostMicros{50.0f, 700.0f, 650.0f, 200.0f, 150.0f, 500.0f, 0.0f, 0.0f, 450.0f, 0.0f};
 std::array<std::array<float, kKindCount>, AMY_MAX_CORES> g_runCostSum{};
 std::array<std::array<std::uint16_t, kKindCount>, AMY_MAX_CORES> g_runCostCount{};
 float g_overheadMicros = 1500.0f;  // the rest of a block: deltas, effects, output
@@ -3931,6 +4246,11 @@ float TrackActivity(std::size_t engineIndex)
 float OutputPeak()
 {
   return g_outputPeak.load(std::memory_order_relaxed);
+}
+
+std::int32_t ChopPlayhead(std::size_t engineIndex)
+{
+  return engineIndex < g_chopPlayhead.size() ? g_chopPlayhead[engineIndex].load(std::memory_order_relaxed) - 1 : -1;
 }
 
 void SetMasterFx(fx::MasterParam param, int value)
