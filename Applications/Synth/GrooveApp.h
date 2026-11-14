@@ -85,6 +85,7 @@ public:
   float FxReturnLevel(std::size_t bus) const override;
   bool FxBusAvailable(std::size_t bus) const override;
   void WaveCycle(int wave, float position, std::int8_t* points, std::size_t count) const override;
+  bool BraidsWave(int model, int timbre, int color, std::int8_t* out, std::size_t count) const override;
   std::vector<std::string> ListProjects() const override;
   groove::SaveResult SaveProject(const std::string& name, bool overwrite, const groove::ProjectUiSettings& settings, std::string& message) override;
   groove::SaveResult RenameProject(const std::string& from, const std::string& to, std::string& message) override;

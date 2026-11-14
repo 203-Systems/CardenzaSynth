@@ -76,17 +76,54 @@ function(cardenza_collect_synth_fx_cpp_sources root_dir out_var)
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
+# The Braids engine's DSP: Mutable Instruments' macro oscillator (Library/third_party/braids, MIT), its
+# tables made for 44100 Hz (resources/generate.py), and our voice around it. The oscillator's fixed-point
+# arithmetic counts on signed overflow wrapping, as it does on the module's compiler: -fwrapv makes
+# that the rule here. Sources that include its headers need its root as an include directory
+# (cardenza_braids_include_directory).
+function(cardenza_collect_braids_cpp_sources root_dir out_var)
+    set(braids_dir ${root_dir}/Library/third_party/braids)
+    set(vendor_sources
+        ${braids_dir}/braids/analog_oscillator.cc
+        ${braids_dir}/braids/digital_oscillator.cc
+        ${braids_dir}/braids/macro_oscillator.cc
+        ${braids_dir}/braids/resources.cc
+        ${braids_dir}/stmlib/utils/random.cc
+    )
+    set(sources
+        ${vendor_sources}
+        ${root_dir}/Library/Synth/Audio/Braids/BraidsVoice.cpp
+    )
+    if(NOT CMAKE_SCRIPT_MODE_FILE)
+        if(MSVC)
+            # MSVC wraps signed arithmetic; its warnings about the module's code are not ours to fix.
+            set_source_files_properties(${vendor_sources} PROPERTIES COMPILE_OPTIONS "/w")
+        else()
+            set_source_files_properties(${vendor_sources} PROPERTIES COMPILE_OPTIONS "-fwrapv;-w")
+        endif()
+    endif()
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+function(cardenza_braids_include_directory root_dir out_var)
+    set(${out_var} ${root_dir}/Library/third_party/braids PARENT_SCOPE)
+endfunction()
+
 function(cardenza_collect_synth_runtime_cpp_sources root_dir out_var)
     cardenza_collect_synth_fx_cpp_sources(${root_dir} fx_sources)
+    cardenza_collect_braids_cpp_sources(${root_dir} braids_sources)
     set(sources
         ${root_dir}/Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp
         ${fx_sources}
+        ${braids_sources}
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
 function(cardenza_collect_synth_core_cpp_sources root_dir out_var)
     set(sources
+        ${root_dir}/Library/Synth/Core/Engines/Braids/BraidsFactoryPresets.cpp
+        ${root_dir}/Library/Synth/Core/Engines/Braids/BraidsSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Drums/DrumsSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7FactoryPresets.cpp
         ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.cpp

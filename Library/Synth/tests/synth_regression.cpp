@@ -16,6 +16,8 @@
 #endif
 
 #include "Devices/DeviceAudio.h"
+#include "Library/Synth/Core/Engines/Braids/BraidsFactoryPresets.h"
+#include "Library/Synth/Core/Engines/Braids/BraidsSynthEngine.h"
 #include "Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.h"
 #include "Library/Synth/Audio/RenderLoad.h"
 #include "Library/Synth/Audio/Fx/SynthFxDsp.h"
@@ -49,7 +51,7 @@ namespace synth::storage {
 std::string PresetDirectory(std::string_view instrument) { return (storageRoot / std::string(instrument)).string(); }
 bool EnsureLayout()
 {
-  for (const char* engine : {"DX7", "Juno", "Sampler", "Drums"}) std::filesystem::create_directories(storageRoot / engine);
+  for (const char* engine : {"DX7", "Juno", "Sampler", "Drums", "Braids"}) std::filesystem::create_directories(storageRoot / engine);
   return true;
 }
 }
@@ -126,6 +128,56 @@ void MeasurePresetNote(std::size_t track, double& peak, double& loudness)
       level = std::clamp(level + change, -30.0, 30.0);
     }
     std::printf("%d,%s", static_cast<int>(std::lround(level)), patch % 16 == 15 ? "\n" : " ");
+  }
+  std::fflush(stdout);
+  _Exit(0);
+}
+
+// A Braids model as its level is measured: the default preset's envelope, TIMBRE and COLOR at 64. For
+// the models of three oscillators that is unison, where their level is whatever their phases happen to
+// make it (8 dB apart from one note to the next): those are measured 19 cents apart either side, where
+// they beat and the loudest 0.3 s is the same every time.
+void SetBraidsModelForLevel(std::size_t track, std::size_t model)
+{
+  const bool three = model >= 9 && model <= 12;  // SAW X3 .. SIN X3
+  SetEnginePreset(track, kBraidsDefaultPreset);
+  SetEngineParameter(track, "osc.model", static_cast<int>(model));
+  SetEngineParameter(track, "osc.timbre", three ? 58 : 64);
+  SetEngineParameter(track, "osc.color", three ? 70 : 64);
+}
+
+// Prints the contents of Library/Synth/Audio/Braids/ModelLevels.inc, then ends the program: what brings
+// each Braids model (SetBraidsModelForLevel) to the level the presets of the other engines are evened
+// out to.
+[[noreturn]] void PrintBraidsLevels()
+{
+  constexpr double kTargetLoudness = -18.0, kHighestPeak = -6.0, kSilent = -70.0;
+  constexpr std::size_t kTrack = 1;
+  std::array<std::int16_t, 256> block{};
+  std::printf("// Generated: PRINT_BRAIDS_LEVELS=1 SynthRegression > this file.\n");
+  EnsureEngine(kTrack, SynthEngineKind::Braids);
+  for (std::size_t model = 0; model < braids::kModelCount; ++model)
+  {
+    SetBraidsModelForLevel(kTrack, model);
+    RenderFrames(block.data(), block.size());
+    assert(g_engines[kTrack].braidsModel == static_cast<int>(model));
+    double level = 0.0;
+    for (int pass = 0; pass < 4; ++pass)
+    {
+      g_engines[kTrack].presetGain = static_cast<float>(std::pow(10.0, level / 20.0));
+      for (std::size_t settle = 0; settle < 6; ++settle) RenderFrames(block.data(), block.size());
+      double peak = 0.0, loudness = 0.0;
+      MeasurePresetNote(kTrack, peak, loudness);
+      if (loudness < kSilent)
+      {
+        std::fprintf(stderr, "silent: %s\n", braids::Model(static_cast<int>(model)).name);
+        break;
+      }
+      const double change = (std::min)(kTargetLoudness - loudness, kHighestPeak - peak);
+      if (std::abs(change) < 1.0) break;
+      level = std::clamp(level + change, -30.0, 30.0);
+    }
+    std::printf("%d,%s", static_cast<int>(std::lround(level)), model % 8 == 7 || model + 1 == braids::kModelCount ? "\n" : " ");
   }
   std::fflush(stdout);
   _Exit(0);
@@ -580,6 +632,7 @@ int main()
   };
 
   if (std::getenv("PRINT_PRESET_LEVELS") != nullptr) PrintPresetLevels();
+  if (std::getenv("PRINT_BRAIDS_LEVELS") != nullptr) PrintBraidsLevels();
   if (std::getenv("PRINT_PRESET_PROFILE") != nullptr) PrintPresetProfiles();
   if (std::getenv("PRINT_WAVE_LEVELS") != nullptr) PrintWaveLevels();
   EnsureEngine(0, SynthEngineKind::Sampler);
@@ -865,16 +918,18 @@ int main()
 
   // Stress all voice-budget extremes and repeated reallocations without raising
   // the 24-voice/160-osc limits. Each track must retain its assigned voice count.
-  const std::array<SynthEngineKind, 4> kinds{{SynthEngineKind::Drums, SynthEngineKind::Juno, SynthEngineKind::Dx7, SynthEngineKind::Sampler}};
-  for (int pass = 0; pass < 12; ++pass)
+  const std::array<SynthEngineKind, 5> kinds{{SynthEngineKind::Drums, SynthEngineKind::Juno, SynthEngineKind::Dx7, SynthEngineKind::Sampler,
+                                               SynthEngineKind::Braids}};
+  for (int pass = 0; pass < 15; ++pass)
   {
     for (std::size_t track = 0; track < kSynthTrackCount; ++track)
     {
-      const auto kind = pass < 4 ? kinds[pass] : kinds[(track + pass) % kinds.size()];
+      const auto kind = pass < static_cast<int>(kinds.size()) ? kinds[static_cast<std::size_t>(pass)] : kinds[(track + static_cast<std::size_t>(pass)) % kinds.size()];
       EnsureEngine(track, kind);
       if (kind == SynthEngineKind::Drums) SetEnginePreset(track, "drums.808");
       else if (kind == SynthEngineKind::Juno) SetEnginePreset(track, "juno.a51");
       else if (kind == SynthEngineKind::Dx7) SetEnginePreset(track, "dx7.rom1a.01");
+      else if (kind == SynthEngineKind::Braids) SetEnginePreset(track, kBraidsDefaultPreset);
       else SetSamplerFrames(track, sample, kSampleRate);
       NoteOn(track, kind == SynthEngineKind::Drums ? 46 : 60, 100);
     }
@@ -1676,6 +1731,258 @@ int main()
   }
 
   TestWaveEngine();
+  // Braids: Mutable Instruments' macro oscillator as AMY's custom oscillator.
+  {
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track) EnsureEngine(track, SynthEngineKind::None);
+    RenderFrames(pcm.data(), pcm.size());
+    constexpr std::size_t kTrack = 2;
+    std::array<std::int16_t, 256> block{};
+    const auto render = [&](std::size_t blocks) {
+      std::vector<double> audio;
+      for (std::size_t index = 0; index < blocks; ++index)
+      {
+        RenderFrames(block.data(), block.size());
+        audio.insert(audio.end(), block.begin(), block.end());
+      }
+      return audio;
+    };
+    const auto power = [](const std::vector<double>& audio) {
+      double sum = 0.0;
+      for (const double sample : audio) sum += sample * sample;
+      return audio.empty() ? 0.0 : sum / static_cast<double>(audio.size());
+    };
+    // The fundamental near `expected`, by autocorrelation with a parabola through its peak.
+    const auto fundamental = [](const std::vector<double>& audio, double expected) {
+      const double period = kSampleRate / expected;
+      const int low = static_cast<int>(period * 0.9), high = static_cast<int>(period * 1.1) + 1;
+      std::vector<double> correlation(static_cast<std::size_t>(high) + 2);
+      for (int lag = low - 1; lag <= high + 1; ++lag)
+      {
+        double sum = 0.0;
+        for (std::size_t index = 0; index + static_cast<std::size_t>(lag) < audio.size(); ++index) sum += audio[index] * audio[index + static_cast<std::size_t>(lag)];
+        correlation[static_cast<std::size_t>(lag)] = sum / static_cast<double>(audio.size() - static_cast<std::size_t>(lag));
+      }
+      int best = low;
+      for (int lag = low; lag <= high; ++lag) if (correlation[static_cast<std::size_t>(lag)] > correlation[static_cast<std::size_t>(best)]) best = lag;
+      const double before = correlation[static_cast<std::size_t>(best - 1)], at = correlation[static_cast<std::size_t>(best)], after = correlation[static_cast<std::size_t>(best + 1)];
+      return kSampleRate / (best + (before - after) / (2.0 * (before - 2.0 * at + after)));
+    };
+    const auto cents = [](double hertz, double expected) { return 1200.0 * std::log2(hertz / expected); };
+    const auto voicesSounding = [&]() {
+      std::array<std::uint16_t, kAmyMaxVoices> voices{};
+      const int count = amy_embed::instrument_get_num_voices(static_cast<std::uint8_t>(kTrack + 1), voices.data());
+      int sounding = 0;
+      for (int voice = 0; voice < count; ++voice)
+      {
+        const auto* root = amy_embed::synth[amy_embed::voice_to_base_osc[voices[static_cast<std::size_t>(voice)]]];
+        if (root != nullptr && root->status == SYNTH_AUDIBLE) ++sounding;
+      }
+      return sounding;
+    };
 
-  std::cout << "Synth regression passed: sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters.\n";
+    BraidsSynthEngine braidsEngine;
+    assert(braidsEngine.Init({kTrack, 0x4110, "regression-braids"}));
+    RenderFrames(block.data(), block.size());
+    // Four voices, one AMY oscillator each, every one mapped to a voice of the track.
+    {
+      const EngineState& state = g_engines[kTrack];
+      assert(state.kind == SynthEngineKind::Braids && state.braids);
+      std::array<std::uint16_t, kAmyMaxVoices> voices{};
+      assert(amy_embed::instrument_get_num_voices(static_cast<std::uint8_t>(kTrack + 1), voices.data()) == static_cast<int>(braids::kVoiceCount));
+      assert(amy_embed::instrument_get_oscs_per_voice(static_cast<std::uint8_t>(kTrack + 1)) == 1);
+      for (std::size_t voice = 0; voice < braids::kVoiceCount; ++voice)
+      {
+        const std::uint16_t osc = amy_embed::voice_to_base_osc[voices[voice]];
+        assert(state.braidsOsc[voice] == osc && g_amyOscTrack[osc] == kTrack + 1 && g_amyVoiceStart[osc]);
+        assert(amy_embed::synth[osc] != nullptr && amy_embed::synth[osc]->wave == CUSTOM);
+      }
+    }
+    // The catalog: every factory preset loads, within its parameters' ranges, and survives a round trip.
+    assert(braidsEngine.ListPresets({0, 200}).totalCount == kBraidsFactoryPresetCount);
+    assert(braidsEngine.CurrentPresetId() == kBraidsDefaultPreset && !braidsEngine.HasEdits());
+    for (const BraidsFactoryPreset& preset : BraidsFactoryPresets())
+    {
+      assert(braidsEngine.LoadPreset(std::string(preset.id)) && !braidsEngine.HasEdits());
+      for (std::size_t index = 0; index < kBraidsParameterCount; ++index)
+      {
+        SynthParameterInfo info;
+        assert(braidsEngine.GetParameterInfo(kBraidsParameterIds[index], info));
+        assert(info.value == preset.values[index] && info.value >= info.minValue && info.value <= info.maxValue);
+      }
+      assert(braidsEngine.RestoreState(braidsEngine.CaptureState()) && braidsEngine.RestoreState(braidsEngine.CaptureChanges()));
+      RenderFrames(block.data(), block.size());
+      assert(g_engines[kTrack].braidsModel == preset.values[0] && !braids::OutOfMemory(*g_engines[kTrack].braids));
+    }
+    assert(std::count_if(BraidsFactoryPresets().begin(), BraidsFactoryPresets().end(), [](const BraidsFactoryPreset& preset) {
+             return preset.id == kBraidsDefaultPreset;
+           }) == 1);
+    assert(braidsEngine.DescribeParameterValue("osc.model") == braids::Model(g_engines[kTrack].braidsModel).name);
+
+    // In tune: the default saw plays A4 at 440 Hz, TUNE moves it by semitones, FINE by cents.
+    assert(braidsEngine.LoadPreset(kBraidsDefaultPreset));
+    NoteOn(kTrack, 69, 110);
+    (void)render(20);
+    auto held = render(60);
+    assert(power(held) > 100.0 && std::fabs(cents(fundamental(held, 440.0), 440.0)) < 2.0);
+    assert(voicesSounding() == 1 && HeldNotes(kTrack)[69 / 32] == 1u << (69 % 32));
+    assert(braidsEngine.SetParameterValue("osc.tune", 12) && braidsEngine.SetParameterValue("osc.fine", 50));
+    (void)render(8);
+    held = render(60);
+    assert(std::fabs(cents(fundamental(held, 880.0), 880.0) - 50.0) < 2.0);
+    assert(braidsEngine.HasEdits());
+    // Let go: the envelope releases, the voice ends by itself and the output is digital silence.
+    NoteOff(kTrack, 69);
+    (void)render(120);
+    assert(voicesSounding() == 0 && power(render(4)) == 0.0);
+    const NoteSet nothingHeld = HeldNotes(kTrack);
+    assert(std::all_of(nothingHeld.begin(), nothingHeld.end(), [](std::uint32_t word) { return word == 0; }));
+
+    // Every model sounds, stays finite and ends after its note; the string and bore models are in tune
+    // (on the module a bowed middle C is 9 cents sharp, and at 44100 Hz without the correction 20).
+    for (std::size_t model = 0; model < braids::kModelCount; ++model)
+    {
+      assert(braidsEngine.LoadPreset(kBraidsDefaultPreset) && braidsEngine.SetParameterValue("osc.model", static_cast<int>(model)));
+      assert(braidsEngine.SetParameterValue("env.release", 10));
+      NoteOn(kTrack, 60, 110);
+      const auto start = render(12);
+      held = render(60);
+      assert(power(start) + power(held) > 1.0);
+      assert(!braids::OutOfMemory(*g_engines[kTrack].braids));
+      const std::string name = braids::Model(static_cast<int>(model)).name;
+      if (name == "PLUCK" || name == "BOWED" || name == "BLOWN" || name == "CSAW" || name == "COMB" || name == "HARM")
+      {
+        const double expected = 440.0 * std::pow(2.0, (60 - 69) / 12.0);
+        assert(std::fabs(cents(fundamental(held, expected), expected)) < 3.0);
+      }
+      NoteOff(kTrack, 60);
+      (void)render(60);
+      assert(voicesSounding() == 0 && power(render(2)) == 0.0);
+    }
+
+    // Four notes sound together; a fifth takes the voice of a held one (and is counted).
+    assert(braidsEngine.LoadPreset(kBraidsDefaultPreset));
+    (void)render(2);
+    const auto stolenBefore = GivenUpVoiceCounts().stolen;
+    for (const std::uint8_t note : {48, 55, 60, 64}) NoteOn(kTrack, note, 100);
+    (void)render(4);
+    assert(voicesSounding() == 4 && GivenUpVoiceCounts().stolen == stolenBefore);
+    NoteOn(kTrack, 67, 100);
+    (void)render(4);
+    assert(voicesSounding() == 4 && GivenUpVoiceCounts().stolen == stolenBefore + 1);
+    // The track's fader and mute act on it like on any AMY track.
+    const double open = power(render(20));
+    SetTrackMuted(kTrack, true);
+    (void)render(8);
+    assert(power(render(8)) == 0.0);
+    SetTrackMuted(kTrack, false);
+    SetTrackGain(kTrack, 0.5f);
+    (void)render(8);
+    const double half = power(render(20));
+    assert(half > open * 0.15 && half < open * 0.4);
+    SetTrackGain(kTrack, 1.0f);
+    AllNotesOff(kTrack);
+    (void)render(60);
+    assert(voicesSounding() == 0);
+
+    // The envelope and the LFO move the sound: TIMBRE swept by the envelope differs from the plain note,
+    // an LFO on the pitch spreads it, and nothing leaves the output's range.
+    assert(braidsEngine.LoadPreset("braids.fold"));
+    const auto note = [&]() {
+      NoteOn(kTrack, 48, 110);
+      const auto audio = render(40);
+      NoteOff(kTrack, 48);
+      (void)render(40);
+      return audio;
+    };
+    const auto swept = note();
+    assert(braidsEngine.SetParameterValue("mod.timbre", 0));
+    const auto plain = note();
+    assert(power(swept) > 1.0 && power(plain) > 1.0 && swept != plain);
+    assert(braidsEngine.SetParameterValue("lfo.pitch", 127) && braidsEngine.SetParameterValue("lfo.rate", 127) &&
+           braidsEngine.SetParameterValue("lfo.timbre", 127) && braidsEngine.SetParameterValue("lfo.color", 127) &&
+           braidsEngine.SetParameterValue("mod.pitch", -63) && braidsEngine.SetParameterValue("mod.color", 63));
+    assert(note() != plain);
+
+    // A model with delay lines takes them when it is chosen and gives them back with the next; without
+    // memory it is silent, says so, and sounds again once there is room.
+    assert(braidsEngine.LoadPreset("braids.pluck"));
+    (void)render(2);
+    assert(!braids::OutOfMemory(*g_engines[kTrack].braids));
+    failAllocationsFrom = 4096;
+    assert(braidsEngine.SetParameterValue("osc.model", 0) && braidsEngine.SetParameterValue("osc.model", 29));
+    (void)render(2);
+    assert(braids::OutOfMemory(*g_engines[kTrack].braids));
+    NoteOn(kTrack, 60, 110);
+    assert(power(render(20)) == 0.0);
+    NoteOff(kTrack, 60);
+    failAllocationsFrom = 0;
+    assert(braidsEngine.SetParameterValue("osc.model", 28) && braidsEngine.SetParameterValue("osc.model", 29));
+    (void)render(40);
+    assert(!braids::OutOfMemory(*g_engines[kTrack].braids));
+    NoteOn(kTrack, 60, 110);
+    assert(power(render(40)) > 1.0);
+    NoteOff(kTrack, 60);
+    (void)render(80);
+
+    // A user preset: saved, loaded again, and read by a second engine from the card.
+    assert(braidsEngine.LoadPreset("braids.bell") && braidsEngine.SetParameterValue("osc.color", 99) && braidsEngine.SetParameterValue("mod.pitch", -12));
+    assert(braidsEngine.SavePreset("", "My Bell"));
+    const SynthEngineState savedBell = braidsEngine.CaptureState();
+    assert(savedBell.basePresetId == "braids.bell" && savedBell.presetId == "user.1");
+    assert(braidsEngine.LoadPreset(kBraidsDefaultPreset) && braidsEngine.LoadPreset("user.1"));
+    assert(braidsEngine.CaptureState().values == savedBell.values);
+    assert(std::filesystem::exists(storageRoot / "Braids" / "user.ccpreset"));
+    BraidsSynthEngine secondBraids;
+    assert(secondBraids.RestoreState(savedBell) && secondBraids.CurrentPresetName() == "My Bell");
+    SynthEngineState invalidBell = savedBell;
+    invalidBell.values["osc.model"] = static_cast<int>(braids::kModelCount);
+    assert(!secondBraids.CanRestore(invalidBell));
+
+    // Beside the other engines: effects on the Braids track, a switch away gives its voices back, a
+    // switch back starts clean.
+    EnsureEngine(0, SynthEngineKind::Drums);
+    SetEnginePreset(0, "drums.808");
+    EnsureEngine(1, SynthEngineKind::Juno);
+    SetEnginePreset(1, "juno.a51");
+    assert(braidsEngine.LoadPreset("braids.swarm") && braidsEngine.SetParameterValue("fx.reverb", 90) && braidsEngine.SetParameterValue("fx.filter", 40) &&
+           braidsEngine.SetParameterValue("fx.chorus", 2));
+    NoteOn(0, 36, 110);
+    NoteOn(1, 60, 100);
+    for (const std::uint8_t chordNote : {48, 55, 60, 64}) NoteOn(kTrack, chordNote, 100);
+    const auto together = render(80);
+    assert(power(together) > 100.0 && g_fx.floatPath && g_fx.insertRouted[kTrack]);
+    for (const double sample : together) assert(std::fabs(sample) <= 32767.0 * kOutputCeiling + 1.0);
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track) AllNotesOff(track);
+    (void)render(40);
+    EnsureEngine(kTrack, SynthEngineKind::Juno);
+    (void)render(2);
+    assert(!g_engines[kTrack].braids && std::all_of(g_engines[kTrack].braidsOsc.begin(), g_engines[kTrack].braidsOsc.end(), [](std::uint16_t osc) {
+             return osc == kNoBraidsOsc;
+           }));
+    EnsureEngine(kTrack, SynthEngineKind::Braids);
+    SetEnginePreset(kTrack, kBraidsDefaultPreset);
+    NoteOn(kTrack, 60, 100);
+    assert(power(render(20)) > 1.0 && g_engines[kTrack].braids);
+    for (std::size_t track = 0; track < kSynthTrackCount; ++track) EnsureEngine(track, SynthEngineKind::None);
+    while (g_fx.floatPath) RenderFrames(block.data(), block.size());
+    assert(power(render(2)) == 0.0);
+
+    // The models at one level: each within reach of what the factory presets of the other engines are
+    // evened out to (ModelLevels.inc; -18 dB for the loudest 0.3 s, or a peak of -6 dB). Within reach:
+    // the noise and grain models are what chance makes them. BRAIDS_LEVELS_SHOWN=1 prints them.
+    EnsureEngine(kTrack, SynthEngineKind::Braids);
+    for (std::size_t model = 0; model < braids::kModelCount; ++model)
+    {
+      SetBraidsModelForLevel(kTrack, model);
+      for (std::size_t settle = 0; settle < 8; ++settle) RenderFrames(block.data(), block.size());
+      double peak = 0.0, loudness = 0.0;
+      MeasurePresetNote(kTrack, peak, loudness);
+      if (std::getenv("BRAIDS_LEVELS_SHOWN") != nullptr) std::printf("%-6s loudness %6.1f peak %6.1f\n", braids::Model(static_cast<int>(model)).name, loudness, peak);
+      assert(peak < -1.0 && loudness < -14.0 && (loudness > -22.0 || peak > -10.0));
+    }
+    EnsureEngine(kTrack, SynthEngineKind::None);
+    (void)render(2);
+  }
+
+  std::cout << "Synth regression passed: sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters, Braids (voices, tuning, every model, modulation, delay-line memory, presets, levels).\n";
 }

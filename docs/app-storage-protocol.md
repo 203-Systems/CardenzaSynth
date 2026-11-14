@@ -23,6 +23,7 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
     Juno/user.ccpreset
     Sampler/user.ccpreset
     Drums/user.ccpreset
+    Braids/user.ccpreset
   Samples/
     <name>.wav                 samples, referenced by file name; any app may use them
   Session/
@@ -186,7 +187,7 @@ wrong.
 | What | Where |
 |---|---|
 | projects `<name>.ccproj` | `Projects/` |
-| user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums}/` |
+| user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums,Braids}/` |
 | samples (WAV) | `Samples/` |
 | app preferences (SELECT) | `Settings/synth.cfg` |
 | working state (autosave) | `Session/autosave.ccproj` and `autosave.txt` |
@@ -207,6 +208,11 @@ track's chord and arpeggiator (one `PLAYFX` line per track). Loading a format 6 
 them; older files have none and leave the current ones in place; NEW starts from the defaults. The UI
 line's LED brightness, `MASTER` and `SYSTEM` (backlight) are device settings: still written, ignored
 when a project loads. Named projects are only written by SAVE.
+
+A track's engine is a number in the file: 1 DX7, 2 Juno, 3 Sampler, 4 Drums, 5 Braids. Braids came
+after format 7 was fixed and changes nothing in the format itself: a firmware older than it does not
+know engine 5 and refuses a project (or an autosave) that has a Braids track, without changing the
+file; every project without one reads as before.
 
 **Autosave.** The groovebox keeps its working state on the card, so the power can go at any moment.
 There is one autosave: `autosave.ccproj` is the whole project in the project format (sounds keep only

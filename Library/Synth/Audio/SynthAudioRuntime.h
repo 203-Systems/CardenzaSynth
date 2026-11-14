@@ -57,6 +57,7 @@ struct RenderModel {
   float junoMicros = 0.0f;
   float drumsMicros = 0.0f;
   float waveMicros = 0.0f;
+  float braidsMicros = 0.0f;
   float overheadMicros = 0.0f;
   float budgetScale = 1.0f;
 };

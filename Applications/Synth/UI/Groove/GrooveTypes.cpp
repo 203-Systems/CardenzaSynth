@@ -172,6 +172,7 @@ std::string_view EngineShortName(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Sampler: return "SAMPLER";
     case synth::SynthEngineKind::Drums: return "DRUMS";
     case synth::SynthEngineKind::Wave: return "WAVE";
+    case synth::SynthEngineKind::Braids: return "BRAIDS";
     case synth::SynthEngineKind::None:
     default: return "---";
   }
@@ -186,6 +187,7 @@ std::string_view EngineCode(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Sampler: return "SMP";
     case synth::SynthEngineKind::Drums: return "DRM";
     case synth::SynthEngineKind::Wave: return "WAV";
+    case synth::SynthEngineKind::Braids: return "BRD";
     case synth::SynthEngineKind::None:
     default: return "---";
   }

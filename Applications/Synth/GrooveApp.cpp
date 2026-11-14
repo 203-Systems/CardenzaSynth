@@ -28,6 +28,7 @@
 #include "Applications/Synth/UI/Groove/Render/GrooveRenderer.h"
 #include "Devices/Device.h"
 #include "Devices/LedLight.h"
+#include "Library/Synth/Audio/Braids/BraidsVoice.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "OS/MIDI/MIDI.h"
 #include "OS/Storage/DeviceSettings.h"
@@ -89,6 +90,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Sampler: return 6 * 1024;
     case synth::SynthEngineKind::Drums: return 4 * 1024;
     case synth::SynthEngineKind::Wave: return 7 * 1024;
+    case synth::SynthEngineKind::Braids: return 6 * 1024;
     case synth::SynthEngineKind::None:
     default: return 0;
   }
@@ -1039,6 +1041,11 @@ bool GrooveApp::FxBusAvailable(std::size_t bus) const
 void GrooveApp::WaveCycle(int wave, float position, std::int8_t* points, std::size_t count) const
 {
   synth::audio::WaveCycle(wave, position, points, count);
+}
+
+bool GrooveApp::BraidsWave(int model, int timbre, int color, std::int8_t* out, std::size_t count) const
+{
+  return synth::braids::RenderPreview(model, timbre, color, out, count);
 }
 
 void GrooveApp::ApplyMasterFx(const std::array<std::uint8_t, synth::fx::kMasterParamCount>& values)

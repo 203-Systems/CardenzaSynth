@@ -86,6 +86,9 @@ public:
   // One cycle of a Wave engine oscillator's wave (its WAVE value: the wavetables, then the classic
   // shapes) at a POSITION of 0..1, as `count` points of -127..127, for the OSC pages' picture.
   virtual void WaveCycle(int wave, float position, std::int8_t* points, std::size_t count) const = 0;
+  // A Braids model's waveform for the OSC page: `count` samples (-127..127), two periods, at these
+  // TIMBRE and COLOR (0..127). False without memory for it.
+  virtual bool BraidsWave(int model, int timbre, int color, std::int8_t* out, std::size_t count) const = 0;
 
   // Projects.
   virtual std::vector<std::string> ListProjects() const = 0;

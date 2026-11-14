@@ -6,6 +6,8 @@
 #include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
 #include "Library/Synth/Core/Engines/Wave/WaveParameters.h"
 #include "Library/Synth/Audio/Amy/FactoryParameters.h"
+#include "Library/Synth/Audio/Braids/BraidsModels.h"
+#include "Library/Synth/Audio/Braids/BraidsVoice.h"
 #include "Library/Synth/Audio/Fx/SynthFxDsp.h"
 #if defined(CARDENZA_AMY_BENCH)
 #include "Library/Synth/Audio/Amy/AmyBench.h"
@@ -175,12 +177,23 @@ struct SamplerVoice {
   std::uint64_t serial = 0;
 };
 
+// What AMY does for a Braids voice: its amplitude envelope and level (the oscillator's own parameters
+// are in braids::Track). The defaults are the engine's (BraidsSynthEngine).
+struct BraidsAmpParams {
+  int attack = 0;
+  int decay = 64;
+  int sustain = 127;
+  int release = 24;
+  int level = 100;
+};
+constexpr std::uint16_t kNoBraidsOsc = 0xffff;
+
 struct EngineState {
   SynthEngineKind kind = SynthEngineKind::None;
   bool configured = false;
   int synthId = 0;
   int patchNumber = -1;
-  float presetGain = 1.0f;  // Evens out the factory presets (PresetLevels.inc).
+  float presetGain = 1.0f;  // Evens out the factory presets (PresetLevels.inc) and Braids' models.
   bool orphanVoiceSeen = false;
   int noteOffset = 0;
   std::array<std::uint8_t, 156> dx7{};
@@ -194,7 +207,14 @@ struct EngineState {
   SamplerParams sampler{};
   std::array<SamplerVoice, kSamplerVoiceCount> samplerVoices{};
   std::uint64_t nextSamplerVoiceSerial = 1;
+  // Braids: the track's voices, the AMY oscillator each one plays as (RebuildAmyOscTrackMapNoLock), and
+  // the model, for its level.
+  braids::TrackPtr braids;
+  std::array<std::uint16_t, braids::kVoiceCount> braidsOsc{{kNoBraidsOsc, kNoBraidsOsc, kNoBraidsOsc, kNoBraidsOsc}};
+  BraidsAmpParams braidsAmp{};
+  int braidsModel = 0;
 };
+static_assert(braids::kVoiceCount == 4, "EngineState::braidsOsc lists every voice");
 
 enum class PendingEventType {
   EnsureEngine,
@@ -441,9 +461,11 @@ void UpdateSamplerFilter(SamplerParams& params)
   params.filterInverse = 1.0f / (1.0f + params.filterG * (params.filterG + params.filterDamping));
 }
 
+// AMY plays the track's voices: its own oscillators, or Braids' as its custom oscillator.
 bool UsesAmy(SynthEngineKind kind)
 {
-  return kind == SynthEngineKind::Dx7 || kind == SynthEngineKind::Juno || kind == SynthEngineKind::Drums || kind == SynthEngineKind::Wave;
+  return kind == SynthEngineKind::Dx7 || kind == SynthEngineKind::Juno || kind == SynthEngineKind::Drums || kind == SynthEngineKind::Wave ||
+         kind == SynthEngineKind::Braids;
 }
 
 int VoiceCountFor(SynthEngineKind kind)
@@ -459,6 +481,8 @@ int VoiceCountFor(SynthEngineKind kind)
     case SynthEngineKind::Drums:
     case SynthEngineKind::Wave:
       return 6;
+    case SynthEngineKind::Braids:
+      return static_cast<int>(braids::kVoiceCount);
     default:
       return 0;
   }
@@ -650,6 +674,63 @@ const std::int16_t* BenchDrumSamples()
 #endif
 }
 #endif
+// Braids: each voice of a Braids track is an AMY oscillator of wave CUSTOM, AMY's hook for an
+// oscillator it does not have. AMY starts and ends its notes, shapes its amplitude (envelope 0, the
+// velocity) and gives its pitch; the callbacks below render it with the track's braids::Track. So a
+// Braids voice is a voice like any other to everything after: the voice budget and its fades, both
+// cores, the track's gain, its inserts and sends.
+struct BraidsVoiceRef {
+  braids::Track* track = nullptr;
+  std::size_t voice = 0;
+};
+
+BraidsVoiceRef BraidsVoiceOf(std::uint16_t osc)
+{
+  if (osc >= g_amyOscTrack.size() || g_amyOscTrack[osc] == 0) return {};
+  EngineState& engine = g_engines[g_amyOscTrack[osc] - 1u];
+  if (engine.kind != SynthEngineKind::Braids || !engine.braids) return {};
+  for (std::size_t voice = 0; voice < engine.braidsOsc.size(); ++voice)
+    if (engine.braidsOsc[voice] == osc) return {engine.braids.get(), voice};
+  return {};
+}
+
+void BraidsNoteOn(std::uint16_t osc, float)
+{
+  const BraidsVoiceRef ref = BraidsVoiceOf(osc);
+  if (ref.track != nullptr) braids::NoteOn(*ref.track, ref.voice);
+}
+
+// AMY leaves a custom oscillator's release to it: the clocks as its own oscillators set them
+// (algo_note_off), so envelope 0 releases, VoiceReleased sees a tail and silence ends the voice.
+void BraidsNoteOff(std::uint16_t osc)
+{
+  amy_embed::synthinfo* voice = amy_embed::synth[osc];
+  if (voice == nullptr) return;
+  voice->note_on_clock = std::numeric_limits<std::uint32_t>::max();
+  voice->note_off_clock = amy_embed::amy_global.total_blocks * AMY_BLOCK_SIZE;
+}
+
+SAMPLE BraidsRender(SAMPLE* buffer, std::uint16_t osc)
+{
+  amy_embed::mod_synthinfo* modulated = amy_embed::msynth[osc];
+  const float from = modulated->last_amp;
+  const float to = modulated->amp;
+  modulated->last_amp = to;
+  // Level 0: AMY then skips the oscillator's controls and the amplitude above is an old one.
+  if (!(amy_embed::synth[osc]->amp_coefs[amy_embed::COEF_CONST] > 0.0f) || (from == 0.0f && to == 0.0f)) return 0;
+  const BraidsVoiceRef ref = BraidsVoiceOf(osc);
+  if (ref.track == nullptr) return 0;
+  // AMY's pitch is in octaves from ZERO_MIDI_NOTE, Braids' in 128ths of a semitone from note 0.
+  const float semitones = static_cast<float>(ZERO_MIDI_NOTE) + 12.0f * modulated->logfreq;
+  return braids::Render(*ref.track, ref.voice, static_cast<std::int32_t>(semitones * static_cast<float>(braids::kPitchPerSemitone)), from, to,
+                        buffer, AMY_BLOCK_SIZE);
+}
+
+void BraidsNothing() {}
+void BraidsModTrigger(std::uint16_t) {}
+SAMPLE BraidsComputeMod(std::uint16_t) { return 0; }
+
+amy_embed::custom_oscillator g_braidsOscillator{BraidsNothing, BraidsNothing, BraidsNoteOn, BraidsNoteOff, BraidsModTrigger, BraidsRender, BraidsComputeMod};
 
 void EnsureAmyInitialized()
 {
@@ -660,7 +741,7 @@ void EnsureAmyInitialized()
     config.features.default_synths = 0;
     config.features.startup_bleep = 0;
     config.features.audio_in = 0;
-    config.features.custom = 0;
+    config.features.custom = 1;  // Braids (g_braidsOscillator)
 #if defined(CARDENZA_AMY_BENCH)
     config.features.partials = 1;  // the piano and the organ (AmyBench.h)
 #else
@@ -699,6 +780,7 @@ void EnsureAmyInitialized()
     // The tracks' effects are ours (SynthFx): AMY mixes every voice into one stereo bus.
     config.max_buses = 1;
     config.amy_external_render_hook = ApplyTrackGainToAmyVoice;
+    amy_embed::amy_set_custom(&g_braidsOscillator);
     amy_start(config);
 #if defined(CARDENZA_AMY_BENCH)
     amy_embed::amy_set_gamma9001_pcm(BenchDrumSamples());
@@ -922,6 +1004,50 @@ void ApplyJunoParameterNoLock(EngineState& engine, std::string_view id, int valu
     }
     amy_add_event(&event);
   }
+}
+
+// A Braids voice's level and amplitude envelope: AMY's envelope 0 on its oscillator. Attack 0 starts at
+// full level (a drum's or a pluck's first sample counts); anything longer rises over a block at least.
+void VoiceBraidsAmpNoLock(const EngineState& engine)
+{
+  const BraidsAmpParams& amp = engine.braidsAmp;
+  const auto cubed = [](int value) {
+    const float unit = Normalize(value, 0, 127);
+    return unit * unit * unit;
+  };
+  auto event = SynthEvent(engine, 0);
+  event.amp_coefs[amy_embed::COEF_CONST] = Normalize(amp.level, 0, 127);
+  event.eg0_times[0] = amp.attack <= 0 ? 0u : static_cast<std::uint32_t>(2.0f + 3000.0f * cubed(amp.attack));
+  event.eg0_values[0] = 1;
+  event.eg0_times[1] = static_cast<std::uint32_t>(5.0f + 10000.0f * cubed(amp.decay));
+  event.eg0_values[1] = Normalize(amp.sustain, 0, 127);
+  event.eg0_times[2] = static_cast<std::uint32_t>(5.0f + 10000.0f * cubed(amp.release));
+  event.eg0_values[2] = 0;
+  amy_add_event(&event);
+}
+
+float PresetGainFor(const EngineState& engine);
+
+void ApplyBraidsParameterNoLock(EngineState& engine, std::string_view id, int value)
+{
+  BraidsAmpParams& amp = engine.braidsAmp;
+  if (id == "env.attack") amp.attack = value;
+  else if (id == "env.decay") amp.decay = value;
+  else if (id == "env.sustain") amp.sustain = value;
+  else if (id == "env.release") amp.release = value;
+  else if (id == "amp.level") amp.level = value;
+  else
+  {
+    if (engine.braids) (void)braids::SetParameter(*engine.braids, id, value);
+    if (id == "osc.model")
+    {
+      // The model's level, from the next block on (StepAmyTrackGainsNoLock ramps to it).
+      engine.braidsModel = value;
+      engine.presetGain = PresetGainFor(engine);
+    }
+    return;
+  }
+  VoiceBraidsAmpNoLock(engine);
 }
 
 // A Juno patch from our own bytes, over AMY's ROM string: the same mapping except the resonance law
@@ -1296,7 +1422,8 @@ void RebuildAmyOscTrackMapNoLock()
   }
   for (std::size_t track = 0; track < g_engines.size(); ++track)
   {
-    const EngineState& engine = g_engines[track];
+    EngineState& engine = g_engines[track];
+    engine.braidsOsc.fill(kNoBraidsOsc);
     if (!engine.configured || !UsesAmy(engine.kind))
     {
       continue;
@@ -1312,6 +1439,8 @@ void RebuildAmyOscTrackMapNoLock()
     for (int voice = 0; voice < voiceCount; ++voice)
     {
       const int base = amy_embed::voice_to_base_osc[voices[voice]];
+      if (engine.kind == SynthEngineKind::Braids && static_cast<std::size_t>(voice) < engine.braidsOsc.size())
+        engine.braidsOsc[static_cast<std::size_t>(voice)] = static_cast<std::uint16_t>(base);
       if (base < static_cast<int>(g_amyVoiceStart.size())) g_amyVoiceStart[static_cast<std::size_t>(base)] = true;
       for (int osc = base; osc < base + oscsPerVoice && osc < static_cast<int>(g_amyOscTrack.size()); ++osc)
       {
@@ -1334,9 +1463,18 @@ constexpr std::int8_t kPresetLevels[256] = {
 #include "Library/Synth/Audio/Amy/PresetLevels.inc"
 };
 
+// In dB, by Braids model: they are as far apart as the patches (a square with a sub against particle
+// noise is 21 dB), and the model is what a Braids track changes most. Measured with TIMBRE and COLOR
+// at 64 (PRINT_BRAIDS_LEVELS=1 SynthRegression > Library/Synth/Audio/Braids/ModelLevels.inc).
+constexpr std::int8_t kBraidsModelLevels[braids::kModelCount] = {
+#include "Library/Synth/Audio/Braids/ModelLevels.inc"
+};
+
 float PresetGainFor(const EngineState& engine)
 {
   if (engine.kind == SynthEngineKind::Wave) return std::pow(10.0f, static_cast<float>(engine.waveLevelDb) / 20.0f);
+  if (engine.kind == SynthEngineKind::Braids)
+    return std::pow(10.0f, static_cast<float>(kBraidsModelLevels[std::clamp(engine.braidsModel, 0, static_cast<int>(braids::kModelCount) - 1)]) / 20.0f);
   if (engine.kind != SynthEngineKind::Juno && engine.kind != SynthEngineKind::Dx7) return 1.0f;
 #if defined(CARDENZA_AMY_BENCH)
   if (const bench::Source* source = BenchSourceFor(engine)) return std::pow(10.0f, static_cast<float>(source->levelDb) / 20.0f);
@@ -1415,7 +1553,20 @@ void ConfigureAmySynthNoLock(EngineState& engine)
   amy_event event = amy_default_event();
   event.synth = static_cast<uint16_t>(engine.synthId);
   event.num_voices = static_cast<uint16_t>(VoiceCountFor(engine.kind));
-  if (engine.kind == SynthEngineKind::Drums)
+  if (engine.kind == SynthEngineKind::Braids)
+  {
+    // One oscillator a voice, AMY's custom one (g_braidsOscillator). Without memory for the voices
+    // the track is silent.
+    if (!engine.braids)
+    {
+      engine.braids = braids::CreateTrack();
+      if (!engine.braids) std::printf("braids: no memory for track %d's voices\n", engine.synthId);
+    }
+    event.oscs_per_voice = 1;
+    event.wave = CUSTOM;
+    event.synth_flags = 0;
+  }
+  else if (engine.kind == SynthEngineKind::Drums)
   {
     event.oscs_per_voice = 1;
     event.wave = PCM;
@@ -1443,6 +1594,7 @@ void ConfigureAmySynthNoLock(EngineState& engine)
   amy_add_event(&event);
   if (engine.kind == SynthEngineKind::Juno) VoiceJunoPatchNoLock(engine);
   if (engine.kind == SynthEngineKind::Wave) VoiceWavePatchNoLock(engine);
+  if (engine.kind == SynthEngineKind::Braids) VoiceBraidsAmpNoLock(engine);
 
   // AMY's Juno ROM models its HPF with global EQ. In this four-track rack that
   // would recolor every track and make project sound depend on preset load order.
@@ -1980,6 +2132,18 @@ void ApplyPendingEvent(const PendingEvent& event)
         ConfigureAmySynthNoLock(engine);
       }
 #endif
+      // On its own after the chain above, which the AMY bench build ends differently (the kinds
+      // exclude each other).
+      if (engine.kind == SynthEngineKind::Braids)
+      {
+        // A Braids preset is its parameters, which the engine sends after this: back to the defaults,
+        // the voices stay as they are (notes held ring on in the new sound).
+        engine.braidsAmp = BraidsAmpParams{};
+        engine.braidsModel = 0;
+        if (engine.braids) braids::ResetParameters(*engine.braids);
+        engine.presetGain = PresetGainFor(engine);
+        VoiceBraidsAmpNoLock(engine);
+      }
       // Every preset starts from neutral effects, except the Juno chorus stored in the patch.
       ResetTrackFxNoLock(event.engineIndex, engine.kind == SynthEngineKind::Juno ?
           factory::JunoValue(factory::kJuno[std::clamp(engine.patchNumber, 0, 127)], "fx.chorus") : 0);
@@ -2001,6 +2165,8 @@ void ApplyPendingEvent(const PendingEvent& event)
           break;
         case SynthEngineKind::Wave:
           ApplyWaveParameterNoLock(engine, event.text, event.value);
+        case SynthEngineKind::Braids:
+          ApplyBraidsParameterNoLock(engine, event.text, event.value);
           break;
         case SynthEngineKind::Drums:
           if (event.text == "master.level")
@@ -2190,9 +2356,15 @@ std::atomic<bool> g_outputHeld{false};
 
 // An engine set up or a preset loaded: AMY builds every voice of it again, 18-22 ms on the board (the
 // stress test, 2026-11-04), more than three blocks.
+// Not what builds nothing: an engine that is already the track's, or a preset of a Braids track (its
+// parameters follow as events of their own, and its voices stay). Those go at once, so stepping through
+// Braids' presets does not wait for the output to get ahead.
 bool HeavyEvent(const PendingEvent& event)
 {
-  return event.type == PendingEventType::EnsureEngine || event.type == PendingEventType::SetPreset;
+  if (event.engineIndex >= g_engines.size()) return false;
+  const EngineState& engine = g_engines[event.engineIndex];
+  if (event.type == PendingEventType::EnsureEngine) return !(engine.configured && engine.kind == event.kind);
+  return event.type == PendingEventType::SetPreset && engine.kind != SynthEngineKind::Braids;
 }
 
 // Those that are there now, in order, one at a time (a deque of its own would allocate, even an empty
@@ -2232,12 +2404,16 @@ bool DrainPendingEvents(std::int64_t budgetMicros = std::numeric_limits<std::int
       event = std::move(g_pendingEvents[index]);
       g_pendingEvents.erase(g_pendingEvents.begin() + static_cast<std::ptrdiff_t>(index));
     }
-    if (HeavyEvent(event)) g_heavyWaitingSince = 0;
+    // Asked before it is applied: an engine set up is no longer a heavy event to set up.
+    const bool heavy = HeavyEvent(event);
+    if (heavy) g_heavyWaitingSince = 0;
     ApplyPendingEvent(event);
 #if defined(ESP_PLATFORM)
     // One heavy event a call: the output has to win its time back before the next. (Hosts have no
     // output to run dry, and tests count on what they queued sounding in the next block.)
-    if (HeavyEvent(event)) heavyAllowed = false;
+    if (heavy) heavyAllowed = false;
+#else
+    (void)heavy;
 #endif
     if (count > 1 && EventClockMicros() - start >= budgetMicros) return true;
   }
@@ -2313,6 +2489,7 @@ bool HasHeldNotes(const EngineState& engine)
     case SynthEngineKind::Dx7:
     case SynthEngineKind::Juno:
     case SynthEngineKind::Wave:
+    case SynthEngineKind::Braids:
       return std::any_of(engine.activeNotes.begin(), engine.activeNotes.end(), [](bool active) { return active; });
     case SynthEngineKind::Sampler:
       return std::any_of(engine.samplerVoices.begin(), engine.samplerVoices.end(), [](const SamplerVoice& voice) {
@@ -2495,6 +2672,7 @@ int VoiceWeight(std::size_t track)
   switch (g_engines[track].kind)
   {
     case SynthEngineKind::Dx7: return 8;
+    case SynthEngineKind::Braids: return 5;
     case SynthEngineKind::Juno: return 3;
     case SynthEngineKind::Wave: return 3;
     default: return 1;
@@ -2538,8 +2716,11 @@ constexpr float kHelperShareMicros = 0.45f * kBlockMicros;
 // How long after the audio core the helper starts on the voices (woken through a task notification).
 constexpr float kHelperStartMicros = 150.0f;
 constexpr std::size_t kKindCount = kSynthEngineKindCount;
-// By SynthEngineKind: None, DX7, Juno, Sampler, Drums, three kinds not here, Wave.
-std::array<float, kKindCount> g_runCostMicros{50.0f, 700.0f, 650.0f, 200.0f, 150.0f, 0.0f, 0.0f, 0.0f, 450.0f};
+// By SynthEngineKind: None, DX7, Juno, Sampler, Drums, Braids, Plaits, Vocal, Wave. Only the kinds
+// whose voices AMY renders have a cost here (Plaits and Vocal render their own). Braids' is a guess
+// until the board has rendered a few voices (its models differ by a factor of three, and the estimate
+// follows the one playing).
+std::array<float, kKindCount> g_runCostMicros{50.0f, 700.0f, 650.0f, 200.0f, 150.0f, 500.0f, 0.0f, 0.0f, 450.0f};
 std::array<std::array<float, kKindCount>, AMY_MAX_CORES> g_runCostSum{};
 std::array<std::array<std::uint16_t, kKindCount>, AMY_MAX_CORES> g_runCostCount{};
 float g_overheadMicros = 1500.0f;  // the rest of a block: deltas, effects, output
@@ -3829,6 +4010,7 @@ RenderModel CurrentRenderModel()
   model.junoMicros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Juno)];
   model.drumsMicros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Drums)];
   model.waveMicros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Wave)];
+  model.braidsMicros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Braids)];
   model.overheadMicros = g_overheadMicros;
   model.budgetScale = g_budgetScale;
   return model;

@@ -55,6 +55,11 @@ target_sources(CardenzaSynthRuntime PRIVATE
 target_include_directories(CardenzaSynthRuntime PUBLIC
     ${PROJECT_SOURCE_DIR}
 )
+# Braids' sources include each other from their own root (braids/..., stmlib/...).
+cardenza_braids_include_directory(${PROJECT_SOURCE_DIR} cardenza_braids_include)
+target_include_directories(CardenzaSynthRuntime PRIVATE
+    ${cardenza_braids_include}
+)
 
 target_link_libraries(CardenzaSynthRuntime PUBLIC
     CardenzaAmy

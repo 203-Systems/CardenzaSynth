@@ -169,10 +169,11 @@ void Controller::OpenEnginePicker()
   modal.kind = ModalKind::EnginePicker;
   modal.title = "ENGINE";
   const auto current = ActiveKind();
-  // In the order the picker draws them (ModalRender: DrawEnginePicker), four to a row.
-  const std::array<synth::SynthEngineKind, 5> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
+  // In the order the picker draws them (ModalRender: DrawEnginePicker), four to a row: the first
+  // row the engines of the first release, the second the ones added since.
+  const std::array<synth::SynthEngineKind, 6> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
                                                       synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums,
-                                                      synth::SynthEngineKind::Wave}};
+                                                      synth::SynthEngineKind::Braids, synth::SynthEngineKind::Wave}};
   for (std::size_t index = 0; index < kinds.size(); ++index)
   {
     modal.items.push_back({std::to_string(static_cast<int>(kinds[index])), std::string(EngineShortName(kinds[index])), kinds[index] == current});

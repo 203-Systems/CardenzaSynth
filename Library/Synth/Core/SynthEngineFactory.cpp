@@ -1,5 +1,6 @@
 #include "Library/Synth/Core/ISynthEngine.h"
 
+#include "Library/Synth/Core/Engines/Braids/BraidsSynthEngine.h"
 #include "Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.h"
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
 #include "Library/Synth/Core/Engines/Sampler/SamplerSynthEngine.h"
@@ -22,6 +23,8 @@ std::unique_ptr<ISynthEngine> CreateSynthEngine(SynthEngineKind kind)
       return std::make_unique<DrumsSynthEngine>();
     case SynthEngineKind::Wave:
       return std::make_unique<WaveSynthEngine>();
+    case SynthEngineKind::Braids:
+      return std::make_unique<BraidsSynthEngine>();
     case SynthEngineKind::None:
     default:
       return nullptr;
@@ -42,6 +45,8 @@ std::string ToString(SynthEngineKind kind)
       return "Drums";
     case SynthEngineKind::Wave:
       return "Wave";
+    case SynthEngineKind::Braids:
+      return "Braids";
     case SynthEngineKind::None:
     default:
       return "Empty";

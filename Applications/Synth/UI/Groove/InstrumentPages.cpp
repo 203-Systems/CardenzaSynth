@@ -173,6 +173,34 @@ constexpr std::array<InstrumentPage, 10> kWavePages{{
     kFxPage,
 }};
 
+// Braids: the oscillator (its model and the two macro controls, with the model's waveform beside
+// them), the amplitude envelope, then what moves TIMBRE, COLOR and the pitch: an AD envelope and an LFO.
+constexpr std::array<InstrumentPage, 8> kBraidsPages{{
+    kVoicePage,
+    kChordPage,
+    kArpPage,
+    InstrumentPage{"MODEL", "OSC",
+                   {{P("osc.model", "MODEL"), P("osc.timbre", "TIMBRE"), P("osc.color", "COLOR"), P("osc.tune", "TUNE"),
+                     P("osc.fine", "FINE"), E(), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Macro, {1, 1, 3, 3}, 0},
+    InstrumentPage{"ADSR", "ENV",
+                   {{P("env.attack", "ATTACK"), P("env.decay", "DECAY"), P("env.sustain", "SUSTAIN"), P("env.release", "RELEASE"),
+                     P("amp.level", "LEVEL"), E(), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Adsr, {2, 0, 2, 4}, 0},
+    InstrumentPage{"AD ENV", "MOD",
+                   {{P("mod.attack", "ATTACK"), P("mod.decay", "DECAY"), P("mod.timbre", "TIMBRE"), P("mod.color", "COLOR"),
+                     P("mod.pitch", "PITCH"), E(), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::ModEnvelope, {2, 0, 2, 4}, 0},
+    InstrumentPage{"CYCLE", "LFO",
+                   {{P("lfo.rate", "RATE"), P("lfo.timbre", "TIMBRE"), P("lfo.color", "COLOR"), P("lfo.pitch", "PITCH"),
+                     E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Lfo, {1, 0, 3, 4}, 0},
+    kFxPage,
+}};
+
 // Drums play one drum per key: no chord, no arpeggiator.
 constexpr std::array<InstrumentPage, 3> kDrumPages{{
     kVoicePage,
@@ -200,6 +228,7 @@ InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Sampler: return {kSamplerPages.data(), kSamplerPages.size()};
     case synth::SynthEngineKind::Drums: return {kDrumPages.data(), kDrumPages.size()};
     case synth::SynthEngineKind::Wave: return {kWavePages.data(), kWavePages.size()};
+    case synth::SynthEngineKind::Braids: return {kBraidsPages.data(), kBraidsPages.size()};
     case synth::SynthEngineKind::None:
     default: return {&kVoicePage, 1};
   }
