@@ -47,6 +47,9 @@ public:
   virtual const synth::ISynthEngine* Engine(std::size_t track) const = 0;
   virtual synth::SynthEngineKind EngineKind(std::size_t track) const = 0;
   virtual bool SwitchEngine(std::size_t track, synth::SynthEngineKind kind, std::string& error) = 0;
+  // A Plaits track's voices: 1 to 4; -1 when it found no memory for any (it is silent); 0 for another
+  // engine, or while the audio side still sets the track up.
+  virtual int PlaitsVoices(std::size_t track) const = 0;
 
   // Live performance notes (pads). The sequencer plays its own notes.
   virtual void NoteOn(std::size_t track, std::uint8_t note, std::uint8_t velocity) = 0;

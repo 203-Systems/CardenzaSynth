@@ -88,6 +88,9 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return 6 * 1024;
     case synth::SynthEngineKind::Sampler: return 6 * 1024;
     case synth::SynthEngineKind::Drums: return 4 * 1024;
+    // The engine's parameters and presets only: its voices are the audio runtime's (PlaitsTrack),
+    // which looks for their memory itself and plays with fewer, or none, when it is short.
+    case synth::SynthEngineKind::Plaits: return 6 * 1024;
     case synth::SynthEngineKind::None:
     default: return 0;
   }
@@ -96,7 +99,7 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
 std::size_t KindIndex(synth::SynthEngineKind kind)
 {
   const auto index = static_cast<std::size_t>(kind);
-  return index < 5 ? index : 0;
+  return index < 6 ? index : 0;
 }
 
 os::storage::Settings& AppSettings()
@@ -588,6 +591,26 @@ void GrooveApp::Tick()
   CheckCard(now);
   KeepSessionCurrent(now);
   EndOrphanNotes(now);
+  CheckPlaitsVoices();
+}
+
+// A Plaits track plays with the voices its memory allowed (the audio side allocates them when it sets
+// the track up): fewer than four, or none and a silent track, is said in the log once. The OSC page
+// says NO MEMORY.
+void GrooveApp::CheckPlaitsVoices()
+{
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    const auto voices = static_cast<std::int8_t>(PlaitsVoices(track));
+    if (voices == plaitsVoices_[track]) continue;
+    plaitsVoices_[track] = voices;
+    if (voices < 0)
+      std::printf("Groove: T%u plaits: no memory for its voices, the track is silent (psram %u free)\n", static_cast<unsigned>(track + 1),
+                  static_cast<unsigned>(memory::SlowFree()));
+    else if (voices > 0 && voices < 4)
+      std::printf("Groove: T%u plaits: memory for %d of its 4 voices (psram %u free)\n", static_cast<unsigned>(track + 1), static_cast<int>(voices),
+                  static_cast<unsigned>(memory::SlowFree()));
+  }
 }
 
 // The safety net under every path that starts a note: the audio side's notes against those someone
@@ -1033,6 +1056,11 @@ float GrooveApp::FxReturnLevel(std::size_t bus) const
 bool GrooveApp::FxBusAvailable(std::size_t bus) const
 {
   return synth::audio::FxBusAvailable(bus);
+}
+
+int GrooveApp::PlaitsVoices(std::size_t track) const
+{
+  return EngineKind(track) == synth::SynthEngineKind::Plaits ? synth::audio::PlaitsVoiceCount(track) : 0;
 }
 
 void GrooveApp::ApplyMasterFx(const std::array<std::uint8_t, synth::fx::kMasterParamCount>& values)

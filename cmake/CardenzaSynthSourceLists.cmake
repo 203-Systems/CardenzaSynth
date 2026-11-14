@@ -66,12 +66,83 @@ function(cardenza_collect_synth_app_cpp_sources root_dir out_var)
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
 
-# Effects DSP (no AMY dependency). Listed on its own for builds that compile
+# The Plaits track engine: Emilie Gillet's Plaits DSP (Library/third_party/eurorack, MIT, as upstream
+# has it but for plaits/user_data.h: see its README.md) and the track that plays it for the runtime.
+# Built with upstream's TEST switch (plain C++ instead of the STM32's ARM instructions), its own
+# include root ("plaits/...", "stmlib/...") and no warnings: third-party code under the firmware's
+# -Werror=all, and PlaitsTrack.cpp includes its headers. Source properties belong to the directory
+# that builds the target, so every build that compiles the runtime calls this itself.
+function(cardenza_collect_plaits_cpp_sources root_dir out_var)
+    set(plaits_root ${root_dir}/Library/third_party/eurorack)
+    set(sources
+        ${plaits_root}/plaits/dsp/chords/chord_bank.cc
+        ${plaits_root}/plaits/dsp/engine/additive_engine.cc
+        ${plaits_root}/plaits/dsp/engine/bass_drum_engine.cc
+        ${plaits_root}/plaits/dsp/engine/chord_engine.cc
+        ${plaits_root}/plaits/dsp/engine/fm_engine.cc
+        ${plaits_root}/plaits/dsp/engine/grain_engine.cc
+        ${plaits_root}/plaits/dsp/engine/hi_hat_engine.cc
+        ${plaits_root}/plaits/dsp/engine/modal_engine.cc
+        ${plaits_root}/plaits/dsp/engine/noise_engine.cc
+        ${plaits_root}/plaits/dsp/engine/particle_engine.cc
+        ${plaits_root}/plaits/dsp/engine/snare_drum_engine.cc
+        ${plaits_root}/plaits/dsp/engine/speech_engine.cc
+        ${plaits_root}/plaits/dsp/engine/string_engine.cc
+        ${plaits_root}/plaits/dsp/engine/swarm_engine.cc
+        ${plaits_root}/plaits/dsp/engine/virtual_analog_engine.cc
+        ${plaits_root}/plaits/dsp/engine/waveshaping_engine.cc
+        ${plaits_root}/plaits/dsp/engine/wavetable_engine.cc
+        ${plaits_root}/plaits/dsp/engine2/chiptune_engine.cc
+        ${plaits_root}/plaits/dsp/engine2/phase_distortion_engine.cc
+        ${plaits_root}/plaits/dsp/engine2/six_op_engine.cc
+        ${plaits_root}/plaits/dsp/engine2/string_machine_engine.cc
+        ${plaits_root}/plaits/dsp/engine2/virtual_analog_vcf_engine.cc
+        ${plaits_root}/plaits/dsp/engine2/wave_terrain_engine.cc
+        ${plaits_root}/plaits/dsp/fm/dx_units.cc
+        ${plaits_root}/plaits/dsp/physical_modelling/modal_voice.cc
+        ${plaits_root}/plaits/dsp/physical_modelling/resonator.cc
+        ${plaits_root}/plaits/dsp/physical_modelling/string.cc
+        ${plaits_root}/plaits/dsp/physical_modelling/string_voice.cc
+        ${plaits_root}/plaits/dsp/speech/lpc_speech_synth.cc
+        ${plaits_root}/plaits/dsp/speech/lpc_speech_synth_controller.cc
+        ${plaits_root}/plaits/dsp/speech/lpc_speech_synth_phonemes.cc
+        ${plaits_root}/plaits/dsp/speech/lpc_speech_synth_words.cc
+        ${plaits_root}/plaits/dsp/speech/naive_speech_synth.cc
+        ${plaits_root}/plaits/dsp/speech/sam_speech_synth.cc
+        ${plaits_root}/plaits/dsp/voice.cc
+        ${plaits_root}/plaits/resources.cc
+        ${plaits_root}/stmlib/dsp/units.cc
+        ${plaits_root}/stmlib/utils/random.cc
+        # plaits/dsp/fm/algorithms.cc under another object name: AMY has an `algorithms` object too, and
+        # ESP-IDF's linker fragments (Devices/Cardenza/audio_hot.lf) name objects by base name.
+        ${root_dir}/Library/Synth/Audio/Plaits/PlaitsFmAlgorithms.cpp
+        ${root_dir}/Library/Synth/Audio/Plaits/PlaitsTrack.cpp
+    )
+    if(NOT CMAKE_SCRIPT_MODE_FILE)
+        if(MSVC)
+            # Upstream is written for GCC: M_PI and __attribute__ come from a header put in front of
+            # every one of these sources (not tried: no MSVC build of this has been made yet).
+            set(plaits_options "/w" "/FI${root_dir}/Library/Synth/Audio/Plaits/PlaitsMsvc.h")
+        else()
+            set(plaits_options "-w")
+        endif()
+        set_source_files_properties(${sources} PROPERTIES
+            COMPILE_DEFINITIONS TEST
+            INCLUDE_DIRECTORIES ${plaits_root}
+            COMPILE_OPTIONS "${plaits_options}")
+    endif()
+    set(${out_var} ${sources} PARENT_SCOPE)
+endfunction()
+
+# What the runtime needs beside SynthAudioRuntimeAmy.cpp: the effects DSP, the sample streams and the
+# Plaits engine (none depends on AMY). Listed on its own for builds that compile
 # SynthAudioRuntimeAmy.cpp directly, such as the synth regression test.
 function(cardenza_collect_synth_fx_cpp_sources root_dir out_var)
+    cardenza_collect_plaits_cpp_sources(${root_dir} plaits_sources)
     set(sources
         ${root_dir}/Library/Synth/Audio/Fx/SynthFxDsp.cpp
         ${root_dir}/Library/Synth/Audio/SampleStream.cpp
+        ${plaits_sources}
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()
@@ -92,6 +163,7 @@ function(cardenza_collect_synth_core_cpp_sources root_dir out_var)
         ${root_dir}/Library/Synth/Core/Engines/Dx7/Dx7SynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Juno/JunoFactoryPresets.cpp
         ${root_dir}/Library/Synth/Core/Engines/Juno/JunoSynthEngine.cpp
+        ${root_dir}/Library/Synth/Core/Engines/Plaits/PlaitsSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/PagedSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Sampler/SamplerSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/SynthEngineFactory.cpp

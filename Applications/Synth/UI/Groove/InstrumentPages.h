@@ -42,6 +42,8 @@ enum class PageGraphic : std::uint8_t {
   Lfo,               // LFO shape, rate and delay
   Waveform,
   DrumPads,
+  Macro,             // Plaits: the model and its three macro controls
+  LowPassGate,       // Plaits: the low-pass gate over a note, and what its envelope moves
   FxChain,           // track insert chain and sends
   Chord,             // INSTR CHORD: the chord one key plays, on a keyboard
   Arp,               // INSTR ARP: the order the track's arpeggiator plays a chord in

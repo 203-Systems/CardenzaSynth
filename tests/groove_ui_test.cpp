@@ -3216,6 +3216,84 @@ void TestGuide(Harness& h)
   setLayout(groove::KeyboardLayout::Piano, kSub);
 }
 
+// The Plaits engine through the UI: the picker's fifth cell (the first key of the second GRID row),
+// its pages, a note that sounds, and back to the engine the track had.
+void TestPlaits(Harness& h)
+{
+  auto& app = h.App();
+  std::array<std::int16_t, 256> block{};
+  const auto loudest = [&](int blocks) {
+    int peak = 0;
+    for (int index = 0; index < blocks; ++index)
+    {
+      synth::audio::RenderFrames(block.data(), block.size());
+      for (const std::int16_t sample : block) peak = std::max(peak, std::abs(static_cast<int>(sample)));
+    }
+    return peak;
+  };
+  const auto pick = [&](std::size_t cell, synth::SynthEngineKind kind) {
+    GoToInstrumentPage(h, "VOICE");
+    h.Tap(Grid(0));
+    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 5);
+    h.Render();
+    h.Tap(Grid(cell));
+    // A sound with edits asks before it is replaced.
+    if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
+    h.Wait(400);
+    assert(h.Modal() == nullptr && app.EngineKind(1) == kind);
+  };
+  for (int i = 0; i < 6 && h.Modal() != nullptr; ++i) h.Tap(kEsc);
+  std::string error;
+  assert(app.EngineKind(1) == synth::SynthEngineKind::Juno || app.SwitchEngine(1, synth::SynthEngineKind::Juno, error));
+  // Heard whatever the tests before left on the mixer.
+  for (std::size_t track = 0; track < groove::kTrackCount; ++track) app.SetTrackSoloed(track, false);
+  app.SetTrackMuted(1, false);
+  app.SetTrackLevel(1, 100);
+  GoToScene(h, 1);
+  h.Chord(kTab, Grid(1));
+  assert(h.State().track == 1);
+
+  pick(4, synth::SynthEngineKind::Plaits);
+  assert(std::string(groove::EngineShortName(app.EngineKind(1))) == "PLAITS");
+  // A new Plaits track starts on the pair of analog waves.
+  assert(app.Engine(1)->CurrentPresetId() == "plaits.analog" && app.Engine(1)->DescribeParameterValue("osc.model") == "ANALOG");
+  (void)loudest(4);
+  assert(app.PlaitsVoices(1) == 4 && app.PlaitsVoices(0) == 0);
+  h.Render();
+
+  // VOICE, CHORD, ARP, then its own two pages and FX.
+  GoToInstrumentPage(h, "OSC");
+  assert(app.Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::Macro);
+  h.Render();
+  // HARM is the second cell: its key chooses it, ADD and SUB move it.
+  h.Tap(Grid(1));
+  const int harmonics = ParameterValue(app, 1, "osc.harmonics");
+  h.Tap(kAdd);
+  assert(ParameterValue(app, 1, "osc.harmonics") == harmonics + 1);
+  h.Tap(kSub);
+  assert(ParameterValue(app, 1, "osc.harmonics") == harmonics);
+  GoToInstrumentPage(h, "LPG");
+  assert(app.Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::LowPassGate);
+  h.Render();
+  GoToInstrumentPage(h, "FX");
+  h.Render();
+
+  // A note sounds, and is the track's to hold and to end.
+  app.NoteOn(1, 60, 110);
+  h.Frames(2);
+  assert(loudest(24) > 500);
+  app.NoteOff(1, 60);
+  h.Frames(2);
+  (void)loudest(8);
+  const synth::audio::NoteSet held = synth::audio::HeldNotes(1);
+  assert(std::all_of(held.begin(), held.end(), [](std::uint32_t word) { return word == 0; }));
+
+  pick(1, synth::SynthEngineKind::Juno);
+  (void)loudest(4);
+  assert(app.PlaitsVoices(1) == 0);
+  h.Chord(kTab, Grid(synth::kDefaultActiveTrack));
+}
+
 // Every cell of every page of every scene, on every engine, stopped and playing: moved both ways, in
 // big steps to both ends, ENTER, picked from the pads; then every parameter of every engine at both ends,
 // and every preset. Whatever falls over here shows as an assertion or under ASan. Running out of memory
@@ -3241,8 +3319,9 @@ void TestEveryParameter(Harness& h)
       for (std::size_t track = 0; track < 4; ++track) (void)app.Sequencer().SetStepNotes(track, step, notes, 1 + track, 110);
     }
   };
-  const std::array<std::array<Kind, 4>, 2> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
-                                                 {{Kind::Juno, Kind::Dx7, Kind::Sampler, Kind::Drums}}}};
+  const std::array<std::array<Kind, 4>, 3> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
+                                                 {{Kind::Juno, Kind::Dx7, Kind::Sampler, Kind::Drums}},
+                                                 {{Kind::Plaits, Kind::Drums, Kind::Plaits, Kind::Juno}}}};
   struct Walk { groove::Scene scene; std::size_t track; };
   const std::array<Walk, 10> walks{{{groove::Scene::Tape, 0},
                                     {groove::Scene::Instrument, 0}, {groove::Scene::Instrument, 1},
@@ -3392,6 +3471,7 @@ int main()
   TestNoStuckNotes(h);
   TestComputerMidi(h);
   TestGuide(h);
+  TestPlaits(h);
   TestEveryParameter(h);
   // Last: it runs every item of the SEQ menu, which changes the pattern.
   TestMenuFeedback(h);

@@ -1488,7 +1488,7 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
     if (modal->kind == ModalKind::SampleRecord)
       for (std::size_t index = 0; index < 4; ++index) setGrid(index, choice(index < 2 && modal->trimMarker == index));
     if (modal->kind == ModalKind::EnginePicker)
-      for (std::size_t index = 0; index < modal->items.size() && index < 4; ++index) setGrid(index, choice(index == modal->cursor));
+      for (std::size_t index = 0; index < modal->items.size() && index < kGridCount; ++index) setGrid(index, choice(index == modal->cursor));
     if (modal->kind == ModalKind::Record)
     {
       const RecordState& rec = state_.record;

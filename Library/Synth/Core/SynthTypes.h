@@ -11,6 +11,9 @@ enum class SynthEngineKind {
   Juno,
   Sampler,
   Drums = 4,
+  // The Plaits macro oscillator (Library/third_party/eurorack), rendered by the runtime itself like
+  // the sampler. Project files store these numbers: new kinds are added at the end.
+  Plaits = 5,
 };
 
 enum class OverlayPage {

@@ -82,6 +82,7 @@ public:
   float OutputPeak() const override;
   void SetMasterFx(std::size_t param, int value) override;
   int MasterFx(std::size_t param) const override;
+  int PlaitsVoices(std::size_t track) const override;
   float FxReturnLevel(std::size_t bus) const override;
   bool FxBusAvailable(std::size_t bus) const override;
   std::vector<std::string> ListProjects() const override;
@@ -213,7 +214,10 @@ private:
   std::uint32_t (*clock_)() = nullptr;
   HeapProbe heapProbe_ = nullptr;
   // By SynthEngineKind: the most an engine of the kind gave back when destroyed (0 = none yet).
-  std::array<std::size_t, 5> engineBytes_{};
+  std::array<std::size_t, 6> engineBytes_{};
+  // Each track's Plaits voices as last looked at (PlaitsVoices), to say a change in the log once.
+  std::array<std::int8_t, synth::kSynthTrackCount> plaitsVoices_{};
+  void CheckPlaitsVoices();
   synth::SynthRack rack_;
   synth::SamplerManager sampler_;
   synth::SynthSequencer sequencer_;
