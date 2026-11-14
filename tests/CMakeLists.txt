@@ -75,6 +75,19 @@ add_executable(CardenzaSamplerTests
 target_include_directories(CardenzaSamplerTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaSamplerTests COMMAND CardenzaSamplerTests)
 
+# The SoundFont engine (docs/sf2-engine-design.md): reader, presets, voice, track. Its checks do not
+# depend on assert, so it runs the same in any build type.
+add_executable(CardenzaSoundFontTests
+  sf2_test.cpp
+  ${PROJECT_SOURCE_DIR}/Library/Synth/Audio/SoundFont/Sf2File.cpp
+  ${PROJECT_SOURCE_DIR}/Library/Synth/Audio/SoundFont/Sf2Program.cpp
+  ${PROJECT_SOURCE_DIR}/Library/Synth/Audio/SoundFont/Sf2Tables.cpp
+  ${PROJECT_SOURCE_DIR}/Library/Synth/Audio/SoundFont/Sf2Track.cpp
+  ${PROJECT_SOURCE_DIR}/Library/Synth/Audio/SoundFont/Sf2Voice.cpp
+)
+target_include_directories(CardenzaSoundFontTests PRIVATE ${PROJECT_SOURCE_DIR})
+add_test(NAME CardenzaSoundFontTests COMMAND CardenzaSoundFontTests)
+
 set(cardenza_ui_tests)
 if(NOT CARDENZA_GROOVE_UI)
 add_executable(CardenzaUiTests
