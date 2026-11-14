@@ -75,6 +75,7 @@ struct Result {
   std::uint16_t lostUnheard;  // notes left out before they sounded: a note missing
   std::uint16_t lostStolen;   // held notes whose voice a newer one took (the track's voices all held)
   std::uint16_t dx7Us, junoUs, drumsUs, waveUs, braidsUs, overheadUs;  // the budget's model at the end
+  std::uint16_t plaitsUs;  // a voice of the dearest Plaits track (0: none)
   std::uint16_t scalePercent;
   std::uint16_t uiMaxMs;
   std::uint16_t uiDrops;
@@ -94,11 +95,11 @@ struct Persist {
   Result results[kMaxScenarios];
 };
 static_assert(std::is_trivially_default_constructible_v<Persist>, "a constructor would clear it at every start");
-constexpr std::uint32_t kMagic = 0x53545232u;  // "STR2": Result gained braidsUs
+constexpr std::uint32_t kMagic = 0x53545233u;  // "STR3": Result gained the new engines' costs
 RTC_NOINIT_ATTR Persist g_persist;
 
 enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
-enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, AmyBench, WaveStacks, Braids };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, AmyBench, WaveStacks, Braids, Plaits };
 
 struct Scenario {
   std::string name;
@@ -139,6 +140,7 @@ std::string ProjectName(Variant variant)
     case Variant::AmyBench: return std::string(kPrefix) + "AMY";
     case Variant::WaveStacks: return std::string(kPrefix) + "WAVE";
     case Variant::Braids: return std::string(kPrefix) + "BRAIDS";
+    case Variant::Plaits: return std::string(kPrefix) + "PLAITS";
     case Variant::None: break;
   }
   return std::string(kPrefix) + "NONE";
@@ -344,6 +346,22 @@ synth::ProjectData MakeProject(Variant variant, int bench = 0)
       bpm = 140;
       break;
     }
+    case Variant::Plaits:
+    {
+      // Plaits voices are the dearest there are and render on the audio core alone, after AMY's. Two
+      // Plaits tracks (a pair of analog waves in two-note chords, a modal resonator on every step,
+      // its tails ringing over each other) beside the drum machine and a Juno pad: three Plaits
+      // notes held at once, which has to fit. `plaits` in the result is what a voice of the dearer
+      // track cost; a held note lost here means the budget's share for Plaits (kPlaitsFloorMicros,
+      // SynthAudioRuntimeAmy.cpp) or this scenario is to be looked at.
+      tracks[0] = TrackSpec{SynthEngineKind::Drums, "drums.808", "", 3, 1, 24, 36, true};
+      tracks[1] = TrackSpec{SynthEngineKind::Plaits, "plaits.analog", "", 2, 2, 48, 48};
+      tracks[2] = TrackSpec{SynthEngineKind::Plaits, "plaits.modal", "", 1, 1, 12, 60};
+      tracks[3] = TrackSpec{SynthEngineKind::Juno, "juno.a68", "", 4, 4, 96, 55};
+      tracks[2].reverb = 80;
+      tracks[1].delay = 60;
+      break;
+    }
     case Variant::None: break;
   }
 
@@ -439,6 +457,7 @@ std::vector<Scenario> BuildScenarios()
   add("fx-max", Kind::Generated, Variant::FxMax, 25);
   add("wave-stacks", Kind::Generated, Variant::WaveStacks, 25);
   add("max-patterns", Kind::Generated, Variant::MaxPatterns, 25);
+  add("plaits", Kind::Generated, Variant::Plaits, 30);
   add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
   add("ui-storm", Kind::UiStorm, Variant::JunoPads, 30);
   add("worst", Kind::Worst, Variant::FxMax, 40);
@@ -646,11 +665,11 @@ void PrintResult(std::size_t index)
   const Result& r = g_persist.results[index];
   static const char* const kStates[] = {"not run", "running", "done", "RESTARTED"};
   std::printf("stress: %2u %-18s %-9s %s render %u/%u us under %u | notes lost: held %u unheard %u stolen %u (tails %u) | ui max %u ms drops %u | "
-              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | voice us dx7 %u juno %u drums %u wave %u braids %u, other %u, scale %u%% | %s\n",
+              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | voice us dx7 %u juno %u drums %u wave %u braids %u plaits %u, other %u, scale %u%% | %s\n",
               static_cast<unsigned>(index), index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?", kStates[r.state & 3],
               r.state == 2 ? (r.ok ? "ok  " : "FAIL") : "    ", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
               r.lostTails, r.uiMaxMs, r.uiDrops, r.seqLatestUs, r.seqLate, r.ramMinKb, r.psramMinKb, r.opMaxMs, r.opUnderruns, r.dx7Us, r.junoUs,
-              r.drumsUs, r.waveUs, r.braidsUs, r.overheadUs, r.scalePercent, r.note);
+              r.drumsUs, r.waveUs, r.braidsUs, r.plaitsUs, r.overheadUs, r.scalePercent, r.note);
 }
 
 // One short line a scenario for the summary repeated at the end: the USB console drops long bursts.
@@ -868,10 +887,10 @@ void PrintShortResult(std::size_t index)
 {
   const Result& r = g_persist.results[index];
   static const char* const kStates[] = {"-", "running", "done", "RESTARTED"};
-  std::printf("stress: S %2u %-14s %s %s avg %u max %u under %u held %u unheard %u stolen %u ui %u late %u ram %u dx7 %u juno %u wave %u\n",
+  std::printf("stress: S %2u %-14s %s %s avg %u max %u under %u held %u unheard %u stolen %u ui %u late %u ram %u dx7 %u juno %u wave %u plaits %u\n",
               static_cast<unsigned>(index), index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?", kStates[r.state & 3],
               r.state == 2 ? (r.ok ? "ok" : "FAIL") : "-", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
-              r.uiMaxMs, r.seqLatestUs, r.ramMinKb, r.dx7Us, r.junoUs, r.waveUs);
+              r.uiMaxMs, r.seqLatestUs, r.ramMinKb, r.dx7Us, r.junoUs, r.waveUs, r.plaitsUs);
 }
 
 void FinishWindow(GrooveApp& app, std::size_t index)
@@ -897,6 +916,7 @@ void FinishWindow(GrooveApp& app, std::size_t index)
   result.drumsUs = Cap16(static_cast<std::uint32_t>(model.drumsMicros));
   result.waveUs = Cap16(static_cast<std::uint32_t>(model.waveMicros));
   result.braidsUs = Cap16(static_cast<std::uint32_t>(model.braidsMicros));
+  result.plaitsUs = Cap16(static_cast<std::uint32_t>(model.plaitsMicros));
   result.overheadUs = Cap16(static_cast<std::uint32_t>(model.overheadMicros));
   result.scalePercent = Cap16(static_cast<std::uint32_t>(model.budgetScale * 100.0f));
   result.uiMaxMs = Cap16(window.uiMaxMs);
@@ -964,14 +984,20 @@ void KeyStorm(GrooveApp& app, std::uint32_t now)
 void LiveOperation(GrooveApp& app)
 {
   std::string message;
-  // Every engine in turn (the turn shifts by one each round of ten operations, so all five come up).
+  // Every engine in turn, round after round: a Plaits track is set up with its four voices (their
+  // memory and every model's tables) by the audio thread while the others play.
   const SynthEngineKind cycle[] = {SynthEngineKind::Juno, SynthEngineKind::Wave, SynthEngineKind::Sampler, SynthEngineKind::Drums,
-                                   SynthEngineKind::Dx7};
+                                   SynthEngineKind::Dx7, SynthEngineKind::Braids, SynthEngineKind::Plaits};
+  constexpr std::uint32_t kCycle = sizeof(cycle) / sizeof(cycle[0]);
   switch (g_runner.op++ % 10)
   {
     case 0: case 1: case 2: case 3:
-      Operation([&] { (void)app.SwitchEngine(3, cycle[((g_runner.op - 1) + (g_runner.op - 1) / 10) % 5], message); });
+    {
+      // The count of engine switches so far: four of every ten operations.
+      const std::uint32_t switches = (g_runner.op - 1) / 10 * 4 + (g_runner.op - 1) % 10;
+      Operation([&] { (void)app.SwitchEngine(3, cycle[switches % kCycle], message); });
       break;
+    }
     case 4:
       Operation([&] {
         if (synth::ISynthEngine* engine = app.Engine(2))

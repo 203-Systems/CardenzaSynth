@@ -48,4 +48,6 @@ endif()
 enable_testing()
 add_test(NAME SynthRegression COMMAND SynthRegression)
 add_test(NAME SynthAmyControlTests COMMAND SynthAmyControlTests)
-set_tests_properties(SynthRegression SynthAmyControlTests PROPERTIES TIMEOUT 15)
+set_tests_properties(SynthAmyControlTests PROPERTIES TIMEOUT 15)
+# With the Plaits engine's presets and voices rendered too (an unoptimised build renders them slowly).
+set_tests_properties(SynthRegression PROPERTIES TIMEOUT 30)

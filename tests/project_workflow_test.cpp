@@ -1097,7 +1097,7 @@ void TestDrumsWorkflow() {
   std::ifstream stored(storageRoot / "Project" / "drums-saved.ccproj");
   std::string serialized((std::istreambuf_iterator<char>(stored)), std::istreambuf_iterator<char>());
   assert(serialized.find("CARDENZA_PROJECT 4\n") == 0 && serialized.find("TRACK 0 4 ") != std::string::npos);
-  saved.kinds[0] = static_cast<SynthEngineKind>(5);
+  saved.kinds[0] = static_cast<SynthEngineKind>(99);
   assert(SaveProjectFile("drums-invalid", saved, false) == ProjectResult::Invalid);
   saved.kinds[0] = SynthEngineKind::Drums;
   saved.samples[0] = "wrong.wav";

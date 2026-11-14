@@ -187,7 +187,7 @@ wrong.
 | What | Where |
 |---|---|
 | projects `<name>.ccproj` | `Projects/` |
-| user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums,Braids}/` |
+| user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums,Braids,Plaits,Wave}/` |
 | samples (WAV) | `Samples/` |
 | app preferences (SELECT) | `Settings/synth.cfg` |
 | working state (autosave) | `Session/autosave.ccproj` and `autosave.txt` |

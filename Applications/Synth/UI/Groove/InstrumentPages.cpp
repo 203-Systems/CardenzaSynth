@@ -201,6 +201,25 @@ constexpr std::array<InstrumentPage, 8> kBraidsPages{{
     kFxPage,
 }};
 
+// Plaits: the oscillator model with its three macro controls, then its low-pass gate and the
+// internal envelope's reach into pitch, TIMBRE and MORPH (the module's attenuverters with TRIG patched).
+constexpr std::array<InstrumentPage, 6> kPlaitsPages{{
+    kVoicePage,
+    kChordPage,
+    kArpPage,
+    InstrumentPage{"MACRO", "OSC",
+                   {{P("osc.model", "MODEL"), P("osc.harmonics", "HARM"), P("osc.timbre", "TIMBRE"), P("osc.morph", "MORPH"),
+                     P("osc.aux", "AUX"), P("osc.tune", "TUNE"), P("amp.level", "LEVEL"), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::PlaitsMacro, {2, 0, 2, 4}, 0},
+    InstrumentPage{"GATE", "LPG",
+                   {{P("lpg.mode", "ENV"), P("lpg.attack", "ATTACK"), P("lpg.decay", "DECAY"), P("lpg.colour", "COLOUR"),
+                     P("mod.frequency", "PITCH"), P("mod.timbre", "TIMBRE"), P("mod.morph", "MORPH"), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::LowPassGate, {2, 0, 2, 4}, 0},
+    kFxPage,
+}};
+
 // Drums play one drum per key: no chord, no arpeggiator.
 constexpr std::array<InstrumentPage, 3> kDrumPages{{
     kVoicePage,
@@ -227,6 +246,7 @@ InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Juno: return {kJunoPages.data(), kJunoPages.size()};
     case synth::SynthEngineKind::Sampler: return {kSamplerPages.data(), kSamplerPages.size()};
     case synth::SynthEngineKind::Drums: return {kDrumPages.data(), kDrumPages.size()};
+    case synth::SynthEngineKind::Plaits: return {kPlaitsPages.data(), kPlaitsPages.size()};
     case synth::SynthEngineKind::Wave: return {kWavePages.data(), kWavePages.size()};
     case synth::SynthEngineKind::Braids: return {kBraidsPages.data(), kBraidsPages.size()};
     case synth::SynthEngineKind::None:

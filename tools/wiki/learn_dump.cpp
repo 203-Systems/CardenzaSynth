@@ -64,6 +64,7 @@ const char* EngineName(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Sampler: return "SAMPLER";
     case synth::SynthEngineKind::Wave: return "WAVE";
     case synth::SynthEngineKind::Braids: return "BRAIDS";
+    case synth::SynthEngineKind::Plaits: return "PLAITS";
     default: return "ENGINE";
   }
 }

@@ -23,6 +23,7 @@
 #include "Library/Synth/Audio/Fx/SynthFxDsp.h"
 #include "Library/Synth/Core/Engines/Juno/JunoSynthEngine.h"
 #include "Library/Synth/Core/Engines/Wave/WaveSynthEngine.h"
+#include "Library/Synth/Core/Engines/Plaits/PlaitsSynthEngine.h"
 #include "Library/Synth/Core/SynthStorage.h"
 // Include the runtime once to check both rendered PCM and mapping state against AMY.
 #include "Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp"
@@ -51,7 +52,7 @@ namespace synth::storage {
 std::string PresetDirectory(std::string_view instrument) { return (storageRoot / std::string(instrument)).string(); }
 bool EnsureLayout()
 {
-  for (const char* engine : {"DX7", "Juno", "Sampler", "Drums", "Braids"}) std::filesystem::create_directories(storageRoot / engine);
+  for (const char* engine : {"DX7", "Juno", "Sampler", "Drums", "Braids", "Plaits", "Wave"}) std::filesystem::create_directories(storageRoot / engine);
   return true;
 }
 }
@@ -1982,6 +1983,127 @@ int main()
     }
     EnsureEngine(kTrack, SynthEngineKind::None);
     (void)render(2);
+  }
+
+  // Plaits: a track whose voices the runtime renders itself (upstream's plaits::Voice, four to a
+  // track, PlaitsTrack), at 44.1 kHz with the pitch corrected, each ended once it is silent after its
+  // key went up.
+  {
+    for (std::size_t param = 0; param < fx::kMasterParamCount; ++param)
+      SetMasterFx(static_cast<fx::MasterParam>(param), fx::kMasterParams[param].defaultValue);
+    for (std::size_t track = 1; track < kSynthTrackCount; ++track) EnsureEngine(track, SynthEngineKind::None);
+    const auto loudest = [&](int blocks) {
+      int peak = 0;
+      for (int block = 0; block < blocks; ++block)
+      {
+        RenderFrames(pcm.data(), pcm.size());
+        for (const std::int16_t sample : pcm) peak = (std::max)(peak, std::abs(static_cast<int>(sample)));
+      }
+      return peak;
+    };
+    const auto holds = [](std::size_t track, int note) { return (HeldNotes(track)[static_cast<std::size_t>(note) / 32] & (1u << (note % 32))) != 0; };
+    const auto sounding = []() { return g_engines[0].plaits ? g_engines[0].plaits->SoundingVoices() : std::size_t{99}; };
+
+    PlaitsSynthEngine plaits;
+    assert(plaits.Init({0, 0x4105, "regression-plaits"}));
+    (void)loudest(80);  // 3.7 s: whatever the tests before left ringing has died away
+    assert(loudest(2) < 4);
+    assert(PlaitsVoiceCount(0) == static_cast<int>(PlaitsTrack::kMaxVoices) && PlaitsVoiceCount(1) == 0);
+    assert(g_engines[0].plaits && g_engines[0].plaits->VoiceCount() == PlaitsTrack::kMaxVoices);
+
+    // Every factory preset loads, comes back from a project and makes a sound.
+    std::size_t presetCount = 0;
+    for (;; ++presetCount)
+    {
+      const auto page = plaits.ListPresets({presetCount, 1});
+      if (page.items.empty()) break;
+      assert(plaits.LoadPreset(page.items.front().id));
+      assert(plaits.RestoreState(plaits.CaptureState()) && !plaits.HasEdits());
+      NoteOn(0, 60, 110);
+      const int level = loudest(4);  // 0.19 s: past the slowest ATTACK's first fifth
+      if (level <= 50) std::cerr << "silent Plaits preset: " << page.items.front().id << " (" << level << ")\n";
+      assert(level > 50);
+      AllNotesOff(0);
+    }
+    assert(presetCount >= kPlaitsModelCount);
+    SynthParameterInfo model;
+    assert(plaits.LoadPreset("plaits.modal") && plaits.GetParameterInfo("osc.model", model) && model.value == 20);
+    assert(plaits.DescribeParameterValue("osc.model") == "MODAL" && plaits.DescribeParameterValue("lpg.mode") == "PING");
+
+    // The track anew (its voices go with it, whatever still rang): one clean pitch, a short release.
+    EnsureEngine(0, SynthEngineKind::None);
+    assert(plaits.LoadPreset("plaits.analog"));
+    assert(plaits.SetParameterValue("osc.harmonics", 64) && plaits.SetParameterValue("lpg.decay", 20));
+    assert(loudest(2) < 4 && sounding() == 0);
+
+    // A4 is 440 Hz: a period of 100.2 frames at 44.1 kHz. Plaits tunes itself for the rate of its own
+    // codec; without the correction this would be 108.8 frames, a semitone and a half flat.
+    NoteOn(0, 69, 110);
+    assert(loudest(4) > 1000);
+    RenderFrames(pcm.data(), pcm.size());
+    std::size_t period = 0;
+    double best = 0.0;
+    for (std::size_t lag = 60; lag <= 140; ++lag)
+    {
+      double sum = 0.0;
+      for (std::size_t index = 0; index + lag < pcm.size(); ++index) sum += static_cast<double>(pcm[index]) * static_cast<double>(pcm[index + lag]);
+      if (sum > best)
+      {
+        best = sum;
+        period = lag;
+      }
+    }
+    if (period < 99 || period > 101) std::cerr << "Plaits A4 period: " << period << " frames\n";
+    assert(period >= 99 && period <= 101);
+    assert(holds(0, 69) && sounding() == 1);
+    NoteOff(0, 69);
+    (void)loudest(30);  // 1.4 s: the gate has closed and the voice ended
+    assert(loudest(2) < 4 && sounding() == 0 && !holds(0, 69));
+
+    // Four voices; a fifth note takes the oldest held one's, the same key again its own.
+    for (const int note : {48, 52, 55, 59}) NoteOn(0, static_cast<std::uint8_t>(note), 100);
+    (void)loudest(1);
+    assert(sounding() == 4);
+    const auto stolen = GivenUpVoiceCounts().stolen;
+    NoteOn(0, 62, 100);
+    (void)loudest(1);
+    assert(GivenUpVoiceCounts().stolen == stolen + 1 && sounding() == 4 && !holds(0, 48) && holds(0, 62));
+    NoteOn(0, 62, 100);
+    (void)loudest(1);
+    assert(GivenUpVoiceCounts().stolen == stolen + 1 && sounding() == 4 && holds(0, 52));
+    // When rendering does not keep up, a Plaits voice fades out like any other (the budget that
+    // comes before this net is the board's).
+    const auto shed = ShedVoiceCount();
+    assert(ShedVoice());
+    (void)loudest(1);
+    assert(ShedVoiceCount() == shed + 1 && sounding() == 3);
+    AllNotesOff(0);
+    (void)loudest(30);
+    assert(sounding() == 0 && loudest(2) < 4);
+
+    // Beside an AMY track, through the effects: its bus, its send, the float mix.
+    EnsureEngine(1, SynthEngineKind::Juno);
+    SetEnginePreset(1, "juno.a51");
+    assert(plaits.SetParameterValue("fx.reverb", 80) && plaits.SetParameterValue("fx.drive", 30));
+    NoteOn(0, 60, 100);
+    NoteOn(1, 64, 100);
+    assert(loudest(4) > 1000 && sounding() == 1);
+    AllNotesOff(0);
+    AllNotesOff(1);
+    (void)loudest(4);
+
+    // Without memory for its voices the track is silent, and says so.
+    failAllocationsFrom = 4096;
+    EnsureEngine(0, SynthEngineKind::None);
+    assert(plaits.LoadPreset("plaits.analog"));
+    NoteOn(0, 60, 100);
+    (void)loudest(2);
+    assert(PlaitsVoiceCount(0) == -1 && g_engines[0].plaits && g_engines[0].plaits->VoiceCount() == 0 && !holds(0, 60));
+    failAllocationsFrom = 0;
+    EnsureEngine(0, SynthEngineKind::None);
+    EnsureEngine(1, SynthEngineKind::None);
+    (void)loudest(2);
+    assert(PlaitsVoiceCount(0) == 0);
   }
 
   std::cout << "Synth regression passed: sample boundaries, factory decode, parameter routing, preset persistence/recovery, rendered VCA mute, cross-track master EQ, Drums PCM/levels/tails/stop/persistence, mixed engine switching, MIDI bounds, track gain/mute/meters, effects (bypass identity, allocation, delay timing, reverb tail, inserts, routed mute, preset reset, extremes), new DX7/Juno parameters, Braids (voices, tuning, every model, modulation, delay-line memory, presets, levels).\n";

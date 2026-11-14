@@ -58,6 +58,8 @@ struct RenderModel {
   float drumsMicros = 0.0f;
   float waveMicros = 0.0f;
   float braidsMicros = 0.0f;
+  // A voice of the dearest Plaits track (each track learns its own: the model decides it); 0 with none.
+  float plaitsMicros = 0.0f;
   float overheadMicros = 0.0f;
   float budgetScale = 1.0f;
 };
@@ -72,6 +74,10 @@ NoteSet HeldNotes(std::size_t engineIndex);
 // Voices AMY kept sounding although their track held no note (each one is a bug somewhere); they get
 // released, so nothing rings on for ever.
 std::uint32_t ReleasedOrphanVoiceCount();
+// The voices a Plaits track got when it was set up (Plaits/PlaitsTrack.h): 1 to 4; -1 when there was
+// no memory for any, the track is silent; 0 for a track that is not a Plaits track (or not yet: the
+// render thread sets it up).
+int PlaitsVoiceCount(std::size_t engineIndex);
 void NoteOn(std::size_t engineIndex, std::uint8_t note, std::uint8_t velocity);
 void NoteOff(std::size_t engineIndex, std::uint8_t note);
 void AllNotesOff(std::size_t engineIndex);

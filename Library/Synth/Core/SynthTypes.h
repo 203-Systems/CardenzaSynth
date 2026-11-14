@@ -14,6 +14,9 @@ enum class SynthEngineKind {
   // Project files store these numbers: a kind keeps its own for good. The four engines below were
   // written on separate branches (each first took 5) and numbered here when they were put together.
   Braids = 5,  // Mutable Instruments' macro oscillator (Library/third_party/braids)
+  // The Plaits macro oscillator (Library/third_party/eurorack), rendered by the runtime itself like
+  // the sampler.
+  Plaits = 6,
   Wave = 8,    // wavetable and classic oscillators through AMY (Library/Synth/Core/Engines/Wave)
 };
 // One more than the highest kind: tables indexed by kind.

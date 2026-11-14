@@ -12,6 +12,7 @@
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Applications/Synth/UI/Groove/Render/Widgets.h"
+#include "Library/Synth/Core/Engines/Plaits/PlaitsSynthEngine.h"
 
 namespace groove::render {
 
@@ -720,6 +721,65 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
     case PageGraphic::DrumPads:
       DrawPads(g, controller, animator, area, engine);
       break;
+    case PageGraphic::PlaitsMacro:
+    {
+      // Plaits: what the model is, where its three macro controls stand, and how much of the AUX
+      // output is in the sound. The bars take the track's colour of activity while it sounds.
+      const int model = std::clamp(EngineRaw(engine, "osc.model"), 0, static_cast<int>(synth::kPlaitsModelCount) - 1);
+      const int voices = host.PlaitsVoices(track);
+      const std::string room = voices < 0 ? std::string("NO MEMORY") : voices > 0 ? std::to_string(voices) + " VOICES" : std::string();
+      const int roomWidth = Gfx::Measure(room);
+      g.TextFit(area.x + 2, area.y, area.width - roomWidth - 10, synth::kPlaitsModelDetails[static_cast<std::size_t>(model)], kInk);
+      if (!room.empty()) g.Text(area.x + area.width - roomWidth - 2, area.y, room, voices < 0 ? kRec : kFaint);
+      static constexpr std::array<const char*, 3> kIds{{"osc.harmonics", "osc.timbre", "osc.morph"}};
+      static constexpr std::array<const char*, 3> kTags{{"HARM", "TIMBRE", "MORPH"}};
+      const Color live = activity > 0.02f ? kTab : kInk;
+      const int barX = area.x + 44;
+      for (std::size_t row = 0; row < kIds.size(); ++row)
+      {
+        const int y = area.y + 11 + static_cast<int>(row) * 10;
+        g.Text(area.x + 2, y, kTags[row], kDim);
+        widgets::LevelBar(g, Rect{barX, y + 1, area.width - 46, 5}, Glide(animator, track, engine, kIds[row], 0.5f), live, kFaint);
+      }
+      const int mixY = area.y + 42;
+      const int auxX = area.x + area.width - Gfx::Measure("AUX") - 2;
+      g.Text(area.x + 2, mixY, "OUT", kDim);
+      g.Text(auxX, mixY, "AUX", kDim);
+      const Rect balance{area.x + 26, mixY + 1, auxX - (area.x + 26) - 4, 5};
+      g.Dither(balance, kFaint, 4);
+      const int knob = balance.x + static_cast<int>(std::lround(Glide(animator, track, engine, "osc.aux") * static_cast<float>(balance.width - 5)));
+      g.Fill(Rect{knob, balance.y - 1, 5, 7}, kInk);
+      break;
+    }
+    case PageGraphic::LowPassGate:
+    {
+      // Plaits' low-pass gate over a note: held open by the key (GATE: ATTACK up, DECAY after the
+      // key goes up) or struck (PING: DECAY is all of it). Beside it, how far its envelope moves
+      // pitch, TIMBRE and MORPH, either way from the middle.
+      const bool ping = EngineRaw(engine, "lpg.mode") == synth::kPlaitsEnvelopePing;
+      const float attack = Glide(animator, track, engine, "lpg.attack");
+      const float decay = Glide(animator, track, engine, "lpg.decay", 0.5f);
+      g.Text(area.x + 2, area.y, ping ? "PING: EACH NOTE STRIKES" : "GATE: OPEN WHILE HELD", kDim);
+      const int modsWidth = 66;
+      const Rect graph{area.x + 2, area.y + 10, area.width - modsWidth - 8, area.height - 12};
+      if (ping) widgets::Envelope(g, graph, {{0.03f, 0.02f, 0.08f + decay, 0.5f, 0.02f}}, {{1.0f, 1.0f, 0.0f, 0.0f, 0.0f}}, kInk);
+      else widgets::Envelope(g, graph, {{0.03f + attack, 0.02f, 0.02f, 0.5f, 0.06f + decay}}, {{1.0f, 1.0f, 1.0f, 1.0f, 0.0f}}, kInk);
+      if (activity > 0.02f)
+      {
+        const float position = std::fmod(static_cast<float>(now) / 900.0f, 1.0f);
+        g.VLine(graph.x + static_cast<int>(position * static_cast<float>(graph.width)), graph.y, graph.height, kTab);
+      }
+      static constexpr std::array<const char*, 3> kIds{{"mod.frequency", "mod.timbre", "mod.morph"}};
+      static constexpr std::array<const char*, 3> kTags{{"P", "T", "M"}};
+      const int modsX = area.x + area.width - modsWidth;
+      for (std::size_t row = 0; row < kIds.size(); ++row)
+      {
+        const int y = area.y + 12 + static_cast<int>(row) * 13;
+        g.Text(modsX, y, kTags[row], kDim);
+        widgets::BipolarBar(g, Rect{modsX + 10, y + 1, modsWidth - 12, 5}, Glide(animator, track, engine, kIds[row], 0.5f) * 2.0f - 1.0f, kInk, kFaint);
+      }
+      break;
+    }
     case PageGraphic::None:
     default:
       break;

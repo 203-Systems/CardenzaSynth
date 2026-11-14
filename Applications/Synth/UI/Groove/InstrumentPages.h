@@ -45,6 +45,8 @@ enum class PageGraphic : std::uint8_t {
   Waveform,
   WaveShape,         // Wave: one oscillator's cycle at its POSITION (op 1 or 2: which oscillator)
   DrumPads,
+  PlaitsMacro,       // Plaits: the model and its three macro controls
+  LowPassGate,       // Plaits: the low-pass gate over a note, and what its envelope moves
   FxChain,           // track insert chain and sends
   Chord,             // INSTR CHORD: the chord one key plays, on a keyboard
   Arp,               // INSTR ARP: the order the track's arpeggiator plays a chord in

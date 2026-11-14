@@ -67,6 +67,7 @@ bool IsProjectEngineKind(int kind) {
     case static_cast<int>(SynthEngineKind::Drums):
     case static_cast<int>(SynthEngineKind::Wave):
     case static_cast<int>(SynthEngineKind::Braids):
+    case static_cast<int>(SynthEngineKind::Plaits):
       return true;
     default:
       return false;
