@@ -285,7 +285,9 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
     // A vocal track: who sings (the pack's own name), in place of the keyboard's layout.
     std::string singer = vocal->Pack().Name();
     std::transform(singer.begin(), singer.end(), singer.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-    g.TextFit(x + 8, infoY, area.x + area.width - x - 8, "SINGER " + singer, kDim);
+    // With a lyric, the keys sing it rather than the track's word.
+    const std::size_t lyric = vocal->LyricLength();
+    g.TextFit(x + 8, infoY, area.x + area.width - x - 8, "SINGER " + singer + (lyric > 0 ? "  LYRIC " + std::to_string(lyric) : std::string()), kDim);
   }
   else if (host.EngineKind(state.track) == synth::SynthEngineKind::Chop)
   {
@@ -599,6 +601,90 @@ void DrawChopFile(Gfx& g, const Controller& controller, Animator& animator, cons
     const int x = xOf(static_cast<int>(static_cast<long long>(playhead) * synth::kChopPositionMax / sampler.frameCount));
     if (visible(x)) g.VLine(x, graph.y, graph.height, kPlay);
   }
+}
+
+// A page of a vocal track's word table (Controller::WordPickerActive) as the pads lie, in `area`: a
+// cell per pad, the word the table would change inverse, a pad singing in the track's colour.
+void DrawWordTable(Gfx& g, const Controller& controller, const Rect& area)
+{
+  const synth::VocalSynthEngine* vocal = controller.ActiveVocal();
+  if (vocal == nullptr) return;
+  const synth::vocal::Pack& pack = vocal->Pack();
+  const int current = controller.WordPickCurrent();
+  const std::size_t page = controller.WordPickPage();
+  const std::size_t track = controller.State().track;
+  const int columnWidth = area.width / static_cast<int>(kPadColumns);
+  const int rowHeight = area.height / static_cast<int>(kRows);
+  for (std::size_t row = 0; row < kRows; ++row)
+    for (std::size_t column = 0; column < kPadColumns; ++column)
+    {
+      const std::size_t entry = page * Controller::kWordPickPadCount + row * kPadColumns + column;
+      const Rect cell{area.x + static_cast<int>(column) * columnWidth, area.y + static_cast<int>(row) * rowHeight, columnWidth - 2, rowHeight - 2};
+      if (entry >= pack.EntryCount())
+      {
+        g.Pixel(cell.x + cell.width / 2, cell.y + cell.height / 2, kShade);
+        continue;
+      }
+      const bool chosen = static_cast<int>(entry) == current;
+      const bool sung = controller.IsPadDown(row, kPadFirstColumn + column);
+      if (sung) g.Fill(cell, TrackColor(track));
+      else if (chosen) g.Fill(cell, kInk);
+      else g.Stroke(cell, kFaint);
+      const std::string_view name = pack.EntryNameAt(static_cast<unsigned>(entry));
+      const int width = std::min(cell.width - 2, Gfx::Measure(name));
+      g.TextFit(cell.x + 1 + (cell.width - 2 - width) / 2, cell.y + (cell.height - 7) / 2, cell.width - 2, name, sung || chosen ? kBlack : kInk);
+    }
+}
+
+// Vocal LYRIC: the lyric above, on the GRID's 4 x 4 in its order (a word per key, the next one sung
+// framed green, a key held inverse, then a "+" where the pads add), the pads' word table below.
+void DrawLyric(Gfx& g, const Controller& controller, const Rect& area)
+{
+  const synth::VocalSynthEngine* vocal = controller.ActiveVocal();
+  if (vocal == nullptr) return;
+  const UiState& state = controller.State();
+  const std::size_t length = vocal->LyricLength();
+  const std::size_t next = controller.LyricNext();
+  constexpr int kGap = 2;
+  constexpr int kRowHeight = 10;
+  const int cellWidth = (area.width - 3 * kGap) / 4;
+  for (std::size_t index = 0; index < kGridCount; ++index)
+  {
+    const Rect cell{area.x + static_cast<int>(index % 4) * (cellWidth + kGap), area.y + static_cast<int>(index / 4) * (kRowHeight + 1), cellWidth, kRowHeight};
+    if (index > length || index >= synth::kLyricLength)
+    {
+      g.Pixel(cell.x + cell.width / 2, cell.y + cell.height / 2, kShade);
+      continue;
+    }
+    if (index == length)
+    {
+      g.DottedHLine(cell.x, cell.y, cell.width, kFaint);
+      g.DottedHLine(cell.x, cell.y + cell.height - 1, cell.width, kFaint);
+      g.TextAligned(cell, "+", kDim, Font::Micro, Align::Center);
+      continue;
+    }
+    const bool held = state.gridDown[index] && controller.LyricPageActive();
+    const bool isNext = index == next;
+    if (held) g.Fill(cell, kInk);
+    else g.Stroke(cell, isNext ? kPlay : kFaint);
+    const int x = g.Text(cell.x + 2, cell.y + 2, std::to_string(index + 1), held ? kBlack : (isNext ? kPlay : kDim), Font::Micro);
+    g.TextFit(x + 3, cell.y + 2, cell.x + cell.width - x - 4, vocal->WordName(vocal->LyricWord(index)), held ? kBlack : kInk, Font::Micro);
+  }
+  // What the pads do now, and the table's page.
+  const int infoY = area.y + 4 * (kRowHeight + 1) + 2;
+  const int held = controller.LyricPlaceHeld();
+  const std::string doing = held >= 0                            ? "PADS CHANGE " + std::to_string(held + 1)
+                            : length == 0                        ? std::string("EMPTY - PADS ADD WORDS")
+                            : length >= synth::kLyricLength      ? std::string("FULL")
+                                                                 : "PADS ADD " + std::to_string(length + 1);
+  g.Text(area.x, infoY, doing, held >= 0 ? kCtrl : kDim);
+  if (const std::size_t pages = controller.WordPickPageCount(); pages > 1)
+  {
+    const std::string count = std::to_string(controller.WordPickPage() + 1) + "/" + std::to_string(pages);
+    g.Text(area.x + area.width - Gfx::Measure(count), infoY, count, kFn);
+  }
+  const int tableTop = infoY + 10;
+  DrawWordTable(g, controller, Rect{area.x, tableTop, area.width + 2, area.y + area.height - tableTop + 2});
 }
 
 void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const InstrumentPage& page)
@@ -989,8 +1075,18 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
       if (const synth::VocalSynthEngine* vocal = synth::VocalSynthEngine::From(engine))
       {
         const int singing = host.VocalStatus(track).singing;
-        const std::string text = singing >= 0 && singing != vocal->Word() ? "SINGING " + vocal->WordName(singing)
-                                                                           : "SINGS " + vocal->WordName(vocal->Word()) + " WHERE A STEP HAS NO WORD";
+        // With a lyric the keys played by hand sing it: where they are in it, the word the next one
+        // sings, and the track's word, still what a step without one sings.
+        const std::size_t lyric = vocal->LyricLength();
+        std::string text = singing >= 0 && singing != vocal->Word() ? "SINGING " + vocal->WordName(singing)
+                                                                     : "SINGS " + vocal->WordName(vocal->Word()) + " WHERE A STEP HAS NO WORD";
+        if (lyric > 0)
+        {
+          const std::size_t next = controller.LyricNext();
+          const std::string place = "LYRIC " + std::to_string(next + 1) + "/" + std::to_string(lyric);
+          text = singing >= 0 ? "SINGING " + vocal->WordName(singing) + "  " + place
+                              : place + " NEXT " + vocal->WordName(vocal->LyricWord(next)) + "  STEPS " + vocal->WordName(vocal->Word());
+        }
         g.TextFit(area.x + 2, area.y + 9, area.width - 4, text, singing >= 0 ? TrackColor(track) : kDim);
       }
       const Rect graph{area.x + 2, area.y + 20, area.width - 4, area.height - 22};
@@ -1043,6 +1139,9 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
     case PageGraphic::ChopFile:
     case PageGraphic::ChopSlice:
       DrawChopFile(g, controller, animator, page, area);
+      break;
+    case PageGraphic::Lyric:
+      DrawLyric(g, controller, area);
       break;
     case PageGraphic::None:
     default:
@@ -1108,11 +1207,10 @@ void DrawWordPicker(Gfx& g, const Controller& controller, Animator& animator)
   const synth::VocalSynthEngine* vocal = controller.ActiveVocal();
   if (vocal == nullptr) return;
   (void)animator;
-  const synth::vocal::Pack& pack = vocal->Pack();
   const int current = controller.WordPickCurrent();
   const std::size_t page = controller.WordPickPage();
   const std::size_t pages = controller.WordPickPageCount();
-  // What is being given a word: the track (SING's WORD cell), or the selected steps.
+  // What is being given a word: the selected steps, or the track (SING's WORD cell).
   int x = kContentX;
   if (controller.StepWordPickerActive())
   {
@@ -1134,27 +1232,7 @@ void DrawWordPicker(Gfx& g, const Controller& controller, Animator& animator)
   }
   g.DottedHLine(kContentX, kContentY + 10, kContentWidth, kFaint);
   const int top = kContentY + 14;
-  const int columnWidth = kContentWidth / static_cast<int>(kPadColumns);
-  const int rowHeight = (kContentY + kContentHeight - top) / static_cast<int>(kRows);
-  for (std::size_t row = 0; row < kRows; ++row)
-    for (std::size_t column = 0; column < kPadColumns; ++column)
-    {
-      const std::size_t entry = page * Controller::kWordPickPadCount + row * kPadColumns + column;
-      const Rect cell{kContentX + static_cast<int>(column) * columnWidth, top + static_cast<int>(row) * rowHeight, columnWidth - 2, rowHeight - 2};
-      if (entry >= pack.EntryCount())
-      {
-        g.Pixel(cell.x + cell.width / 2, cell.y + cell.height / 2, kShade);
-        continue;
-      }
-      const bool chosen = static_cast<int>(entry) == current;
-      const bool sung = controller.IsPadDown(row, kPadFirstColumn + column);
-      if (sung) g.Fill(cell, TrackColor(state.track));
-      else if (chosen) g.Fill(cell, kInk);
-      else g.Stroke(cell, kFaint);
-      const std::string_view name = pack.EntryNameAt(static_cast<unsigned>(entry));
-      const int width = std::min(cell.width - 2, Gfx::Measure(name));
-      g.TextFit(cell.x + 1 + (cell.width - 2 - width) / 2, cell.y + (cell.height - 7) / 2, cell.width - 2, name, sung || chosen ? kBlack : kInk);
-    }
+  DrawWordTable(g, controller, Rect{kContentX, top, kContentWidth, kContentY + kContentHeight - top});
 }
 
 void InstrumentScene(Gfx& g, const Controller& controller, Animator& animator, std::uint8_t pageIndex)

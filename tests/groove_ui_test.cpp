@@ -3801,7 +3801,7 @@ void TestVocal(Harness& h)
          synth::VocalSynthEngine::From(app.Engine(0)) == nullptr);
   // Its pages, in signal order, and every one draws.
   const groove::InstrumentPageList pages = app.Ui().InstrumentPages();
-  const std::array<const char*, 6> tabs{{"VOICE", "CHORD", "ARP", "SING", "AMP", "FX"}};
+  const std::array<const char*, 7> tabs{{"VOICE", "CHORD", "ARP", "SING", "LYRIC", "AMP", "FX"}};
   assert(pages.count == tabs.size());
   for (std::size_t page = 0; page < pages.count; ++page)
   {
@@ -4026,8 +4026,99 @@ void TestVocal(Harness& h)
   assert(sequencer.EditLane() == synth::SequencerEditLane::Note);
   h.Chord(kTab, Grid(1));
 
-  // A project keeps the track: its engine, its singer's file, its own word, its settings and its
-  // steps' words.
+  // LYRIC, a performance's words: none at first, and on its page the pads add them, each heard as it
+  // goes in; the GRID is the lyric, a word per key, then a "+".
+  GoToInstrumentPage(h, "LYRIC");
+  assert(vocal->LyricLength() == 0 && app.Ui().LyricPageActive() && app.Ui().WordPickerActive() && !app.Ui().WordCellPickerActive());
+  assert(app.Engine(1)->DescribeParameterValue("voice.word") == "KU" && app.Ui().AdjustKeysMean() == groove::AdjustMeaning::None);
+  h.Render();
+  const auto gridLed = [&](std::size_t index) { return leds[groove::KeyIndex(index / 4, 9 + index % 4)]; };
+  app.Ui().ComputeLeds(leds);
+  assert(padLed(kA) == groove::kLedHalf && padLed(kSa) == groove::kLedHalf && padLed(13) == groove::kLedOff && gridLed(0) == groove::kLedOff);
+  for (const int word : {kSa, kMi, kKu})
+  {
+    h.Down(wordPad(static_cast<std::size_t>(word)));
+    assert(sung() == word);
+    h.Up(wordPad(static_cast<std::size_t>(word)));
+  }
+  assert(vocal->LyricLength() == 3 && vocal->LyricWord(0) == kSa && vocal->LyricWord(1) == kMi && vocal->LyricWord(2) == kKu && vocal->LyricWord(3) == -1);
+  assert(h.State().hud.label == "LYRIC 3" && h.State().hud.value == "KU");
+  // With a lyric the keys sing it, and WORD says so; the track's word is still what a step without a
+  // word of its own sings.
+  assert(app.Engine(1)->DescribeParameterValue("voice.word") == "LYRIC" && vocal->Word() == kKu);
+  h.Render();
+  app.Ui().ComputeLeds(leds);
+  assert(gridLed(0) == groove::kLedFull && gridLed(1) == groove::kLedHalf && gridLed(2) == groove::kLedHalf && gridLed(3) == groove::kLedOff);
+  assert(padLed(kSa) == groove::kLedHalf && padLed(kKu) == groove::kLedHalf);  // nothing chosen: the pads add
+  // A word's key held: it is the next one sung, and the pads change it (its word full).
+  h.Down(Grid(1));
+  assert(app.Ui().LyricPlaceHeld() == 1 && app.Ui().WordPickCurrent() == kMi && app.Ui().LyricNext() == 1 && !app.Ui().CellPickerActive());
+  app.Ui().ComputeLeds(leds);
+  assert(padLed(kMi) == groove::kLedFull && gridLed(1) == groove::kLedFull && gridLed(0) == groove::kLedHalf);
+  h.Render();
+  h.Down(wordPad(kA));
+  assert(sung() == kA && vocal->LyricWord(1) == kA && vocal->LyricLength() == 3 && h.State().hud.label == "LYRIC 2");
+  h.Up(wordPad(kA));
+  h.Up(Grid(1));
+  assert(app.Ui().LyricPlaceHeld() == -1 && vocal->LyricLength() == 3);
+  // The "+" only says where the pads add; the keys after it do nothing.
+  h.Tap(Grid(3));
+  assert(vocal->LyricLength() == 3 && h.State().toast.text == "PADS ADD WORDS");
+  h.Tap(Grid(7));
+  assert(vocal->LyricLength() == 3 && app.Ui().LyricNext() == 1);
+  // RESTART (FN menu) goes back to its first word. Played by hand the keys sing the words in turn,
+  // round again after the last; the track's word and the steps' are left alone.
+  h.Chord(kFn, Grid(9));
+  assert(app.Ui().LyricNext() == 0 && h.State().hud.label == "NEXT 1" && h.State().hud.value == "SA");
+  GoToInstrumentPage(h, "SING");
+  for (const int word : {kSa, kA, kKu, kSa})
+  {
+    h.Down(pad);
+    assert(sung() == word);
+    h.Up(pad);
+    assert(sung() == -1);
+  }
+  assert(app.Ui().LyricNext() == 1 && vocal->Word() == kKu && sequencer.StepWord(1, 0) == kSa);
+  h.Render();
+  GoToInstrumentPage(h, "VOICE");
+  h.Render();
+  // Sixteen words at most: one more is refused. DELETE takes the last one out; CLEAR asks first.
+  GoToInstrumentPage(h, "LYRIC");
+  for (std::size_t word = 0; vocal->LyricLength() < synth::kLyricLength; word = (word + 1) % 13)
+  {
+    h.Down(wordPad(word));
+    h.Up(wordPad(word));
+  }
+  h.Down(wordPad(kSa));
+  h.Up(wordPad(kSa));
+  assert(vocal->LyricLength() == synth::kLyricLength && h.State().toast.kind == groove::ToastKind::Error && h.State().toast.text == "LYRIC FULL - 16 WORDS");
+  h.Render();
+  const std::string lastWord = vocal->WordName(vocal->LyricWord(synth::kLyricLength - 1));
+  assert(app.Ui().Menu()[10].action == groove::MenuAction::LyricDelete && app.Ui().Menu()[10].detail == lastWord);
+  h.Chord(kFn, Grid(10));
+  assert(vocal->LyricLength() == synth::kLyricLength - 1 && h.State().hud.label == "DELETE");
+  h.Chord(kFn, Grid(11));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm);
+  h.Tap(kEsc);
+  assert(h.Modal() == nullptr && vocal->LyricLength() == synth::kLyricLength - 1);
+  h.Chord(kFn, Grid(11));
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && vocal->LyricLength() == 0 && app.Ui().LyricNext() == 0 && app.Engine(1)->DescribeParameterValue("voice.word") == "KU");
+  {
+    const groove::MenuItems items = app.Ui().Menu();
+    assert(items[9].action == groove::MenuAction::LyricRestart && !items[9].available && items[10].action == groove::MenuAction::LyricDelete && !items[10].available);
+  }
+  h.Render();
+  // Two words for the project. Presets leave them alone, and they are no edit of one.
+  h.Down(wordPad(kKu));
+  h.Up(wordPad(kKu));
+  h.Down(wordPad(kSa));
+  h.Up(wordPad(kSa));
+  assert(app.Engine(1)->LoadPreset("vocal.choir") && vocal->LyricLength() == 2 && !app.Engine(1)->HasEdits());
+  assert(app.Engine(1)->LoadPreset("vocal.plain") && vocal->LyricLength() == 2 && vocal->LyricWord(1) == kSa);
+
+  // A project keeps the track: its engine, its singer's file, its own word, its lyric, its settings
+  // and its steps' words.
   assert(app.Engine(1)->SetParameterValue("vib.depth", 40));
   std::string message;
   assert(app.SaveProject("VOCAL SONG", true, app.Ui().Settings(), message) == groove::SaveResult::Ok);
@@ -4036,6 +4127,7 @@ void TestVocal(Harness& h)
     const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     assert(text.find("CARDENZA_PROJECT 7\n") == 0 && text.find("TRACK 1 7 \"vocal.plain\" \"vocal.plain\" \"Plain\" \"Test Voice.vocal\"") != std::string::npos);
     assert(text.find("\"voice.word\" 9\n") != std::string::npos && text.find("\"word.") == std::string::npos);
+    assert(text.find("\"lyric.01\" 9\n") != std::string::npos && text.find("\"lyric.02\" 12\n") != std::string::npos && text.find("\"lyric.03\" -1\n") != std::string::npos);
   }
   assert(app.SwitchEngine(1, synth::SynthEngineKind::Juno, error) && sequencer.TrackWords(1) == 0);
   groove::ProjectUiSettings settings;
@@ -4043,6 +4135,7 @@ void TestVocal(Harness& h)
   app.Ui().Restore(settings, "VOCAL SONG");
   vocal = synth::VocalSynthEngine::From(app.Engine(1));
   assert(vocal != nullptr && vocal->PackFileName() == "Test Voice.vocal" && vocal->Word() == kKu && ParameterValue(app, 1, "vib.depth") == 40);
+  assert(vocal->LyricLength() == 2 && vocal->LyricWord(0) == kKu && vocal->LyricWord(1) == kSa);
   assert(sequencer.TrackWords(1) == 13 && sequencer.StepWord(1, 0) == kSa && sequencer.StepWord(1, 2) == kMi && sequencer.StepWord(1, 6) == -1);
   assert(sequencer.StepNoteEvents(1, 2, events) == 1 && events[0].note == 48);
   // A project whose singer is not on the card does not load, and nothing changes.

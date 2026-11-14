@@ -589,6 +589,9 @@ void Controller::Confirmed()
     case ConfirmPurpose::ChopEven:
       ChopEven();
       break;
+    case ConfirmPurpose::LyricClear:
+      ClearLyric();
+      break;
     case ConfirmPurpose::Notice:
       break;  // read: closed
   }

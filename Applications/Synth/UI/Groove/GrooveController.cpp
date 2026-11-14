@@ -566,8 +566,9 @@ void Controller::PressPad(std::size_t row, std::size_t column)
     PickCellValue(row, column);
     return;
   }
-  // A vocal track's selected steps on the WORD lane: the pads are the singer's pronunciations.
-  if (StepWordPickerActive())
+  // A vocal track's selected steps on the WORD lane, or its LYRIC page: the pads are the singer's
+  // pronunciations.
+  if (StepWordPickerActive() || LyricPageActive())
   {
     PickWord(row, column);
     return;
@@ -622,6 +623,9 @@ void Controller::PressPad(std::size_t row, std::size_t column)
     state_.padChordCount[index] = 0;  // edit only: nothing sounds, nothing to release
     return;
   }
+  // A vocal track's lyric (a performance): a key played by hand sings its next word, the key's chord
+  // with it. Not a key that edits steps or feeds the arpeggiator: the pattern sings its own words.
+  if (!editing && !state_.padArp[index]) SingNextLyricWord();
   SoundPad(index, true);
   // The arpeggiator records its own notes; straight notes are recorded here.
   if (!editing && !state_.padArp[index] && sequencer.RecordArmed() && sequencer.Playing())
@@ -990,8 +994,8 @@ void Controller::Adjust(int delta, bool coarse)
     ModalAdjust(delta, coarse);
     return;
   }
-  // SING's WORD cell held: ADD / SUB flip the pads' page of pronunciations.
-  if (WordCellPickerActive())
+  // SING's WORD cell held, or the LYRIC page: ADD / SUB flip the pads' page of pronunciations.
+  if (WordCellPickerActive() || LyricPageActive())
   {
     const int last = static_cast<int>(WordPickPageCount()) - 1;
     state_.wordPickPage = static_cast<std::uint8_t>(std::clamp(static_cast<int>(state_.wordPickPage) + delta, 0, last));
@@ -1042,8 +1046,8 @@ AdjustMeaning Controller::AdjustKeysMean() const
   // The page map and the track map step through what they show.
   const auto& ctrl = state_.left[LeftIndex(KeyRole::Ctrl)];
   if ((ctrl.down && !ctrl.suppressed) || state_.left[LeftIndex(KeyRole::Tab)].down) return AdjustMeaning::Sideways;
-  // SING's WORD cell held: the pages of the singer's pronunciations.
-  if (WordCellPickerActive()) return WordPickPageCount() > 1 ? AdjustMeaning::Sideways : AdjustMeaning::None;
+  // SING's WORD cell held, or the LYRIC page: the pages of the singer's pronunciations.
+  if (WordCellPickerActive() || LyricPageActive()) return WordPickPageCount() > 1 ? AdjustMeaning::Sideways : AdjustMeaning::None;
   switch (state_.scene)
   {
     case Scene::Instrument:
@@ -1299,7 +1303,8 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
     {
       const InstrumentPage* instrumentPage = CurrentInstrumentPage();
       adjustable = adjustable || instrumentPage->graphic == PageGraphic::Voice || instrumentPage->slots[InstrumentFocus()].IsParameter();
-      enterAction = true;
+      // LYRIC: ADD / SUB flip the word table (the LEDs below), ENTER does nothing.
+      enterAction = instrumentPage->graphic != PageGraphic::Lyric;
       break;
     }
     case Scene::Sequence:
@@ -1559,6 +1564,14 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
     {
       // Parameters and actions half, the focused parameter full, empty slots off.
       const InstrumentPage* instrumentPage = CurrentInstrumentPage();
+      // LYRIC: its words half, the next one sung (and a key held) full; the "+" and after it off.
+      if (const synth::VocalSynthEngine* vocal = ActiveVocal(); vocal != nullptr && instrumentPage->graphic == PageGraphic::Lyric)
+      {
+        const std::size_t length = vocal->LyricLength();
+        for (std::size_t index = 0; index < length && index < kGridCount; ++index)
+          setGrid(index, choice(index == LyricNext() || state_.gridDown[index]));
+        break;
+      }
       for (std::size_t index = 0; index < kGridCount; ++index)
       {
         const Slot& slot = instrumentPage->slots[index];
@@ -1700,8 +1713,9 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
   // A parameter's cell held: the pads are its values, the current one full.
   if (const synth::VocalSynthEngine* vocal = ActiveVocal(); vocal != nullptr && WordPickerActive())
   {
-    // The word table (SING's WORD cell held, or steps selected on the WORD lane): the pads are a page
-    // of the singer's pronunciations, the word they would change full (and the one a pad is singing).
+    // The word table (SING's WORD cell held, steps selected on the WORD lane, the LYRIC page): the pads
+    // are a page of the singer's pronunciations, the word they would change full (and the one a pad is
+    // singing).
     const int current = WordPickCurrent();
     const std::size_t first = WordPickPage() * kWordPickPadCount;
     for (std::size_t row = 0; row < kRows; ++row)
@@ -1711,7 +1725,7 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
         const bool chosen = static_cast<int>(entry) == current || IsPadDown(row, kPadFirstColumn + column);
         set(KeyIndex(row, kPadFirstColumn + column), entry >= vocal->Pack().EntryCount() ? kLedOff : choice(chosen));
       }
-    if (WordCellPickerActive())
+    if (WordCellPickerActive() || LyricPageActive())
     {
       const bool pages = WordPickPageCount() > 1;
       set(addKey, pages ? kLedHalf : kLedOff);

@@ -125,6 +125,7 @@ enum class ConfirmPurpose : std::uint8_t {
   ChangePreset,  // the track's sound has edits: loading a preset (payload: its id) loses them
   ChangeEngine,  // the same for another engine (payload: its SynthEngineKind as a number)
   ChopEven,      // chop: the slices laid out evenly again, over their edits
+  LyricClear,    // vocal: every word of the track's lyric taken out
   Notice,  // only says something (title, and the detail's lines): ENTER or ESC closes it
 };
 
@@ -300,6 +301,9 @@ enum class MenuAction : std::uint8_t {
   SampleRecord,
   SamplePreview,
   VoicePack,  // Vocal: choose the singer
+  LyricRestart,  // Vocal: the lyric starts again at its first word
+  LyricDelete,   // Vocal LYRIC: its last word taken out
+  LyricClear,    // Vocal LYRIC: all of it (confirmed)
   ChopEven,  // chop: equal slices from the first one's start to the last one's end
   // SEQ
   Copy,
@@ -488,6 +492,9 @@ struct UiState {
   // Vocal tracks: the page of the singer's pronunciations the pads show while SING's WORD cell is held
   // (WordPickerActive), and the pads that sound a word being picked (no notes for the steps).
   std::uint8_t wordPickPage = 0;
+  // Each track's place in its lyric: the word the next key played by hand sings (Controller::LyricNext).
+  // A performance's state, never saved.
+  std::array<std::uint8_t, kTrackCount> lyricNext{};
   std::array<bool, kRows * kPadColumns> padPreview{};
   // SETUP settings pages (KEYS, SYSTEM): the focused setting of each.
   std::array<std::uint8_t, kSettingsPageCount> settingsFocus{};
@@ -554,12 +561,21 @@ public:
   // the pack's order, shown on screen as they lie. Two ways in. INSTR: SING's WORD cell held (the
   // track's own word; ADD / SUB flip the page). SEQ: steps selected on the WORD lane (the word those
   // steps sing; the page is the one with their word, ADD / SUB step the word, FN a page at a time).
-  // A pad puts its pronunciation there and sings it while it is down.
+  // A pad puts its pronunciation there and sings it while it is down. The LYRIC page is a third: its
+  // pads are always the table (ADD / SUB flip the page), see LyricPageActive.
   bool WordCellPickerActive() const;
   bool StepWordPickerActive() const;
-  bool WordPickerActive() const { return WordCellPickerActive() || StepWordPickerActive(); }
+  bool WordPickerActive() const { return WordCellPickerActive() || StepWordPickerActive() || LyricPageActive(); }
   static constexpr std::size_t kWordPickPadCount = kRows * kPadColumns;
   std::size_t WordPickPage() const;
+  // A vocal track's lyric, what the keys played by hand sing in turn (empty: the track's word). On
+  // INSTR LYRIC the GRID is the lyric (a word per key, then a "+") and a pad adds its word at the end,
+  // or with a word's GRID key held (LyricPlaceHeld) changes that word; a word's key tapped makes it
+  // the next one sung.
+  bool LyricPageActive() const;
+  int LyricPlaceHeld() const;  // -1: none
+  // The place in the current track's lyric the next key played by hand sings (0 when it is empty).
+  std::size_t LyricNext() const;
   std::size_t WordPickPageCount() const;
   // The word the table would change: the track's own, or the first selected step's (-1: none yet).
   int WordPickCurrent() const;
@@ -822,9 +838,16 @@ private:
   void ChopEven();
   void PickCellValue(std::size_t row, std::size_t column);
   synth::VocalSynthEngine* ActiveVocal();
-  // A pad of the word table (WordPickerActive): its pronunciation becomes the track's word or the
-  // selected steps', and is sung for as long as the pad is down.
+  // A pad of the word table (WordPickerActive): its pronunciation becomes the track's word, a place of
+  // its lyric or the selected steps', and is sung for as long as the pad is down.
   void PickWord(std::size_t row, std::size_t column);
+  // A vocal track with a lyric: its next word goes out as a word key before the notes of a key played
+  // by hand, and the place moves on (back to the first after the last).
+  void SingNextLyricWord();
+  void RestartLyric();
+  void LyricGrid(std::size_t index);
+  void DeleteLyricWord();
+  void ClearLyric();
   void OpenVoiceBrowser();
   void ApplyVoicePack(const std::string& fileName);
   void ShowStepWordHud();

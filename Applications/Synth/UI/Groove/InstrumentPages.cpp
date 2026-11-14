@@ -222,9 +222,9 @@ constexpr std::array<InstrumentPage, 6> kPlaitsPages{{
 
 // The Vocal engine (Library/Synth/Audio/SynthVocal.h). VOICE has the singer beside the preset. SING
 // is how notes are sung, first of all WORD: what a note sings when its step names no word (and what
-// the pads sing when played by hand); holding that cell lays the singer's pronunciations out on the
-// pads. AMP is how loud.
-constexpr std::array<InstrumentPage, 6> kVocalPages{{
+// the pads sing when played by hand, while there is no lyric); holding that cell lays the singer's
+// pronunciations out on the pads. LYRIC is what the hands sing in turn. AMP is how loud.
+constexpr std::array<InstrumentPage, 7> kVocalPages{{
     InstrumentPage{"PRESET", "VOICE",
                    {{A(SlotAction::Engine, "ENGINE"), A(SlotAction::Preset, "PRESET"), A(SlotAction::VoicePack, "SINGER"), E(),
                      E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
@@ -236,6 +236,13 @@ constexpr std::array<InstrumentPage, 6> kVocalPages{{
                      P("vib.depth", "VIBRATO"), P("vib.rate", "RATE"), P("vib.delay", "DELAY"), E(),
                      E(), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::Sing, {2, 0, 2, 4}, 0},
+    // The lyric (a performance): the words the keys played by hand sing in turn, on the GRID as the
+    // patterns are on SEQ PATTERN (none at first, a "+" after the last). The pads are the singer's
+    // pronunciations: a pad adds its word at the end, or with a word's key held changes that word.
+    // Its own drawing and keys (Controller::LyricPageActive), no parameter cells.
+    InstrumentPage{"WORDS", "LYRIC",
+                   {{E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Lyric, {0, 0, 4, 4}, 0},
     InstrumentPage{"LEVEL", "AMP",
                    {{P("amp.level", "LEVEL"), P("env.attack", "ATTACK"), P("env.release", "RELEASE"), E(),
                      E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},

@@ -566,6 +566,11 @@ void Controller::RefreshProjects()
 void Controller::InstrumentGrid(std::size_t index)
 {
   const InstrumentPage* page = CurrentInstrumentPage();
+  if (page->graphic == PageGraphic::Lyric)
+  {
+    LyricGrid(index);
+    return;
+  }
   const Slot& slot = page->slots[index];
   if (slot.Empty()) return;
   if (slot.IsAction())
@@ -607,6 +612,89 @@ bool Controller::WordCellPickerActive() const
   return slot.IsParameter() && std::strcmp(slot.id, "voice.word") == 0;
 }
 
+bool Controller::LyricPageActive() const
+{
+  if (state_.scene != Scene::Instrument || ActiveVocal() == nullptr || TopModal() != nullptr) return false;
+  if (CurrentInstrumentPage()->graphic != PageGraphic::Lyric) return false;
+  // While a left key is held the GRID chooses and the pads are silent.
+  for (const auto& left : state_.left)
+    if (left.down) return false;
+  return true;
+}
+
+int Controller::LyricPlaceHeld() const
+{
+  if (!LyricPageActive() || !state_.cellPress.down) return -1;
+  const std::size_t place = state_.cellPress.index;
+  return place < ActiveVocal()->LyricLength() ? static_cast<int>(place) : -1;
+}
+
+std::size_t Controller::LyricNext() const
+{
+  const synth::VocalSynthEngine* vocal = ActiveVocal();
+  const std::size_t length = vocal != nullptr ? vocal->LyricLength() : 0;
+  return length == 0 ? 0 : state_.lyricNext[state_.track] % length;
+}
+
+void Controller::SingNextLyricWord()
+{
+  const synth::VocalSynthEngine* vocal = ActiveVocal();
+  if (vocal == nullptr) return;
+  const std::size_t length = vocal->LyricLength();
+  if (length == 0) return;
+  const std::size_t place = LyricNext();
+  state_.lyricNext[state_.track] = static_cast<std::uint8_t>((place + 1) % length);
+  const int word = vocal->LyricWord(place);
+  // A word this singer does not have (the lyric was written for another): the track's word instead.
+  if (word < 0 || word >= static_cast<int>(vocal->Pack().EntryCount())) return;
+  const std::uint8_t key = synth::vocal::KeyNoteOfWord(word);
+  host_.NoteOn(state_.track, key, synth::vocal::KeyVelocityOfWord(word));
+  host_.NoteOff(state_.track, key);
+}
+
+void Controller::RestartLyric()
+{
+  state_.lyricNext[state_.track] = 0;
+  if (const synth::VocalSynthEngine* vocal = ActiveVocal(); vocal != nullptr && vocal->LyricLength() > 0)
+    ShowHud("NEXT 1", vocal->WordName(vocal->LyricWord(0)));
+}
+
+// LYRIC's GRID: a word's key makes it the next one sung (and, held, the one the pads change); the
+// "+" after the last word says where the pads add.
+void Controller::LyricGrid(std::size_t index)
+{
+  const synth::VocalSynthEngine* vocal = ActiveVocal();
+  if (vocal == nullptr) return;
+  const std::size_t length = vocal->LyricLength();
+  if (index < length)
+  {
+    state_.lyricNext[state_.track] = static_cast<std::uint8_t>(index);
+    ShowHud("NEXT " + std::to_string(index + 1), vocal->WordName(vocal->LyricWord(index)));
+  }
+  else if (index == length) ShowToast("PADS ADD WORDS");
+}
+
+void Controller::DeleteLyricWord()
+{
+  synth::VocalSynthEngine* vocal = ActiveVocal();
+  if (vocal == nullptr) return;
+  const std::size_t length = vocal->LyricLength();
+  if (length == 0) return;
+  const std::string word = vocal->WordName(vocal->LyricWord(length - 1));
+  if (!vocal->RemoveLyricWord(length - 1)) return;
+  MarkDirty();
+  ShowHud("DELETE", word + "  " + std::to_string(length - 1) + " LEFT");
+}
+
+void Controller::ClearLyric()
+{
+  synth::VocalSynthEngine* vocal = ActiveVocal();
+  state_.lyricNext[state_.track] = 0;
+  if (vocal == nullptr || !vocal->ClearLyric()) return;
+  MarkDirty();
+  ShowToast("LYRIC CLEARED", ToastKind::Ok);
+}
+
 bool Controller::StepWordPickerActive() const
 {
   if (state_.scene != Scene::Sequence || CurrentPage() != 0 || TopModal() != nullptr || ActiveVocal() == nullptr) return false;
@@ -621,6 +709,12 @@ int Controller::WordPickCurrent() const
 {
   const synth::VocalSynthEngine* vocal = ActiveVocal();
   if (vocal == nullptr) return -1;
+  // LYRIC: the word of the key held (none: the pads add, nothing is chosen).
+  if (LyricPageActive())
+  {
+    const int place = LyricPlaceHeld();
+    return place < 0 ? -1 : vocal->LyricWord(static_cast<std::size_t>(place));
+  }
   if (!StepWordPickerActive()) return vocal->Word();
   const auto& sequencer = host_.Sequencer();
   return sequencer.StepWord(state_.track, sequencer.BuildUiState(state_.track).primaryHeldStep);
@@ -658,6 +752,23 @@ void Controller::PickWord(std::size_t row, std::size_t column)
     ShowStepWordHud();
     if (sequencer.Playing()) return;  // the pattern is what is heard
     if (ui.primaryLowestNote >= 0) note = ui.primaryLowestNote;
+  }
+  else if (LyricPageActive())
+  {
+    // LYRIC: the word of the GRID key held changes; otherwise the word goes on the end.
+    const int place = LyricPlaceHeld();
+    const std::size_t length = vocal->LyricLength();
+    if (place >= 0)
+    {
+      if (vocal->SetLyricWord(static_cast<std::size_t>(place), static_cast<int>(word))) MarkDirty();
+      ShowHud("LYRIC " + std::to_string(place + 1), vocal->WordName(static_cast<int>(word)));
+    }
+    else if (vocal->AppendLyricWord(static_cast<int>(word)))
+    {
+      MarkDirty();
+      ShowHud("LYRIC " + std::to_string(length + 1), vocal->WordName(static_cast<int>(word)));
+    }
+    else ShowToast("LYRIC FULL - " + std::to_string(synth::kLyricLength) + " WORDS", ToastKind::Error);
   }
   else if (vocal->Word() != static_cast<int>(word))
   {
@@ -2082,7 +2193,17 @@ MenuItems Controller::Menu() const
         put(10, MenuAction::SamplePreview, "PREVIEW", "SAMPLE");
       }
       if (const synth::VocalSynthEngine* vocal = ActiveVocal())
+      {
         put(8, MenuAction::VoicePack, "SINGER", vocal->BuiltinPack() ? std::string("BUILTIN") : synth::VoicePackLabel(vocal->PackFileName()));
+        const std::size_t lyric = vocal->LyricLength();
+        put(9, MenuAction::LyricRestart, "RESTART", lyric == 0 ? std::string("NO LYRIC") : "LYRIC " + std::to_string(LyricNext() + 1) + "/" + std::to_string(lyric),
+            nullptr, lyric > 0);
+        if (instrumentPage->graphic == PageGraphic::Lyric)
+        {
+          put(10, MenuAction::LyricDelete, "DELETE", lyric == 0 ? std::string("EMPTY") : vocal->WordName(vocal->LyricWord(lyric - 1)), nullptr, lyric > 0);
+          put(11, MenuAction::LyricClear, "CLEAR", std::to_string(lyric) + " WORDS", nullptr, lyric > 0);
+        }
+      }
       if (ChopTrack())
       {
         put(8, MenuAction::SampleFiles, "SAMPLES", "FILES");
@@ -2223,6 +2344,11 @@ void Controller::RunMenuAction(const MenuItem& item)
     case MenuAction::SampleRecord: RunSlotAction(SlotAction::SampleRecord); break;
     case MenuAction::SamplePreview: RunSlotAction(SlotAction::SamplePreview); break;
     case MenuAction::VoicePack: RunSlotAction(SlotAction::VoicePack); break;
+    case MenuAction::LyricRestart: RestartLyric(); break;
+    case MenuAction::LyricDelete: DeleteLyricWord(); break;
+    case MenuAction::LyricClear:
+      OpenConfirm(ConfirmPurpose::LyricClear, "CLEAR LYRIC?", "ITS WORDS ARE TAKEN OUT", true);
+      break;
     case MenuAction::ChopEven:
       OpenConfirm(ConfirmPurpose::ChopEven, "EVEN SLICES?", "THE SLICE POINTS ARE REPLACED", true);
       break;

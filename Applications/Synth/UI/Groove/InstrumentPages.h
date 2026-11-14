@@ -57,6 +57,7 @@ enum class PageGraphic : std::uint8_t {
   System,            // SETUP SYSTEM: storage, memory and audio status
   Sing,              // Vocal SING: a slur's glide and the vibrato coming in, as a pitch line
   VocalAmp,          // Vocal AMP: the attack and the release
+  Lyric,             // Vocal LYRIC: the lyric on the GRID's 4 x 4 above the pads' word table
 };
 
 struct GraphicArea {
