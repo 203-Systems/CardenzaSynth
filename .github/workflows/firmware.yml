@@ -82,31 +82,16 @@ jobs:
         with:
           name: cardenza-synth-firmware
           path: dist
-      # The hub's Edge function validates, mirrors and records the bin; this job holds only the
-      # App's scoped token, never database or storage keys.
+      # CardenzaHAL's action, at the commit the submodule points to: the hub's Edge function validates,
+      # mirrors and records the bin; this job holds only the App's scoped token, never database or
+      # storage keys. Without the token a push publishes nothing and a tag fails.
       - name: Upload to the Launcher hub
-        env:
-          PUBLISH_URL: ${{ vars.LAUNCHER_PUBLISH_URL || 'https://uullfvoakowofzhaqdix.supabase.co/functions/v1/publish' }}
-          APP_ID: ${{ vars.LAUNCHER_APP_ID || '19297860-2e50-46b4-b326-c938e29fd9ad' }}
-          APP_TOKEN: ${{ secrets.LAUNCHER_APP_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "$APP_TOKEN" ]; then
-            if [ "$GITHUB_REF_TYPE" = tag ]; then echo "::error::LAUNCHER_APP_TOKEN is not configured"; exit 1; fi
-            echo "::notice::LAUNCHER_APP_TOKEN is not configured; no Nightly was published."
-            exit 0
-          fi
-          test -s dist/CardenzaSynthFirmware.bin
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            set -- -F release_type=release -F "tag=$GITHUB_REF_NAME"
-          else
-            set -- -F release_type=nightly -F "source_commit=$GITHUB_SHA"
-          fi
-          curl --fail-with-body --silent --show-error --max-time 300 --retry 2 -X POST "$PUBLISH_URL" \
-            -H "Authorization: Bearer $APP_TOKEN" "$@" -F "app_id=$APP_ID" -F target=cardenza \
-            -F "image=@dist/CardenzaSynthFirmware.bin;type=application/octet-stream" -o response.json
-          jq -e '.status == "published" or .status == "unchanged"' response.json > /dev/null
-          jq '{status, channel, version, build, sha256, cleanup_pending}' response.json
+        uses: 203-Systems/CardenzaHAL/.github/actions/launcher-publish@b265e682ffbbec44e271e09be4ff07a32026dd18
+        with:
+          image: dist/CardenzaSynthFirmware.bin
+          app-id: ${{ vars.LAUNCHER_APP_ID || '19297860-2e50-46b4-b326-c938e29fd9ad' }}
+          app-token: ${{ secrets.LAUNCHER_APP_TOKEN }}
+          publish-url: ${{ vars.LAUNCHER_PUBLISH_URL || 'https://uullfvoakowofzhaqdix.supabase.co/functions/v1/publish' }}
       - name: GitHub Release with the bin
         if: github.ref_type == 'tag'
         env:
