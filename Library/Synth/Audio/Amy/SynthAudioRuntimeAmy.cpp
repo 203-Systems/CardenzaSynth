@@ -1920,12 +1920,20 @@ void PublishSampleStreamsNoLock()
   {
     const EngineState& engine = g_engines[engineIndex];
     const SampleStream* stream = engine.sampler.sampleFrames ? engine.sampler.sampleFrames->stream.get() : nullptr;
-    if (stream != nullptr) stream->PublishStart(SamplerStartFrame(engine.sampler));
+    if (stream != nullptr)
+    {
+      // Where notes start, and where they end or loop back: the look-ahead wraps with a loop.
+      const std::size_t start = SamplerStartFrame(engine.sampler);
+      stream->PublishRegion(start, SamplerEndFrame(engine.sampler, start), engine.sampler.sampleLoop != 0);
+    }
     for (std::size_t voiceIndex = 0; voiceIndex < engine.samplerVoices.size(); ++voiceIndex)
     {
       const SamplerVoice& voice = engine.samplerVoices[voiceIndex];
+      // Its speed in frames of the sample per output frame (pitch and the file's rate): an octave up
+      // reads twice as far ahead. Zero before its first block: the stream takes it as 1.
+      const float rate = static_cast<float>(static_cast<std::uint32_t>(voice.cursorStep >> 16)) * (1.0f / 65536.0f);
       SampleStream::PublishReader(engineIndex * kSamplerVoiceCount + voiceIndex, voice.active ? stream : nullptr,
-                                  static_cast<std::size_t>(voice.sampleCursor >> 32));
+                                  static_cast<std::size_t>(voice.sampleCursor >> 32), rate);
     }
   }
 }
@@ -2856,6 +2864,9 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
   {
     return 0;
   }
+  // Every read of a sample streamed from the card happens in a pass: the stream reuses a block only
+  // once the pass that may still read it is over.
+  const StreamReadPass streamPass;
 
   (void)DrainPendingEvents(kEventBlockMicros, HeavyEventFitsNoLock());
   UpdateFxNoLock();

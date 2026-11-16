@@ -7,6 +7,7 @@
 #include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
 #include "Devices/Device.h"
 #include "Library/Memory/Memory.h"
+#include "Library/Synth/Audio/SampleStream.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "Library/Synth/Core/SynthStorage.h"
 
@@ -95,7 +96,7 @@ constexpr std::uint32_t kMagic = 0x53545231u;  // "STR1"
 RTC_NOINIT_ATTR Persist g_persist;
 
 enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
-enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, StreamFour, StreamSix };
 
 struct Scenario {
   std::string name;
@@ -130,13 +131,21 @@ std::string ProjectName(Variant variant)
     case Variant::Sampler: return std::string(kPrefix) + "SAMPLER";
     case Variant::FxMax: return std::string(kPrefix) + "FXMAX";
     case Variant::MaxPatterns: return std::string(kPrefix) + "MAX";
+    case Variant::StreamFour: return std::string(kPrefix) + "STREAM4";
+    case Variant::StreamSix: return std::string(kPrefix) + "STREAM6";
     case Variant::None: break;
   }
   return std::string(kPrefix) + "NONE";
 }
 
+bool StreamVariant(Variant variant) { return variant == Variant::StreamFour || variant == Variant::StreamSix; }
+
 constexpr const char* kShortSample = "ZZ-ST-SHORT.wav";  // 1.5 s: read into PSRAM
 constexpr const char* kLongSample = "ZZ-ST-LONG.wav";    // 20 s: plays from the card
+// Four 24-second samples, one a track, each played once a pattern (a note at the start of 128 steps
+// at 80 BPM, 24 s): the use that broke streaming (the third track crackled, the fourth never sounded).
+constexpr std::array<const char*, 4> kLoopSamples{{"ZZ-ST-LOOP1.wav", "ZZ-ST-LOOP2.wav", "ZZ-ST-LOOP3.wav", "ZZ-ST-LOOP4.wav"}};
+constexpr std::size_t kLoopFrames = 24 * 44100;
 
 bool WriteSample(const char* name, std::size_t frames, float frequency)
 {
@@ -266,6 +275,20 @@ synth::ProjectData MakeProject(Variant variant)
       tracks[3] = TrackSpec{SynthEngineKind::Sampler, "sampler.empty", kLongSample, 4, 4, 192, 60};
       break;
     }
+    case Variant::StreamFour:
+    case Variant::StreamSix:
+    {
+      // One note at step 0 lasting the whole pattern; with six voices, tracks 1 and 2 play two notes a
+      // minor third apart (two voices on one file at different speeds).
+      for (std::size_t track = 0; track < tracks.size(); ++track)
+      {
+        const int notes = variant == Variant::StreamSix && track < 2 ? 2 : 1;
+        tracks[track] = TrackSpec{SynthEngineKind::Sampler, "sampler.empty", kLoopSamples[track], notes, 128, 128 * synth::kSequencerPulsesPerStep, 60};
+      }
+      steps = 128;
+      bpm = 80;
+      break;
+    }
     case Variant::MaxPatterns:
     {
       const SynthEngineKind kinds[] = {SynthEngineKind::Dx7, SynthEngineKind::Juno, SynthEngineKind::Dx7, SynthEngineKind::Juno};
@@ -369,6 +392,8 @@ std::vector<Scenario> BuildScenarios()
   add("sampler", Kind::Generated, Variant::Sampler, 25);
   add("fx-max", Kind::Generated, Variant::FxMax, 25);
   add("max-patterns", Kind::Generated, Variant::MaxPatterns, 25);
+  add("stream-4", Kind::Generated, Variant::StreamFour, 60);
+  add("stream-6", Kind::Generated, Variant::StreamSix, 60);
   add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
   add("ui-storm", Kind::UiStorm, Variant::JunoPads, 30);
   add("worst", Kind::Worst, Variant::FxMax, 40);
@@ -405,6 +430,7 @@ struct Window {
   std::uint32_t seqLate = 0;
   std::uint32_t opMaxMs = 0;
   std::uint32_t opUnderruns = 0;
+  synth::audio::StreamCounters stream;  // samples played from the card, from when the scenario plays
 };
 
 struct Runner {
@@ -799,6 +825,18 @@ void FinishWindow(GrooveApp& app, std::size_t index)
   heap_caps_monitor_local_minimum_free_size_stop();
   result.opMaxMs = Cap16(window.opMaxMs);
   result.opUnderruns = Cap16(window.opUnderruns);
+  // Samples from the card: blocks read, voices that reached a block before the card had it (each a
+  // gap: a click), files reopened (more files than file slots), the slowest read, the cache.
+  const synth::audio::StreamCounters stream = synth::audio::SampleStreamCounters();
+  const std::uint32_t streamReads = stream.reads - window.stream.reads;
+  const std::uint32_t streamLate = stream.lateBlocks - window.stream.lateBlocks;
+  if (streamReads != 0 || streamLate != 0)
+    std::printf("stress: stream %s reads %u late %u opens %u failures %u slowest %u us cache %u KB\n", g_runner.scenarios[index].name.c_str(),
+                static_cast<unsigned>(streamReads), static_cast<unsigned>(streamLate), static_cast<unsigned>(stream.opens - window.stream.opens),
+                static_cast<unsigned>(stream.failures - window.stream.failures), static_cast<unsigned>(stream.slowestReadMicros),
+                static_cast<unsigned>(stream.cacheBlocks * 8));
+  if (StreamVariant(g_runner.scenarios[index].variant) && streamLate != 0 && result.note[0] == 0)
+    CopyNote(result, "stream late " + std::to_string(streamLate));
   // Passing: nothing a user hears or sees go wrong while it plays.
   // Let-go tails fading early are polyphony giving way, which is allowed; a note that was played and
   // not heard is not (stolen voices are the tracks' voice count, reported apart).
@@ -942,6 +980,16 @@ bool SetUp(GrooveApp& app, const Scenario& scenario, Result& result)
           return false;
         }
       }
+      if (StreamVariant(scenario.variant))
+      {
+        const float frequencies[] = {110.0f, 146.8f, 196.0f, 261.6f};
+        for (std::size_t index = 0; index < kLoopSamples.size(); ++index)
+          if (!WriteSample(kLoopSamples[index], kLoopFrames, frequencies[index]))
+          {
+            CopyNote(result, "sample write failed");
+            return false;
+          }
+      }
       synth::ProjectData project = MakeProject(scenario.variant);
       if (scenario.kind == Kind::Worst)
       {
@@ -974,6 +1022,8 @@ bool SetUp(GrooveApp& app, const Scenario& scenario, Result& result)
         CopyNote(result, "load: " + message);
         return false;
       }
+      // The samples' starts are on their way as the project loads; a user presses PLAY later than this.
+      if (StreamVariant(scenario.variant)) vTaskDelay(pdMS_TO_TICKS(500));
       app.Sequencer().Play();
       return true;
     }
@@ -1099,6 +1149,7 @@ void StressTestTick(GrooveApp& app)
       return;
     }
     (void)app.Sequencer().TakeClockLateness();
+    runner.window.stream = synth::audio::SampleStreamCounters(true);
     runner.active = true;
 #if CARDENZA_STRESS_HEAP_TRACE
     if (Traced(index)) TraceStart();
