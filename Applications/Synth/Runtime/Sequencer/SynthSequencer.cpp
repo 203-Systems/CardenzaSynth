@@ -1976,7 +1976,14 @@ void SynthSequencer::SetStepSelected(std::size_t stepIndex, bool selected)
 
 void SynthSequencer::ClearSelectedSteps()
 {
-  ClearHeldSteps();
+  std::lock_guard<std::mutex> outputLock(outputMutex_);
+  std::array<PendingMidiEvent, kMaxPendingMidiEvents> events{};
+  std::size_t eventCount = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ClearSelectionLocked(events, eventCount);
+  }
+  EmitPendingMidi(events, eventCount);
 }
 
 bool SynthSequencer::ToggleNoteOnSelectedSteps(std::uint8_t note, std::uint8_t velocity)
@@ -3531,10 +3538,10 @@ void SynthSequencer::ReleaseTrackNotesLocked(std::size_t trackIndex,
 
 void SynthSequencer::ClearSelectionLocked(std::array<PendingMidiEvent, kMaxPendingMidiEvents>& events, std::size_t& count)
 {
+  // The edit lane stays as chosen for the next selection (a track change returns it to NOTE).
   StopAuditionLocked(events, count);
   heldSteps_.fill(false);
   heldEditLanes_.fill(false);
-  editLane_ = SequencerEditLane::Note;
 }
 
 std::size_t SynthSequencer::ArpTrack(const ArpVoice& arp) const

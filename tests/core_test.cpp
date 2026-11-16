@@ -708,9 +708,17 @@ void TestSelectionEditing() {
     assert(output.packets.empty());
   }
 
+  // The lane stays for the next selection (no OK walk back to TIME); a track change returns it to NOTE.
   sequencer->ClearSelectedSteps();
   ui = sequencer->BuildUiState(0);
-  assert(!ui.hasHeldSteps && ui.editLane == SequencerEditLane::Note);
+  assert(!ui.hasHeldSteps && ui.editLane == SequencerEditLane::Micro);
+  sequencer->SetStepSelected(5, true);
+  assert(sequencer->EditLane() == SequencerEditLane::Micro);
+  sequencer->SetStepSelected(5, false);
+  assert(!sequencer->BuildUiState(0).hasHeldSteps && sequencer->EditLane() == SequencerEditLane::Micro);
+  sequencer->SetActiveTrack(1);
+  sequencer->SetActiveTrack(0);
+  assert(sequencer->EditLane() == SequencerEditLane::Note);
 
   // Per-step clamping: microsteps shorten a note at the pattern end, lengths stop at the end,
   // and the table ends do not move.
@@ -775,8 +783,8 @@ void TestSelectionEditing() {
   const auto* added = FindNote(*state, 0, 0, 9, 65);
   assert(added && added->velocity == 111 && added->lengthPulses == 48);
   sequencer->SetEditLane(SequencerEditLane::Velocity);
-  sequencer->SetStepSelected(9, false);  // Emptying the selection returns to the note lane.
-  assert(!sequencer->HasHeldSteps() && sequencer->BuildUiState(0).editLane == SequencerEditLane::Note);
+  sequencer->SetStepSelected(9, false);  // Emptying the selection keeps the lane for the next one.
+  assert(!sequencer->HasHeldSteps() && sequencer->BuildUiState(0).editLane == SequencerEditLane::Velocity);
   sequencer.reset();
 }
 
