@@ -546,6 +546,18 @@ void PrintResult(std::size_t index)
               r.drumsUs, r.overheadUs, r.scalePercent, r.note);
 }
 
+// The community presence service (Device::Community): whether the board was online in the community
+// during the scenario, and what Wi-Fi took. Wi-Fi stays up while the synth sounds (RealTime) as long as
+// the synth's 32 KB of internal RAM stay free beside it, so every scenario runs beside it on a bound board.
+void PrintNet(const char* when)
+{
+  const Device::Community::Status net = Device::Community::GetStatus();
+  std::printf("stress: net %-18s planned %d %s%s%s asked %u failed %u joins %u letgo %u wifi %u B ask %u ms\n", when,
+              net.planned ? 1 : 0, net.state, net.waiting[0] != 0 ? " for " : "", net.waiting, static_cast<unsigned>(net.asked),
+              static_cast<unsigned>(net.failed), static_cast<unsigned>(net.joins), static_cast<unsigned>(net.letGo),
+              static_cast<unsigned>(net.wifiBytes), static_cast<unsigned>(net.lastAskMs));
+}
+
 // One short line a scenario for the summary repeated at the end: the USB console drops long bursts.
 // `make DEVICE=Cardenza stress STRESS_TRACE=worst`: while that scenario plays, ESP-IDF's heap trace
 // keeps every allocation not given back yet (records and their map in PSRAM, eight callers each).
@@ -808,6 +820,7 @@ void FinishWindow(GrooveApp& app, std::size_t index)
                   : 0;
   result.state = 2;
   PrintResult(index);
+  PrintNet(index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?");
   PrintTaskLoad(g_runner.scenarios[index].name.c_str());
 }
 
@@ -984,7 +997,11 @@ bool SetUp(GrooveApp& app, const Scenario& scenario, Result& result)
 void Summary(std::uint32_t now)
 {
   if (now < g_runner.summaryMs) return;
-  if (g_runner.summaryLine == 0) std::printf("stress: ===== summary (build %08x, %u restarts) =====\n", static_cast<unsigned>(g_persist.build), static_cast<unsigned>(g_persist.reboots));
+  if (g_runner.summaryLine == 0)
+  {
+    std::printf("stress: ===== summary (build %08x, %u restarts) =====\n", static_cast<unsigned>(g_persist.build), static_cast<unsigned>(g_persist.reboots));
+    PrintNet("now");
+  }
   if (g_runner.summaryLine < g_runner.scenarios.size())
   {
     PrintShortResult(g_runner.summaryLine++);
