@@ -27,7 +27,8 @@ CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 
 # The chip's 2 MB PSRAM (ESP32-S3R2, quad, on the flash bus), mapped but not given to malloc: the
 # firmware adds it to the heap for what asks for it (Library/Memory/Memory.h, Devices/Cardenza/app_main.cpp),
-# so driver objects and the audio path stay in internal RAM. A board without it still starts.
+# so driver objects and the audio path stay in internal RAM. ESP-IDF drops SPIRAM_IGNORE_NOTFOUND with the
+# .bss in PSRAM (below): a board without PSRAM no longer starts (every Cardenza has it).
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_TYPE_AUTO=y
@@ -40,3 +41,40 @@ CONFIG_SPIRAM_USE_MEMMAP=y
 # slot of the card carried a 4 KB buffer, 27 KB of internal RAM for five slots and the volume.
 CONFIG_FATFS_SECTOR_512=y
 CONFIG_WL_SECTOR_SIZE_512=y
+
+# The 203 community while the synth runs (CardenzaHAL's presence service, on by default; the device
+# layer tells it what the synth does: Devices/Cardenza/DevicePresence.h). CardenzaHAL's reference
+# sdkconfig for Wi-Fi (its examples/launcher_net), leaner where the synth only asks the community's inbox:
+# - the PHY never writes its calibration to the flash (it calibrates at the first Wi-Fi start of a run),
+#   and Wi-Fi keeps its settings in RAM: nothing goes to internal flash.
+CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE=n
+CONFIG_ESP_WIFI_NVS_ENABLED=n
+# - TLS's memory in PSRAM (CardenzaHAL's allocator), the common half of the certificate bundle, and its
+#   session resumed from one request to the next (no certificates, no key exchange after the first).
+CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS=y
+# - Wi-Fi's, lwIP's and the supplicant's .bss (12 KB) and the screen's frame (65 KB, Devices/Cardenza/
+#   Device.cpp) in PSRAM; the PSRAM heap starts after them (app_main.cpp). ESP-IDF then needs the PSRAM
+#   to start (no SPIRAM_IGNORE_NOTFOUND): every Cardenza has it (ESP32-S3R2).
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+# - IRAM stays the synth's (AMY's hot code): Wi-Fi and lwIP run from flash. A station on a home network.
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
+# - Wi-Fi's buffers are internal RAM (1.6 KB each): 4 static ones (as the Launcher), a few dynamic ones,
+#   no aggregation (requests of a few hundred bytes).
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
+CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n
+# - IPv4 only; lwIP's task on core 0 at priority 4: below the UI (5), the voice helper (6) and the
+#   sequencer's clock (7) there, so TCP and TLS wait for a free moment instead of delaying the sound.
+#   Wi-Fi's own task stays at ESP-IDF's 23 on core 0 (a fraction of a millisecond per beacon or frame).
+CONFIG_LWIP_IPV6=n
+CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y
+CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y
+CONFIG_LWIP_TCPIP_TASK_PRIO=4
