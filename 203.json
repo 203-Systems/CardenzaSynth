@@ -3,13 +3,11 @@
   "name": "Cardenza Synth",
   "code": "V6QK28",
   "author": "203 Systems",
-  "summary": "A four-track groovebox: drums, Juno, DX7 and sampler, with chords, arpeggiators, songs and effects",
-  "tags": ["groovebox", "synth", "sampler", "sequencer"],
   "devices": ["cardenza"],
-  "source": "https://github.com/203-Systems/CardenzaSynth",
-  "publish_source": false,
+  "publish_source": true,
   "publish": {
     "bins": {"cardenza": "build/Cardenza/CardenzaSynthFirmware.bin"},
-    "project": "Devices/Cardenza"
+    "notes_file": "CHANGELOG.md",
+    "sim": false
   }
 }

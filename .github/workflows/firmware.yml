@@ -1,10 +1,21 @@
-# Builds the firmware and runs the host tests on every push and pull request. A push to main
-# publishes a Nightly to the Launcher hub; a vMAJOR.MINOR.PATCH tag (equal to version.txt)
-# publishes that release and makes a GitHub Release holding its bin.
+# Builds the firmware and runs the host tests on every push and pull request, and releases it to the
+# 203 community, where devices get it (the 203 Launcher installs and updates Cardenza Synth, V6QK28, from
+# there), on the channel the ref names:
 #
-# Repository settings: secret LAUNCHER_APP_TOKEN (the Cardenza Synth App Token, target cardenza);
-# optional variables LAUNCHER_APP_ID and LAUNCHER_PUBLISH_URL. The submodules (AMY, CardenzaHAL)
-# are public.
+#   push to main         dev     <version.txt>-dev.<run number>
+#   tag vX.Y.Z           stable  X.Y.Z         (equal to version.txt; CHANGELOG.md's "## X.Y.Z" is its notes)
+#   tag vX.Y.Z-beta.N    beta    X.Y.Z-beta.N  (X.Y.Z equal to version.txt)
+#
+# Trusted publishing: no community secret. The publish job's GitHub OIDC token is traded for a credential
+# that lasts 15 minutes and only publishes versions of V6QK28 (`203c login --github-oidc`); the
+# firmware's owner linked this repository and workflow on its page (自动发布 / Trusted publishing). The
+# same rules as CardenzaHAL's .github/actions/community-publish, the action every other firmware uses.
+#
+# Transition: stable releases and main's builds are also mirrored to the old Launcher hub as today (a
+# release and a Nightly), because 203 Launchers 0.2.0 read only the hub's catalog. The mirror ends when
+# no 0.2.0 Launcher is left (the community sees the Launcher version every bound device reports); it
+# needs the secret LAUNCHER_APP_TOKEN (the Cardenza Synth App Token, target cardenza) until then, and
+# optional variables LAUNCHER_APP_ID and LAUNCHER_PUBLISH_URL. The submodules (AMY, CardenzaHAL) are public.
 name: Firmware
 on:
   push:
@@ -32,9 +43,14 @@ jobs:
           git config --global --add safe.directory '*'
           . "$IDF_PATH/export.sh" > /dev/null
           version=$(tr -d '[:space:]' < version.txt)
-          if [ "$GITHUB_REF_TYPE" = tag ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match version.txt ($version)"
-            exit 1
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            # A release tag names this version: vX.Y.Z (stable, with its CHANGELOG.md entry) or vX.Y.Z-beta.N.
+            case "${GITHUB_REF_NAME#v}" in
+              "$version") grep -Eq "^#{1,3} +v?${version//./\\.}( |$)" CHANGELOG.md ||
+                            { echo "::error::CHANGELOG.md has no '## $version' entry (the release notes)"; exit 1; } ;;
+              "$version"-beta.[0-9]*) ;;
+              *) echo "::error::Tag $GITHUB_REF_NAME does not match version.txt ($version): v$version or v$version-beta.N"; exit 1 ;;
+            esac
           fi
           cmake -DCARDENZA_ROOT="$PWD" -P cmake/ValidateArchitecture.cmake
           idf.py -C Devices/Cardenza -B "$PWD/build/Cardenza" build
@@ -68,23 +84,98 @@ jobs:
           cmake --build build/host --parallel
           ctest --test-dir build/host --output-on-failure
   publish:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    # Only this repository publishes (a fork's runs are not linked to V6QK28).
+    if: >-
+      github.repository == '203-Systems/CardenzaSynth' && github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [firmware, host]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     permissions:
-      contents: write
+      contents: write   # the GitHub Release
+      id-token: write   # the OIDC token the community trusts (trusted publishing)
     concurrency:
-      group: launcher-publish
+      group: release
       cancel-in-progress: false
     steps:
+      # 203.json, version.txt and CHANGELOG.md; this commit is the source archive the version carries.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # At the path 203.json names: build/Cardenza/CardenzaSynthFirmware.bin.
       - uses: actions/download-artifact@v4
         with:
           name: cardenza-synth-firmware
-          path: dist
-      # The hub's Edge function validates, mirrors and records the bin; this job holds only the
-      # App's scoped token, never database or storage keys.
-      - name: Upload to the Launcher hub
+          path: build/Cardenza
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Publish to the 203 community
+        id: community
+        env:
+          COMMUNITY_API: ${{ vars.COMMUNITY_API }}
+          COMMUNITY_SKILL_URL: ${{ vars.COMMUNITY_SKILL_URL || 'https://cardenza.203.io/community/skill' }}
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < version.txt)
+          firmware=$(node -p 'require("./203.json").code')
+          case "$GITHUB_REF_TYPE:$GITHUB_REF_NAME" in
+            tag:v*-beta.*) channel=beta label=${GITHUB_REF_NAME#v} ;;
+            tag:v*) channel=stable label=${GITHUB_REF_NAME#v} ;;
+            *) channel=dev label="$version-dev.$GITHUB_RUN_NUMBER" ;;
+          esac
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          # 203c from the community (its installer checks the download's SHA-256); its sign-in stays in
+          # this run's temporary folder.
+          home="$RUNNER_TEMP/203c"
+          export PATH="$home/bin:$PATH"
+          curl -fsSL --retry 3 "${COMMUNITY_SKILL_URL%/}/install.sh" |
+            CLAUDE_SKILLS_DIR="$home/skills" COMMUNITY_BIN_DIR="$home/bin" sh > /dev/null
+          export XDG_CONFIG_HOME="$home/config"
+          cli() { node "$home/skills/203-community/scripts/203c.mjs" "$@"; }
+          signin() {
+            [ -z "${COMMUNITY_TOKEN:-}" ] || return 0   # a token given on purpose (a local test) instead
+            cli login --github-oidc --firmware "$firmware" --json > /dev/null || {
+              echo "::error::the community did not trust this run for $firmware: link 203-Systems/CardenzaSynth (workflow firmware.yml) on its page, 自动发布"
+              return 1; }
+          }
+          # The BIN, the notes (CHANGELOG.md), the source archive and no simulator version come from
+          # 203.json. Exit 3 (try again: the network, the checks still running) and 4 (the 15-minute
+          # credential ran out) sign in again and run it again: it resumes the same version, never a second.
+          # Notes: CHANGELOG.md's "## <label>" entry (stable has one: the build checked it); a beta without its
+          # own entry gets a line naming it (203c asks for notes on beta), a dev version none.
+          set --
+          if [ "$channel" = beta ] && ! grep -Eqs "^#{1,3} +v?${label//./\\.}( |$)" CHANGELOG.md; then
+            set -- --notes "Beta $label for testing (commit ${GITHUB_SHA:0:7})."
+          fi
+          out="$RUNNER_TEMP/community.json" err="$RUNNER_TEMP/community.err"
+          for attempt in 1 2 3; do
+            signin
+            code=0
+            cli publish --json --firmware "$firmware" --channel "$channel" --version "$label" --commit "$GITHUB_SHA" "$@" \
+              --timeout 780 > "$out" 2> "$err" || code=$?
+            case "$code" in 3|4) [ "$attempt" = 3 ] || { tail -n 1 "$err"; sleep 20; continue; } ;; esac
+            break
+          done
+          if [ "$code" != 0 ]; then
+            cat "$out" "$err" >&2
+            echo "::error::203c publish $label ($channel) failed with exit $code (5: sent back by the checks, 6: a decision)"
+            exit 1
+          fi
+          node -e '
+            const fs = require("fs"), r = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const v = r.version ?? {}, url = r.urls?.version ?? "";
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `status=${r.status}\ncode=${v.code ?? ""}\nurl=${url}\n`);
+            const line = `Cardenza Synth ${v.version} on ${v.channel}: ${r.status} (version ${v.code}) ${url}`;
+            console.log(line);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "### 203 community\n\n" + line + "\n");
+          ' "$out"
+      # The transition mirror (above): what the hub had before, a release for vX.Y.Z and a Nightly for
+      # main; never a beta (the hub has no such channel). The hub's Edge function validates, mirrors and
+      # records the bin; this step holds only the App's scoped token, never database or storage keys.
+      - name: Mirror to the Launcher hub (Launchers 0.2.0)
+        if: github.ref_type != 'tag' || !contains(github.ref_name, '-')
         env:
           PUBLISH_URL: ${{ vars.LAUNCHER_PUBLISH_URL || 'https://uullfvoakowofzhaqdix.supabase.co/functions/v1/publish' }}
           APP_ID: ${{ vars.LAUNCHER_APP_ID || '19297860-2e50-46b4-b326-c938e29fd9ad' }}
@@ -93,10 +184,10 @@ jobs:
           set -euo pipefail
           if [ -z "$APP_TOKEN" ]; then
             if [ "$GITHUB_REF_TYPE" = tag ]; then echo "::error::LAUNCHER_APP_TOKEN is not configured"; exit 1; fi
-            echo "::notice::LAUNCHER_APP_TOKEN is not configured; no Nightly was published."
+            echo "::notice::LAUNCHER_APP_TOKEN is not configured; no Nightly was mirrored to the hub."
             exit 0
           fi
-          test -s dist/CardenzaSynthFirmware.bin
+          test -s build/Cardenza/CardenzaSynthFirmware.bin
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             set -- -F release_type=release -F "tag=$GITHUB_REF_NAME"
           else
@@ -104,16 +195,27 @@ jobs:
           fi
           curl --fail-with-body --silent --show-error --max-time 300 --retry 2 -X POST "$PUBLISH_URL" \
             -H "Authorization: Bearer $APP_TOKEN" "$@" -F "app_id=$APP_ID" -F target=cardenza \
-            -F "image=@dist/CardenzaSynthFirmware.bin;type=application/octet-stream" -o response.json
+            -F "image=@build/Cardenza/CardenzaSynthFirmware.bin;type=application/octet-stream" -o response.json
           jq -e '.status == "published" or .status == "unchanged"' response.json > /dev/null
           jq '{status, channel, version, build, sha256, cleanup_pending}' response.json
-      - name: GitHub Release with the bin
+      # A tag's bin and ELF stay on its GitHub Release (the artifact's ELF goes after 90 days); a beta is a
+      # pre-release. Its notes: the CHANGELOG.md entry and the community's version page.
+      - name: GitHub Release with the bin and the ELF
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ steps.community.outputs.channel }}
+          LABEL: ${{ steps.community.outputs.label }}
+          URL: ${{ steps.community.outputs.url }}
         run: |
           set -euo pipefail
-          gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 ||
-            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag --title "CardenzaSynth ${GITHUB_REF_NAME#v}" \
-              --notes "Published to the Launcher hub as Cardenza Synth ${GITHUB_REF_NAME#v} (target cardenza)."
-          gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber dist/CardenzaSynthFirmware.bin
+          if ! gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            awk -v v="$LABEL" '/^#{1,3} / { if (on) exit; on = ($2 == v || $2 == "v" v); next } on' CHANGELOG.md > notes.md
+            printf '\n203 community (%s): %s\n' "$CHANNEL" "${URL:-https://cardenza.203.io/community/f/V6QK28}" >> notes.md
+            set --
+            [ "$CHANNEL" != beta ] || set -- --prerelease
+            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag "$@" \
+              --title "CardenzaSynth $LABEL" --notes-file notes.md
+          fi
+          gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber \
+            build/Cardenza/CardenzaSynthFirmware.bin build/Cardenza/CardenzaSynthFirmware.elf

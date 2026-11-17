@@ -77,7 +77,23 @@ make DEVICE=Cardenza build
 203c publish
 ```
 
-工程规则（环境、必需的文件、HAL 的用法、社区发布前检查什么、版本与渠道、Fork、绝不能提交的东西）只有一份：CardenzaHAL 的 [docs/FIRMWARE-PROJECT.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md)，社区的[开发指引](https://cardenza.203.io/community/develop)也从它开始。根目录的 `203.json` 是这个固件在社区里的信息（Cardenza Synth，代码 `V6QK28`）；版本号就是 `version.txt`，所以 `203.json` 里没有 `version`。官方版本由 CI 经 Launcher hub 发布，不用 203c。
+工程规则（环境、必需的文件、HAL 的用法、社区发布前检查什么、版本与渠道、Fork、绝不能提交的东西）只有一份：CardenzaHAL 的 [docs/FIRMWARE-PROJECT.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md)，社区的[开发指引](https://cardenza.203.io/community/develop)也从它开始。根目录的 `203.json` 是这个固件在社区里的信息（Cardenza Synth，代码 `V6QK28`）；版本号就是 `version.txt`，所以 `203.json` 里没有 `version`。
+
+## 发布
+
+官方固件和所有第三方固件用同一种方式发布：由 CI 发到 203 社区（Launcher 从社区安装和更新固件），渠道跟着 Git 引用走（`.github/workflows/firmware.yml`，规则同 CardenzaHAL 的 `community-publish` action）：
+
+| 引用 | 社区渠道 | 版本号 |
+|---|---|---|
+| 推送到 `main` | dev | `<version.txt>-dev.<运行号>` |
+| 标签 `vX.Y.Z`（等于 `version.txt`） | stable | `X.Y.Z`，更新说明取 `CHANGELOG.md` 的 `## X.Y.Z` |
+| 标签 `vX.Y.Z-beta.N` | beta | `X.Y.Z-beta.N`（有 `## X.Y.Z-beta.N` 就用它作更新说明，没有就是一行说明这是哪个测试版） |
+
+- 发一个正式版：板上测试通过后，把 `version.txt` 改成新版本，在 `CHANGELOG.md` 写好这一节，合进 `main`，再打 `vX.Y.Z` 标签并推送。
+- 受信任发布，不存社区的密钥：发布作业用 GitHub 的 OIDC 令牌登录，社区只认固件主人在 V6QK28 的固件页「自动发布」里关联的仓库和工作流（`203-Systems/CardenzaSynth`，`firmware.yml`）。
+- 每个版本带上这次提交的源码包；ELF 留在这次运行的 artifact 里（90 天），标签的 BIN 和 ELF 也放进 GitHub Release。
+- 过渡期：还有设备在用 Launcher 0.2.0（它只读旧 Launcher hub 的目录），所以 `main` 的构建和正式版同时镜像到 hub（`LAUNCHER_APP_TOKEN`，和以前一样）；社区看到已经没有设备报告 0.2.0 的 Launcher 时，去掉这一步和这个密钥。
+- 自己从源码编译、本地烧录照样可以，但那不是发布。
 
 ## 致谢
 
