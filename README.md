@@ -7,7 +7,7 @@
 - 四轨混音、轨道效果、延迟与混响发送及总线效果。
 - 工程、音色、采样和自动保存均存于 SD 卡。
 
-[教程与手册](wiki/README.md) · [浏览器模拟器](https://cardenza-synth.203.io) · [界面演示](docs/groovebox/motion)
+[官网](https://203.io/products/cardenza-mini-synthsiser) · [教程与手册](https://cardenza.203.io/zh-Hans/) · [固件社区](https://cardenza.203.io/community/V6QK28) · [浏览器模拟器](https://cardenza-synth.vercel.app) · [界面演示](docs/groovebox/motion)
 
 ## 基本操作
 

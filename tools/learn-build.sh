@@ -18,7 +18,8 @@ python3 tools/wiki/generate.py --host-build "$HOST_BUILD"
 
 export CARDENZA_LEARN_URL=https://cardenza.203.io
 export CARDENZA_LEARN_BASE_URL=/
-export CARDENZA_SIMULATOR_URL=https://cardenza-synth.203.io/
+# cardenza-synth.203.io has no DNS record yet (2026-11-17): link the project's Vercel domain until it does.
+export CARDENZA_SIMULATOR_URL=https://cardenza-synth.vercel.app/
 export CARDENZA_LEARN_COMMIT="${VERCEL_GIT_COMMIT_SHA:-$(git rev-parse HEAD)}"
 python3 - <<'PY'
 import json, os, pathlib
