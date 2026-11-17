@@ -214,6 +214,26 @@ std::size_t Pending();
 void Write(std::string_view line);
 }  // namespace Log
 
+// The 203 community. On the device, CardenzaHAL's presence service keeps a board the 203 Launcher bound to
+// the community and connected to Wi-Fi online there while this firmware runs, and hands firmware sent
+// from the website to the Launcher; the device layer runs it and tells it what the synth is doing
+// (Devices/Cardenza/DevicePresence.h). This is its status, for diagnostics (the stress test). The
+// simulator has none: not planned, "off".
+namespace Community {
+struct Status {
+  bool planned = false;          // the Launcher's settings say it goes online in this run
+  const char* state = "off";     // off, idle, connecting, online, waiting, signed out, handing over
+  const char* waiting = "";      // while waiting: activity, audio, ram, request, failure
+  std::uint32_t asked = 0;       // inbox requests the community answered
+  std::uint32_t failed = 0;      // connections and requests that failed
+  std::uint32_t joins = 0;       // times Wi-Fi came up
+  std::uint32_t letGo = 0;       // times Wi-Fi was let go for the synth (a recording, its RAM floor)
+  std::uint32_t wifiBytes = 0;   // internal RAM Wi-Fi took when it last came up
+  std::uint32_t lastAskMs = 0;   // the last request's time
+};
+Status GetStatus();
+}  // namespace Community
+
 // One task below the UI for slow work nobody may wait for: what goes to the card while the device plays
 // (the log, the autosave), a card taking seconds to accept a write then holds up nobody. Run registers
 // `job` (once; a few at most) and wakes the task, which calls every registered job in turn, again if

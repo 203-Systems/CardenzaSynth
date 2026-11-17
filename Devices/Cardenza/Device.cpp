@@ -15,16 +15,28 @@
 #include <string_view>
 #include <utility>
 
+#include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <esp_vfs_fat.h>
+#include <sdkconfig.h>
 
 #include "cardenzaHAL.h"
 #include "usb/usb.h"
+#include "Devices/Cardenza/DevicePresence.h"
 #include "Devices/Cardenza/DeviceUsbStats.h"
 
 namespace {
 
+// The screen's frame (65 KB) is in PSRAM, among the .bss ESP-IDF puts there
+// (CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY): its internal RAM is what Wi-Fi takes while the device is
+// online in the community (CardenzaHAL's presence service, Devices/Cardenza/DevicePresence.h), and more
+// for AMY's voices while it is not. Only the UI touches it: drawing, the row hashes below, and the HAL's
+// copy of what changed into its internal transfer band for the display's DMA; nothing per audio sample,
+// no interrupt, no DMA reads it.
+#if CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+EXT_RAM_BSS_ATTR
+#endif
 alignas(4) std::array<Device::Display::Pixel, Device::Display::kPixelCount> frameBuffer{};
 Device::Keyboard::MatrixKeyState keyboardState{};
 Device::LED::detail::LedFrameBuffer keyboardLedFrames;
@@ -427,6 +439,8 @@ bool Init() {
   if (CardenzaHAL::USB::Init(usb)) USB::InstallAppChannel();
   // The USB console reopened stdout and stderr on itself: the log ring goes in front of it again.
   Log::Hook();
+  // CardenzaHAL::Init started the community presence service (it looks 10 s later): what the synth keeps.
+  device::presence::Begin();
   if (!initialized) {
     return false;
   }

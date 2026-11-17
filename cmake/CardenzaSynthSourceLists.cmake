@@ -177,6 +177,7 @@ function(cardenza_collect_firmware_device_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Devices/Cardenza/Device.cpp
         ${root_dir}/Devices/Cardenza/DeviceLog.cpp
+        ${root_dir}/Devices/Cardenza/DevicePresence.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()

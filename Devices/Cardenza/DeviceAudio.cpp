@@ -13,6 +13,7 @@
 
 #include "audio/audio.h"
 #include "usb/usb.h"
+#include "Devices/Cardenza/DevicePresence.h"
 #include "Devices/Cardenza/DeviceUsbStats.h"
 #include "mic/mic.h"
 
@@ -152,6 +153,8 @@ bool OutputPaused()
 // Gives GPIO43 to the microphone: TX off (a write in progress finishes first), codec in standby.
 void PauseOutputForInput()
 {
+  // A recording: the community presence service lets go of Wi-Fi meanwhile.
+  device::presence::SetRecording(true);
   std::lock_guard<std::mutex> lock(g_audioOutputMutex);
   g_audioOutputPaused = true;
   if (g_audioOutputEnabled)
@@ -177,6 +180,7 @@ void ResumeOutputAfterInput()
     g_outputPinsPending.store(!pins, std::memory_order_relaxed);
   }
   g_audioOutputPaused = false;
+  device::presence::SetRecording(false);
 }
 
 // The speaker cannot play (its codec did not start, or did not wake after the microphone): tried again
@@ -195,6 +199,19 @@ void RecoverOutput(int64_t nowUs, int64_t& nextTryUs)
   }
   if (CardenzaHAL::Audio::Init(I2S_SLOT_MODE_MONO) && CardenzaHAL::Audio::GetTxChannel() != nullptr)
     ESP_LOGI(kLogTag, "audio output restored");
+}
+
+// Whether a block is more than silence (about -66 dBFS): the community presence service keeps Wi-Fi from
+// starting while the synth sounds (Devices/Cardenza/DevicePresence.h). 256 comparisons a block.
+bool BlockHasSound(const std::int16_t* samples, std::size_t count)
+{
+  constexpr int kSoundLevel = 16;
+  for (std::size_t i = 0; i < count; ++i)
+  {
+    const int sample = samples[i];
+    if (sample > kSoundLevel || sample < -kSoundLevel) return true;
+  }
+  return false;
 }
 
 bool WriteOutputFrames(i2s_chan_handle_t outputChannel, const std::int16_t* samples, std::size_t sampleCount)
@@ -276,6 +293,7 @@ void AudioRenderTask(void*)
 
     const int64_t renderStartUs = esp_timer_get_time();
     RenderSynthFrames(buffer.data(), buffer.size());
+    if (!held && BlockHasSound(buffer.data(), buffer.size())) device::presence::NoteSound();
     DropUnreadComputerAudio();
     const int64_t renderEndUs = esp_timer_get_time();
     SendToComputer(buffer.data(), buffer.size());

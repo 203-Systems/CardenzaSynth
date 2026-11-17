@@ -182,6 +182,16 @@ bool WriteAppMessage(const char* data, std::size_t length)
 
 }  // namespace USB
 
+// No community in the simulator.
+namespace Community {
+
+Status GetStatus()
+{
+  return Status{};
+}
+
+}  // namespace Community
+
 // The simulator's console is the terminal: its log holds what comes through Write (the system's own
 // lines, tests), in a ring like the device's.
 namespace Log {

@@ -1,3 +1,5 @@
+#include <cstdint>
+
 #include <esp_heap_caps.h>
 #include <esp_heap_caps_init.h>
 #include <esp_log.h>
@@ -10,8 +12,15 @@
 #include <freertos/task.h>
 
 #include "Devices/Cardenza/DeviceLog.h"
+#include "Devices/Cardenza/DevicePresence.h"
 #include "Devices/Device.h"
 #include "OS/System/System.h"
+
+#if CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+// ESP-IDF's .bss in PSRAM (Wi-Fi's and lwIP's, the screen's frame) is at the PSRAM's start.
+extern "C" std::uint8_t _ext_ram_bss_start;
+extern "C" std::uint8_t _ext_ram_bss_end;
+#endif
 
 namespace {
 
@@ -62,13 +71,28 @@ void AddPsramToHeap()
         return;
     }
     const uint32_t caps[] = {MALLOC_CAP_SPIRAM, 0, MALLOC_CAP_8BIT | MALLOC_CAP_32BIT};
-    const intptr_t start = reinterpret_cast<intptr_t>(first);
-    if (heap_caps_add_region_with_caps(caps, start, start + static_cast<intptr_t>(size)) != ESP_OK)
+    intptr_t start = reinterpret_cast<intptr_t>(first);
+    const intptr_t end = start + static_cast<intptr_t>(size);
+#if CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+    // The heap begins after the .bss ESP-IDF placed at the PSRAM's start, or it would hand that out.
+    const intptr_t bssStart = reinterpret_cast<intptr_t>(&_ext_ram_bss_start);
+    const intptr_t bssEnd = reinterpret_cast<intptr_t>(&_ext_ram_bss_end);
+    if (bssEnd > bssStart)
+    {
+        if (bssStart != start || bssEnd >= end)
+        {
+            ESP_LOGE(kLogTag, "PSRAM: its .bss is not at its start: not used for the heap");
+            return;
+        }
+        start = (bssEnd + 15) & ~static_cast<intptr_t>(15);
+    }
+#endif
+    if (heap_caps_add_region_with_caps(caps, start, end) != ESP_OK)
     {
         ESP_LOGE(kLogTag, "PSRAM could not be added to the heap");
         return;
     }
-    ESP_LOGI(kLogTag, "PSRAM: %u bytes at %p for slow data", static_cast<unsigned>(size), first);
+    ESP_LOGI(kLogTag, "PSRAM: %u bytes at %p for slow data", static_cast<unsigned>(end - start), reinterpret_cast<void*>(start));
 #endif
 }
 
@@ -106,6 +130,16 @@ void CardenzaRuntimeTask(void*)
     int lateFrames = 0;
     for (std::uint32_t frame = 0;; ++frame)
     {
+        // Firmware sent from the community: the app shuts down as at an orderly power-off, then the
+        // presence service restarts the device into the Launcher (Devices/Cardenza/DevicePresence.h).
+        if (device::presence::HandoverRequested())
+        {
+            Device::Audio::SetOutputVolume(0);
+            os::system::Shutdown();
+            device::presence::HandoverPrepared();
+            for (;;) vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        device::presence::Frame();
         os::system::RunFrame(frame % 2 == 0);
         if (xTaskDelayUntil(&lastWakeTime, kFrameTick) == pdTRUE)
         {
