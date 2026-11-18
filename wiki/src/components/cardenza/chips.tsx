@@ -8,6 +8,15 @@ function Cap({token, hold}: {token: string; hold: boolean}) {
   const lang = useLang();
   const [name, ...rest] = token.trim().split('~');
   const custom = rest.join('~').trim();
+  if (name.trim().toUpperCase() === 'HOME') {
+    // The side key left of the screen (GPIO0): not one of the keyboard's 4 x 14.
+    return (
+      <span className={`cz-kc k-home${hold ? ' hold' : ''}`}>
+        {hold && <i className="held">{say(lang, '按住', 'HOLD')}</i>}
+        <b>{custom || 'HOME'}</b>
+      </span>
+    );
+  }
   const keys = keysFor(name);
   const up = name.trim().toUpperCase();
   let role: string, legend: string, tag: string;

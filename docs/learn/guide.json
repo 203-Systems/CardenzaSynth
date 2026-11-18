@@ -5,7 +5,7 @@
     {"id": "music", "title": {"zh": "编曲基础", "en": "Making music"}, "lessons": ["music-box", "four-boxes", "boxes-in-a-row"]},
     {"id": "device", "title": {"zh": "认识机器", "en": "The device"}, "lessons": ["key-areas", "make-sound", "screens", "tracks", "scales", "chord-arp"]},
     {"id": "song", "title": {"zh": "做第一首歌", "en": "Your first song"}, "lessons": ["first-pattern", "second-pattern", "song-chords", "song-tune", "first-song"]},
-    {"id": "launcher", "hidden": true, "title": {"zh": "启动器和固件", "en": "Launcher and firmware"}, "lessons": ["update-launcher", "install-firmware"]}
+    {"id": "launcher", "hidden": true, "title": {"zh": "启动器和固件", "en": "Launcher and firmware"}, "lessons": ["launcher", "install-web", "install-firmware", "sign-in", "update-launcher", "usb-files", "recover"]}
   ],
   "lessons": {
     "music-box": {
@@ -297,36 +297,141 @@
          "keys": "PLAY", "done": [["state", "y", 0]], "demo": "tap PLAY"}
       ]
     },
-    "update-launcher": {
-      "more": "faq-apps",
-      "title": {"zh": "更新启动器", "en": "Updating the Launcher"},
-      "lead": {"zh": "启动器是一插电先出来的那个系统：装固件、换固件都靠它。它自己也会出新版本。", "en": "The Launcher is the system that comes up first when you plug in: it installs and switches firmware. It gets new versions too."},
-      "anim": "update-launcher",
+    "launcher": {
+      "more": "keys-home",
+      "title": {"zh": "启动器", "en": "The Launcher"},
+      "lead": {"zh": "鸣片插上电先运行启动器：装固件、换固件、更新都在这里。", "en": "The first thing a Cardenza runs is the Launcher: installing, switching and updating firmware all happen there."},
+      "anim": "launcher",
+      "thumb": "home-0",
       "steps": [
-        {"say": {"zh": "拔掉 USB 线再插上：鸣片没有电池，一插电就开机，先是 203 标志，然后是启动器的首页。", "en": "Unplug the USB cable and plug it back in: Cardenza has no battery, so it starts at once, shows the 203 logo, then the Launcher's home."}},
-        {"say": {"zh": "开了 Boot last app（开机直接进上次的固件）的话，屏幕写着 Press Func to enter Launcher 时按任意键。插线时别按着侧面的 HOME 键：那是下载模式，屏幕不亮，再拔插一次就好。", "en": "With Boot last app on (straight into the last firmware), press any key while it says Press Func to enter Launcher. Don't hold the HOME key on the side while plugging in: that is download mode, a dark screen; just plug in again."}},
-        {"say": {"zh": "启动器看键帽上印的字：GRID 右下角印着黄色箭头的 {{key:,}} {{key:/}} {{key:;}} {{key:.}} 是方向键，{{key:OK}} 确认，{{key:ESC}} 返回。首页有 6 张卡片，左右翻。", "en": "The Launcher goes by the prints on the caps: the yellow arrows on {{key:,}} {{key:/}} {{key:;}} {{key:.}} at the GRID's bottom right move, {{key:OK}} confirms, {{key:ESC}} goes back. The home has 6 cards, side by side."}},
-        {"say": {"zh": "按 {{key:/}} 翻到 Download Softwares（在线下载），按 {{key:OK}}。第一次会先列出附近的 Wi-Fi：选你的网络，用键盘输入密码，按 {{key:OK}}。", "en": "{{key:/}} to Download Softwares, then {{key:OK}}. The first time it lists the Wi-Fi networks nearby: pick yours, type the password, {{key:OK}}."}},
-        {"say": {"zh": "在列表里选 203-Launcher，再选最上面的版本（标着 Release），然后选 Install。", "en": "In the list pick 203-Launcher, then the top version (marked Release), then Install."}},
-        {"say": {"zh": "屏幕问 Update Launcher?，默认选中的是 Back：按 {{key:,}} 选到 Update，再按 {{key:OK}}。", "en": "It asks Update Launcher? with Back chosen: {{key:,}} to Update, then {{key:OK}}."}},
-        {"say": {"zh": "它下载、校验，然后自己重启两次，把新启动器换上。这时别拔电。回到首页就好了：装过的固件、你的工程、SD 卡里的文件和 Wi-Fi 都还在。", "en": "It downloads and checks it, then restarts twice by itself to put the new Launcher in place. Keep it plugged in. Back on the home it is done: your firmware, projects, SD card files and Wi-Fi are all kept."}},
-        {"say": {"zh": "Install 失败（启动器太旧，0.1.1 以前），或者现在没有网络？在上面那一步选 Download to SD，文件会存到卡上的 downloads 文件夹。之后在 File Browser 里选中它，选 Install，一样会问 Update Launcher?。", "en": "Install fails (a Launcher before 0.1.1), or no network right now? Choose Download to SD in that step: the file goes to the card's downloads folder. Later pick it in File Browser and choose Install; it asks Update Launcher? the same way."}}
+        {"say": {"zh": "插上 USB 线就开机。装过固件的话，203 标志下面写着「按 FN 进入 Launcher」，大约一秒后就进上次用的固件（不想这样：系统设置 System Settings › 启动 Boot，关掉「启动上次的软件」）。", "en": "Plugging in the USB cable switches it on. With firmware installed, the line under the 203 logo says Press FN to enter Launcher, and about a second later the last firmware starts (to stop that, turn Boot last app off in System Settings › Boot)."},
+         "keys": [], "frames": [["off", null, 1.0], ["boot-fn", null, 1.2], ["shot:instr-boot", null, 2.2]]},
+        {"say": {"zh": "要停在启动器：按住 {{key:FN}}（键盘左下角）插上 USB 线，看到启动器的主屏幕再松开。在「按 FN 进入 Launcher」的那一秒里按一下 {{key:FN}} 也行。旧的启动器（0.2.0）那里写的是 Press FUNC to enter Launcher：屏幕亮了以后按一下屏幕左边的 {{key:HOME}}。", "en": "To stay in the Launcher, hold {{key:FN}} (bottom left of the keyboard) while you plug in, and let go once its home screen shows. A press of {{key:FN}} during that second does it too. An older Launcher (0.2.0) says Press FUNC to enter Launcher there: once the screen is on, press {{key:HOME}}, left of the screen."},
+         "frames": [["off", "hold:FN", 1.0], ["boot-fn", "hold:FN", 1.0], ["home-0", "hold:FN", 0.6], ["home-0", null, 1.8]]},
+        {"say": {"zh": "固件正在运行时：拔掉 USB 线，按住 {{key:FN}} 再插上。有系统菜单的固件不用拔线：按住屏幕左边的 {{key:HOME}} 一秒，菜单从左边拉出来，选「返回启动器」。", "en": "From a running firmware: unplug, hold {{key:FN}} and plug back in. A firmware with the system menu needs no unplugging: hold {{key:HOME}}, left of the screen, for a second; the menu slides out from the left; choose Back to Launcher."},
+         "keys": ["FN", "HOME"], "board": true, "frames": [["shot:instr-boot", null, 1.4], ["off", "hold:FN", 1.0], ["boot-fn", "hold:FN", 0.9], ["home-0", null, 1.8]]},
+        {"say": {"zh": "插线时千万别按住 {{key:HOME}}：那会进芯片的下载模式（恢复刷机才用），屏幕一直不亮。拔掉再插一次就好。", "en": "Never hold {{key:HOME}} while plugging in: that starts the chip's download mode (only for a recovery flash), and the screen stays dark. Unplug and plug in again."},
+         "board": true, "frames": [["off", "hold:HOME", 1.8], ["off", null, 1.4]]},
+        {"say": {"zh": "启动器认键帽上印的黄色箭头：{{key:,}} {{key:/}} {{key:;}} {{key:.}} 是左右上下，{{key:OK}} 确认，{{key:ESC}} 返回。主屏幕的卡片左右排开，第一张是已装软件；在主屏幕按 {{key:ESC}} 回到第一张。", "en": "The Launcher goes by the yellow arrows printed on the caps: {{key:,}} {{key:/}} {{key:;}} {{key:.}} are left, right, up and down; {{key:OK}} confirms, {{key:ESC}} goes back. The home screen's cards go side by side, Software Launcher first; {{key:ESC}} on the home screen goes back to it."},
+         "keys": [",", "/", ";", ".", "OK", "ESC"], "frames": [["home-0", "/", 0.7], ["home-1", "/", 0.7], ["home-2", "/", 0.7], ["home-3", "/", 0.7], ["home-4", "/", 0.7], ["home-5", "/", 0.7], ["home-6", "/", 0.7], ["home-7", "/", 0.7], ["home-8", "/", 0.7], ["home-9", "ESC", 1.2], ["home-0", null, 1.2]]},
+        {"say": {"zh": "启动器一开始是英文的。换成中文：打开语言（Language，在主屏幕的卡片里，或在系统设置 System Settings 里），选简体中文。这些课里写中文名，括号里是英文。", "en": "The Launcher starts in English. Language (a card on the home screen, or in System Settings) picks another; these lessons use the English names."},
+         "keys": [".", "OK"], "frames": [["en:home-8", "/", 0.9], ["en:home-9", "OK", 1.0], ["en:language-en", ".", 1.2], ["language", "OK", 1.2], ["home-9", null, 1.8]]},
+        {"say": {"zh": "打开一个固件：已装软件（Software Launcher）→ 选中它 → {{key:OK}}（启动）。", "en": "To open a firmware: Software Launcher → pick it → {{key:OK}} (Launch)."},
+         "keys": [";", ".", "OK"], "frames": [["home-0", "OK", 1.0], ["software", "OK", 1.2], ["boot-starting", null, 1.0], ["shot:instr-boot", null, 2.0]]}
+      ]
+    },
+    "install-web": {
+      "more": "faq-apps",
+      "title": {"zh": "用网页安装固件", "en": "Installing from the website"},
+      "lead": {"zh": "最省事：电脑上打开固件的页面，用 USB 线装进鸣片。不用登录，也不用绑定。", "en": "The easy way: open the firmware's page on a computer and install it over a USB cable. No account, no binding."},
+      "anim": "launcher",
+      "thumb": "boot-starting",
+      "steps": [
+        {"say": {"zh": "在电脑的 Chrome 或 Edge 里打开固件在 203 社区的页面，比如 Cardenza Synth：[cardenza.203.io/community/V6QK28](https://cardenza.203.io/community/V6QK28)。用能传数据的 USB 线把鸣片接到这台电脑，开着就行：停在启动器里或正在运行固件都可以。", "en": "In Chrome or Edge on a computer, open the firmware's page on the 203 community, Cardenza Synth's for example: [cardenza.203.io/community/V6QK28](https://cardenza.203.io/community/V6QK28). Connect the Cardenza with a USB data cable and leave it on, in the Launcher or running a firmware."},
+         "keys": [], "frames": [["shot:instr-boot", null, 3.0]]},
+        {"say": {"zh": "在页面上选好渠道（稳定版、开发版……），点「用 USB 线安装」，再点「连接设备并安装」。浏览器问能不能使用 MIDI 设备时点允许：网页靠它让正在运行的固件重启回启动器。第一次还要在列表里选它的串口（USB JTAG/serial debug unit）。", "en": "Choose the channel on the page (stable, dev …), press Install over USB, then Connect and install. Allow MIDI when the browser asks: that is how the page restarts a running firmware into the Launcher. The first time, choose its port in the list (USB JTAG/serial debug unit)."},
+         "keys": [], "frames": [["shot:instr-boot", null, 1.6], ["off", null, 0.4], ["boot", null, 0.8], ["home-0", null, 2.2]]},
+        {"say": {"zh": "网页下载、写入、校验，装好后鸣片自己重启进新固件。写完之前别拔线，也别关网页。工程、采样和设置在 SD 卡上，不受影响。", "en": "The page downloads, writes and checks it, and the Cardenza restarts into the new firmware. Keep the cable in and the page open until it is done. Projects, samples and settings are on the SD card and stay as they are."},
+         "keys": [], "frames": [["home-0", null, 1.6], ["off", null, 0.4], ["boot-starting", null, 0.9], ["shot:instr-boot", null, 2.2]]},
+        {"say": {"zh": "网页说「启动器又启动了固件」：按住 {{key:FN}}，在网页上点「重启到启动器」，看到启动器的主屏幕再松开，然后在列表里选它的串口。", "en": "If the page says The Launcher started the firmware again: hold {{key:FN}}, press Restart into the Launcher on the page, let go once the Launcher's home screen shows, then choose its port in the list."},
+         "frames": [["shot:instr-boot", "hold:FN", 1.2], ["off", "hold:FN", 0.4], ["boot-fn", "hold:FN", 0.9], ["home-0", null, 2.0]]},
+        {"say": {"zh": "绑定了这台鸣片以后（[绑定账号](/guide/sign-in/)），固件页的大按钮是「下载并安装」（装着旧版本时是「升级」）：鸣片停在启动器、连着 Wi-Fi 时自己下载、安装并启动；USB 线安装在它旁边的 ▾ 里。鸣片当时不在线的话，之后会先问「安装来自社区的固件？」：按 {{key:OK}}（安装）。", "en": "Once this Cardenza is bound to you ([Binding your account](/guide/sign-in/)), the page's big button is Download & install (Upgrade when an older version is on it): in the Launcher and on Wi-Fi, the Cardenza downloads, installs and starts it by itself; Install over USB moves into the ▾ beside it. If the Cardenza was offline then, it asks Install from the community? first: {{key:OK}} (Install)."},
+         "frames": [["home-0", null, 1.2], ["remote-confirm", "OK", 1.6], ["remote-installing", null, 1.8], ["boot-starting", null, 0.9], ["shot:instr-boot", null, 1.8]]}
       ]
     },
     "install-firmware": {
       "more": "faq-apps",
-      "title": {"zh": "安装和更新固件", "en": "Installing and updating firmware"},
-      "lead": {"zh": "Groovebox 是装在启动器里的一个固件。装新的、换新版本都在启动器里做，你的工程不会丢。", "en": "The Groovebox is one firmware installed in the Launcher. New firmware and new versions go in there, and your projects stay."},
-      "anim": "install-firmware",
+      "title": {"zh": "在机器上安装固件", "en": "Installing on the device"},
+      "lead": {"zh": "不用电脑：启动器连上 Wi-Fi，就能从 203 社区下载固件。", "en": "No computer needed: on Wi-Fi the Launcher downloads firmware from the 203 community."},
+      "anim": "launcher",
+      "thumb": "store",
       "steps": [
-        {"say": {"zh": "拔掉 USB 线再插上，进启动器的首页（按键见上一课）。", "en": "Unplug the USB cable and plug it back in: the Launcher's home (the keys are in the previous lesson)."}},
-        {"say": {"zh": "按 {{key:/}} 翻到 Download Softwares，按 {{key:OK}}（要连 Wi-Fi）。选 Cardenza Synth，选一个版本，再选 Install。", "en": "{{key:/}} to Download Softwares, {{key:OK}} (it needs Wi-Fi). Pick Cardenza Synth, a version, then Install."}},
-        {"say": {"zh": "选装在哪里：上面的条是机器的存储空间，黑的那段是要写的地方。按 {{key:,}} {{key:/}} 换：Free space 是另装一份；选旧的 Cardenza Synth，就是把它换成这个版本。", "en": "Choose where: the bar is the device's storage, the black part is where it goes. {{key:,}} {{key:/}} move: Free space installs another copy; the old Cardenza Synth is replaced by this version."}},
-        {"say": {"zh": "按 {{key:OK}}。替换旧版本时它再问一次 Replace?，默认选中的是 Back：按 {{key:,}} 选到 Replace，再按 {{key:OK}}。", "en": "{{key:OK}}. Replacing asks Replace? with Back chosen: {{key:,}} to Replace, then {{key:OK}}."}},
-        {"say": {"zh": "等进度走完：下载、写入、校验，然后重启回到启动器。这时别拔电。", "en": "Wait for it: download, write, check, then it restarts into the Launcher. Keep it plugged in."}},
-        {"say": {"zh": "打开它：第一张卡片 Software Launcher，按 {{key:OK}}，选 Cardenza Synth，再选 Launch。", "en": "Open it: the first card, Software Launcher, {{key:OK}}, pick Cardenza Synth, then Launch."}},
-        {"say": {"zh": "手上有 .bin 文件（比如测试版），就从 SD 卡装：首页的 U盘模式（USB Drive）把卡变成电脑上的 U 盘，拷进去，先在电脑上弹出，再按 {{key:ESC}}。然后 File Browser → 选中文件 → Install，和上面一样选位置。", "en": "Got a .bin file (a test build, say)? Install it from the SD card: USB Drive (on the home screen) makes the card a drive on your computer; copy it there, eject it on the computer, then {{key:ESC}}. Then File Browser → the file → Install, and choose where as above."}},
-        {"say": {"zh": "以后看有没有新版本：Download Softwares 列表最下面的 Check for Updates。换版本只换固件：工程、采样和设置另外存在 SD 卡和机器里，新版本打开时接着你上次的工程。", "en": "To look for new versions later: Check for Updates at the bottom of the Download Softwares list. A new version replaces only the firmware: projects, samples and settings are kept apart on the SD card and the device, and it opens on your last project."}}
+        {"say": {"zh": "主屏幕翻到下载软件（Download Software），按 {{key:OK}}。第一次会先列出附近的 Wi-Fi：选你的网络，输入密码，按 {{key:OK}}。", "en": "On the home screen go to Download Software and press {{key:OK}}. The first time it lists the Wi-Fi networks nearby: pick yours, type the password, {{key:OK}}."},
+         "keys": ["/", ".", "OK"], "frames": [["home-0", "/", 0.9], ["home-1", "OK", 1.0], ["wifi-search", null, 1.0], ["wifi-list-0", ".", 0.9], ["wifi-list", "OK", 1.0], ["wifi-password-empty", "type:cardenza42", 2.2], ["wifi-password", "OK", 0.9], ["wifi-connecting", null, 1.0], ["store", null, 1.6]]},
+        {"say": {"zh": "列表里是 203 社区加精的固件，左边是封面，官方固件的作者前有一个勾。选一个，按 {{key:OK}}。", "en": "The list is the 203 community's featured firmware, each with its cover; official firmware has a tick before its author. Pick one and press {{key:OK}}."},
+         "keys": [";", ".", "OK"], "frames": [["store", "OK", 1.4], ["channels", null, 2.0]]},
+        {"say": {"zh": "列表里没有的，用代码找：每个固件都有 6 位代码，写在它的社区页面上（Cardenza Synth 是 V6QK28）。在下载软件里直接用键盘打出代码，它就排在最前面，按 {{key:OK}}。（旧一些的启动器：按 {{key:;}} 到最上面一排工具，选 #「代码」，输入代码，再按 {{key:OK}}。）", "en": "Not in the list? Every firmware has a 6-character code on its community page (Cardenza Synth's is V6QK28). Just type the code in Download Software: that firmware comes first; press {{key:OK}}. (An older Launcher: {{key:;}} up to the row of tools, # (Code), type the code, {{key:OK}}.)"},
+         "keys": ["OK"], "frames": [["store", "type:V6Q", 0.8], ["store-typing", "type:K28", 0.8], ["store-code", "OK", 1.4], ["channels", null, 1.8]]},
+        {"say": {"zh": "选一个渠道，按 {{key:OK}}：稳定版是作者确认可用后发布的；测试版是正式发布前的大改动；开发版由最新代码自动构建，可能不稳定。", "en": "Choose a channel and press {{key:OK}}: stable is what the author released when it was ready; beta is a big change to try before that; dev is built automatically from the newest code and may break."},
+         "keys": [";", ".", "OK"], "frames": [["channels", ".", 1.2], ["channels-dev", ";", 1.2], ["channels", "OK", 1.0], ["connecting", null, 1.0]]},
+        {"say": {"zh": "机器上已经有这个固件时，它问装在哪里：开始选的是旧版本的位置，也就是替换它；按 {{key:/}} 换到空闲空间就另装一份。选「替换」后还会问一次「替换？」，默认是「返回」：按 {{key:,}} 选「替换」，再按 {{key:OK}}。", "en": "When it is on the device already, it asks where: it starts on the old version's place, replacing it; {{key:/}} to Free space installs a second copy. Replace asks once more, Replace?, with Back chosen: {{key:,}} to Replace, then {{key:OK}}."},
+         "keys": [",", "/", "OK"], "frames": [["target-replace", "/", 1.4], ["target-free", ",", 1.4], ["target-replace", "OK", 1.0], ["replace-back", ",", 1.3], ["replace-yes", "OK", 1.0], ["installing-1", null, 1.0]]},
+        {"say": {"zh": "等它下载、写入、校验，别拔电。装好后问「已安装」：「启动」马上打开它，「返回」重启回启动器。", "en": "Let it download, write and check, and keep it plugged in. Then it says Installed: Launch opens it, Back restarts into the Launcher."},
+         "keys": [",", "/", "OK"], "frames": [["installing-1", null, 0.9], ["installing-2", null, 0.9], ["checking", null, 0.9], ["installed", "OK", 1.4], ["boot-starting", null, 0.9], ["shot:instr-boot", null, 2.0]]},
+        {"say": {"zh": "以后看有没有新版本：下载软件里，最上面一排工具最右边的「更新」。换版本只换固件：工程、采样和设置在 SD 卡上，新版本打开时接着你上次的工程。", "en": "To look for new versions later: Updates, the last tool in the row at the top of Download Software. A new version replaces only the firmware: projects, samples and settings are on the SD card, and it opens on your last project."},
+         "keys": [";", "/", "OK"], "frames": [["store", ";", 0.9], ["store-tool-0", "/", 0.6], ["store-tool-1", "/", 0.6], ["store-tool-2", "OK", 1.0], ["updates", null, 2.0]]}
+      ]
+    },
+    "sign-in": {
+      "more": "faq-apps",
+      "title": {"zh": "绑定账号", "en": "Binding your account"},
+      "lead": {"zh": "绑定后，网站能把固件直接发到这台鸣片，它的启动器也能在网站上升级。用 USB 线安装不需要账号。", "en": "Bound to your account, the Cardenza takes the firmware the website sends it, and its Launcher can be upgraded from there. Installing over USB needs no account."},
+      "anim": "launcher",
+      "thumb": "sign-in",
+      "steps": [
+        {"say": {"zh": "先在电脑上登录 [203 社区](https://cardenza.203.io/community/)。鸣片停在启动器里，连着 Wi-Fi。", "en": "First sign in to the [203 community](https://cardenza.203.io/community/) on a computer. Keep the Cardenza in the Launcher, on Wi-Fi."},
+         "keys": [], "frames": [["home-0", null, 3.0]]},
+        {"say": {"zh": "在启动器里打开账号（Account）：主屏幕上有「账号」卡片的启动器，一打开就是网址和验证码；旧一些的启动器在系统设置 › 账号里，选「绑定账号」。没连 Wi-Fi 时它会先请你连上。", "en": "Open Account in the Launcher: where the home screen has an Account card, it opens straight on the address and the code; an older Launcher has it in System Settings › Account, where you choose Bind account. Without Wi-Fi it asks you to connect first."},
+         "keys": ["/", "OK"], "frames": [["home-6", "/", 0.9], ["home-7", "OK", 1.2], ["sign-in", null, 2.4]]},
+        {"say": {"zh": "屏幕上是一个网址和一个 8 位验证码（10 分钟内有效）。在电脑上打开这个网址（[cardenza.203.io/community/activate](https://cardenza.203.io/community/activate)），输入验证码，确认和鸣片屏幕上的一样，点「批准」。", "en": "The screen shows an address and an 8-character code (good for 10 minutes). Open that address on the computer ([cardenza.203.io/community/activate](https://cardenza.203.io/community/activate)), type the code, check it matches the Cardenza's screen and press Approve."},
+         "keys": [], "frames": [["sign-in", null, 3.0]]},
+        {"say": {"zh": "几秒钟后鸣片显示「账号已绑定」，网站的「我的设备」里就有它了：在那里可以改名或解绑；鸣片上也能在账号里「解除绑定」。", "en": "A few seconds later the Cardenza says Account bound, and it is in My devices on the website, where you can rename or unbind it; on the Cardenza, Account › Unbind does the same."},
+         "frames": [["sign-in", null, 1.4], ["account-bound-notice", null, 1.8], ["account-bound", null, 1.8], ["home-7-bound", null, 1.6]]},
+        {"say": {"zh": "启动器连不上 Wi-Fi？用 USB 线绑定：网站的「我的设备」›「添加设备」›「用 USB 线」。鸣片停在启动器的主屏幕，用 USB 线接到电脑（Chrome 或 Edge），点「连接设备」，网页把账号写进启动器。", "en": "No Wi-Fi for the Launcher? Bind it over USB: My devices › Add a device › With a USB cable on the website. Leave the Cardenza on the Launcher's home screen, connect it to the computer (Chrome or Edge), press Connect the device, and the page writes your account into the Launcher."},
+         "keys": [], "frames": [["home-0", null, 3.0]]}
+      ]
+    },
+    "update-launcher": {
+      "more": "faq-apps",
+      "title": {"zh": "更新启动器", "en": "Updating the Launcher"},
+      "lead": {"zh": "启动器自己也会出新版本。更新只换启动器：装好的固件、SD 卡上的文件和 Wi-Fi 都还在。", "en": "The Launcher gets new versions too. An update replaces only the Launcher: your firmware, SD card files and Wi-Fi stay."},
+      "anim": "launcher",
+      "thumb": "launcher-update",
+      "steps": [
+        {"say": {"zh": "主屏幕上有一张「更新启动器」（Update Launcher），下面写着正在运行的版本。翻到它，按 {{key:OK}}：它向 203 社区问有没有新版本。", "en": "The home screen has an Update Launcher card, the running version under its name. Go to it and press {{key:OK}}: it asks the 203 community for a newer one."},
+         "keys": ["/", "OK"], "frames": [["home-5", "/", 1.0], ["home-6", "OK", 1.2], ["launcher-update", null, 2.2]]},
+        {"say": {"zh": "有新版本时，页面上是旧版本 → 新版本和更新说明（{{key:;}} {{key:.}} 上下滚动）。按 {{key:OK}}（更新）：它下载、校验，然后重启进新的启动器，这时别拔电。没有新版本时它说「已是最新」。", "en": "With a new version the page shows old → new and the release notes ({{key:;}} {{key:.}} scroll). {{key:OK}} (Update) downloads and checks it, then restarts into the new Launcher: keep it plugged in. Without one it says Up to date."},
+         "keys": [";", ".", "OK"], "frames": [["launcher-update", "OK", 1.2], ["launcher-updating", null, 1.6], ["off", null, 0.4], ["boot", null, 0.9], ["home-0", null, 1.6]]},
+        {"say": {"zh": "没连 Wi-Fi 时它说「未连接」：按 {{key:OK}}（连接 Wi-Fi），选网络、输入密码，和下载软件里一样。", "en": "Not on Wi-Fi, it says Not connected: {{key:OK}} (Connect to Wi-Fi), then pick the network and type the password as in Download Software."},
+         "frames": [["launcher-offline", "OK", 1.2], ["wifi-search", null, 0.9], ["wifi-list", null, 1.8]]},
+        {"say": {"zh": "绑定了账号的鸣片也能在网站上升级：「我的设备」里，启动器有新版本时会出现「升级启动器」。鸣片停在启动器、连着 Wi-Fi 时收到它；可能先问「更新 Launcher？」：按 {{key:OK}}（更新）。", "en": "A bound Cardenza can be upgraded from the website too: in My devices, Upgrade Launcher shows when there is a new version. In the Launcher and on Wi-Fi the Cardenza gets it; it may ask Update Launcher? first: {{key:OK}} (Update)."},
+         "frames": [["home-0", null, 1.2], ["launcher-remote-confirm", "OK", 1.4], ["launcher-updating", null, 1.6], ["off", null, 0.4], ["boot", null, 0.9], ["home-0", null, 1.4]]},
+        {"say": {"zh": "旧的启动器（0.2.0）主屏幕上没有「更新启动器」：在 Download Software 里选 203-Launcher，选最新的版本，再选 Install；屏幕问 Update Launcher? 时按 {{key:,}} 选 Update，再按 {{key:OK}}。这样不行的话，用网站的[恢复刷机](/guide/recover/)。", "en": "An older Launcher (0.2.0) has no Update Launcher card: in Download Software pick 203-Launcher, the newest version, then Install; when it asks Update Launcher?, {{key:,}} to Update, then {{key:OK}}. If that does not work, use the website's [recovery flash](/guide/recover/)."},
+         "keys": [",", "OK"], "frames": [["boot", null, 2.6]]}
+      ]
+    },
+    "usb-files": {
+      "more": "storage-layout",
+      "title": {"zh": "电脑和 SD 卡", "en": "Files over USB"},
+      "lead": {"zh": "把电脑上的文件拷进 SD 卡，或者从卡上装 .bin 固件。", "en": "Copy files from a computer to the SD card, or install a .bin firmware from the card."},
+      "anim": "launcher",
+      "thumb": "usb-connected",
+      "steps": [
+        {"say": {"zh": "主屏幕翻到 U盘模式（USB Drive，旧版启动器叫 USB 模式），按 {{key:OK}}，用 USB 线接上电脑：SD 卡在电脑上就是一个 U 盘。", "en": "On the home screen go to USB Drive (USB Mode on older Launchers), press {{key:OK}} and connect a computer: the SD card shows up there as a drive."},
+         "keys": ["/", "OK"], "frames": [["home-3", "/", 0.9], ["home-4", "OK", 1.0], ["usb-waiting", null, 1.6], ["usb-connected", null, 2.0]]},
+        {"say": {"zh": "拷完先在电脑上弹出（推出）这个盘，再按 {{key:ESC}} 回到启动器。电脑还开着它时启动器会先提醒你，免得文件没写完。", "en": "When the files are copied, eject the drive on the computer first, then {{key:ESC}} back to the Launcher. If the computer still has it open, the Launcher warns you first, so no file is left half written."},
+         "frames": [["usb-connected", "ESC", 1.8], ["home-4", null, 1.6]]},
+        {"say": {"zh": "卡上的 .bin 固件这样装：文件浏览（File Browser）→ 选中它 → {{key:OK}}（右边的 ↓ 就是安装），然后和下载软件里一样选装在哪里。", "en": "To install a .bin firmware from the card: File Browser → pick it → {{key:OK}} (the ↓ at its right is Install), then choose where as in Download Software."},
+         "keys": [",", ".", "OK"], "frames": [["home-4", ",", 0.8], ["home-3", ",", 0.8], ["home-2", "OK", 1.0], ["files-folder", ".", 1.0], ["files-bin", "OK", 1.2], ["target-free", null, 1.8]]},
+        {"say": {"zh": "也可以不进 U盘模式：在电脑的 Chrome 或 Edge 里打开 203 社区的[设备文件](https://cardenza.203.io/community/files)页。鸣片停在启动器的主屏幕，用 USB 线接上，点「连接设备」，就能浏览、上传、下载 SD 卡（TF 卡）上的文件。", "en": "Or without USB Drive: open the 203 community's [Device files](https://cardenza.203.io/community/files) page in Chrome or Edge. Leave the Cardenza on the Launcher's home screen, connect it and press Connect device to browse, upload and download the files on its SD (TF) card."},
+         "keys": [], "frames": [["home-0", null, 3.0]]}
+      ]
+    },
+    "recover": {
+      "more": "faq-apps",
+      "title": {"zh": "恢复刷机", "en": "Recovery flash"},
+      "lead": {"zh": "开不了机、刷坏了，或者想回到出厂的样子：网站把官方启动器和官方固件一起刷回去。不用登录。", "en": "Won't start, flashed wrong, or want it as it came: the website writes the official Launcher and firmware back. No account needed."},
+      "anim": "launcher",
+      "thumb": "boot",
+      "steps": [
+        {"say": {"zh": "在电脑的 Chrome 或 Edge 里打开 203 社区的[恢复刷机](https://cardenza.203.io/community/recover)，选 Cardenza。它会清掉机器内部闪存里的一切：装好的固件、启动器的设置和保存的 Wi-Fi、账号绑定（以后可以再绑定）。SD 卡不受影响：工程、音色和采样都还在。", "en": "In Chrome or Edge open the 203 community's [Recovery flash](https://cardenza.203.io/community/recover) and choose Cardenza. It erases everything in the device's internal flash: installed firmware, the Launcher's settings and saved Wi-Fi, the account binding (bind it again later). The SD card is left alone: projects, sounds and samples stay."},
+         "keys": [], "frames": [["home-0", null, 3.0]]},
+        {"say": {"zh": "还能开机：停在启动器里，用 USB 线接上电脑，网页的连接会让它自己重启进下载模式。", "en": "If it still starts: stay in the Launcher and connect it to the computer; the page's Connect restarts it into download mode by itself."},
+         "keys": [], "frames": [["home-0", null, 1.6], ["off", null, 2.0]]},
+        {"say": {"zh": "开不了机：拔掉 USB 线，按住屏幕左边的 {{key:HOME}} 插上，两秒后松开。屏幕不亮是对的：它在下载模式里等着。", "en": "If it won't start: unplug, hold {{key:HOME}}, left of the screen, while you plug in, and let go after two seconds. A dark screen is right: it is waiting in download mode."},
+         "board": true, "frames": [["off", "hold:HOME", 2.2], ["off", null, 1.6]]},
+        {"say": {"zh": "点「选择串口并连接」，在列表里选它的串口（一般叫 USB JTAG/serial debug unit），勾选确认，点「擦除并恢复」。写完之前别拔线，也别关网页。完成后它启动官方启动器；勾了「同时装上 Cardenza Synth」的话，它也已经装好。", "en": "Press Choose the port and connect, pick its port in the list (usually USB JTAG/serial debug unit), tick the confirmation and press Erase and restore. Keep the cable in and the page open until it is done. Then it starts the official Launcher, with Cardenza Synth installed if you ticked Install “Cardenza Synth” too."},
+         "keys": [], "frames": [["off", null, 1.4], ["boot", null, 0.9], ["home-0", null, 1.6], ["software", null, 1.8]]}
       ]
     }
   }

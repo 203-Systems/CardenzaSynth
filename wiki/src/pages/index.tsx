@@ -7,6 +7,7 @@ import {useBaseUrlUtils} from '@docusaurus/useBaseUrl';
 import sections from '@site/generated/data/sections.json';
 import {useLang, useUrls} from '@site/src/components/cardenza/common';
 import {GUIDE, lessonPath} from '@site/src/guide/data';
+import {LauncherThumb} from '@site/src/guide/launcher';
 import {AnimThumb, GuideLayout} from '@site/src/guide/pieces';
 import type {DeviceStep} from '@site/src/guide/run';
 import {useProgress} from '@site/src/guide/store';
@@ -50,7 +51,9 @@ export default function Home(): React.ReactElement {
                 const lastStep = lesson.steps[lesson.steps.length - 1] as DeviceStep;
                 return (
                   <Link key={id} className={'g-card' + (done[id] ? ' done' : '')} to={lessonPath(id)}>
-                    {lesson.anim
+                    {lesson.anim === 'launcher'
+                      ? <LauncherThumb className="c-art" name={lesson.thumb || 'home-0'} />
+                      : lesson.anim
                       ? <AnimThumb className="c-art" name={lesson.anim} />
                       : <div className="c-art"><img src={urls.shot(lastStep.shot)} alt="" loading="lazy" /></div>}
                     <div className="c-text">

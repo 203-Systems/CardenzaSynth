@@ -31,7 +31,10 @@ export type Lesson = {
   lead: Words;
   more: string | null;
   anim?: string;
+  /** A Launcher lesson's card picture (one of its screens). */
+  thumb?: string;
   start?: string;
+  /** Device steps; a concept lesson's steps say their words (the Launcher's also have frames, launcher.tsx). */
   steps: (DeviceStep | {say: Words})[];
 };
 

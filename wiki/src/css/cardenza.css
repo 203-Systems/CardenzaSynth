@@ -44,6 +44,7 @@ html { background-color: var(--ifm-background-color); }
 .cz-kc.k-fn { border-color: color-mix(in srgb, var(--cz-fn) 60%, #000); color: var(--cz-fn); }
 .cz-kc.k-ctrl { border-color: color-mix(in srgb, var(--cz-ctrl) 60%, #000); color: var(--cz-ctrl); }
 .cz-kc.k-play b { color: var(--cz-play); }
+.cz-kc.k-home { border-color: #6a6a63; border-radius: 9px; }
 .cz-kc .held { font: 600 9.5px var(--cz-mono); font-style: normal; color: #000; background: var(--cz-dim); padding: 0 3px; border-radius: 2px; align-self: center; line-height: 1.45; }
 .cz-combo { white-space: nowrap; }
 .cz-plus { margin: 0 2px; color: var(--ifm-color-emphasis-600); font: 700 12px var(--cz-mono); }

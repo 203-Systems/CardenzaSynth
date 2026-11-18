@@ -1,5 +1,6 @@
 // A guide lesson (/guide/<lesson>/, plugins/guide-routes.js). Concept lessons play an animation step
-// by step; device lessons show the device step by step, and a Cardenza on USB follows them (run.ts).
+// by step (the Launcher's lessons: its real screens on the device, ./launcher.tsx); device lessons show
+// the device step by step, and a Cardenza on USB follows them (run.ts).
 import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import Link from '@docusaurus/Link';
 import {useHistory} from '@docusaurus/router';
@@ -7,6 +8,7 @@ import {useBaseUrlUtils} from '@docusaurus/useBaseUrl';
 import {useLang, useUrls} from '@site/src/components/cardenza/common';
 import {GUIDE, lessonPath, loadAnim, partOf} from './data';
 import {useDevice} from './device';
+import {LauncherStage, type LauncherStep} from './launcher';
 import {AnimStage, DeviceLine, GuideLayout, StepPicture, learnAgain} from './pieces';
 import {LessonRun, layoutVariant, type DeviceStep, type Lesson} from './run';
 import {markDone, setSound, toast, useRestart, useSound} from './store';
@@ -146,10 +148,18 @@ function AnimLesson({lesson}: {lesson: Lesson}) {
   return (
     <section className="lesson" data-kind="anim">
       <Header lesson={lesson} device={false} />
-      <div className="anim-wrap">
-        <AnimStage name={lesson.anim || ''} step={index} />
-        <button type="button" className="a-sound" aria-pressed={sound} onClick={toggleSound}>♪ {say('声音', 'Sound')}</button>
-      </div>
+      {lesson.anim === 'launcher' ? (
+        <div className="anim-wrap">
+          <div className="anim-stage st-stage">
+            <LauncherStage step={lesson.steps[index] as LauncherStep} />
+          </div>
+        </div>
+      ) : (
+        <div className="anim-wrap">
+          <AnimStage name={lesson.anim || ''} step={index} />
+          <button type="button" className="a-sound" aria-pressed={sound} onClick={toggleSound}>♪ {say('声音', 'Sound')}</button>
+        </div>
+      )}
       <div className="anim-bar">
         <button type="button" className="a-back" aria-label="Back" disabled={index === 0} onClick={() => setIndex(Math.max(0, index - 1))}>←</button>
         <div className="anim-say">
