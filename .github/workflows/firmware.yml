@@ -11,11 +11,12 @@
 # firmware's owner linked this repository and workflow on its page (自动发布 / Trusted publishing). The
 # same rules as CardenzaHAL's .github/actions/community-publish, the action every other firmware uses.
 #
-# Transition: stable releases and main's builds are also mirrored to the old Launcher hub as today (a
-# release and a Nightly), because 203 Launchers 0.2.0 read only the hub's catalog. The mirror ends when
-# no 0.2.0 Launcher is left (the community sees the Launcher version every bound device reports); it
-# needs the secret LAUNCHER_APP_TOKEN (the Cardenza Synth App Token, target cardenza) until then, and
-# optional variables LAUNCHER_APP_ID and LAUNCHER_PUBLISH_URL. The submodules (AMY, CardenzaHAL) are public.
+# Transition: stable releases and main's builds are also mirrored to the old Launcher hub (a release and a
+# Nightly), because 203 Launchers 0.2.0 read only the hub's catalog, last and without failing the release.
+# The community answers that catalog itself (its /catalog, from what was published there): the mirror ends
+# once the hub's hostnames point to it. Until then it uses the secret LAUNCHER_APP_TOKEN (the Cardenza Synth
+# App Token, target cardenza) and optional variables LAUNCHER_APP_ID and LAUNCHER_PUBLISH_URL. The
+# submodules (AMY, CardenzaHAL) are public.
 name: Firmware
 on:
   push:
@@ -171,33 +172,6 @@ jobs:
             console.log(line);
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "### 203 community\n\n" + line + "\n");
           ' "$out"
-      # The transition mirror (above): what the hub had before, a release for vX.Y.Z and a Nightly for
-      # main; never a beta (the hub has no such channel). The hub's Edge function validates, mirrors and
-      # records the bin; this step holds only the App's scoped token, never database or storage keys.
-      - name: Mirror to the Launcher hub (Launchers 0.2.0)
-        if: github.ref_type != 'tag' || !contains(github.ref_name, '-')
-        env:
-          PUBLISH_URL: ${{ vars.LAUNCHER_PUBLISH_URL || 'https://uullfvoakowofzhaqdix.supabase.co/functions/v1/publish' }}
-          APP_ID: ${{ vars.LAUNCHER_APP_ID || '19297860-2e50-46b4-b326-c938e29fd9ad' }}
-          APP_TOKEN: ${{ secrets.LAUNCHER_APP_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "$APP_TOKEN" ]; then
-            if [ "$GITHUB_REF_TYPE" = tag ]; then echo "::error::LAUNCHER_APP_TOKEN is not configured"; exit 1; fi
-            echo "::notice::LAUNCHER_APP_TOKEN is not configured; no Nightly was mirrored to the hub."
-            exit 0
-          fi
-          test -s build/Cardenza/CardenzaSynthFirmware.bin
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            set -- -F release_type=release -F "tag=$GITHUB_REF_NAME"
-          else
-            set -- -F release_type=nightly -F "source_commit=$GITHUB_SHA"
-          fi
-          curl --fail-with-body --silent --show-error --max-time 300 --retry 2 -X POST "$PUBLISH_URL" \
-            -H "Authorization: Bearer $APP_TOKEN" "$@" -F "app_id=$APP_ID" -F target=cardenza \
-            -F "image=@build/Cardenza/CardenzaSynthFirmware.bin;type=application/octet-stream" -o response.json
-          jq -e '.status == "published" or .status == "unchanged"' response.json > /dev/null
-          jq '{status, channel, version, build, sha256, cleanup_pending}' response.json
       # A tag's bin and ELF stay on its GitHub Release (the artifact's ELF goes after 90 days); a beta is a
       # pre-release. Its notes: the CHANGELOG.md entry and the community's version page.
       - name: GitHub Release with the bin and the ELF
@@ -219,3 +193,37 @@ jobs:
           fi
           gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber \
             build/Cardenza/CardenzaSynthFirmware.bin build/Cardenza/CardenzaSynthFirmware.elf
+      # The transition mirror (above): what the hub had before, a release for vX.Y.Z and a Nightly for
+      # main; never a beta (the hub has no such channel). The hub's Edge function validates, mirrors and
+      # records the bin; this step holds only the App's scoped token, never database or storage keys. It runs
+      # last and never fails the release: the community is where devices get the firmware, and it answers the
+      # hub's catalog itself from what was published there (launcher-community COMMUNITY.md "The hub's catalog
+      # for Launchers before 0.3.0"), so a hub that is down or retired costs nothing but this warning.
+      - name: Mirror to the Launcher hub (Launchers 0.2.0)
+        if: github.ref_type != 'tag' || !contains(github.ref_name, '-')
+        continue-on-error: true
+        env:
+          PUBLISH_URL: ${{ vars.LAUNCHER_PUBLISH_URL || 'https://uullfvoakowofzhaqdix.supabase.co/functions/v1/publish' }}
+          APP_ID: ${{ vars.LAUNCHER_APP_ID || '19297860-2e50-46b4-b326-c938e29fd9ad' }}
+          APP_TOKEN: ${{ secrets.LAUNCHER_APP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APP_TOKEN" ]; then
+            echo "::notice::LAUNCHER_APP_TOKEN is not configured; nothing was mirrored to the hub."
+            exit 0
+          fi
+          test -s build/Cardenza/CardenzaSynthFirmware.bin
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            set -- -F release_type=release -F "tag=$GITHUB_REF_NAME"
+          else
+            set -- -F release_type=nightly -F "source_commit=$GITHUB_SHA"
+          fi
+          if ! curl --fail-with-body --silent --show-error --max-time 300 --retry 2 -X POST "$PUBLISH_URL" \
+              -H "Authorization: Bearer $APP_TOKEN" "$@" -F "app_id=$APP_ID" -F target=cardenza \
+              -F "image=@build/Cardenza/CardenzaSynthFirmware.bin;type=application/octet-stream" -o response.json ||
+             ! jq -e '.status == "published" or .status == "unchanged"' response.json > /dev/null; then
+            echo "::warning::The hub mirror failed (the community has the release; old Launchers get it from the community's catalog once their host points there)"
+            cat response.json 2>/dev/null || true
+            exit 1
+          fi
+          jq '{status, channel, version, build, sha256, cleanup_pending}' response.json
