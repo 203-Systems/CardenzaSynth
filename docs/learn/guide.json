@@ -3,7 +3,7 @@
   "title": {"zh": "鸣片入门", "en": "Cardenza guide"},
   "parts": [
     {"id": "music", "title": {"zh": "编曲基础", "en": "Making music"}, "lessons": ["music-box", "four-boxes", "boxes-in-a-row"]},
-    {"id": "update", "title": {"zh": "更新与安装", "en": "Update and install"}, "lessons": ["update-launcher", "update-firmware", "community-firmware"]},
+    {"id": "update", "title": {"zh": "更新与安装", "en": "Update and install"}, "lessons": ["update-launcher", "flash-launcher", "update-firmware", "community-firmware"]},
     {"id": "device", "title": {"zh": "认识机器", "en": "The device"}, "lessons": ["key-areas", "make-sound", "screens", "tracks", "scales", "chord-arp"]},
     {"id": "song", "title": {"zh": "做第一首歌", "en": "Your first song"}, "lessons": ["first-pattern", "second-pattern", "song-chords", "song-tune", "first-song"]},
     {"id": "launcher", "hidden": true, "title": {"zh": "启动器和固件", "en": "Launcher and firmware"}, "lessons": ["launcher", "install-web", "install-firmware", "sign-in", "usb-files", "recover"]}
@@ -311,7 +311,7 @@
          "frames": [["off", "hold:FN", 1.0], ["boot-fn", "hold:FN", 1.0], ["home-0", "hold:FN", 0.6], ["home-0", null, 1.8]]},
         {"say": {"zh": "固件正在运行时：有系统菜单的固件（Cardenza Synth 0.2.1 起）按一下屏幕左边的 {{key:HOME}}，按 {{key:.}} 选「返回启动器」，再按 {{key:OK}}。没有系统菜单的：拔掉 USB 线，按住 {{key:FN}} 再插上。", "en": "From a running firmware: one with the system menu (Cardenza Synth 0.2.1 or newer) opens it with a press of {{key:HOME}}, left of the screen: {{key:.}} to Back to Launcher, then {{key:OK}}. Without the system menu: unplug, hold {{key:FN}} and plug back in."},
          "keys": ["HOME", ".", "OK", "FN"], "board": true, "frames": [["shot:instr-boot", "HOME", 1.4], ["system-menu", ".", 1.2], ["system-menu-launcher", "OK", 1.2], ["off", null, 0.4], ["boot", null, 0.9], ["home-0", null, 1.6]]},
-        {"say": {"zh": "插线时千万别按住 {{key:HOME}}：那会进芯片的下载模式（恢复刷机才用），屏幕一直不亮。拔掉再插一次就好。", "en": "Never hold {{key:HOME}} while plugging in: that starts the chip's download mode (only for a recovery flash), and the screen stays dark. Unplug and plug in again."},
+        {"say": {"zh": "插线时千万别按住 {{key:HOME}}：那会进芯片的下载模式（只在网页上刷机时用），屏幕一直不亮。拔掉再插一次就好。", "en": "Never hold {{key:HOME}} while plugging in: that starts the chip's download mode (only for flashing from the website), and the screen stays dark. Unplug and plug in again."},
          "board": true, "frames": [["off", "hold:HOME", 1.8], ["off", null, 1.4]]},
         {"say": {"zh": "启动器认键帽上印的黄色箭头：{{key:,}} {{key:/}} {{key:;}} {{key:.}} 是左右上下，{{key:OK}} 确认，{{key:ESC}} 返回。主屏幕的卡片左右排开，第一张是本地应用；在主屏幕按 {{key:ESC}} 回到第一张。", "en": "The Launcher goes by the yellow arrows printed on the caps: {{key:,}} {{key:/}} {{key:;}} {{key:.}} are left, right, up and down; {{key:OK}} confirms, {{key:ESC}} goes back. The home screen's cards go side by side, My Apps first; {{key:ESC}} on the home screen goes back to it."},
          "keys": [",", "/", ";", ".", "OK", "ESC"], "frames": [["home-0", "/", 0.7], ["home-1", "/", 0.7], ["home-2", "/", 0.7], ["home-3", "/", 0.7], ["home-4", "/", 0.7], ["home-5", "/", 0.7], ["home-6", "/", 0.7], ["home-7", "/", 0.7], ["home-8", "/", 0.7], ["home-9", "ESC", 1.2], ["home-0", null, 1.2]]},
@@ -403,6 +403,33 @@
          "keys": [",", "OK"], "frames": [["boot", null, 1.4], ["home-0", null, 1.8]]},
         {"say": {"zh": "实在不行（启动器坏了、开不了机）：在电脑的 Chrome 或 Edge 里打开社区的[恢复刷机](https://cardenza.203.io/community/recover)，选 Cardenza，用 USB 线写入最新的官方启动器（勾上的话，还有最新的 Cardenza Synth）。它会清掉内部闪存里的一切：装好的所有固件、启动器的设置和保存的 Wi-Fi、账号绑定（以后可以再绑）。SD 卡不受影响。开不了机时，按住屏幕左边的 HOME 插上 USB 线，两秒后松开（屏幕不亮是对的）。", "en": "If nothing else works (a broken Launcher, it does not start): in Chrome or Edge open the community's [Recovery flash](https://cardenza.203.io/community/recover), choose Cardenza, and it writes the newest official Launcher over USB (and the newest Cardenza Synth, if you tick it). It erases everything in the internal flash: every installed firmware, the Launcher's settings and saved Wi-Fi, the account binding (bind it again later). The SD card is not touched. If it does not start: hold HOME, left of the screen, while you plug in, and let go after two seconds (a dark screen is right)."},
          "frames": [["web:recover", null, 4.0]]}
+      ]
+    },
+    "flash-launcher": {
+      "more": "faq-apps",
+      "title": {"zh": "设备连不上、启动器无法更新：用网页刷成最新启动器", "en": "Can't connect or update the Launcher: flash the newest one from the website"},
+      "lead": {"zh": "启动器 0.2.0、0.3.0 常常在机器上更新不了：下载太慢，或者连不上服务器。那就用一根 USB 线在网页上刷：只换启动器，装好的固件、SD 卡上的文件、Wi-Fi 和账号绑定都还在。不用登录。", "en": "Launchers 0.2.0 and 0.3.0 often cannot update themselves: the download crawls, or never reaches the server. Then flash it from the website over a USB cable: only the Launcher is replaced; installed firmware, the files on the SD card, Wi-Fi and the account binding stay. No sign-in needed."},
+      "anim": "launcher",
+      "thumb": "launcher-latest",
+      "steps": [
+        {"say": {"zh": "要一台电脑，用 Chrome 或 Edge（手机、Safari 和 Firefox 都不能用 USB 刷机），和一根能传数据的 USB 线（只能充电的线不行）。先拔下鸣片的 USB 线。", "en": "You need a computer with Chrome or Edge (phones, Safari and Firefox cannot flash over USB) and a USB cable that carries data (a charge-only one will not do). First unplug the Cardenza's cable."},
+         "keys": [], "board": true, "frames": [["home-0", "cable:in", 1.6], ["off", "cable:out", 2.2]]},
+        {"say": {"zh": "按住屏幕左边的 {{key:HOME}}，插上连着电脑的 USB 线，两秒后松开。屏幕不亮是对的：鸣片在烧录模式里等着。", "en": "Hold {{key:HOME}}, left of the screen, while you plug in the cable from the computer, and let go after two seconds. A dark screen is right: the Cardenza waits in download mode."},
+         "board": true, "frames": [["off", "hold:HOME cable:out", 1.0], ["off", "hold:HOME cable:in", 2.0], ["off", "cable:in", 1.8]]},
+        {"say": {"zh": "在电脑的 Chrome 或 Edge 里打开 [203 社区](https://cardenza.203.io/community/)：随便哪一页都行，登录不登录都行。", "en": "In Chrome or Edge on the computer open the [203 community](https://cardenza.203.io/community/): any page, signed in or not."},
+         "frames": [["wire:browser", null, 4.0]]},
+        {"say": {"zh": "第一次网页还看不到这台鸣片（浏览器只让网页用你给它选过的串口）：点页面最下面的「设备连不上或无法更新？按住 HOME 插上 USB 线，点这里」。", "en": "The first time the website cannot see the Cardenza yet (the browser only lets a site use ports you chose for it): at the very bottom of the page press Device won’t connect or update? Hold HOME while you plug in the USB cable, then click here."},
+         "frames": [["web:rom-entry", null, 4.0]]},
+        {"say": {"zh": "浏览器弹出串口列表：选它（一般叫 USB JTAG/serial debug unit），点「连接」。列表里没有它：重新按住 {{key:HOME}} 插上线；还是没有，换一根线或者换个 USB 口。选过一次以后，再这样插上，网页自己就能发现它。", "en": "The browser lists the ports: pick it (usually USB JTAG/serial debug unit) and press Connect. Not in the list: hold {{key:HOME}} and plug in again; still not there, try another cable or USB port. Chosen once, the website finds it by itself every time you plug it in this way."},
+         "frames": [["wire:chooser", null, 4.0]]},
+        {"say": {"zh": "网页右上角弹出「检测到一台在烧录模式的鸣片」。点「刷入最新启动器」。", "en": "Found a Cardenza in download mode pops up at the top right of the page. Press Flash the newest Launcher."},
+         "frames": [["web:rom-prompt", null, 4.0]]},
+        {"say": {"zh": "网页下载最新的启动器，看过鸣片的分区，只写入引导程序和启动器，校验，再让它重启；一般不到一分钟。写完之前别拔线，也别关网页。看到「启动器已从 0.2.0 更新到 0.3.2」这样的一行就好了。", "en": "The website downloads the newest Launcher, checks the Cardenza's partitions, writes only the bootloader and the Launcher, verifies them and restarts it; usually under a minute. Keep the cable in and the page open until it is done. A line like The Launcher went from 0.2.0 to 0.3.2 means it worked."},
+         "frames": [["web:rom-writing", null, 3.0], ["web:rom-done", null, 3.0]]},
+        {"say": {"zh": "拔下 USB 线再插上（屏幕已经亮了就不用）：启动器启动，装好的固件和文件都还在。以后在主屏幕最后一张卡片「Launcher 更新」里，它自己就能更新。", "en": "Unplug the cable and plug it in again (not needed if the screen is already on): the Launcher starts, with your firmware and files where they were. From now on it updates itself: Update Launcher, the last card on its home screen."},
+         "board": true, "frames": [["off", "cable:out", 0.8], ["off", "cable:in", 0.6], ["boot", null, 0.9], ["home-0", null, 1.4], ["launcher-latest", null, 2.0]]},
+        {"say": {"zh": "网站发现启动器低于 0.3.1 时也会提醒你：鸣片停在启动器、用 USB 线连着电脑时，或者「我的设备」里绑定的鸣片，弹出「启动器版本过旧」；点「用 USB 线刷成最新启动器」，网页带你做上面这几步。", "en": "The website also tells you when a Launcher is older than 0.3.1: with the Cardenza in its Launcher on this computer's cable, or for a device bound in My devices, The Launcher is too old pops up; Flash the newest Launcher over USB walks you through the steps above."},
+         "frames": [["web:old-prompt", null, 4.0]]}
       ]
     },
     "update-firmware": {
