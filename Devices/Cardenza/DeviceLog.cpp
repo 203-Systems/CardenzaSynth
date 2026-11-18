@@ -421,9 +421,10 @@ namespace Device::Background {
 namespace {
 // Below the UI (5) on its core: it takes whatever time is left, and a card busy for seconds (one was,
 // streaming a sample, 2026-11-04) keeps only this task waiting. The stack holds a project file being
-// written (the log used under 2.5 KB).
+// written (the log used under 2.5 KB; the stress test's autosaves, the largest project among them, 3.1 KB
+// at most, 2026-11-18: 5 KB, the rest of the 6 KB went to the community presence's Wi-Fi).
 constexpr UBaseType_t kPriority = 2;
-constexpr std::uint32_t kStackBytes = 6144;
+constexpr std::uint32_t kStackBytes = 5120;
 constexpr std::size_t kMaxJobs = 4;
 std::array<std::atomic<void (*)()>, kMaxJobs> g_jobs{};
 TaskHandle_t g_task = nullptr;

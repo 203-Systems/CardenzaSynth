@@ -23,12 +23,20 @@ static volatile uint32_t g_cardenza_amy_fast_misses = 0;
 
 uint32_t cardenza_amy_fast_misses(void) { return g_cardenza_amy_fast_misses; }
 
+// More kept free while the synth is silent and the community presence's Wi-Fi is to come up
+// (cardenza_amy_set_fast_floor_extra, Devices/Cardenza/DevicePresence.cpp): the voices a project or a
+// preset sets up in silence leave room for Wi-Fi and a request; the voices that sound take it back.
+static volatile uint32_t g_cardenza_amy_fast_floor_extra = 0;
+
+void cardenza_amy_set_fast_floor_extra(uint32_t bytes) { g_cardenza_amy_fast_floor_extra = bytes; }
+
 void *cardenza_amy_osc_malloc(uint32_t size) {
 #if defined(ESP_PLATFORM)
     const uint32_t fast = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     void *block = NULL;
-    if (heap_caps_get_free_size(fast) >= size + CARDENZA_AMY_OSC_FAST_FLOOR_BYTES) block = heap_caps_malloc(size, fast);
-    else g_cardenza_amy_fast_misses = g_cardenza_amy_fast_misses + 1;
+    const uint32_t avail = heap_caps_get_free_size(fast);
+    if (avail >= size + CARDENZA_AMY_OSC_FAST_FLOOR_BYTES + g_cardenza_amy_fast_floor_extra) block = heap_caps_malloc(size, fast);
+    else if (avail < size + CARDENZA_AMY_OSC_FAST_FLOOR_BYTES) g_cardenza_amy_fast_misses = g_cardenza_amy_fast_misses + 1;
     if (block == NULL) block = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (block == NULL) block = heap_caps_malloc(size, fast);
     return block;
@@ -83,8 +91,9 @@ void *cardenza_amy_pool_malloc(uint32_t size) {
 #if defined(ESP_PLATFORM)
     const uint32_t fast = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     void *block = NULL;
-    if (heap_caps_get_free_size(fast) >= size + CARDENZA_AMY_OSC_FAST_FLOOR_BYTES) block = heap_caps_malloc(size, fast);
-    else g_cardenza_amy_fast_misses = g_cardenza_amy_fast_misses + 1;
+    const uint32_t avail = heap_caps_get_free_size(fast);
+    if (avail >= size + CARDENZA_AMY_OSC_FAST_FLOOR_BYTES + g_cardenza_amy_fast_floor_extra) block = heap_caps_malloc(size, fast);
+    else if (avail < size + CARDENZA_AMY_OSC_FAST_FLOOR_BYTES) g_cardenza_amy_fast_misses = g_cardenza_amy_fast_misses + 1;
     if (block == NULL) block = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (block == NULL) block = heap_caps_malloc(size, fast);
     return block;

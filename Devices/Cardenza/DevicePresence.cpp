@@ -17,6 +17,7 @@
 // AMY's oscillator state and event blocks that went to PSRAM for want of internal RAM
 // (Library/Synth/Audio/Amy/AmyEmbeddedStubs.c).
 extern "C" std::uint32_t cardenza_amy_fast_misses(void);
+extern "C" void cardenza_amy_set_fast_floor_extra(std::uint32_t bytes);
 
 namespace device::presence {
 
@@ -30,6 +31,13 @@ namespace Presence = CardenzaHAL::Presence;
 // frames in PSRAM) and a request (10 KB) beside 32 KB did not fit the 70-80 KB the synth leaves, and the
 // voices do not take from it while Wi-Fi is up (they give way, below).
 constexpr std::size_t kRamFloorBytes = 24 * 1024;
+// AMY keeps a voice's state in internal RAM while 64 KB stay free, and a project sets its voices up at
+// once (at boot, at a load): that pinned free internal RAM near 60 KB, short of Wi-Fi (30 KB), a request
+// (10 KB) and the floor. While the synth is silent and the service is to come up, AMY keeps this much
+// more free; while it sounds, the voices have the 64 KB rule (and Wi-Fi gives way, below).
+constexpr std::uint32_t kSilentVoiceRoomBytes = 10 * 1024;
+bool g_planned = false;
+bool g_roomKept = false;
 // Sound this recent keeps the activity RealTime (a phrase's rests, a pattern's quiet steps).
 constexpr std::uint32_t kSoundHoldMs = 15000;
 // The longest a handover waits for the app to be shut down (the card may be slow); the working state
@@ -106,8 +114,12 @@ void Begin()
   Presence::SetHandoverHook(BeforeHandover, nullptr);
   // Once a start: whether this board goes online in the community while the synth runs.
 #if CONFIG_CARDENZA_HAL_PRESENCE
+  g_planned = Presence::Planned();
+  // Before the app sets its voices up.
+  g_roomKept = g_planned;
+  cardenza_amy_set_fast_floor_extra(g_roomKept ? kSilentVoiceRoomBytes : 0);
   std::printf("Cardenza: community presence %s\n",
-              Presence::Planned() ? "planned (bound, Wi-Fi saved, receiving on)" : "not planned in this run");
+              g_planned ? "planned (bound, Wi-Fi saved, receiving on)" : "not planned in this run");
 #else
   std::printf("Cardenza: community presence off in this build (CONFIG_CARDENZA_HAL_PRESENCE)\n");
 #endif
@@ -155,6 +167,13 @@ void Frame()
   {
     g_voicesFirst = false;
     g_missed = false;
+  }
+  // Room for Wi-Fi kept by the voices set up in silence, while the service may come up.
+  const bool keepRoom = g_planned && !sounding;
+  if (keepRoom != g_roomKept)
+  {
+    g_roomKept = keepRoom;
+    cardenza_amy_set_fast_floor_extra(keepRoom ? kSilentVoiceRoomBytes : 0);
   }
   Presence::Activity activity = Presence::Activity::Idle;
   // Quiet while the microphone has the speaker's pin, while a sample plays from the card (its blocks are

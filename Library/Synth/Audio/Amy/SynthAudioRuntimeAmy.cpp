@@ -2500,7 +2500,7 @@ void RenderClaimedRunsNoLock(std::uint8_t core)
 
 #if defined(AMY_DUALCORE) && !defined(__EMSCRIPTEN__)
 #if defined(ESP_PLATFORM)
-constexpr std::uint32_t kHelperStackBytes = 5120;  // Measured: under 2 KB.
+constexpr std::uint32_t kHelperStackBytes = 3584;  // Measured: under 2 KB (1.4 KB in the stress test, 2026-11-18).
 constexpr UBaseType_t kHelperPriority = 6;  // above the UI on that core: sound first
 constexpr BaseType_t kHelperCore = 0;
 TaskHandle_t g_helperTask = nullptr;
