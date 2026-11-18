@@ -15,11 +15,20 @@
 // reach PSRAM; then the effects, loading, the drivers).
 #define CARDENZA_AMY_OSC_FAST_FLOOR_BYTES (64u * 1024u)
 
+// How many oscillator states and event blocks went to PSRAM because internal RAM was below that floor
+// (cardenza_amy_fast_misses): the device layer lets Wi-Fi go when the voices want the RAM it holds
+// (Devices/Cardenza/DevicePresence.cpp). Written by the render thread, a 32-bit word; a lost count is
+// harmless.
+static volatile uint32_t g_cardenza_amy_fast_misses = 0;
+
+uint32_t cardenza_amy_fast_misses(void) { return g_cardenza_amy_fast_misses; }
+
 void *cardenza_amy_osc_malloc(uint32_t size) {
 #if defined(ESP_PLATFORM)
     const uint32_t fast = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     void *block = NULL;
     if (heap_caps_get_free_size(fast) >= size + CARDENZA_AMY_OSC_FAST_FLOOR_BYTES) block = heap_caps_malloc(size, fast);
+    else g_cardenza_amy_fast_misses = g_cardenza_amy_fast_misses + 1;
     if (block == NULL) block = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (block == NULL) block = heap_caps_malloc(size, fast);
     return block;
@@ -75,6 +84,7 @@ void *cardenza_amy_pool_malloc(uint32_t size) {
     const uint32_t fast = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     void *block = NULL;
     if (heap_caps_get_free_size(fast) >= size + CARDENZA_AMY_OSC_FAST_FLOOR_BYTES) block = heap_caps_malloc(size, fast);
+    else g_cardenza_amy_fast_misses = g_cardenza_amy_fast_misses + 1;
     if (block == NULL) block = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (block == NULL) block = heap_caps_malloc(size, fast);
     return block;

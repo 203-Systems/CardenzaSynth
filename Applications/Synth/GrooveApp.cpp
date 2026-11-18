@@ -104,8 +104,12 @@ os::storage::Settings& AppSettings()
   return os::storage::AppSettings(synth::storage::kAppId);
 }
 
+// The app's object (23 KB: the controller, the animator, the sequencer's and the sampler's state) is the
+// UI's, read per frame and per step: PSRAM, beside the screen's frame, so that internal RAM stays for what
+// is touched per sample, by DMA or by an interrupt (AGENT.md, Memory), and Wi-Fi.
 std::unique_ptr<app::Application> CreateGrooveApplication()
 {
+  if (GrooveApp* app = new (memory::slow) GrooveApp()) return std::unique_ptr<app::Application>(app);
   return std::make_unique<GrooveApp>();
 }
 
