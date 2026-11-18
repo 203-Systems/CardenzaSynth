@@ -71,7 +71,7 @@ make web-serve
 想在 CardenzaSynth 上改出自己的固件并分享，先装 [203-CLI](https://github.com/203-Systems/203-CLI)：203 社区的命令行 `203c`（需要 Node.js 18 以上），附给 AI 编程助手用的 Agent Skill，以及每台 203 设备（鸣片、零序、魔矩）的开发指引和硬件资料，鸣片的在 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)：
 
 ```sh
-curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh   # 装 203-CLI（203c 和 Skill）
+npm install -g 203c && 203c skill install                           # 装 203-CLI（203c 和 Skill，各系统都一样）
 203c login                       # 打开浏览器，在社区网站上批准（远程时加 --no-browser）
 203c fork V6QK28 my-synth        # 克隆源码，在社区建 Fork，写好 203.json（forked_from）
 cd my-synth && git submodule update --init --recursive
@@ -79,6 +79,8 @@ cd my-synth && git submodule update --init --recursive
 make DEVICE=Cardenza build
 203c publish --dry-run
 203c publish
+203c sync                        # 之后：社区里的需求、评论和魔改版写进 .203/community.md，改之前先读
+203c project diff 0.2.0 --firmware V6QK28   # 你的版本和官方 0.2.0 差在哪
 ```
 
 工程规则（环境、必需的文件、HAL 的用法、社区发布前检查什么、版本与渠道、Fork、绝不能提交的东西）只有一份：CardenzaHAL 的 [docs/FIRMWARE-PROJECT.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md)，社区的[开发指引](https://cardenza.203.io/community/develop)也从它开始。根目录的 `203.json` 是这个固件在社区里的信息（Cardenza Synth，代码 `V6QK28`）；版本号就是 `version.txt`，所以 `203.json` 里没有 `version`。
