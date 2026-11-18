@@ -140,7 +140,7 @@ def main():
                 image.save(OUT / lang / (picture.stem + ".png"), optimize=True)
                 count += 1
         (OUT / "SOURCE").write_text(
-            f"203-launcher {revs['rev']} as {args.version}; old-*: {revs['before']} as {args.before_version} "
+            f"203-launcher {args.rev} ({revs['rev']}) as {args.version}; old-*: {args.before} ({revs['before']}) as {args.before_version} "
             f"(tools/wiki/launcher/shots.py)\n", encoding="utf-8")
         print(f"launcher shots: {count} screens from 203-launcher {revs['rev']} and {revs['before']} in {OUT.relative_to(ROOT)}")
 
