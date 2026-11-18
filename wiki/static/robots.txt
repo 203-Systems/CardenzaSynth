@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /community/api/
+
+Sitemap: https://cardenza.203.io/sitemap.xml

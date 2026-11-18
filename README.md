@@ -1,5 +1,9 @@
 # CardenzaSynth
 
+Cardenza Synth: the official four-track groovebox firmware of the 203 Systems Cardenza (鸣片), an ESP32-S3 pocket
+synthesizer, built on [CardenzaHAL](https://github.com/203-Systems/CardenzaHAL), the Cardenza's firmware SDK. To make a
+firmware of your own: CardenzaHAL and [203-CLI](https://github.com/203-Systems/203-CLI) (`203c`).
+
 运行在 Cardenza 上的四轨 groovebox，配备 240×135 屏幕和 4×14 带灯键盘。
 
 - DX7、Juno、Sampler、Drums 四种音源，每轨独立和弦与琶音器（鼓轨除外）。
@@ -7,7 +11,7 @@
 - 四轨混音、轨道效果、延迟与混响发送及总线效果。
 - 工程、音色、采样和自动保存均存于 SD 卡。
 
-[官网](https://203.io/products/cardenza-mini-synthsiser) · [教程与手册](https://cardenza.203.io/zh-Hans/) · [固件社区](https://cardenza.203.io/community/V6QK28) · [浏览器模拟器](https://cardenza-synth.vercel.app) · [界面演示](docs/groovebox/motion)
+[官网](https://203.io/products/cardenza-mini-synthsiser) · [教程与手册](https://cardenza.203.io/zh-Hans/) · [固件社区](https://cardenza.203.io/community/V6QK28) · [浏览器模拟器](https://cardenza-synth.vercel.app) · [界面演示](docs/groovebox/motion) · [做自己的固件](https://cardenza.203.io/community/develop)
 
 ## 基本操作
 
