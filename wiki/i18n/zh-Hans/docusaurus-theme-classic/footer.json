@@ -30,5 +30,13 @@
   "link.item.label.203 Community": {
     "message": "203 固件社区",
     "description": "The label of footer link with label=203 Community linking to https://cardenza.203.io/community"
+  },
+  "link.item.label.Make firmware": {
+    "message": "做固件",
+    "description": "The label of footer link with label=Make firmware linking to https://cardenza.203.io/community/develop"
+  },
+  "link.item.label.Firmware SDK (CardenzaHAL)": {
+    "message": "固件 SDK（CardenzaHAL）",
+    "description": "The label of footer link with label=Firmware SDK (CardenzaHAL) linking to https://github.com/203-Systems/CardenzaHAL"
   }
 }

@@ -123,6 +123,8 @@ const config: Config = {
             {label: 'Guide', to: '/'},
             {label: 'Manual', to: '/manual/start'},
             {label: 'Simulator', href: simulatorUrl, target: '_self'},
+            {label: 'Make firmware', href: 'https://cardenza.203.io/community/develop', target: '_self'},
+            {label: 'Firmware SDK (CardenzaHAL)', href: 'https://github.com/203-Systems/CardenzaHAL'},
           ],
         },
         {
