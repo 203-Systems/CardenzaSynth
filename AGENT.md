@@ -13,6 +13,8 @@
 
 ## Community presence (CardenzaHAL's, 2026-11-17)
 
+**Off since 2026-11-18** (`# CONFIG_CARDENZA_HAL_PRESENCE is not set` in `Devices/Cardenza/sdkconfig.defaults` and the committed `sdkconfig`; nothing of it or of Wi-Fi is linked): Wi-Fi needs 40 KB of internal RAM beside the synth's 32 KB floor, about 74 KB free, and a bound board had 62-69 KB with the default project (`CardenzaPresence: waiting for internal RAM`), so it never went online. Turn it on again when the firmware leaves about 74 KB; the code below stays.
+
 The user asked that the device stay online in the 203 community while a firmware runs, the Launcher's Wi-Fi and binding reused. CardenzaHAL's presence service (`net/presence.h`, on by default, started by `CardenzaHAL::Init`) does it for every HAL firmware: 10 s after boot, on a board the Launcher bound and connected (`Presence::Planned()`), it keeps Wi-Fi up and asks the community's inbox every 15 s (with the firmware's name, version and image digest); firmware sent from the website (or the Launcher's own update) is handed to the Launcher, which installs it. `Devices/Cardenza/DevicePresence.*` tells it what the synth does; `Device::Community::GetStatus()` is its status (the stress test prints `stress: net` lines).
 
 - **Activity**: `RealTime` while the speaker had sound in the last 15 s (Wi-Fi never starts in the middle of it: its first start in a run calibrates the radio on core 0; a connection that is up keeps asking), `Quiet` while the microphone has the speaker's pin (Wi-Fi let go), `Idle` otherwise. Anything new that is time-critical and silent (a long card operation, a heavy load) can say `Quiet` through `DevicePresence`.

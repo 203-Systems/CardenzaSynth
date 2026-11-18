@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include <esp_timer.h>
+#include <sdkconfig.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -86,8 +87,12 @@ void Begin()
   Presence::SetRamFloor(kRamFloorBytes);
   Presence::SetHandoverHook(BeforeHandover, nullptr);
   // Once a start: whether this board goes online in the community while the synth runs.
+#if CONFIG_CARDENZA_HAL_PRESENCE
   std::printf("Cardenza: community presence %s\n",
               Presence::Planned() ? "planned (bound, Wi-Fi saved, receiving on)" : "not planned in this run");
+#else
+  std::printf("Cardenza: community presence off in this build (CONFIG_CARDENZA_HAL_PRESENCE)\n");
+#endif
 }
 
 void NoteSound()

@@ -42,8 +42,13 @@ CONFIG_SPIRAM_USE_MEMMAP=y
 CONFIG_FATFS_SECTOR_512=y
 CONFIG_WL_SECTOR_SIZE_512=y
 
-# The 203 community while the synth runs (CardenzaHAL's presence service, on by default; the device
-# layer tells it what the synth does: Devices/Cardenza/DevicePresence.h). CardenzaHAL's reference
+# The 203 community while the synth runs (CardenzaHAL's presence service; the device layer tells it what
+# the synth does: Devices/Cardenza/DevicePresence.h). Off for now (2026-11-18): Wi-Fi needs 40 KB of
+# internal RAM beside the synth's 32 KB floor, about 74 KB free, and the board had 62-69 KB with the
+# default project, so it never went online. Off, nothing of it or of Wi-Fi is linked; the settings below
+# stay for when it is on again.
+# CONFIG_CARDENZA_HAL_PRESENCE is not set
+# CardenzaHAL's reference
 # sdkconfig for Wi-Fi (its examples/launcher_net), leaner where the synth only asks the community's inbox:
 # - the PHY never writes its calibration to the flash (it calibrates at the first Wi-Fi start of a run),
 #   and Wi-Fi keeps its settings in RAM: nothing goes to internal flash.
