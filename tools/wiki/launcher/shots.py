@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
 """The Launcher's screens for the Learn site's Launcher lessons, drawn by the Launcher's own code.
 
-    python3 tools/wiki/launcher/shots.py [--launcher ~/projects/203-launcher] [--rev origin/main]
+    python3 tools/wiki/launcher/shots.py [--launcher ~/projects/203-launcher] [--rev v0.3.2] [--version 0.3.2]
+        [--before v0.3.1] [--before-version 0.3.1] [--notes <VCODE>]
 
 Takes the Launcher at --rev (git archive: its working tree is left alone) into a temporary folder, puts
 scenes.cpp under the head of its tests/ui_render.cpp (the fakes and the drawing code of src/display.cpp
 that its tests/CMakeLists.txt extracts) and the boot hint's lines of src/display.cpp, builds it as its
 ui_render_cardenza is built, runs it and writes wiki/static/img/launcher/<zh|en>/<name>.png (240 x 135,
-the panel's colours: grey, the covers in colour). Run it again when the Launcher's look or flow changes, and check the lessons' scenes
-(wiki/src/guide/launcher.ts) against the new screens. Needs cmake, a C++17 compiler and Pillow.
+the panel's colours: grey, the covers in colour). The Launcher a person updates from (--before) draws
+scenes-before.cpp the same way (its home cards and its update page offering --version): <name> "old-...".
+--version is the running version the home screen's Update Launcher card shows.
+
+The update page shows the new release's notes as the community draws them (covers/notes-<version>-<zh|en>.bin,
+192 pixels wide at 12 px): --notes <the release's version code> fetches them from the live community once the
+release is published (https://cardenza.203.io/community/api/launcher/notes/<VCODE>).
+
+Run it again when the Launcher's look or flow changes, and check the lessons' words (docs/learn/guide.json, parts
+"update" and "launcher") against the new screens. Needs cmake, a C++17 compiler and Pillow.
 """
 import argparse
 import os
@@ -18,10 +27,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 OUT = ROOT / "wiki" / "static" / "img" / "launcher"
+API = "https://cardenza.203.io/community/api"
 
 
 def extract(text, start, end):
@@ -30,42 +41,34 @@ def extract(text, start, end):
     return text[a:b]
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--launcher", default=os.path.expanduser("~/projects/203-launcher"))
-    parser.add_argument("--rev", default="origin/main")
-    parser.add_argument("--version", default="0.3.0", help="the running version the home card shows (before an update)")
-    args = parser.parse_args()
-    launcher = pathlib.Path(args.launcher)
-    rev = subprocess.run(["git", "-C", launcher, "rev-parse", "--short", f"{args.rev}^{{commit}}"], check=True, capture_output=True,
-                         text=True).stdout.strip()
-    with tempfile.TemporaryDirectory() as tmp:
-        src = pathlib.Path(tmp) / "launcher"
-        src.mkdir()
-        archive = subprocess.run(["git", "-C", launcher, "archive", rev], check=True, capture_output=True).stdout
-        subprocess.run(["tar", "-x", "-C", src], input=archive, check=True)
-        # The JSON library is a submodule (not in the archive): the checkout's copy.
-        json_lib = launcher / "lib" / "ArduinoJson"
-        if not (json_lib / "src").is_dir():
-            sys.exit(f"launcher shots: {json_lib} is empty (git submodule update --init lib/ArduinoJson there)")
-        shutil.rmtree(src / "lib" / "ArduinoJson", ignore_errors=True)
-        shutil.copytree(json_lib, src / "lib" / "ArduinoJson", ignore=shutil.ignore_patterns(".git"))
+def render(launcher, rev, version, scenes_file, tmp, pgm):
+    """Builds scenes_file against the Launcher at rev and writes its screens (PPM) into pgm/<lang>."""
+    src = tmp / "launcher"
+    src.mkdir()
+    archive = subprocess.run(["git", "-C", launcher, "archive", rev], check=True, capture_output=True).stdout
+    subprocess.run(["tar", "-x", "-C", src], input=archive, check=True)
+    # The JSON library is a submodule (not in the archive): the checkout's copy.
+    json_lib = launcher / "lib" / "ArduinoJson"
+    if not (json_lib / "src").is_dir():
+        sys.exit(f"launcher shots: {json_lib} is empty (git submodule update --init lib/ArduinoJson there)")
+    shutil.rmtree(src / "lib" / "ArduinoJson", ignore_errors=True)
+    shutil.copytree(json_lib, src / "lib" / "ArduinoJson", ignore=shutil.ignore_patterns(".git"))
 
-        render = (src / "tests" / "ui_render.cpp").read_text(encoding="utf-8")
-        marker = '#include "ui_render_draw.inc"\n'
-        head = render[: render.index(marker) + len(marker)]
-        # The home card shows the running version.
-        head = re.sub(r'static String launcherRunningVersion\(\) \{ return "[^"]*"; \}',
-                      f'static String runningVersion = "{args.version}";\n'
-                      'static String launcherRunningVersion() { return runningVersion; }', head)
-        display = (src / "src" / "display.cpp").read_text(encoding="utf-8")
-        boot = extract(display, "static void drawBootHint(", "void uiBootPreparing()")
-        scenes = (HERE / "scenes.cpp").read_text(encoding="utf-8")
-        (src / "tests" / "launcher_shots.cpp").write_text(
-            f"// Generated by CardenzaSynth tools/wiki/launcher/shots.py from {rev}.\n" + head + "\n" + boot + "\n" + scenes,
-            encoding="utf-8")
-        cmake = (src / "tests" / "CMakeLists.txt").read_text(encoding="utf-8")
-        cmake += """
+    render_cpp = (src / "tests" / "ui_render.cpp").read_text(encoding="utf-8")
+    marker = '#include "ui_render_draw.inc"\n'
+    head = render_cpp[: render_cpp.index(marker) + len(marker)]
+    # The home card shows the running version.
+    head = re.sub(r'static String launcherRunningVersion\(\) \{ return "[^"]*"; \}',
+                  f'static String runningVersion = "{version}";\n'
+                  'static String launcherRunningVersion() { return runningVersion; }', head)
+    display = (src / "src" / "display.cpp").read_text(encoding="utf-8")
+    boot = extract(display, "static void drawBootHint(", "void uiBootPreparing()")
+    scenes = (HERE / scenes_file).read_text(encoding="utf-8")
+    (src / "tests" / "launcher_shots.cpp").write_text(
+        f"// Generated by CardenzaSynth tools/wiki/launcher/shots.py from {rev}.\n" + head + "\n" + boot + "\n" + scenes,
+        encoding="utf-8")
+    cmake = (src / "tests" / "CMakeLists.txt").read_text(encoding="utf-8")
+    cmake += """
 add_executable(launcher_shots launcher_shots.cpp ../src/platform/i18n.cpp)
 target_compile_features(launcher_shots PRIVATE cxx_std_17)
 target_compile_definitions(launcher_shots PRIVATE CARDENZA=1 PART_08MB=1
@@ -73,18 +76,56 @@ target_compile_definitions(launcher_shots PRIVATE CARDENZA=1 PART_08MB=1
   NOTES_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/notes.json")
 target_include_directories(launcher_shots PRIVATE ../src ../lib/ArduinoJson/src ../lib/tweetnacl "${CMAKE_CURRENT_BINARY_DIR}")
 """
-        (src / "tests" / "CMakeLists.txt").write_text(cmake, encoding="utf-8")
-        build = pathlib.Path(tmp) / "build"
-        cmake_bin = shutil.which("cmake") or sys.exit("launcher shots: cmake not found")
-        generator = ["-G", "Ninja"] if shutil.which("ninja") else []
-        subprocess.run([cmake_bin, "-S", src / "tests", "-B", build, "-DCMAKE_BUILD_TYPE=Release", *generator],
-                       check=True, stdout=subprocess.DEVNULL)
-        subprocess.run([cmake_bin, "--build", build, "--target", "launcher_shots", "--parallel"], check=True)
-        pgm = pathlib.Path(tmp) / "pgm"
-        for lang in ("zh", "en"):
-            (pgm / lang).mkdir(parents=True)
-        exe = next(p for p in build.rglob("launcher_shots*") if p.is_file() and os.access(p, os.X_OK))
-        subprocess.run([exe, pgm, HERE / "covers"], check=True)
+    (src / "tests" / "CMakeLists.txt").write_text(cmake, encoding="utf-8")
+    build = tmp / "build"
+    cmake_bin = shutil.which("cmake") or sys.exit("launcher shots: cmake not found")
+    generator = ["-G", "Ninja"] if shutil.which("ninja") else []
+    subprocess.run([cmake_bin, "-S", src / "tests", "-B", build, "-DCMAKE_BUILD_TYPE=Release", *generator],
+                   check=True, stdout=subprocess.DEVNULL)
+    subprocess.run([cmake_bin, "--build", build, "--target", "launcher_shots", "--parallel"], check=True)
+    for lang in ("zh", "en"):
+        (pgm / lang).mkdir(parents=True, exist_ok=True)
+    exe = next(p for p in build.rglob("launcher_shots*") if p.is_file() and os.access(p, os.X_OK))
+    subprocess.run([exe, pgm, HERE / "covers"], check=True)
+
+
+def fetch_notes(code, version):
+    """The release's notes as the community draws them for the Launcher's update page, per language."""
+    if not re.fullmatch(r"[0-9A-Z]{6}", code):
+        sys.exit(f"launcher shots: {code} is not a version code")
+    for lang in ("zh", "en"):
+        url = f"{API}/launcher/notes/{code}?lang={lang}&px=12&w=192"
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "learn-shots"}), timeout=30) as answer:
+            data = answer.read()
+        if len(data) < 8:
+            sys.exit(f"launcher shots: no notes picture at {url}")
+        (HERE / "covers" / f"notes-{version}-{lang}.bin").write_bytes(data)
+        print(f"launcher shots: notes {version} ({code}) {lang}, {len(data)} bytes")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--launcher", default=os.path.expanduser("~/projects/203-launcher"))
+    parser.add_argument("--rev", default="origin/main")
+    parser.add_argument("--version", default="0.3.2", help="the running version the home card shows")
+    parser.add_argument("--before", default="v0.3.1", help="the Launcher a person updates from (scenes-before.cpp)")
+    parser.add_argument("--before-version", default="0.3.1")
+    parser.add_argument("--notes", help="the new release's version code: fetch its notes pictures from the community")
+    args = parser.parse_args()
+    launcher = pathlib.Path(args.launcher)
+    revs = {}
+    for name, rev in (("rev", args.rev), ("before", args.before)):
+        revs[name] = subprocess.run(["git", "-C", launcher, "rev-parse", "--short", f"{rev}^{{commit}}"], check=True,
+                                    capture_output=True, text=True).stdout.strip()
+    if args.notes:
+        fetch_notes(args.notes, args.version)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = pathlib.Path(tmp)
+        pgm = tmp / "pgm"
+        (tmp / "now").mkdir()
+        (tmp / "before").mkdir()
+        render(launcher, revs["rev"], args.version, "scenes.cpp", tmp / "now", pgm)
+        render(launcher, revs["before"], args.before_version, "scenes-before.cpp", tmp / "before", pgm)
 
         from PIL import Image
         shutil.rmtree(OUT, ignore_errors=True)
@@ -98,8 +139,10 @@ target_include_directories(launcher_shots PRIVATE ../src ../lib/ArduinoJson/src 
                     image = image.convert("L")
                 image.save(OUT / lang / (picture.stem + ".png"), optimize=True)
                 count += 1
-        (OUT / "SOURCE").write_text(f"203-launcher {rev} (tools/wiki/launcher/shots.py)\n", encoding="utf-8")
-        print(f"launcher shots: {count} screens from 203-launcher {rev} in {OUT.relative_to(ROOT)}")
+        (OUT / "SOURCE").write_text(
+            f"203-launcher {revs['rev']} as {args.version}; old-*: {revs['before']} as {args.before_version} "
+            f"(tools/wiki/launcher/shots.py)\n", encoding="utf-8")
+        print(f"launcher shots: {count} screens from 203-launcher {revs['rev']} and {revs['before']} in {OUT.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":
