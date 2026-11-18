@@ -6,7 +6,7 @@
 
 - **Changes go upstream.** Since 2026-11-02 (user decision) we maintain it: work in a separate clone `~/projects/CardenzaHAL`, push to upstream `main`, then `make hal-update` here and commit only the new submodule pointer. Changes there reach every consumer: keep them generic and compatible, and say what changed.
 - **The submodule is a consumer copy.** Never edit, commit or push inside `Devices/Cardenza/CardenzaHAL`; never pin it to a commit that is not on upstream `main`. `make HAL_DEV=~/projects/CardenzaHAL DEVICE=Cardenza build` builds against the clone instead, to test a HAL change before it is pushed; such a build may go on the test board but is never shipped (no Launcher bin for users).
-- **Reuse it.** Use what the HAL provides through its public headers, included from the HAL root (`"cardenzaHAL.h"`, `"keyboard/keyboard.h"`, `"audio/audio.h"`, `"mic/mic.h"`, `"usb/usb.h"`): keyboard scan and key LEDs (`setLED`, `setLEDGlobalBrightness`, `enableLED`), audio TX with mono / stereo `Init` and codec volume, mic RX channel, display panel handles and backlight, SD card mount, HOME button (the side key), IR, USB (MIDI, audio, HID, update commands). Do not re-implement a driver or a HAL feature in this repository.
+- **Reuse it.** Use what the HAL provides through its public headers, included from the HAL root (`"cardenzaHAL.h"`, `"keyboard/keyboard.h"`, `"audio/audio.h"`, `"mic/mic.h"`, `"usb/usb.h"`): keyboard scan and key LEDs (`setLED`, `setLEDGlobalBrightness`, `enableLED`), audio TX with mono / stereo `Init` and codec volume, mic RX channel, display panel handles and backlight, SD card mount, HOME button (the side key: a press opens the HAL's system menu, `system/menu.h`), IR, USB (MIDI, audio, HID, update commands). Do not re-implement a driver or a HAL feature in this repository.
 - **Missing or wrong in the HAL?** Fix it in the HAL clone. `Devices/Cardenza` (the device layer, ours) is for what is specific to this firmware; `Devices/LedLight.h` models the LED scan for the simulators.
 - **Enforced.** `make hal-check` runs before every firmware build and the CMake configure checks too: they fail when the submodule has local changes or a commit that is not on upstream, and they set the submodule's push URL to `no-push://…` (the clone is where pushes come from).
 - The HAL keeps its own rules in its `AGENT.md` (ESP-IDF only, native handles, no copyleft code); follow them when changing it.
@@ -164,7 +164,7 @@ The root CMake project is for desktop-style targets such as `CardenzaSim`. The C
 ### 硬件
 
 - 屏幕 240×135，RGB565，50 fps（20 ms 一帧）；按键、键灯和应用的 Tick 每 10 ms 一次，屏幕隔一次画一次。只发变化的行，另外每帧轮流整条重发一带（8 行），约 0.34 秒整屏刷新一遍。FreeRTOS 的 tick 是 1000 Hz（`sdkconfig.defaults`，和 0.1.0 一样）：HAL 每发一条 8 行的带子都要等 DMA 完成，esp_lcd 在完成中断里不切换任务，等着的界面要到下一个 tick 才醒；100 Hz 时一条带子要 10 ms（本来 1 ms），界面画不到 30 fps，一帧最长 160 ms（2026-11-05）。
-- 键盘 4 行 × 14 列，每键一颗单色 LED（0–15 级）。另有侧边 HOME 键（GPIO0）。
+- 键盘 4 行 × 14 列，每键一颗单色 LED（0–15 级）。另有侧边 HOME 键（GPIO0）：按一下打开 CardenzaHAL 的系统菜单（`system/menu.h`，菜单开着时声音照常，按键和画面归菜单）。
 - 实机超过 4 个矩阵按键时，HAL 保留已确认键并屏蔽可疑新按键（矩阵串扰会读出没按的键）；松键仍通过原有 3 ms 去抖处理。被屏蔽键稳定松开后才能重新按下，不补发仍按住的可疑键；HOME 独立，不计入上限。HAL 的纯计算（去抖、按键数上限、LED 帧、背光曲线）和它的驱动代码（假 ESP-IDF 驱动下注入失败）在主机上测（`tests/cardenza_hal_logic_test.cpp`、`tests/key_count_guard_test.cpp`、`tests/hal_faults`）。
 - 单声道扬声器输出；麦克风；SD 卡。
 
@@ -193,7 +193,7 @@ The root CMake project is for desktop-style targets such as `CardenzaSim`. The C
 | ADD / SUB | 加 / 减；列表中上一项 / 下一项 | 自动连发，持续按住会加速 |
 | ENTER | 确认、进入、开关 | — |
 | PLAY | 播放 / 停止 | — |
-| HOME 侧键 | 暂不分配功能（全部停止用 Fn + ESC） | — |
+| HOME 侧键 | CardenzaHAL 的系统菜单：继续 / 回到 Launcher / 重启 / 关机 / 下载模式（HAL 的，所有固件一样；鸣片不另用 HOME，全部停止用 Fn + ESC） | — |
 
 - 按住阈值 250 ms。单击在松开时生效；ESC / TAB / CTRL / FN 的地图在越过阈值时立即出现。
 - 统一规则：**按住左侧任一键时，用右侧 4×4（GRID）选择**。地图上的每个格子就在它对应的那个键的位置；按住期间 PADS 不发声。只有特殊组合留在左侧相关键上（Fn + 数字 / 字母、Fn + CTRL、TAB / CTRL + ADD / SUB）。
