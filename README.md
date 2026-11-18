@@ -1,51 +1,116 @@
-# CardenzaSynth
+<p align="center"><b>English</b> · <a href="README.zh-CN.md">中文</a></p>
 
-Cardenza Synth: the official four-track groovebox firmware of the 203 Systems Cardenza (鸣片), an ESP32-S3 pocket
-synthesizer, built on [CardenzaHAL](https://github.com/203-Systems/CardenzaHAL), the Cardenza's firmware SDK. To make a
-firmware of your own: CardenzaHAL and [203-CLI](https://github.com/203-Systems/203-CLI) (`203c`).
+<p align="center">
+  <img src="docs/readme/hero.png" width="100%" alt="Cardenza Synth: a 4-track groovebox, the official firmware of the 203 Systems Cardenza">
+</p>
 
-运行在 Cardenza 上的四轨 groovebox，配备 240×135 屏幕和 4×14 带灯键盘。
+<p align="center">
+  The official four-track groovebox firmware of the <b>203 Systems Cardenza</b> (鸣片), an ESP32-S3 pocket synthesizer,
+  built on <a href="https://github.com/203-Systems/CardenzaHAL">CardenzaHAL</a>, the Cardenza's firmware SDK.
+  To make a firmware of your own: CardenzaHAL and <a href="https://github.com/203-Systems/203-CLI">203-CLI</a> (<code>203c</code>).
+</p>
 
-- DX7、Juno、Sampler、Drums 四种音源，每轨独立和弦与琶音器（鼓轨除外）。
-- 每个 Pattern 1–256 步，支持实时录音、Pattern 切换和整曲编排。
-- 四轨混音、轨道效果、延迟与混响发送及总线效果。
-- 工程、音色、采样和自动保存均存于 SD 卡。
+<p align="center">
+  <a href="https://203.io/products/cardenza-mini-synthsiser">Website</a> ·
+  <a href="https://cardenza.203.io">Learn</a> ·
+  <a href="https://cardenza.203.io/community/V6QK28">Community page</a> ·
+  <a href="https://cardenza-synth.vercel.app">Web simulator</a> ·
+  <a href="https://cardenza.203.io/community/develop">Make your own firmware</a>
+</p>
 
-[官网](https://203.io/products/cardenza-mini-synthsiser) · [教程与手册](https://cardenza.203.io/zh-Hans/) · [固件社区](https://cardenza.203.io/community/V6QK28) · [浏览器模拟器](https://cardenza-synth.vercel.app) · [界面演示](docs/groovebox/motion) · [做自己的固件](https://cardenza.203.io/community/develop)
+## The device
 
-## 基本操作
+<p align="center">
+  <img src="docs/readme/device.png" width="760" alt="The Cardenza running Cardenza Synth, its four key areas numbered: 1 the left column, 2 the pads, 3 the grid and the screen's 4 × 4 cells, 4 the right column">
+</p>
 
-中间 4×8 的 PADS 演奏当前轨，右侧 4×4 的 GRID 对应屏幕格子。
+A 240 × 135 screen over 56 keys. Every key has a fixed role and a light that says what it does now: off (nothing there), half (there, not chosen) or full (chosen, held or playing). Hold a key of the left column and the GRID becomes a map of what it switches.
 
-| 键 | 单击 | 按住 |
+| Key | Tap | Hold |
 |---|---|---|
-| ESC | 乐器 → 音序器 → 走带；取消 / 返回 | GRID 选择场景，第一列进入 SETUP |
-| TAB | 下一轨 | GRID 选轨、静音、独奏与音序开关 |
-| FN | 当前页面菜单 | GRID 执行菜单项或使用快捷键 |
-| CTRL | 下一页 | GRID 直接选页 |
-| ADD / SUB | 调值或移动 | 连发；FN 组合为大步调整 |
-| ENTER | 确认、进入、切换 | SEQ 中打开录音面板 |
-| PLAY | 播放 / 停止 | FN + PLAY 开关实时录音 |
+| **1** ESC | Next scene: INSTR → SEQ → TAPE; cancel, back | Scene map on the GRID (its first column is SETUP) |
+| **1** TAB | Next track | Track map: select, mute, solo, sequencer on / off |
+| **1** FN | This screen's menu | Run a menu item from the GRID; FN + a letter is its shortcut |
+| **1** CTRL | Next page | Page map: jump to any page of the scene |
+| **2** PADS | 4 × 8 keys that play the current track: piano, scale or chromatic; on drums a column per drum, a row per velocity | |
+| **3** GRID | 4 × 4 keys, the screen's 4 × 4 cells where they sit on the screen: steps, parameters, patterns, tracks | Hold a parameter: the pads become its values |
+| **4** ADD / SUB | Change a value, move in a list | Repeat, faster as you hold; FN + ADD / SUB for big steps |
+| **4** ENTER | Confirm, open, switch | In SEQ: the record panel |
+| **4** PLAY | Play / stop | FN + PLAY: live recording on / off |
 
-在 SEQ 中，按住演奏键再点 step 写入音符；点 step 选中后，用 PADS 加减音符、ENTER 切换编辑项、ADD / SUB 调整。FN + S 保存工程，FN + ESC 全部停止。
+In SEQ, hold a pad and tap steps to write its notes; tap a step to select it, then the pads add or remove notes, ENTER picks what ADD / SUB change (note, length, velocity, timing, hits). FN + S saves the project, FN + ESC stops everything. The side key HOME opens the system menu (back to the Launcher, restart, power off).
 
-开机没插 SD 卡时，本次运行不保存数据；插卡后需重启。数据目录为 `CardenzaSynth/`，详见[存储协议](docs/app-storage-protocol.md)。
+## Four tracks, four engines
 
-## 构建
+<p align="center">
+  <img src="docs/readme/engines.png" width="760" alt="One page of each engine: T1 Drums kit levels, T2 Juno filter, T3 DX7 operator levels, T4 Sampler waveform">
+</p>
 
-先初始化子模块：
+| Track | Engine | Sound |
+|---|---|---|
+| **T1** | Drums | An 808 kit of eight drums (BD SD CH OH CP TM CB MA), each with its level |
+| **T2** | Juno | A Juno-style analogue voice: DCO, filter, envelope, LFO, chorus; 128 factory patches |
+| **T3** | DX7 | Six-operator FM, 32 algorithms; the 128 ROM voices |
+| **T4** | Sampler | WAV files from the SD card (up to 5 minutes: long ones play from the card) or a recording from the microphone |
+
+Those are a new project's tracks: each track can run any of the four engines. Every track has its own chord and arpeggiator (the drums aside) and its own effects (drive, bit crush, DJ filter, chorus) with sends to a tempo-synced tape delay and a reverb; the master bus adds EQ, a compressor and tape saturation. The voices are rendered by [AMY](https://github.com/shorepine/amy) on both cores of the ESP32-S3.
+
+## Three scenes and a setup
+
+<p align="center">
+  <img src="docs/readme/scenes.png" width="760" alt="The four scenes: 0 SETUP with the project, 1 INSTR with a DX7 piano, 2 SEQ with the drum machine playing, 3 TAPE with the song playing">
+</p>
+
+- **0 SETUP**: the project (save, load, new, BPM, swing, loop or song) and its files, the keyboard (piano, scale or chromatic, 14 scales, root, octave) and the device (volume, key lights, screen, log, theme). Hold ESC and press the GRID's first column.
+- **1 INSTR**: the current track's sound, in signal order: preset, chord, arpeggiator, the engine's pages, effects.
+- **2 SEQ**: what the track plays. 16 patterns a track, each 1 to 256 steps, shown 16 steps at a time on the GRID, as a piano roll or a step grid (on drums, the drum machine). Live recording, and the last takes you played are kept to drop into a new pattern.
+- **3 TAPE**: all four tracks: launch patterns, arrange them into a song, mix, sends and master effects.
+
+A tap on ESC goes round 1 → 2 → 3. The drum machine, playing:
+
+<p align="center">
+  <img src="docs/readme/sequencer.gif" width="558" alt="The drum machine playing: eight drums over sixteen steps, the GRID shows the bass drum's steps, the playhead runs across both">
+</p>
+
+## Install and update
+
+Cardenza Synth is installed and updated from the 203 Launcher, which every Cardenza has.
+
+<p align="center">
+  <img src="docs/readme/install-en.png" width="760" alt="Installing in the Launcher: 1 Store, 2 search V6QK28, 3 install, 4 launch">
+</p>
+
+1. On the Launcher's home screen open the **Store** (on Wi-Fi; the first time it asks for your network).
+2. Type the code **V6QK28** (Launcher 0.3.1 or newer), or pick Cardenza Synth from the list, and press OK.
+3. Choose a channel (stable is the released one) and press OK. When it is installed already, it asks whether to replace it.
+4. **Launch** opens it.
+
+Without Wi-Fi, open its [community page](https://cardenza.203.io/community/V6QK28) in Chrome or Edge, connect the Cardenza with a USB cable and press **Install over USB**. Newer versions come from the Store's Updates tool or the same page. To get back to the Launcher, press HOME and choose Back to Launcher.
+
+Projects, presets, samples and settings are on the SD card, below `CardenzaSynth/`, so a new version opens on your last project. Your working state is saved to the card by itself, shortly after the keys come to rest, and comes back at the next start: the power can be pulled at any time. A run started without a card saves nothing: put one in and restart. The layout is the [storage protocol](docs/app-storage-protocol.md).
+
+## More
+
+- **Learn**: the lessons at [cardenza.203.io](https://cardenza.203.io). With the Cardenza on USB, the device follows each step of a lesson and lights the keys it asks for.
+- **USB**: MIDI in and out (channels 1 to 4 play tracks 1 to 4, and what the Cardenza plays goes out on its track's channel) and USB audio: your computer records what it plays.
+- **Web simulator**: the same firmware in a browser, at [cardenza-synth.vercel.app](https://cardenza-synth.vercel.app).
+- **Screen themes**: DARK, LIGHT and RETRO (SETUP > SYSTEM > THEME).
+
+## Build
+
+Initialise the submodules first:
 
 ```sh
 git submodule update --init --recursive
 ```
 
-固件需要 ESP-IDF 5.3.5，在已加载 ESP-IDF 环境的终端运行：
+The firmware needs ESP-IDF 5.3.5; in a terminal with the ESP-IDF environment loaded:
 
 ```sh
 make DEVICE=Cardenza build
 ```
 
-主机模拟器与测试：
+Desktop simulator and tests:
 
 ```sh
 cmake -S . -B build/host -DDEVICE=CardenzaSim -DBUILD_TESTING=ON
@@ -53,56 +118,63 @@ cmake --build build/host --config Debug
 ctest --test-dir build/host -C Debug --output-on-failure
 ```
 
-浏览器模拟器需要 Emscripten SDK：
+The browser simulator needs the Emscripten SDK:
 
 ```sh
 make web
 make web-serve
 ```
 
-- [固件构建与烧录](Devices/Cardenza/README.md)
-- [桌面模拟器、截图与测试](Devices/CardenzaSim/README.md)
-- [浏览器模拟器](Devices/CardenzaWeb/README.md)
-- [开发规则与设计](AGENT.md)
-- [Demo 生成工具](tools/demo/README.md)
+- [Firmware build and flashing](Devices/Cardenza/README.md)
+- [Desktop simulator, screenshots and tests](Devices/CardenzaSim/README.md)
+- [Browser simulator](Devices/CardenzaWeb/README.md)
+- [Development rules and design](AGENT.md)
+- [Demo generator](tools/demo/README.md)
 
-## 做自己的版本
+## Make your own
 
-想在 CardenzaSynth 上改出自己的固件并分享，先装 [203-CLI](https://github.com/203-Systems/203-CLI)：203 社区的命令行 `203c`（需要 Node.js 18 以上），附给 AI 编程助手用的 Agent Skill，以及每台 203 设备（鸣片、零序、魔矩）的开发指引和硬件资料，鸣片的在 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)：
+To make a firmware of your own from CardenzaSynth and share it, install [203-CLI](https://github.com/203-Systems/203-CLI) first: the 203 community's command line `203c` (Node.js 18 or newer), with an Agent Skill for AI coding assistants and the development guide and hardware notes of every 203 device (Cardenza, 零序, 魔矩); the Cardenza's are in [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md):
 
 ```sh
-curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh   # 装 203-CLI（203c 和 Skill）
-203c login                       # 打开浏览器，在社区网站上批准（远程时加 --no-browser）
-203c fork V6QK28 my-synth        # 克隆源码，在社区建 Fork，写好 203.json（forked_from）
+curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh   # installs 203-CLI (203c and the Skill)
+203c login                       # approve in the browser, on the community site (--no-browser when remote)
+203c fork V6QK28 my-synth        # clones the source, makes the fork in the community, writes 203.json (forked_from)
 cd my-synth && git submodule update --init --recursive
-# 改 203.json 的 name 和 summary，改代码，提高 version.txt，然后
+# change name and summary in 203.json, change the code, raise version.txt, then
 make DEVICE=Cardenza build
 203c publish --dry-run
 203c publish
 ```
 
-工程规则（环境、必需的文件、HAL 的用法、社区发布前检查什么、版本与渠道、Fork、绝不能提交的东西）只有一份：CardenzaHAL 的 [docs/FIRMWARE-PROJECT.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md)，社区的[开发指引](https://cardenza.203.io/community/develop)也从它开始。根目录的 `203.json` 是这个固件在社区里的信息（Cardenza Synth，代码 `V6QK28`）；版本号就是 `version.txt`，所以 `203.json` 里没有 `version`。
+The project rules (the environment, the files a firmware needs, how to use the HAL, what the community checks before a release, versions and channels, forks, what must never be committed) are in one place: CardenzaHAL's [docs/FIRMWARE-PROJECT.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md), where the community's [developer guide](https://cardenza.203.io/community/develop) starts too. `203.json` at the root is this firmware in the community (Cardenza Synth, code `V6QK28`); its version is `version.txt`, so `203.json` has no `version`.
 
-## 发布
+## Releases
 
-官方固件和所有第三方固件用同一种方式发布：由 CI 发到 203 社区（Launcher 从社区安装和更新固件），渠道跟着 Git 引用走（`.github/workflows/firmware.yml`，规则同 CardenzaHAL 的 `community-publish` action）：
+The official firmware and every third-party firmware are released the same way: CI publishes to the 203 community (the Launcher installs and updates firmware from there), on the channel the Git reference names (`.github/workflows/firmware.yml`, the same rules as CardenzaHAL's `community-publish` action):
 
-| 引用 | 社区渠道 | 版本号 |
+| Reference | Community channel | Version |
 |---|---|---|
-| 推送到 `main` | dev | `<version.txt>-dev.<运行号>` |
-| 标签 `vX.Y.Z`（等于 `version.txt`） | stable | `X.Y.Z`，更新说明取 `CHANGELOG.md` 的 `## X.Y.Z` |
-| 标签 `vX.Y.Z-beta.N` | beta | `X.Y.Z-beta.N`（有 `## X.Y.Z-beta.N` 就用它作更新说明，没有就是一行说明这是哪个测试版） |
+| A push to `main` | dev | `<version.txt>-dev.<run number>` |
+| A tag `vX.Y.Z` (equal to `version.txt`) | stable | `X.Y.Z`, the notes from `## X.Y.Z` in `CHANGELOG.md` |
+| A tag `vX.Y.Z-beta.N` | beta | `X.Y.Z-beta.N` (the notes from `## X.Y.Z-beta.N` when there is one, otherwise a line naming the beta) |
 
-- 发一个正式版：板上测试通过后，把 `version.txt` 改成新版本，在 `CHANGELOG.md` 写好这一节，合进 `main`，再打 `vX.Y.Z` 标签并推送。
-- 受信任发布，不存社区的密钥：发布作业用 GitHub 的 OIDC 令牌登录，社区只认固件主人在 V6QK28 的固件页「自动发布」里关联的仓库和工作流（`203-Systems/CardenzaSynth`，`firmware.yml`）。
-- 每个版本带上这次提交的源码包；ELF 留在这次运行的 artifact 里（90 天），标签的 BIN 和 ELF 也放进 GitHub Release。
-- 过渡期：还有设备在用 Launcher 0.2.0（它只读旧 Launcher hub 的目录），所以 `main` 的构建和正式版同时镜像到 hub（`LAUNCHER_APP_TOKEN`，和以前一样）；社区看到已经没有设备报告 0.2.0 的 Launcher 时，去掉这一步和这个密钥。
-- 自己从源码编译、本地烧录照样可以，但那不是发布。
+- A stable release: once it passes on the board, set `version.txt` to the new version, write its section in `CHANGELOG.md`, merge to `main`, then tag `vX.Y.Z` and push the tag.
+- Trusted publishing, no community secret: the job signs in with GitHub's OIDC token, and the community accepts only the repository and workflow the firmware's owner linked under Auto publish on V6QK28's page (`203-Systems/CardenzaSynth`, `firmware.yml`).
+- Every version carries the source archive of its commit; the ELF stays in the run's artifact (90 days), and a tag's BIN and ELF also go on its GitHub Release.
+- Transition: some devices still run Launcher 0.2.0, which reads only the old Launcher hub's catalog, so builds of `main` and stable releases are mirrored to the hub as well (`LAUNCHER_APP_TOKEN`, as before); when the community sees no device report Launcher 0.2.0 any more, the step and the secret go.
+- Building from source and flashing it yourself works as always, but it is not a release.
 
-## 致谢
+## Related
 
-- **[M5Stack Cardputer](https://docs.m5stack.com/en/core/Cardputer)**：一个很棒的项目。它是鸣片的灵感来源，也是我们动手做鸣片的初衷，谢谢 M5Stack 团队。鸣片不兼容 M5Stack 的设备，这里的固件也只为鸣片构建。
-- **[AMY](https://github.com/shorepine/amy)**（Brian Whitman 与 Daniel PW Ellis，MIT）：四种音源背后的合成引擎。我们在它之上维护分支 [203-Systems/amy](https://github.com/203-Systems/amy)。
-- **[ESP-IDF](https://github.com/espressif/esp-idf)** 与 **[TinyUSB](https://github.com/hathach/tinyusb)**：固件和 USB 所基于的框架。
-- **[Emscripten](https://emscripten.org)**：让同一份代码在浏览器里运行，网页模拟器靠它。
-- **[Docusaurus](https://docusaurus.io)**：教程与手册网站。
+- [CardenzaHAL](https://github.com/203-Systems/CardenzaHAL): the Cardenza's hardware layer and firmware SDK, which every Cardenza firmware builds on.
+- [203-CLI](https://github.com/203-Systems/203-CLI): `203c`, the 203 community's command line, and the device guides.
+- [Cardenza-Hardware](https://github.com/203-Systems/Cardenza-Hardware): the Cardenza's schematics and hardware documentation.
+- [203-Systems/amy](https://github.com/203-Systems/amy): our branch of the AMY synthesizer.
+
+## Credits
+
+- **[M5Stack Cardputer](https://docs.m5stack.com/en/core/Cardputer)**: a wonderful project. It inspired the Cardenza and is why we set out to make it; thank you to the M5Stack team. The Cardenza is not compatible with M5Stack devices, and this firmware is built for the Cardenza only.
+- **[AMY](https://github.com/shorepine/amy)** (Brian Whitman and Daniel PW Ellis, MIT): the synthesis engine behind the four engines. We keep a branch of it, [203-Systems/amy](https://github.com/203-Systems/amy).
+- **[ESP-IDF](https://github.com/espressif/esp-idf)** and **[TinyUSB](https://github.com/hathach/tinyusb)**: the frameworks the firmware and its USB are built on.
+- **[Emscripten](https://emscripten.org)**: runs the same code in a browser, which is what the web simulator is.
+- **[Docusaurus](https://docusaurus.io)**: the Learn site.
