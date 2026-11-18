@@ -100,6 +100,14 @@
 .st-page { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 18px; }
 .st-keys { width: min(680px, 100%); }
 .st-keys .cz-device { margin: 0 auto; }
+/* A web step of the update lessons: a part of the community's page, framed where the step points. */
+.cz-web { position: relative; width: 100%; aspect-ratio: 16 / 10; background: #fff; border-radius: 10px; overflow: hidden;
+  box-shadow: 0 0 0 1px #d9dbd8, 0 6px 22px rgba(0, 0, 0, .28); }
+.cz-web svg { position: absolute; inset: 10px; width: calc(100% - 20px); height: calc(100% - 20px); transition: opacity .25s; }
+.cz-web-mark .under { fill: none; stroke: #1c1c1a; stroke-width: 9; opacity: .45; }
+.cz-web-hl { fill: none; stroke: var(--cz-mark); stroke-width: 5; stroke-dasharray: 16 10; animation: cz-web-ants 1.2s linear infinite; }
+@keyframes cz-web-ants { to { stroke-dashoffset: -26; } }
+@media (prefers-reduced-motion: reduce) { .cz-web-hl { animation: none; } .cz-web svg { transition: none; } }
 .st-keys .cz-marks-cols { margin: 12px 0 0; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(var(--rows, 2), auto);
   grid-auto-flow: column; max-width: none; }
 .a-show, .a-sound { position: absolute; top: 10px; right: 10px; border: 1px solid #34342f; background: rgba(14, 14, 13, .85); color: #a2a29a;

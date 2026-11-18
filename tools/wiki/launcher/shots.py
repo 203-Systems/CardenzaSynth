@@ -34,10 +34,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--launcher", default=os.path.expanduser("~/projects/203-launcher"))
     parser.add_argument("--rev", default="origin/main")
-    parser.add_argument("--version", default="0.3.0", help="the running version the home card shows")
+    parser.add_argument("--version", default="0.3.0", help="the running version the home card shows (before an update)")
     args = parser.parse_args()
     launcher = pathlib.Path(args.launcher)
-    rev = subprocess.run(["git", "-C", launcher, "rev-parse", "--short", args.rev], check=True, capture_output=True,
+    rev = subprocess.run(["git", "-C", launcher, "rev-parse", "--short", f"{args.rev}^{{commit}}"], check=True, capture_output=True,
                          text=True).stdout.strip()
     with tempfile.TemporaryDirectory() as tmp:
         src = pathlib.Path(tmp) / "launcher"
@@ -56,7 +56,8 @@ def main():
         head = render[: render.index(marker) + len(marker)]
         # The home card shows the running version.
         head = re.sub(r'static String launcherRunningVersion\(\) \{ return "[^"]*"; \}',
-                      f'static String launcherRunningVersion() {{ return "{args.version}"; }}', head)
+                      f'static String runningVersion = "{args.version}";\n'
+                      'static String launcherRunningVersion() { return runningVersion; }', head)
         display = (src / "src" / "display.cpp").read_text(encoding="utf-8")
         boot = extract(display, "static void drawBootHint(", "void uiBootPreparing()")
         scenes = (HERE / "scenes.cpp").read_text(encoding="utf-8")

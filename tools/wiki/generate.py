@@ -137,19 +137,29 @@ REDIRECT = """<!doctype html>
 
 
 LAUNCHER_SHOTS = WIKI / "static" / "img" / "launcher"
+WEB_DIR = WIKI / "static" / "img" / "community"
+WEB_SHOTS = json.loads((WIKI / "src" / "guide" / "community-shots.json").read_text(encoding="utf-8"))["shots"]
 
 
 def launcher_step(lesson_id, number, step):
     """A step of a Launcher lesson (wiki/src/guide/launcher.tsx): its frames [screen, action, seconds].
     Every screen is one the Launcher drew (tools/wiki/launcher/shots.py) in both languages (or in the one
-    named, "en:home-9"), "off", or "shot:<groovebox screenshot>"; every key is one of the board's (or HOME)."""
+    named, "en:home-9"), "off", "shot:<groovebox screenshot>", or "web:<community picture>"
+    (tools/wiki/launcher/community.mjs); every key is one of the board's (or HOME)."""
     where = f"wiki: guide lesson {lesson_id} step {number}"
     frames = step.get("frames")
     if not frames:
         sys.exit(f"{where}: a Launcher step needs its frames")
+    if len({frame[0].startswith("web:") for frame in frames}) > 1:
+        sys.exit(f"{where}: a step's frames are all of the device or all web")
     for screen, action, seconds in frames:
         if screen.startswith("shot:"):
             pass  # checked when the page builds (the screenshot's URL)
+        elif screen.startswith("web:"):
+            name = screen[4:]
+            for lang in ("zh", "en"):
+                if lang not in WEB_SHOTS.get(name, {}) or not (WEB_DIR / lang / f"{name}.png").exists():
+                    sys.exit(f"{where}: no community picture {lang}/{name}.png (tools/wiki/launcher/community.mjs)")
         elif screen != "off":
             fixed, _, name = screen.rpartition(":")  # "en:home-9": that language's screen only
             for lang in (fixed,) if fixed else ("zh", "en"):
