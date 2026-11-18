@@ -564,7 +564,7 @@
     </g>
   </g>
   <g id="keyboard-switches" fill="none" stroke="none" stroke-width=".075" inkscape:groupmode="layer" inkscape:label="04 · Straight key frames and stadium actuators" transform="scale(2.8346456692913384 -2.8346456692913384)">
-    <g id="key-FUNC" data-step-component="FUNC">
+    <g id="key-HOME" data-step-component="HOME">
       <g data-role="switch-leads" data-z-mm="1.8" stroke="none" stroke-width=".05" fill="#000000">
         <rect x="18.461905000000005" y="-12.508749" width="0.55" height="0.225" fill="#bd9852" stroke="none" />
         <rect x="18.461905000000005" y="-8.083749000000001" width="0.55" height="0.225" fill="#bd9852" stroke="none" />

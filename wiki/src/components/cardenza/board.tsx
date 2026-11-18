@@ -1,5 +1,5 @@
 // The device map: the board as it is (static/img/device/cardenza-pcb.svg, the PCB drawing: switches
-// KEY1..KEY56 row by row from the top left, their LEDs, the HOME side key key-FUNC, the display) with
+// KEY1..KEY56 row by row from the top left, their LEDs, the HOME side key key-HOME, the display) with
 // the firmware's own screen in its display, and over it a layer of hotspots: every key, the HOME key
 // and the screen's areas. Pointing at one (or focusing it) shows what it does, its FN combination
 // (from the firmware, CardenzaLearnDump) and its section; a click goes there. On a touch screen the
