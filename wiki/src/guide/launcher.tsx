@@ -3,8 +3,10 @@
 // screens, drawn by the Launcher's own code (tools/wiki/launcher/shots.py -> static/img/launcher/<lang>/).
 // Each step plays its frames in a loop: [screen, what the hands do as it shows, seconds].
 //   screen: a Launcher screen (home-1, store, ...) in the reader's language ("en:home-9": in English
-//           whatever the language), "off" (dark: unplugged, or the chip's download mode) or
-//           "shot:<name>" (the groovebox's screenshot of that name).
+//           whatever the language), "off" (dark: unplugged, or the chip's download mode),
+//           "shot:<name>" (the groovebox's screenshot of that name) or "web:<name>" (a part of the 203
+//           community's page, tools/wiki/launcher/community.mjs -> static/img/community/<lang>/, with the
+//           button or field the step points at framed). A step's frames are all of the device or all web.
 //   action: null; a key pressed as the frame ends ("OK", "/"); "hold:FN" held through the frame;
 //           "type:V6QK28" typed key by key through it. HOME (the side key, GPIO0) shows on the whole board.
 // A step with "board": true shows the whole board (the HOME key left of the screen); otherwise the keys
@@ -14,7 +16,11 @@ import {useBaseUrlUtils} from '@docusaurus/useBaseUrl';
 import {useLang, useUrls} from '@site/src/components/cardenza/common';
 import {keysFor} from '@site/src/components/cardenza/keys';
 import {BOARD, DISPLAY, HOME, cell, usePcbKeys, useBoardImage} from '@site/src/components/cardenza/pcb';
+import communityShots from './community-shots.json';
 import type {Words} from './run';
+
+type WebShot = {w: number; h: number; marks: number[][]};
+const WEB = (communityShots as {shots: Record<string, Record<string, WebShot>>}).shots;
 
 export type Frame = [string, string | null, number];
 export type LauncherStep = {say: Words; frames: Frame[]; keys?: string[]; board?: boolean};
@@ -154,11 +160,43 @@ function Board({screen, framed, down, label}: {screen: React.ReactElement; frame
   );
 }
 
+/** A web step: the community's page as the reader's language shows it, the part the step points at framed;
+ *  every frame drawn once in one box (a frame at a time), so the page does not jump between them. */
+function Web({step, index}: {step: LauncherStep; index: number}) {
+  const lang = useLang();
+  const {withBaseUrl} = useBaseUrlUtils();
+  const shown = step.frames[index][0];
+  const names = [...new Set(step.frames.map((f) => f[0]))];
+  // The box takes the first picture's shape (a wide part of a page is not shrunk into a screen's shape).
+  const first = WEB[names[0].slice(4)]?.[lang];
+  return (
+    <div className="cz-web" role="img" aria-label={step.say[lang]} style={first ? {aspectRatio: `${first.w + 40} / ${first.h + 40}`} : undefined}>
+      {names.map((frame) => {
+        const name = frame.slice(4);
+        const shot = WEB[name]?.[lang];
+        if (!shot) throw new Error(`cardenza: no community picture ${name}`);
+        return (
+          <svg key={frame} viewBox={`0 0 ${shot.w} ${shot.h}`} preserveAspectRatio="xMidYMid meet" style={{opacity: frame === shown ? 1 : 0}}>
+            <image href={withBaseUrl(`/img/community/${lang}/${name}.png`)} x="0" y="0" width={shot.w} height={shot.h} />
+            {shot.marks.map(([x, y, w, h], i) => (
+              <g key={i} className="cz-web-mark">
+                <rect className="under" x={x - 6} y={y - 6} width={w + 12} height={h + 12} rx="10" />
+                <rect className="cz-web-hl" x={x - 6} y={y - 6} width={w + 12} height={h + 12} rx="10" />
+              </g>
+            ))}
+          </svg>
+        );
+      })}
+    </div>
+  );
+}
+
 /** One step of a Launcher lesson on the stage. */
 export function LauncherStage({step}: {step: LauncherStep}) {
   const lang = useLang();
   const {index, down} = useMoment(step);
-  const screen = useScreens(step, step.frames[index][0]);
+  const web = step.frames.every((f) => f[0].startsWith('web:'));
+  const screen = useScreens(web ? {...step, frames: []} : step, step.frames[index][0]);
   const framed = stepKeys(step);
   const label = step.say[lang];
   const marks = framed.filter((k) => k !== 'HOME').map((k) => ({keys: k}));
@@ -166,9 +204,11 @@ export function LauncherStage({step}: {step: LauncherStep}) {
   return (
     <div className="st-page">
       <div className="st-keys">
-        <div className="cz-device">
-          {step.board ? <Board screen={screen} framed={framed} down={down} label={label} /> : keys.svg}
-        </div>
+        {web ? <Web step={step} index={index} /> : (
+          <div className="cz-device">
+            {step.board ? <Board screen={screen} framed={framed} down={down} label={label} /> : keys.svg}
+          </div>
+        )}
       </div>
     </div>
   );

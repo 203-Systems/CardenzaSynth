@@ -33,7 +33,8 @@ static void shot(const std::string &name) {
   std::fclose(f);
 }
 
-// The covers the community sends (c=16: 16 RGB565 colours, then a 4-bit index a pixel), from <covers>/<CODE>.bin.
+// The covers the community sends (c=16: 16 RGB565 colours, then a 4-bit index a pixel), from <covers>/<CODE>.bin
+// (the folder also keeps the community's release-notes pictures the update page shows).
 static std::map<std::string, std::vector<uint8_t>> covers;
 static const uint8_t *cover(const std::string &code) {
   auto found = covers.find(code);
@@ -355,20 +356,39 @@ static void scenes() {
   status();
   shot("account-bound");
 
-  // Update Launcher: a newer version (the numbers are an example), updating, without Wi-Fi, sent from the website.
+  // Update Launcher from 0.3.0 to 0.3.1 (released 2026-11-18, the community's DF36NV) with its release notes as
+  // the community draws them for the device's language (<covers>/notes-DF36NV-<zh|en>.bin, w=192 px=12); then
+  // up to date on 0.3.1, without Wi-Fi, sent from the website.
   pageTitle = homeTitle(6);
   depth = 1;
+  std::ifstream notesFile(coverFolder + "/notes-DF36NV-" + outLang + ".bin", std::ios::binary);
+  static std::map<std::string, std::vector<uint8_t>> notes;
+  notes[outLang] = std::vector<uint8_t>((std::istreambuf_iterator<char>(notesFile)), std::istreambuf_iterator<char>());
+  const auto &picture = notes[outLang];
   UiLauncherUpdatePage update;
   update.from = "0.3.0";
-  update.to = "0.4.0";
-  update.size = 1363152;
-  update.published = "2026-12-01";
-  update.notes = UiLauncherUpdatePage::Notes::None;
+  update.to = "0.3.1";
+  update.size = 1369072;
+  update.published = "2026-11-18";
+  update.notes = picture.empty() ? UiLauncherUpdatePage::Notes::Failed : UiLauncherUpdatePage::Notes::Shown;
+  update.notesImage = picture.data();
+  update.notesBytes = picture.size();
   update.action = T("Update");
   drawLauncherUpdate(update);
   shot("launcher-update");
-  drawBusy(T("Updating\nLauncher") + " 0.4.0", 420000, 1363152, BusyIcon::Download, T("Keep the device powered"));
+  drawBusy(T("Updating\nLauncher") + " 0.3.1", 420000, 1369072, BusyIcon::Download, T("Keep the device powered"));
   shot("launcher-updating");
+  UiLauncherUpdatePage latest;
+  latest.from = "0.3.1";
+  latest.heading = T("Up to date");
+  latest.current = true;
+  latest.detail = TF("Version {0}", "0.3.1");
+  latest.notes = update.notes;
+  latest.notesImage = picture.data();
+  latest.notesBytes = picture.size();
+  latest.action = T("OK");
+  drawLauncherUpdate(latest);
+  shot("launcher-latest");
   UiLauncherUpdatePage offline;
   offline.from = "0.3.0";
   offline.heading = T("Not connected");
@@ -377,9 +397,110 @@ static void scenes() {
   offline.action = T("Connect to Wi-Fi");
   drawLauncherUpdate(offline);
   shot("launcher-offline");
-  drawDialog(T("Update Launcher?"), TF("Version {0}", "0.4.0") + "\n" + T("Sent to this device from the website"),
+  drawDialog(T("Update Launcher?"), TF("Version {0}", "0.3.1") + "\n" + T("Sent to this device from the website"),
              T("Update"), T("Cancel"), 0);
   shot("launcher-remote-confirm");
+
+  // The update lessons (part "update"): an update installed from the store's Updates, a firmware from the
+  // community (GLIDE) found in the store or by its code, sent from the website, installed from a .bin; two
+  // copies of Cardenza Synth after an install over USB (it goes to free space), the older one's More.
+  pageTitle = T("Updates");
+  depth = 1;
+  drawDialog(T("Update installed"), String("Cardenza Synth 0.2.0\n") + T("Launcher restarts to finish."), T("OK"), "", 0);
+  shot("update-installed");
+  {
+    UiStorePage list;
+    list.tools = tools(list);
+    list.items = featured();
+    list.paging = Option(T("Pages"));
+    list.paging.buttons = {{T("Previous"), nullptr}, {T("Next"), [] {}}};
+    pageTitle = T("Download") + " 1/2";
+    store(list, 2);
+    shot("store-glide");
+    UiStorePage code;
+    code.tools = tools(code, "B6S");
+    code.items = list.items;
+    code.searching = true;
+    pageTitle = T("Download");
+    store(code, 1);
+    shot("glide-typing");
+    code.tools = tools(code, "B6S4QV");
+    code.items = {featured()[1]};
+    code.searching = false;
+    store(code, 1);
+    shot("glide-code");
+  }
+  std::vector<Option> glide = {
+      {T("Stable") + " 3.9", [] {}, NO_COLOR, T("Released by the author when it is ready")},
+      {T("Add favorite"), [] {}, NO_COLOR, T("Save software for later")}};
+  pageTitle = "GLIDE";
+  menuFrame(glide, 0, 0);
+  status();
+  shot("glide-channels");
+  // GLIDE is new on this device: free space only (one place, nothing to choose but Install).
+  installTarget("GLIDE", 966656, {{1376256, "Cardenza Synth", false}, {966656, "", true}, {2490368, "", true}}, 1);
+  shot("glide-target");
+  pageTitle = T("Download");
+  drawBusy(T("Installing") + "\nGLIDE", 420000, 965888, BusyIcon::Download, T("Keep the device powered"));
+  shot("glide-installing");
+  drawDialog(T("Installed"), String("GLIDE\n") + T("Back restarts Launcher so you can install more."), T("Launch"), T("Back"), 0);
+  status();
+  shot("glide-installed");
+  pageTitle = "";
+  drawDialog(T("Install from the community?"), String("GLIDE 3.9\n") + T("Sent to this device from the website"),
+             T("Install"), T("Cancel"), 0);
+  shot("glide-remote-confirm");
+  drawBusy("GLIDE\n3.9  " + T("From the community"), 500000, 965888, BusyIcon::Download, T("Back cancels"));
+  shot("glide-remote-installing");
+  {
+    pageTitle = homeTitle(2);
+    depth = 1;
+    Option folder(T("Folder tools"));
+    folder.buttons = {{T("New folder"), [] {}}, {T("Paste"), nullptr}};
+    const auto file = [](const String &name, bool isFolder) {
+      Option row(name, [] {}, NO_COLOR, "", isFolder ? ">" : "");
+      row.action = isFolder ? T("Open") : T("Install");
+      row.icon = isFolder ? ui_icons::open : ui_icons::install;
+      return row;
+    };
+    std::vector<Option> files = {folder, file("CardenzaSynth", true), file("GLIDE-3.9.bin", false), file("downloads", true)};
+    menuFrame(files, 2, 0, true, true, 0);
+    status();
+    shot("files-glide");
+  }
+  {
+    // Installed software: GLIDE beside Cardenza Synth; two Cardenza Synth after an install over USB.
+    UiStorePage software;
+    typed = "";
+    software.query = &typed;
+    software.more = [](int) {};
+    software.items = featured();
+    software.items.resize(2);
+    for (auto &it : software.items) it.launch = true;
+    pageTitle = homeTitle(0);
+    depth = 1;
+    store(software, 2);
+    shot("software-glide");
+    UiStorePage two = software;
+    two.items = {featured()[0], featured()[0], featured()[1]};
+    two.items[1].version = "0.1.0";
+    two.items[1].date = "2026-11-02";
+    for (auto &it : two.items) it.launch = true;
+    store(two, 2, 1);
+    shot("software-old-more");
+    std::vector<Option> actions = {{T("Rename"), [] {}, NO_COLOR, T("The name in the list")},
+                                   {T("Details"), [] {}, NO_COLOR, T("Version, source and slot")},
+                                   {T("Delete"), [] {}, NO_COLOR, T("Frees its flash space")}};
+    pageTitle = "Cardenza Synth";
+    menuFrame(actions, 2, 0);
+    status();
+    shot("software-delete");
+  }
+  // The home screen after the update: the Update Launcher card says 0.3.1.
+  runningVersion = "0.3.1";
+  showHome(6);
+  shot("home-6-updated");
+  runningVersion = "0.3.0";
   depth = 0;
 }
 

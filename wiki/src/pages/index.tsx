@@ -74,6 +74,11 @@ export default function Home(): React.ReactElement {
             'Plug it in with a USB cable and allow MIDI when the browser asks: the device follows the lessons, the keys to press blink, and the page tells you when you have got it. No device? The pictures show every step.')}</p>
           <p className="dc-small">{say('教程用一个练习工程，你自己的工程不会被改动；关掉这一页，机器就回到原来的样子。',
             'The lessons use a practice project: your own work is left alone, and it is back as soon as you close this page.')}</p>
+          <p className="dc-small">
+            {say('机器上的固件太旧、跟不上课程？先看', 'Firmware too old for the lessons? See')}{' '}
+            <Link to={lessonPath('update-firmware')}>{say('更新官方固件', 'Updating the official firmware')}</Link>
+            {say('；启动器的更新和社区里的其他固件也在「更新与安装」里。', '; the Launcher and the community’s other firmware are in Update and install too.')}
+          </p>
         </section>
         <p className="g-ref">
           <Link to="/manual/start/">{say('要查某个键、某一页、某个设置？去说明书 →', 'Looking for one key, page or setting? The manual →')}</Link>
