@@ -713,7 +713,7 @@
         text(g, 36, 29, 'USB', 4, 0);
         text(g, 36, 75, connected ? 'CONNECTED' : 'WAITING', 2, 0);
         text(g, 36, 115, connected ? 'EJECT BEFORE EXIT' : 'CONNECT TO COMPUTER', 1, 110);
-        rail(g, 'USB Mode');
+        rail(g, 'USB Drive');
         return g;
       },
       password(typed) {
