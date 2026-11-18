@@ -64,10 +64,10 @@ make web-serve
 
 ## 做自己的版本
 
-想在 CardenzaSynth 上改出自己的固件并分享，请用 203 社区的命令行 `203c`（需要 Node.js 18 以上）：
+想在 CardenzaSynth 上改出自己的固件并分享，先装 [203-CLI](https://github.com/203-Systems/203-CLI)：203 社区的命令行 `203c`（需要 Node.js 18 以上），附给 AI 编程助手用的 Agent Skill，以及每台 203 设备（鸣片、零序、魔矩）的开发指引和硬件资料，鸣片的在 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)：
 
 ```sh
-curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
+curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh   # 装 203-CLI（203c 和 Skill）
 203c login                       # 打开浏览器，在社区网站上批准（远程时加 --no-browser）
 203c fork V6QK28 my-synth        # 克隆源码，在社区建 Fork，写好 203.json（forked_from）
 cd my-synth && git submodule update --init --recursive
