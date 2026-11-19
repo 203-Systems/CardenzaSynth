@@ -136,7 +136,8 @@ make web-serve
 To make a firmware of your own from CardenzaSynth and share it, install [203-CLI](https://github.com/203-Systems/203-CLI) first: the 203 community's command line `203c` (Node.js 18 or newer), with an Agent Skill for AI coding assistants and the development guide and hardware notes of every 203 device (Cardenza, 零序, 魔矩); the Cardenza's are in [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md):
 
 ```sh
-curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh   # installs 203-CLI (203c and the Skill)
+npm install -g 203c              # 203-CLI's command (macOS, Linux, Windows)
+203c skill install               # its Agent Skill, for Claude Code and Codex
 203c login                       # approve in the browser, on the community site (--no-browser when remote)
 203c fork V6QK28 my-synth        # clones the source, makes the fork in the community, writes 203.json (forked_from)
 cd my-synth && git submodule update --init --recursive

@@ -11,7 +11,7 @@
   the hardware and the header that drives each part).
 - 203-CLI (`203c`), the community's command line and an Agent Skill, makes the project, installs a build on a
   Cardenza over USB through the Launcher, reads its log and publishes it: https://github.com/203-Systems/203-CLI.
-  Install: `curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh`.
+  Install (Node.js 18+, any OS): `npm install -g 203c`, then `203c skill install`.
 - The rules for every step, for people and AI agents alike (one Markdown file):
   https://cardenza.203.io/community/develop.md; the developer guide: https://cardenza.203.io/community/develop.
 - The community's API and what 203c does: https://cardenza.203.io/community/llms.txt.
