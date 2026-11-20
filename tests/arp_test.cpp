@@ -874,8 +874,87 @@ void TestLongPatterns()
   }
 }
 
+// FN + X on an empty pattern deletes it (SynthSequencer::DeletePattern): no hole, every reference
+// follows its pattern, and the current one hands over to the one before it.
+void TestDeletePattern()
+{
+  const std::uint8_t pitch = 60;
+  const auto column = [](SynthSequencer& seq, std::size_t track) {
+    std::vector<int> patterns;
+    for (std::size_t row = 0; row < seq.SongLength(); ++row) patterns.push_back(seq.SongRowAt(row).patterns[track]);
+    return patterns;
+  };
+  const auto queued = [](SynthSequencer& seq) { return seq.BuildUiState(0).tracks[0].queuedPattern; };
+  constexpr std::size_t kNone = synth::kSequencerMaxPatternCount;
+  {
+    Rig rig;
+    auto& seq = rig.seq();
+    seq.SetActiveTrack(0);
+    // P01 and P03 hold notes (P03 is 32 steps long), P02 and P04 none.
+    CHECK(seq.SelectOrCreatePattern(1) && seq.SelectOrCreatePattern(2) && seq.SelectOrCreatePattern(3));
+    CHECK(seq.SelectOrCreatePattern(0) && seq.SetStepNotes(0, 0, &pitch, 1, 100));
+    CHECK(seq.SelectOrCreatePattern(2) && seq.SetStepNotes(0, 4, &pitch, 1, 100));
+    seq.SetTrackStepCount(0, 32);
+    CHECK(seq.InsertSongRow(0, synth::SongRow{{{1, 0, 0, 0}}, 1}) && seq.InsertSongRow(1, synth::SongRow{{{2, 0, 0, 0}}, 1}) &&
+          seq.InsertSongRow(2, synth::SongRow{{{3, 0, 0, 0}}, 2}) && seq.InsertSongRow(3, synth::SongRow{{{0, 0, 0, 0}}, 1}));
+
+    // The current pattern goes: the one before takes over; the later ones, with their lengths and the
+    // song rows on them, move down one; rows on it go silent; other tracks are left alone.
+    CHECK(seq.SelectOrCreatePattern(1) && seq.DeletePattern(1));
+    CHECK(seq.PatternCount(0) == 3 && seq.ActivePattern(0) == 0);
+    CHECK(seq.PatternHasEvents(0) && seq.PatternHasEvents(1) && !seq.PatternHasEvents(2) && seq.PatternStepCount(0, 1) == 32);
+    CHECK(column(seq, 0) == (std::vector<int>{-1, 1, 2, 0}) && column(seq, 1) == (std::vector<int>{0, 0, 0, 0}));
+    CHECK(seq.SongRowAt(2).repeats == 2 && SynthSequencer::ValidateState(*seq.CaptureState()));
+
+    // A queued switch follows its pattern down, and is dropped with it.
+    seq.Play();
+    CHECK(seq.QueuePattern(0, 2) && queued(seq) == 2);
+    CHECK(seq.DeletePattern(1) && seq.PatternCount(0) == 2 && seq.ActivePattern(0) == 0 && queued(seq) == 1);
+    CHECK(column(seq, 0) == (std::vector<int>{-1, -1, 1, 0}));
+    CHECK(seq.DeletePattern(1) && seq.PatternCount(0) == 1 && queued(seq) == kNone);
+    CHECK(column(seq, 0) == (std::vector<int>{-1, -1, -1, 0}));
+    seq.Stop();
+
+    // A switch queued to the pattern that takes over is no switch any more.
+    CHECK(seq.SelectOrCreatePattern(1) && seq.SetStepNotes(0, 2, &pitch, 1, 100) && seq.SelectOrCreatePattern(2));
+    seq.Play();
+    CHECK(seq.QueuePattern(0, 1) && queued(seq) == 1);
+    CHECK(seq.DeletePattern(2) && seq.ActivePattern(0) == 1 && queued(seq) == kNone);
+    seq.Stop();
+
+    // The first one goes: the next one, now first, takes over.
+    CHECK(seq.SelectOrCreatePattern(0) && seq.DeletePattern(0));
+    CHECK(seq.PatternCount(0) == 1 && seq.ActivePattern(0) == 0 && seq.StepHasEvents(2) && !seq.StepHasEvents(0));
+    // The only pattern is cleared, not removed.
+    CHECK(seq.DeletePattern(0) && seq.PatternCount(0) == 1 && !seq.PatternHasEvents(0));
+  }
+  {
+    // A song row playing the deleted pattern: the track keeps silent until the next row instead of
+    // playing the pattern it falls back to.
+    Rig rig;
+    auto& seq = rig.seq();
+    seq.SetActiveTrack(0);
+    for (std::size_t step = 0; step < 16; ++step) CHECK(seq.SetStepNotes(0, step, &pitch, 1, 100));
+    CHECK(seq.SelectOrCreatePattern(1));
+    CHECK(seq.InsertSongRow(0, synth::SongRow{{{1, -1, -1, -1}}, 1}) && seq.InsertSongRow(1, synth::SongRow{{{0, -1, -1, -1}}, 1}));
+    seq.SetSongMode(true);
+    const std::uint64_t start = rig.Now();
+    seq.Play();
+    rig.Run(30);
+    CHECK(seq.ActivePattern(0) == 1 && rig.Ons().empty());
+    CHECK(seq.DeletePattern(1) && seq.ActivePattern(0) == 0 && column(seq, 0) == (std::vector<int>{-1, 0}));
+    rig.RunTo(start + synth::kSongBarPulses);
+    CHECK(rig.Ons().empty());
+    rig.Run(24);
+    const auto ons = rig.Ons();
+    CHECK(!ons.empty() && ons.front().tick == start + synth::kSongBarPulses);
+    seq.Stop();
+  }
+}
+
 int main()
 {
+  TestDeletePattern();
   TestLongPatterns();
   TestOffIsInert();
   TestUpOrderAndTiming();

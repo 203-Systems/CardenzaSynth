@@ -1702,9 +1702,65 @@ void Controller::Clear()
     ShowToast("STEPS CLEARED");
     return;
   }
-  const std::size_t pattern = ui.tracks[state_.track].activePattern;
-  if (!ui.patternHasEvents[pattern]) return;
-  OpenConfirm(ConfirmPurpose::ClearPattern, "CLEAR " + PatternLabel(pattern) + "?", "ALL NOTES IN THIS PATTERN", true);
+  const auto& track = ui.tracks[state_.track];
+  const std::size_t pattern = track.activePattern;
+  // Notes in it: they go, the pattern stays.
+  if (ui.patternHasEvents[pattern])
+  {
+    OpenConfirm(ConfirmPurpose::ClearPattern, "CLEAR " + PatternLabel(pattern) + "?", "ALL NOTES IN THIS PATTERN", true,
+                std::to_string(pattern));
+    return;
+  }
+  // None (cleared before, or never written): the pattern itself goes, but a track keeps one.
+  if (track.patternCount <= 1)
+  {
+    ShowToast("ONLY PATTERN");
+    return;
+  }
+  // The consequence that matters most: song rows on it fall silent, else the later ones renumber.
+  bool inSong = false;
+  for (std::size_t row = 0; row < sequencer.SongLength(); ++row)
+    inSong = inSong || sequencer.SongRowAt(row).patterns[state_.track] == static_cast<std::int8_t>(pattern);
+  std::string detail = "THE EMPTY PATTERN IS REMOVED";
+  if (inSong) detail = "SONG ROWS ON IT BECOME --";
+  else if (pattern + 2 == track.patternCount) detail = PatternLabel(pattern + 1) + " BECOMES " + PatternLabel(pattern);
+  else if (pattern + 1 < track.patternCount)
+    detail = PatternLabel(pattern + 1) + "-" + PatternLabel(track.patternCount - 1) + " BECOME " + PatternLabel(pattern) + "-" +
+             PatternLabel(track.patternCount - 2);
+  OpenConfirm(ConfirmPurpose::DeletePattern, "DELETE " + PatternLabel(pattern) + "?", detail, true, std::to_string(pattern));
+}
+
+void Controller::DeleteEmptyPattern(std::size_t pattern)
+{
+  auto& sequencer = host_.Sequencer();
+  const auto ui = sequencer.BuildUiState(state_.track);
+  const auto& track = ui.tracks[state_.track];
+  if (pattern >= track.patternCount) return;
+  // Notes went in while it asked (live recording): it is kept.
+  if (ui.patternHasEvents[pattern])
+  {
+    ShowToast(PatternLabel(pattern) + " HAS NOTES - KEPT", ToastKind::Error);
+    return;
+  }
+  if (track.patternCount <= 1)
+  {
+    ShowToast("ONLY PATTERN");
+    return;
+  }
+  if (!sequencer.DeletePattern(pattern)) return;
+  MarkDirty();
+  // A copied pattern follows its number, or goes with it.
+  if (state_.clipboardValid && state_.clipboardIsPattern)
+  {
+    if (state_.clipboardIndex == pattern) state_.clipboardValid = false;
+    else if (state_.clipboardIndex > pattern) --state_.clipboardIndex;
+  }
+  // What went in the footer, where the track is now as a pattern switch says it.
+  ShowToast(PatternLabel(pattern) + " DELETED");
+  const std::size_t count = sequencer.PatternCount(state_.track);
+  const std::size_t now = sequencer.ActivePattern(state_.track);
+  ShowHud("PATTERN " + std::to_string(now + 1) + "/" + std::to_string(count), PatternLabel(now),
+          count > 1 ? static_cast<float>(now) / static_cast<float>(count - 1) : -1.0f);
 }
 
 void Controller::Quantize()
@@ -1850,7 +1906,14 @@ MenuItems Controller::Menu() const
       const bool pasteable = state_.clipboardValid && (state_.clipboardIsPattern || steps);
       put(0, MenuAction::Copy, "COPY", target, "C");
       put(1, MenuAction::Paste, "PASTE", target, "V", pasteable);
-      put(2, MenuAction::Clear, "CLEAR", target, "X");
+      // A pattern without notes has nothing to clear: X deletes the pattern instead (not a track's only one).
+      const auto& current = ui.tracks[state_.track];
+      if (!steps && !ui.patternHasEvents[current.activePattern])
+      {
+        put(2, MenuAction::Clear, "DELETE", PatternLabel(current.activePattern), "X", current.patternCount > 1);
+        menu[2].refusal = "ONLY PATTERN";
+      }
+      else put(2, MenuAction::Clear, "CLEAR", target, "X");
       put(3, MenuAction::Quantize, "QUANT", target, "Q");
       put(4, MenuAction::Duplicate, "DUP", "PATTERN", "D", ui.tracks[state_.track].patternCount < synth::kSequencerMaxPatternCount);
       put(5, MenuAction::View, "VIEW", PageTab(Scene::Sequence, 0), nullptr, true, View() == SeqView::Step);
@@ -1939,7 +2002,7 @@ void Controller::RunMenu(std::size_t index)
   if (item.action == MenuAction::None) return;
   if (!item.available)
   {
-    ShowToast(item.label + std::string(" NOT HERE"));
+    ShowToast(item.refusal != nullptr ? std::string(item.refusal) : item.label + std::string(" NOT HERE"));
     return;
   }
   // The open menu closes first, so an item that opens a pop-up opens it over the screen.

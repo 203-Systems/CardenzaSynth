@@ -706,7 +706,16 @@ bool SynthSequencer::DeletePattern(std::size_t patternIndex)
     return true;
   }
 
+  // The playing song row had the track on this pattern: the row now says -1, so the track keeps
+  // silent until the next row instead of playing the pattern it falls back to.
+  if (songEngaged_ && songRow_ < songLength_ && track.activePattern == patternIndex &&
+      song_[songRow_].patterns[activeTrack_] == static_cast<std::int8_t>(patternIndex))
+    songSilent_[activeTrack_] = true;
   RemoveSongPatternLocked(activeTrack_, patternIndex, true);
+  // The last steps of the previous pass spill into this one: they follow their pattern too.
+  std::size_t& previous = previousPassPattern_[activeTrack_];
+  if (previous == patternIndex) previous = kNoPattern;
+  else if (previous != kNoPattern && previous > patternIndex) --previous;
   for (std::size_t index = patternIndex; index + 1 < track.patternCount; ++index)
   {
     track.patterns.Swap(index, index + 1);
@@ -715,8 +724,12 @@ bool SynthSequencer::DeletePattern(std::size_t patternIndex)
   track.patterns.Release(track.patternCount - 1);
   track.patternSteps[track.patternCount - 1] = kSequencerStepCount;
   --track.patternCount;
-  if (track.activePattern > patternIndex) --track.activePattern;
+  // The current pattern deleted: the one before it takes over (the next one, now first, for the first).
+  if (track.activePattern > patternIndex || (track.activePattern == patternIndex && patternIndex > 0)) --track.activePattern;
   track.activePattern = std::min(track.activePattern, track.patternCount - 1);
+  if (queued == track.activePattern) queued = kNoPattern;
+  // Another pattern under the same number: the view starts on its first page.
+  viewPattern_[activeTrack_] = static_cast<std::uint8_t>(kSequencerMaxPatternCount);
   ReleaseEmptyPagesLocked();
   return true;
 }

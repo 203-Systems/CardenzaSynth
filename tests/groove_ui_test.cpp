@@ -2031,6 +2031,140 @@ void TestPlayModeEverywhere(Harness& h)
 
   for (std::size_t row = 0; row < song.size(); ++row) assert(sequencer.InsertSongRow(row, song[row]));
   sequencer.SetSongMode(wasSong);
+// FN + X without selected steps acts on the current pattern: notes in it are cleared (CLEAR P01?),
+// a pattern without notes is deleted (DELETE P02?), both after ENTER. A track keeps its only one.
+void TestClearDeletesEmptyPattern(Harness& h)
+{
+  auto& app = h.App();
+  auto& sequencer = app.Sequencer();
+  GoToScene(h, 2);
+  while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  h.Chord(kTab, Grid(2));
+  if (sequencer.Playing()) h.Tap(kPlay);
+  assert(!h.Seq().hasHeldSteps);
+  constexpr std::size_t track = 2;
+  constexpr Key x{3, 4}, c{3, 5};
+  const std::uint8_t note = 60;
+  // A clean slate: one empty pattern on T3, no song.
+  while (sequencer.PatternCount(track) > 1) assert(sequencer.DeletePattern(sequencer.PatternCount(track) - 1));
+  assert(sequencer.ClearPatternEvents(track, 0));
+  while (sequencer.SongLength() > 0) assert(sequencer.DeleteSongRow(0));
+  groove::LedFrame frame{};
+  // The menu while FN is held: its X tile, and whether the X key lights.
+  const auto fnX = [&](groove::MenuItem& item) {
+    h.Down(kFn);
+    h.Wait(400);
+    item = app.Ui().Menu()[2];
+    app.Ui().ComputeLeds(frame);
+    const int level = frame[groove::KeyIndex(x.row, x.column)].level;
+    h.Up(kFn);
+    h.Wait(400);
+    return level;
+  };
+  groove::MenuItem item;
+
+  // The only pattern, empty: nothing to clear and nothing to delete. The tile says DELETE but is not
+  // usable, the X key is dark, and FN + X says why.
+  assert(fnX(item) == kOff && std::string(item.label) == "DELETE" && item.detail == "P01" && !item.available);
+  h.Chord(kFn, x);
+  assert(h.Modal() == nullptr && h.State().toast.text == "ONLY PATTERN" && sequencer.PatternCount(track) == 1);
+
+  // P01 and P03 hold notes, P02 and P04 none; the song plays P02, P03, P04 on T3.
+  assert(sequencer.SetStepNotes(track, 0, &note, 1, 100));
+  assert(sequencer.SelectOrCreatePattern(1) && sequencer.SelectOrCreatePattern(2) && sequencer.SetStepNotes(track, 3, &note, 1, 100));
+  assert(sequencer.SelectOrCreatePattern(3));
+  for (std::size_t row = 0; row < 3; ++row)
+  {
+    synth::SongRow songRow;
+    songRow.patterns[track] = static_cast<std::int8_t>(row + 1);
+    assert(sequencer.InsertSongRow(row, songRow));
+  }
+  const auto column = [&]() {
+    std::vector<int> patterns;
+    for (std::size_t row = 0; row < sequencer.SongLength(); ++row) patterns.push_back(sequencer.SongRowAt(row).patterns[track]);
+    return patterns;
+  };
+  // P04 copied: the clipboard follows it when it moves down.
+  h.Chord(kFn, c);
+  assert(h.State().clipboardValid && h.State().clipboardIsPattern && h.State().clipboardIndex == 3);
+  h.Chord(kFn, Key{2, 3});  // S: saved, so what follows is the unsaved change
+  assert(!h.State().dirty);
+
+  // P02 is empty: X is DELETE P02, and asks first. ESC keeps it.
+  assert(sequencer.SelectOrCreatePattern(1));
+  assert(fnX(item) == kHalf && std::string(item.label) == "DELETE" && item.detail == "P02" && item.available);
+  h.Chord(kFn, x);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm && h.Modal()->confirmPurpose == groove::ConfirmPurpose::DeletePattern);
+  assert(h.Modal()->title == "DELETE P02?" && h.Modal()->detail == "SONG ROWS ON IT BECOME --" && h.Modal()->danger);
+  h.Render();
+  h.Tap(kEsc);
+  h.Wait(300);
+  assert(h.Modal() == nullptr && sequencer.PatternCount(track) == 4 && column() == (std::vector<int>{1, 2, 3}) && !h.State().dirty);
+  // ENTER deletes it: P03 and P04 move down one, the song's rows with them, its row is silent, and
+  // P01 (the one before) is current.
+  h.Chord(kFn, x);
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && sequencer.PatternCount(track) == 3 && sequencer.ActivePattern(track) == 0);
+  assert(sequencer.PatternHasEvents(0) && sequencer.PatternHasEvents(1) && !sequencer.PatternHasEvents(2));
+  assert(column() == (std::vector<int>{-1, 1, 2}) && h.State().clipboardIndex == 2 && h.State().clipboardValid);
+  assert(h.State().toast.text == "P02 DELETED" && h.State().hud.label == "PATTERN 1/3" && h.State().hud.value == "P01");
+  assert(h.State().dirty);
+  h.Wait(1200);
+
+  // P01 has notes: X is CLEAR PATTERN as before, and the pattern stays.
+  assert(fnX(item) == kHalf && std::string(item.label) == "CLEAR" && item.detail == "PATTERN" && item.available);
+  h.Chord(kFn, x);
+  assert(h.Modal() != nullptr && h.Modal()->confirmPurpose == groove::ConfirmPurpose::ClearPattern && h.Modal()->title == "CLEAR P01?");
+  h.Tap(kEnter);
+  assert(h.State().toast.text == "PATTERN CLEARED" && !sequencer.PatternHasEvents(0) && sequencer.PatternCount(track) == 3);
+  // Again: now it is empty, so it goes, and the next one (now P01) takes over.
+  assert(fnX(item) == kHalf && std::string(item.label) == "DELETE" && item.detail == "P01");
+  h.Chord(kFn, x);
+  assert(h.Modal() != nullptr && h.Modal()->title == "DELETE P01?" && h.Modal()->detail == "P02-P03 BECOME P01-P02");
+  h.Tap(kEnter);
+  assert(sequencer.PatternCount(track) == 2 && sequencer.ActivePattern(track) == 0 && sequencer.PatternHasEvents(0));
+  assert(column() == (std::vector<int>{-1, 0, 1}) && h.State().clipboardIndex == 1);
+  assert(h.State().toast.text == "P01 DELETED" && h.State().hud.label == "PATTERN 1/2");
+
+  // The last one, empty and copied: the copy goes with it; the one before takes over.
+  assert(sequencer.SelectOrCreatePattern(1));
+  h.Chord(kFn, x);
+  assert(h.Modal() != nullptr && h.Modal()->detail == "SONG ROWS ON IT BECOME --");
+  h.Tap(kEnter);
+  assert(sequencer.PatternCount(track) == 1 && sequencer.ActivePattern(track) == 0 && !h.State().clipboardValid);
+  assert(column() == (std::vector<int>{-1, 0, -1}));
+
+  // Steps selected: X clears them, whatever the pattern holds (no DELETE).
+  h.Tap(Grid(0));
+  assert(h.Seq().hasHeldSteps && fnX(item) == kHalf && std::string(item.label) == "CLEAR" && item.detail == "STEPS");
+  h.Chord(kFn, x);
+  assert(h.Modal() == nullptr && h.State().toast.text == "STEPS CLEARED" && sequencer.PatternCount(track) == 1);
+  h.Tap(kEsc);
+  assert(!h.Seq().hasHeldSteps && h.State().scene == Scene::Sequence);
+
+  // A pattern that got notes while the question was open (live recording) is kept.
+  assert(sequencer.SelectOrCreatePattern(1));
+  h.Chord(kFn, x);
+  assert(h.Modal() != nullptr && h.Modal()->title == "DELETE P02?" && h.Modal()->detail == "THE EMPTY PATTERN IS REMOVED");
+  assert(sequencer.SetStepNotes(track, 5, &note, 1, 100));
+  h.Tap(kEnter);
+  assert(sequencer.PatternCount(track) == 2 && h.State().toast.text == "P02 HAS NOTES - KEPT");
+  h.Wait(2200);
+
+  // The same on the PATTERN page, and from the menu kept open (a tap on FN, then the GRID).
+  assert(sequencer.ClearPatternEvents(track, 1));
+  h.Tap(kCtrl);
+  assert(app.Ui().CurrentPage() == 1);
+  h.Tap(kFn);
+  assert(app.Ui().MenuOpen() && std::string(app.Ui().Menu()[2].label) == "DELETE");
+  h.Tap(Grid(2));
+  assert(h.Modal() != nullptr && h.Modal()->title == "DELETE P02?");
+  h.Tap(kEnter);
+  assert(sequencer.PatternCount(track) == 1 && sequencer.ActivePattern(track) == 0);
+  h.Render();
+  while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  while (sequencer.SongLength() > 0) assert(sequencer.DeleteSongRow(0));
+  h.Wait(2200);
 }
 
 // Every FN menu item says what it did (toast, HUD or a pop-up), and the tile under the key lights.
@@ -3698,6 +3832,7 @@ int main()
   TestComputerMidi(h);
   TestGuide(h);
   TestEveryParameter(h);
+  TestClearDeletesEmptyPattern(h);
   // Last: it runs every item of the SEQ menu, which changes the pattern.
   TestMenuFeedback(h);
 

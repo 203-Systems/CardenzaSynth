@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 
 namespace groove {
 
@@ -599,15 +600,16 @@ void Controller::Confirmed()
       SaveProjectNamed(payload, true);
       break;
     case ConfirmPurpose::ClearPattern:
-    {
-      const auto ui = sequencer.BuildUiState(state_.track);
-      if (sequencer.ClearPatternEvents(state_.track, ui.tracks[state_.track].activePattern))
+      // The pattern it asked about, even if a queued switch came in the meantime.
+      if (sequencer.ClearPatternEvents(state_.track, std::strtoul(payload.c_str(), nullptr, 10)))
       {
         MarkDirty();
         ShowToast("PATTERN CLEARED");
       }
       break;
-    }
+    case ConfirmPurpose::DeletePattern:
+      DeleteEmptyPattern(std::strtoul(payload.c_str(), nullptr, 10));
+      break;
     case ConfirmPurpose::DeleteSample:
       // The sampler arms on the first request and deletes on the second for the same file.
       if (sampler.DeleteBrowserSample(state_.track, payload) || sampler.DeleteBrowserSample(state_.track, payload))

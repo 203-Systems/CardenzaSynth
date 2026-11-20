@@ -457,6 +457,31 @@ int main(int argc, char** argv)
     Frames(140);
   }
 
+  // FN + X deletes an empty pattern once ENTER says yes (SEQ): a key like every edit, so the autosave
+  // keeps it gone across a power cut, as the unsaved change it is.
+  {
+    const std::size_t track = groove->Ui().State().track;
+    const std::size_t before = groove->Sequencer().PatternCount(track);
+    assert(groove->Sequencer().SelectOrCreatePattern(before));
+    Tap(1, 1);
+    Frames(140);
+    Key(0, 0, true);  // ESC map: SEQ
+    Tap(0, 11);
+    Key(0, 0, false);
+    Frames(30);
+    assert(groove->Ui().State().scene == groove::Scene::Sequence);
+    Key(2, 0, true);  // FN + X
+    Tap(3, 4);
+    Key(2, 0, false);
+    assert(groove->Ui().TopModal() != nullptr && groove->Ui().TopModal()->confirmPurpose == groove::ConfirmPurpose::DeletePattern);
+    Tap(2, 13);  // ENTER
+    assert(groove->Sequencer().PatternCount(track) == before && groove->Ui().State().dirty);
+    Frames(140);
+    powerCut();
+    restart();
+    assert(groove->Sequencer().PatternCount(track) == before && groove->Ui().State().dirty);
+  }
+
   // Playing or not: the card is written on the device's background task, so the music does not wait.
   {
     groove->Sequencer().Play();

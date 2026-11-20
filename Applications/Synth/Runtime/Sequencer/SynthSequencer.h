@@ -48,6 +48,11 @@ public:
   void StepPattern(int delta);
   void AdjustPatternCount(int delta);
   bool SelectOrCreatePattern(std::size_t patternIndex);
+  // Removes a pattern of the active track: the later ones move down one (no hole), song rows on it
+  // become -1 and rows on later ones follow them, a queued switch follows its pattern. The deleted
+  // active pattern hands over to the one before it (the next one when it was the first); a playing
+  // song row that had the track on it leaves the track silent until the next row. A track's only
+  // pattern is cleared instead of removed.
   bool DeletePattern(std::size_t patternIndex);
   bool CopyPattern(std::size_t sourcePattern, std::size_t destinationPattern);
   bool PatternHasEvents(std::size_t patternIndex) const;

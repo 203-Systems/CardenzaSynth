@@ -112,7 +112,8 @@ enum class ConfirmPurpose : std::uint8_t {
   NewProject,
   LoadProject,
   OverwriteProject,
-  ClearPattern,
+  ClearPattern,   // payload: the pattern's index
+  DeletePattern,  // an empty pattern (payload: its index): the later ones move down one
   DeleteSample,
   DiscardTake,
   ReplaceTake,
@@ -324,6 +325,7 @@ struct MenuItem {
   const char* key = nullptr;  // the FN shortcut that also runs it ("OK" = FN + ENTER, "PLAY" = FN + PLAY)
   bool available = true;
   bool on = false;            // a switch that is on (full LED)
+  const char* refusal = nullptr;  // what an unavailable item says when run (else "<LABEL> NOT HERE")
 };
 using MenuItems = std::array<MenuItem, kGridCount>;
 
@@ -776,7 +778,11 @@ private:
   void AllStop();
   void Copy();
   void Paste();
+  // SEQ: the selected steps; else the current pattern's notes, or the pattern itself when it has
+  // none (both confirm). TAPE SONG: the row under the cursor.
   void Clear();
+  // After the confirmation: the pattern goes if it is still there, still empty and not the only one.
+  void DeleteEmptyPattern(std::size_t pattern);
   void Quantize();
   void Duplicate();
   void TapTempo();
