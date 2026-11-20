@@ -55,6 +55,29 @@ public:
   // pattern is cleared instead of removed.
   bool DeletePattern(std::size_t patternIndex);
   bool CopyPattern(std::size_t sourcePattern, std::size_t destinationPattern);
+  // PASTE (the SEQ menu), from any track. `only` (a drum track's kit) lets only notes on those pitches
+  // go across: the others are counted in leftOut, and a source that keeps none changes nothing.
+  struct PasteReport {
+    bool pasted = false;
+    bool noMemory = false;      // a page of steps did not fit: nothing was written
+    std::size_t notes = 0;      // the source's notes that went across
+    std::size_t leftOut = 0;    // the source's notes `only` refused
+    std::size_t steps = 0;      // steps written (a pattern: the steps that hold notes)
+  };
+  // A pattern of any track over a pattern of the active track, with its length; the active pattern
+  // and a queued switch stay as they are (a pattern playing now keeps its phase in its new length).
+  // The pages are shared with the source until one of them writes (StepStore), so a paste of every
+  // note costs no memory. Not a pattern onto itself.
+  PasteReport PastePattern(std::size_t sourceTrack, std::size_t sourcePattern, std::size_t destinationPattern,
+                           const std::uint8_t* only = nullptr, std::size_t onlyCount = 0);
+  // What PastePattern would do, writing nothing (noMemory is never known beforehand).
+  PasteReport PastePatternPreview(std::size_t sourceTrack, std::size_t sourcePattern, std::size_t destinationPattern,
+                                  const std::uint8_t* only = nullptr, std::size_t onlyCount = 0) const;
+  // One step of any track's pattern replaces each selected step of the active track's active pattern
+  // (the source step itself excluded), its lengths kept within the pattern. Without memory for every
+  // page it needs, it writes none.
+  PasteReport PasteStep(std::size_t sourceTrack, std::size_t sourcePattern, std::size_t sourceStep,
+                        const std::uint8_t* only = nullptr, std::size_t onlyCount = 0);
   bool PatternHasEvents(std::size_t patternIndex) const;
   // Bit n set = step n of that track's pattern holds notes (0 for an empty or missing pattern). A
   // pattern longer than 16 steps is cut in 16 equal slices, a bit for each.
@@ -477,6 +500,9 @@ private:
   const StepData* PrimaryHeldStepLocked() const;
   std::size_t ActiveNoteCount(const StepData& step) const;
   std::uint16_t ClampLengthForStepMicrostep(std::size_t stepIndex, std::uint8_t microstep, std::uint16_t lengthPulses) const;
+  // PastePattern's checks and counts (pasted: it would write), for it and its preview.
+  PasteReport PastePatternCountLocked(std::size_t sourceTrack, std::size_t sourcePattern, std::size_t destinationPattern,
+                                      const std::array<bool, 128>& keep) const;
   static std::uint16_t ClampLengthInPattern(std::size_t patternSteps, std::size_t stepIndex, std::uint8_t microstep, std::uint16_t lengthPulses);
   std::string ValueLabelLocked(const StepData* step) const;
   // The edit lanes, in one place: the current lane's edit of some notes of a step (its slots), which

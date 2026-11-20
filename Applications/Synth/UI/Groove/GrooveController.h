@@ -114,6 +114,7 @@ enum class ConfirmPurpose : std::uint8_t {
   OverwriteProject,
   ClearPattern,   // payload: the pattern's index
   DeletePattern,  // an empty pattern (payload: its index): the later ones move down one
+  PastePattern,   // the copied pattern over one with notes (payload: "<from track> <from pattern> <track> <pattern>")
   DeleteSample,
   DiscardTake,
   ReplaceTake,
@@ -452,9 +453,13 @@ struct UiState {
   std::string projectName;
   bool dirty = false;
 
-  // Copy / paste: steps of the active pattern or a whole pattern.
+  // Copy / paste in SEQ: a whole pattern or one step of it, on any track; PASTE works on every track.
+  // A reference, not a copy: PASTE takes what the source holds then (edits since COPY too), and a
+  // pattern deleted on its track moves it along with the later ones, or drops it.
   bool clipboardIsPattern = false;
-  std::size_t clipboardIndex = 0;
+  std::size_t clipboardTrack = 0;
+  std::size_t clipboardPattern = 0;
+  std::size_t clipboardStep = 0;  // a step's (absolute, as the sequencer counts them)
   bool clipboardValid = false;
 
   // Pads: the key each held pad pressed, the notes it sounds (scale lock, chord) and their track.
@@ -776,8 +781,18 @@ private:
 
   // Fn functions
   void AllStop();
+  // SEQ: the selected step, else the current pattern, of this track (the clipboard remembers which).
   void Copy();
+  // SEQ: the copied step into the selected steps, or the copied pattern over the current one (asking
+  // first when that has notes), from whichever track it was copied on. A drum track takes only its
+  // kit's drums.
   void Paste();
+  // The paste itself, after the question if there was one.
+  void PastePatternNow(std::size_t fromTrack, std::size_t fromPattern, std::size_t pattern);
+  // The clipboard's source still exists (its pattern is still on its track).
+  bool ClipboardUsable() const;
+  // "T1 P02" (a pattern), "T1 S5" (a step): what the menu's PASTE says it pastes.
+  std::string ClipboardLabel() const;
   // SEQ: the selected steps; else the current pattern's notes, or the pattern itself when it has
   // none (both confirm). TAPE SONG: the row under the cursor.
   void Clear();

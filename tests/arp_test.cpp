@@ -952,8 +952,160 @@ void TestDeletePattern()
   }
 }
 
+// PASTE from any track (SynthSequencer::PastePattern / PasteStep): the notes with their velocity,
+// length, timing and hits, a pattern's length; a drum track takes only its kit's drums.
+void TestPasteAcrossTracks()
+{
+  constexpr std::array<std::uint8_t, 8> kKit{{36, 38, 42, 46, 39, 43, 56, 70}};
+  const auto notesOf = [](SynthSequencer& seq, std::size_t track, std::size_t step) {
+    std::array<SynthSequencer::StepNoteView, 8> notes{};
+    const std::size_t count = seq.StepNoteEvents(track, step, notes);
+    return std::vector<SynthSequencer::StepNoteView>(notes.begin(), notes.begin() + static_cast<std::ptrdiff_t>(count));
+  };
+  const auto pitches = [&](SynthSequencer& seq, std::size_t track, std::size_t step) {
+    std::vector<int> result;
+    for (const auto& note : notesOf(seq, track, step)) result.push_back(note.note);
+    std::sort(result.begin(), result.end());
+    return result;
+  };
+  using Pitches = std::vector<int>;
+  {
+    Rig rig;
+    auto& seq = rig.seq();
+    // T2 P02, 32 steps: a C off the grid with 3 hits on step 1, a kick on step 6, a chord on step 21.
+    seq.SetActiveTrack(1);
+    CHECK(seq.SelectOrCreatePattern(1));
+    seq.SetTrackStepCount(1, 32);
+    CHECK(seq.InsertNote(1, 1, 0, 2, 60, 90, 30) && seq.InsertNote(1, 1, 5, 0, 36, 127, 24));
+    CHECK(seq.InsertNote(1, 1, 20, 0, 64, 100, 24) && seq.InsertNote(1, 1, 20, 0, 67, 100, 24));
+    const std::uint8_t c = 60;
+    seq.SetStepSelected(0, true);
+    seq.SetEditLane(synth::SequencerEditLane::Hits);
+    CHECK(seq.AdjustNotesOnSelectedSteps(&c, 1, 2, false));
+    seq.ClearSelectedSteps();
+
+    // Onto T3's empty P01: every note as it is, the length too; T3 stays on its pattern.
+    seq.SetActiveTrack(2);
+    auto report = seq.PastePattern(1, 1, 0);
+    CHECK(report.pasted && !report.noMemory && report.notes == 4 && report.leftOut == 0 && report.steps == 3);
+    CHECK(seq.PatternStepCount(2, 0) == 32 && seq.ActivePattern(2) == 0 && seq.PatternCount(2) == 1);
+    const auto first = notesOf(seq, 2, 0);
+    CHECK(first.size() == 1 && first[0].note == 60 && first[0].velocity == 90 && first[0].lengthPulses == 30 && first[0].microstep == 2 &&
+          first[0].hits == 3);
+    CHECK(pitches(seq, 2, 5) == Pitches{36} && pitches(seq, 2, 20) == (Pitches{64, 67}));
+    // The two share pages until one writes: an edit on T3 leaves T2 alone.
+    seq.ClearStep(0);
+    CHECK(notesOf(seq, 2, 0).empty() && pitches(seq, 1, 0) == Pitches{60});
+
+    // Onto the drums (T1 P01, a snare on step 4): only the kick goes across, the rest is counted.
+    seq.SetActiveTrack(0);
+    CHECK(seq.InsertNote(0, 0, 3, 0, 38, 100, 24));
+    report = seq.PastePatternPreview(1, 1, 0, kKit.data(), kKit.size());
+    CHECK(report.pasted && report.notes == 1 && report.leftOut == 3 && pitches(seq, 0, 3) == Pitches{38});
+    report = seq.PastePattern(1, 1, 0, kKit.data(), kKit.size());
+    CHECK(report.pasted && report.notes == 1 && report.leftOut == 3 && report.steps == 1);
+    CHECK(pitches(seq, 0, 5) == Pitches{36} && pitches(seq, 0, 0).empty() && pitches(seq, 0, 20).empty() && pitches(seq, 0, 3).empty());
+    CHECK(seq.PatternStepCount(0, 0) == 32);
+    // The source keeps what the drums left out.
+    CHECK(pitches(seq, 1, 0) == Pitches{60} && pitches(seq, 1, 20) == (Pitches{64, 67}));
+
+    // A melody without any of the kit: no paste, the drums stay.
+    CHECK(seq.InsertNote(1, 0, 0, 0, 60, 100, 24) && seq.InsertNote(1, 0, 1, 0, 62, 100, 24));
+    report = seq.PastePatternPreview(1, 0, 0, kKit.data(), kKit.size());
+    CHECK(!report.pasted && report.notes == 0 && report.leftOut == 2);
+    report = seq.PastePattern(1, 0, 0, kKit.data(), kKit.size());
+    CHECK(!report.pasted && !report.noMemory && report.leftOut == 2 && pitches(seq, 0, 5) == Pitches{36});
+
+    // Drums onto a melodic track: the drums' pitches become its notes.
+    seq.SetActiveTrack(3);
+    report = seq.PastePattern(0, 0, 0);
+    CHECK(report.pasted && report.notes == 1 && pitches(seq, 3, 5) == Pitches{36} && seq.PatternStepCount(3, 0) == 32);
+
+    // Not onto itself, not from a pattern that is not there.
+    seq.SetActiveTrack(0);
+    CHECK(!seq.PastePattern(0, 0, 0).pasted && !seq.PastePatternPreview(0, 0, 0).pasted);
+    CHECK(!seq.PastePattern(1, 5, 0).pasted && !seq.PastePattern(1, 1, 3).pasted);
+
+    // The same track, as before: another pattern; a switch queued while playing stays queued.
+    seq.SetActiveTrack(1);
+    CHECK(seq.SelectOrCreatePattern(2));
+    seq.Play();
+    CHECK(seq.QueuePattern(1, 0));
+    report = seq.PastePattern(1, 1, 2);
+    CHECK(report.pasted && seq.ActivePattern(1) == 2 && seq.BuildUiState(1).tracks[1].queuedPattern == 0);
+    CHECK(pitches(seq, 1, 20) == (Pitches{64, 67}) && seq.PatternStepCount(1, 2) == 32);
+    seq.Stop();
+
+    // A step: T2 P02's chord into T3's selected steps 2, 18 and 21 (the number it had on T2 is no
+    // exception on T3).
+    CHECK(seq.SelectOrCreatePattern(1));
+    seq.SetActiveTrack(2);
+    for (const std::size_t step : {1, 17, 20}) seq.SetStepSelected(step, true);
+    report = seq.PasteStep(1, 1, 20);
+    CHECK(report.pasted && report.steps == 3 && report.notes == 2);
+    CHECK(pitches(seq, 2, 1) == (Pitches{64, 67}) && pitches(seq, 2, 17) == (Pitches{64, 67}) && pitches(seq, 2, 20) == (Pitches{64, 67}));
+    seq.ClearSelectedSteps();
+    // ... with its timing and hits.
+    seq.SetStepSelected(8, true);
+    CHECK(seq.PasteStep(1, 1, 0).pasted);
+    const auto pasted = notesOf(seq, 2, 8);
+    CHECK(pasted.size() == 1 && pasted[0].microstep == 2 && pasted[0].hits == 3 && pasted[0].velocity == 90);
+    seq.ClearSelectedSteps();
+    // An empty step pastes nothing.
+    seq.SetStepSelected(9, true);
+    report = seq.PasteStep(1, 1, 7);
+    CHECK(!report.pasted && report.notes == 0 && notesOf(seq, 2, 9).empty());
+    seq.ClearSelectedSteps();
+    // On its own pattern the copied step itself is left out.
+    seq.SetActiveTrack(1);
+    seq.SetStepSelected(20, true);
+    seq.SetStepSelected(21, true);
+    report = seq.PasteStep(1, 1, 20);
+    CHECK(report.pasted && report.steps == 1 && pitches(seq, 1, 21) == (Pitches{64, 67}));
+    seq.ClearSelectedSteps();
+    // Onto the drums: the kit's drums only; a step with none of them pastes nothing.
+    seq.SetActiveTrack(0);
+    seq.SetStepSelected(9, true);
+    report = seq.PasteStep(1, 1, 20, kKit.data(), kKit.size());
+    CHECK(!report.pasted && report.leftOut == 2 && pitches(seq, 0, 9).empty());
+    CHECK(seq.InsertNote(1, 1, 6, 0, 42, 100, 24) && seq.InsertNote(1, 1, 6, 0, 61, 100, 24));
+    report = seq.PasteStep(1, 1, 6, kKit.data(), kKit.size());
+    CHECK(report.pasted && report.notes == 1 && report.leftOut == 1 && pitches(seq, 0, 9) == Pitches{42});
+    seq.ClearSelectedSteps();
+  }
+  {
+    // Out of memory: a paste that needs pages it cannot have writes nothing and says so.
+    Rig rig;
+    auto& seq = rig.seq();
+    CHECK(seq.InsertNote(1, 0, 0, 0, 36, 100, 24) && seq.InsertNote(1, 0, 0, 0, 60, 100, 24) && seq.InsertNote(1, 0, 16, 0, 38, 100, 24));
+    CHECK(seq.InsertNote(0, 0, 4, 0, 42, 100, 24));
+    SynthSequencer::SetPageBudgetForTest(0);
+    // Every note across: the pages are shared, no memory needed.
+    seq.SetActiveTrack(2);
+    auto report = seq.PastePattern(1, 0, 0);
+    CHECK(report.pasted && !report.noMemory && pitches(seq, 2, 16) == Pitches{38});
+    // Notes left out need pages of its own: none, so the drums stay as they were.
+    seq.SetActiveTrack(0);
+    report = seq.PastePattern(1, 0, 0, kKit.data(), kKit.size());
+    CHECK(!report.pasted && report.noMemory && pitches(seq, 0, 4) == Pitches{42} && pitches(seq, 0, 0).empty());
+    // Steps: step 5's page is there, step 21's is not: neither is written.
+    seq.SetStepSelected(4, true);
+    seq.SetStepSelected(20, true);
+    report = seq.PasteStep(1, 0, 16, kKit.data(), kKit.size());
+    CHECK(!report.pasted && report.noMemory && pitches(seq, 0, 4) == Pitches{42} && pitches(seq, 0, 20).empty());
+    CHECK(!SynthSequencer::ConsumePatternMemoryFull());
+    // A page more: both.
+    SynthSequencer::SetPageBudgetForTest(1);
+    report = seq.PasteStep(1, 0, 16, kKit.data(), kKit.size());
+    CHECK(report.pasted && report.steps == 2 && pitches(seq, 0, 4) == Pitches{38} && pitches(seq, 0, 20) == Pitches{38});
+    SynthSequencer::SetPageBudgetForTest(-1);
+    seq.ClearSelectedSteps();
+  }
+}
+
 int main()
 {
+  TestPasteAcrossTracks();
   TestDeletePattern();
   TestLongPatterns();
   TestOffIsInert();

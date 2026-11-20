@@ -965,7 +965,7 @@ void Controller::SelectTrack(std::size_t track)
   host_.Sequencer().SetActiveTrack(track);
   host_.Sequencer().ClearSelectedSteps();
   if (state_.mixFocus < kTrackCount) state_.mixFocus = static_cast<std::uint8_t>(track);
-  state_.clipboardValid = state_.clipboardValid && !state_.clipboardIsPattern;
+  // The clipboard stays: what was copied on one track pastes on another.
   ClampPages();
 }
 

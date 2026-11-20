@@ -88,6 +88,36 @@ bool StepHasNotes(const SynthSequencer::StepData& step)
 {
   return std::any_of(step.notes.begin(), step.notes.end(), [](const auto& note) { return note.active; });
 }
+
+// The pitches a paste lets through: every one without a list, else those listed (a drum kit).
+std::array<bool, 128> PastePitches(const std::uint8_t* only, std::size_t count)
+{
+  std::array<bool, 128> keep{};
+  if (only == nullptr)
+  {
+    keep.fill(true);
+    return keep;
+  }
+  for (std::size_t index = 0; index < count; ++index)
+    if (only[index] < keep.size()) keep[only[index]] = true;
+  return keep;
+}
+
+// Takes the notes `keep` refuses out of a step, counting what stays and what goes.
+void KeepPitches(SynthSequencer::StepData& step, const std::array<bool, 128>& keep, std::size_t& kept, std::size_t& leftOut)
+{
+  for (auto& note : step.notes)
+  {
+    if (!note.active) continue;
+    if (note.note < keep.size() && keep[note.note])
+    {
+      ++kept;
+      continue;
+    }
+    ++leftOut;
+    note = SynthSequencer::NoteEvent{};
+  }
+}
 // Pattern steps live in PSRAM (Library/Memory/Memory.h): the clock reads one step at a time, the UI a
 // page. Pages stop when PSRAM is down to this, which samples and snapshots share: about 1300 pages more
 // than the 1024 every pattern of every track can have.
@@ -764,6 +794,134 @@ bool SynthSequencer::CopyPattern(std::size_t sourcePattern, std::size_t destinat
   queuedPattern_[activeTrack_] = kNoPattern;
   ReleaseEmptyPagesLocked();
   return true;
+}
+
+SynthSequencer::PasteReport SynthSequencer::PastePatternCountLocked(std::size_t sourceTrack, std::size_t sourcePattern,
+                                                                    std::size_t destinationPattern, const std::array<bool, 128>& keep) const
+{
+  PasteReport report;
+  if (sourceTrack >= tracks_.size() || activeTrack_ >= tracks_.size()) return report;
+  const TrackData& from = tracks_[sourceTrack];
+  if (sourcePattern >= ClampedPatternCount(from) || destinationPattern >= ClampedPatternCount(tracks_[activeTrack_])) return report;
+  if (sourceTrack == activeTrack_ && sourcePattern == destinationPattern) return report;
+  const StepStore& steps = from.patterns[sourcePattern].steps;
+  for (std::size_t step = steps.NextInUse(0); step < steps.size(); step = steps.NextInUse(step + 1))
+  {
+    StepData data = steps[step];
+    std::size_t kept = 0;
+    KeepPitches(data, keep, kept, report.leftOut);
+    report.notes += kept;
+    report.steps += kept > 0 ? 1 : 0;
+  }
+  // Nothing of it is for this track (a melody onto drums): no paste. An empty pattern is one.
+  report.pasted = report.notes > 0 || report.leftOut == 0;
+  return report;
+}
+
+SynthSequencer::PasteReport SynthSequencer::PastePatternPreview(std::size_t sourceTrack, std::size_t sourcePattern,
+                                                                std::size_t destinationPattern, const std::uint8_t* only,
+                                                                std::size_t onlyCount) const
+{
+  const std::array<bool, 128> keep = PastePitches(only, onlyCount);
+  std::lock_guard<std::mutex> lock(mutex_);
+  return PastePatternCountLocked(sourceTrack, sourcePattern, destinationPattern, keep);
+}
+
+SynthSequencer::PasteReport SynthSequencer::PastePattern(std::size_t sourceTrack, std::size_t sourcePattern, std::size_t destinationPattern,
+                                                         const std::uint8_t* only, std::size_t onlyCount)
+{
+  const std::array<bool, 128> keep = PastePitches(only, onlyCount);
+  std::lock_guard<std::mutex> lock(mutex_);
+  PasteReport report = PastePatternCountLocked(sourceTrack, sourcePattern, destinationPattern, keep);
+  if (!report.pasted) return report;
+  const TrackData& from = tracks_[sourceTrack];
+  TrackData& to = tracks_[activeTrack_];
+  const auto noMemory = [] {
+    PasteReport failed;
+    failed.noMemory = true;
+    return failed;
+  };
+
+  // The source's steps, sharing its pages; only a page that loses notes to `keep` gets a copy of its own.
+  StepStore steps = from.patterns[sourcePattern].steps;
+  if (report.leftOut > 0)
+  {
+    for (std::size_t step = steps.NextInUse(0); step < steps.size(); step = steps.NextInUse(step + 1))
+    {
+      StepData data = steps[step];
+      std::size_t kept = 0;
+      std::size_t leftOut = 0;
+      KeepPitches(data, keep, kept, leftOut);
+      if (leftOut == 0) continue;
+      StepData* edit = steps.TryEdit(step);
+      if (edit == nullptr) return noMemory();
+      *edit = data;
+    }
+    steps.ReleaseEmptyPages();
+  }
+  if (!to.patterns.Ensure(destinationPattern)) return noMemory();
+  to.patterns[destinationPattern].steps = steps;
+  to.patternSteps[destinationPattern] = from.patternSteps[sourcePattern];
+  // The pattern playing now keeps its phase in its new length (as SetTrackStepCount).
+  if (destinationPattern == std::min(to.activePattern, ClampedPatternCount(to) - 1))
+  {
+    const std::uint16_t loopPulses = static_cast<std::uint16_t>(TrackStepCountOf(to) * kSequencerPulsesPerStep);
+    trackNextPulse_[activeTrack_] = static_cast<std::uint16_t>(trackNextPulse_[activeTrack_] % loopPulses);
+    trackCurrentPulse_[activeTrack_] = static_cast<std::uint16_t>(trackCurrentPulse_[activeTrack_] % loopPulses);
+  }
+  ReleaseEmptyPagesLocked();
+  return report;
+}
+
+SynthSequencer::PasteReport SynthSequencer::PasteStep(std::size_t sourceTrack, std::size_t sourcePattern, std::size_t sourceStep,
+                                                      const std::uint8_t* only, std::size_t onlyCount)
+{
+  PasteReport report;
+  if (sourceStep >= kSequencerMaxSteps) return report;
+  const std::array<bool, 128> keep = PastePitches(only, onlyCount);
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (sourceTrack >= tracks_.size() || activeTrack_ >= tracks_.size()) return report;
+  const TrackData& from = tracks_[sourceTrack];
+  if (sourcePattern >= ClampedPatternCount(from)) return report;
+  StepData source = from.patterns[sourcePattern].steps[sourceStep];
+  KeepPitches(source, keep, report.notes, report.leftOut);
+  // An empty step, or none of it for this track: nothing changes.
+  if (report.notes == 0) return report;
+
+  TrackData& to = tracks_[activeTrack_];
+  const std::size_t destinationPattern = std::min(to.activePattern, ClampedPatternCount(to) - 1);
+  if (!to.patterns.Ensure(destinationPattern))
+  {
+    report = PasteReport{};
+    report.noMemory = true;
+    return report;
+  }
+  StepStore& steps = to.patterns[destinationPattern].steps;
+  const bool samePattern = sourceTrack == activeTrack_ && sourcePattern == destinationPattern;
+  const auto target = [&](std::size_t step) { return heldSteps_[step] && !(samePattern && step == sourceStep); };
+  // Every page it writes first, so a paste that runs out of memory writes none (the pages it made
+  // writable keep what they held; those it added are empty and go again).
+  for (std::size_t step = 0; step < heldSteps_.size(); ++step)
+    if (target(step) && steps.TryEdit(step) == nullptr)
+    {
+      steps.ReleaseEmptyPages();
+      report = PasteReport{};
+      report.noMemory = true;
+      return report;
+    }
+  for (std::size_t step = 0; step < heldSteps_.size(); ++step)
+  {
+    if (!target(step)) continue;
+    StepData* destination = steps.TryEdit(step);
+    if (destination == nullptr) continue;
+    *destination = source;
+    for (NoteEvent& note : destination->notes)
+      if (note.active) note.lengthPulses = ClampLengthForStepMicrostep(step, note.microstep, note.lengthPulses);
+    ++report.steps;
+  }
+  report.pasted = report.steps > 0;
+  ReleaseEmptyPagesLocked();
+  return report;
 }
 
 std::uint16_t SynthSequencer::PatternStepMask(std::size_t trackIndex, std::size_t patternIndex) const

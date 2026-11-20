@@ -36,6 +36,12 @@ std::string PatternLabel(std::size_t index)
   return text;
 }
 
+// "T1 P02": a pattern of a track, as copy and paste name it.
+std::string TrackPatternLabel(std::size_t track, std::size_t pattern)
+{
+  return "T" + std::to_string(track + 1) + " " + PatternLabel(pattern);
+}
+
 // The sound's name with the first number no other sound has.
 std::string FreePresetName(const synth::ISynthEngine& engine)
 {
@@ -1617,18 +1623,32 @@ void Controller::Copy()
     return;
   }
   const auto ui = host_.Sequencer().BuildUiState(state_.track);
+  // Where it comes from: PASTE on any track takes it from there.
+  state_.clipboardTrack = state_.track;
+  state_.clipboardPattern = ui.tracks[state_.track].activePattern;
+  state_.clipboardValid = true;
   if (CurrentPage() == 0 && ui.hasHeldSteps)
   {
     state_.clipboardIsPattern = false;
-    state_.clipboardIndex = ui.primaryHeldStep;
-    state_.clipboardValid = true;
-    ShowToast("COPIED STEP " + std::to_string(ui.primaryHeldStep + 1));
+    state_.clipboardStep = ui.primaryHeldStep;
+    ShowToast("COPIED " + TrackPatternLabel(state_.track, state_.clipboardPattern) + " STEP " + std::to_string(ui.primaryHeldStep + 1));
     return;
   }
   state_.clipboardIsPattern = true;
-  state_.clipboardIndex = ui.tracks[state_.track].activePattern;
-  state_.clipboardValid = true;
-  ShowToast("COPIED " + PatternLabel(state_.clipboardIndex));
+  ShowToast("COPIED " + TrackPatternLabel(state_.track, state_.clipboardPattern));
+}
+
+bool Controller::ClipboardUsable() const
+{
+  return state_.clipboardValid && state_.clipboardTrack < kTrackCount &&
+         state_.clipboardPattern < host_.Sequencer().PatternCount(state_.clipboardTrack) &&
+         (state_.clipboardIsPattern || state_.clipboardStep < synth::kSequencerMaxSteps);
+}
+
+std::string Controller::ClipboardLabel() const
+{
+  if (state_.clipboardIsPattern) return TrackPatternLabel(state_.clipboardTrack, state_.clipboardPattern);
+  return "T" + std::to_string(state_.clipboardTrack + 1) + " S" + std::to_string(state_.clipboardStep + 1);
 }
 
 void Controller::Paste()
@@ -1648,33 +1668,90 @@ void Controller::Paste()
     }
     return;
   }
-  if (state_.scene != Scene::Sequence || !state_.clipboardValid)
+  if (state_.scene != Scene::Sequence || !ClipboardUsable())
   {
     ShowToast("NOTHING TO PASTE");
     return;
   }
   auto& sequencer = host_.Sequencer();
   const auto ui = sequencer.BuildUiState(state_.track);
+  const std::size_t pattern = ui.tracks[state_.track].activePattern;
+  const std::size_t fromTrack = state_.clipboardTrack;
+  const std::size_t fromPattern = state_.clipboardPattern;
+  const std::string here = TrackPatternLabel(state_.track, pattern);
   if (!state_.clipboardIsPattern)
   {
-    if (!ui.hasHeldSteps)
+    if (CurrentPage() != 0 || !ui.hasHeldSteps)
     {
       ShowToast("SELECT STEPS TO PASTE");
       return;
     }
-    for (std::size_t step = 0; step < synth::kSequencerMaxSteps; ++step)
-      if (step != state_.clipboardIndex && sequencer.StepSelected(step)) (void)sequencer.CopyStep(state_.clipboardIndex, step);
+    // A drum track sounds only its kit's pads: the other notes stay out (and are counted).
+    const bool drums = DrumTrack();
+    const auto report = sequencer.PasteStep(fromTrack, fromPattern, state_.clipboardStep, drums ? kDrumNotes.data() : nullptr,
+                                            drums ? kDrumNotes.size() : 0);
+    const std::string step = "STEP " + std::to_string(state_.clipboardStep + 1);
+    if (report.noMemory)
+    {
+      ShowToast("MEMORY FULL - NOT PASTED", ToastKind::Error);
+      return;
+    }
+    if (!report.pasted)
+    {
+      const std::string source = "T" + std::to_string(fromTrack + 1) + " " + step;
+      if (report.leftOut > 0) ShowToast(source + " HAS NO DRUMS", ToastKind::Error);
+      else if (report.notes == 0) ShowToast(source + " IS EMPTY");
+      else ShowToast("SELECT OTHER STEPS");  // only the copied step itself is selected
+      return;
+    }
     MarkDirty();
-    ShowToast("PASTED", ToastKind::Ok);
+    if (report.leftOut > 0) ShowToast(step + " > " + here + " - " + std::to_string(report.leftOut) + " NOT DRUMS");
+    else ShowToast(TrackPatternLabel(fromTrack, fromPattern) + " " + step + " > " + here, ToastKind::Ok);
     return;
   }
-  const std::size_t destination = ui.tracks[state_.track].activePattern;
-  if (destination == state_.clipboardIndex) return;
-  if (sequencer.CopyPattern(state_.clipboardIndex, destination))
+  // The pattern onto itself: nothing to do (the menu's tile is unusable).
+  if (fromTrack == state_.track && fromPattern == pattern) return;
+  // A melody with none of the kit's drums is no paste for a drum track: said before anything is asked.
+  const bool drums = DrumTrack();
+  if (!sequencer.PastePatternPreview(fromTrack, fromPattern, pattern, drums ? kDrumNotes.data() : nullptr, drums ? kDrumNotes.size() : 0)
+           .pasted)
   {
-    MarkDirty();
-    ShowToast("PASTED TO " + PatternLabel(destination), ToastKind::Ok);
+    ShowToast(TrackPatternLabel(fromTrack, fromPattern) + " HAS NO DRUMS", ToastKind::Error);
+    return;
   }
+  // Over notes: they would be gone, so it asks first (danger), about this source and this pattern.
+  if (ui.patternHasEvents[pattern])
+  {
+    OpenConfirm(ConfirmPurpose::PastePattern, "PASTE " + TrackPatternLabel(fromTrack, fromPattern) + " TO " + here + "?",
+                "NOTES IN " + here + " ARE REPLACED", true,
+                std::to_string(fromTrack) + " " + std::to_string(fromPattern) + " " + std::to_string(state_.track) + " " +
+                    std::to_string(pattern));
+    return;
+  }
+  PastePatternNow(fromTrack, fromPattern, pattern);
+}
+
+void Controller::PastePatternNow(std::size_t fromTrack, std::size_t fromPattern, std::size_t pattern)
+{
+  // A drum track sounds only its kit's pads: the other notes stay out (and are counted).
+  const bool drums = DrumTrack();
+  const auto report = host_.Sequencer().PastePattern(fromTrack, fromPattern, pattern, drums ? kDrumNotes.data() : nullptr,
+                                                     drums ? kDrumNotes.size() : 0);
+  const std::string from = TrackPatternLabel(fromTrack, fromPattern);
+  const std::string to = TrackPatternLabel(state_.track, pattern);
+  if (report.noMemory)
+  {
+    ShowToast("MEMORY FULL - NOT PASTED", ToastKind::Error);
+    return;
+  }
+  if (!report.pasted)
+  {
+    ShowToast(report.leftOut > 0 ? from + " HAS NO DRUMS" : std::string("NOTHING TO PASTE"), ToastKind::Error);
+    return;
+  }
+  MarkDirty();
+  if (report.leftOut > 0) ShowToast(from + " > " + to + " - " + std::to_string(report.leftOut) + " NOT DRUMS");
+  else ShowToast(from + " > " + to, ToastKind::Ok);
 }
 
 void Controller::Clear()
@@ -1749,11 +1826,11 @@ void Controller::DeleteEmptyPattern(std::size_t pattern)
   }
   if (!sequencer.DeletePattern(pattern)) return;
   MarkDirty();
-  // A copied pattern follows its number, or goes with it.
-  if (state_.clipboardValid && state_.clipboardIsPattern)
+  // A copied pattern (or step) of this track follows its pattern's number, or goes with it.
+  if (state_.clipboardValid && state_.clipboardTrack == state_.track)
   {
-    if (state_.clipboardIndex == pattern) state_.clipboardValid = false;
-    else if (state_.clipboardIndex > pattern) --state_.clipboardIndex;
+    if (state_.clipboardPattern == pattern) state_.clipboardValid = false;
+    else if (state_.clipboardPattern > pattern) --state_.clipboardPattern;
   }
   // What went in the footer, where the track is now as a pattern switch says it.
   ShowToast(PatternLabel(pattern) + " DELETED");
@@ -1903,9 +1980,15 @@ MenuItems Controller::Menu() const
       // Copy / paste / clear / quantize work on the selected steps, or else the whole pattern.
       const bool steps = page == 0 && ui.hasHeldSteps;
       const std::string target = steps ? "STEPS" : "PATTERN";
-      const bool pasteable = state_.clipboardValid && (state_.clipboardIsPattern || steps);
+      // PASTE names what it pastes (T1 P02, T1 S5), copied on this track or another; a pattern goes
+      // over the current one, a step into the selected steps.
+      const bool copied = ClipboardUsable();
+      const bool samePattern = copied && state_.clipboardIsPattern && state_.clipboardTrack == state_.track &&
+                               state_.clipboardPattern == ui.tracks[state_.track].activePattern;
+      const bool pasteable = copied && (state_.clipboardIsPattern ? !samePattern : steps);
       put(0, MenuAction::Copy, "COPY", target, "C");
-      put(1, MenuAction::Paste, "PASTE", target, "V", pasteable);
+      put(1, MenuAction::Paste, "PASTE", copied ? ClipboardLabel() : target, "V", pasteable);
+      menu[1].refusal = !copied ? "NOTHING TO PASTE" : samePattern ? "SAME PATTERN" : "SELECT STEPS TO PASTE";
       // A pattern without notes has nothing to clear: X deletes the pattern instead (not a track's only one).
       const auto& current = ui.tracks[state_.track];
       if (!steps && !ui.patternHasEvents[current.activePattern])

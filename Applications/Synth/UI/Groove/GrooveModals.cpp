@@ -610,6 +610,17 @@ void Controller::Confirmed()
     case ConfirmPurpose::DeletePattern:
       DeleteEmptyPattern(std::strtoul(payload.c_str(), nullptr, 10));
       break;
+    case ConfirmPurpose::PastePattern:
+    {
+      // What it asked about: that source over that pattern of that track.
+      char* end = nullptr;
+      const std::size_t fromTrack = std::strtoul(payload.c_str(), &end, 10);
+      const std::size_t fromPattern = std::strtoul(end, &end, 10);
+      const std::size_t track = std::strtoul(end, &end, 10);
+      const std::size_t pattern = std::strtoul(end, &end, 10);
+      if (track == state_.track) PastePatternNow(fromTrack, fromPattern, pattern);
+      break;
+    }
     case ConfirmPurpose::DeleteSample:
       // The sampler arms on the first request and deletes on the second for the same file.
       if (sampler.DeleteBrowserSample(state_.track, payload) || sampler.DeleteBrowserSample(state_.track, payload))

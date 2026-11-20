@@ -2086,7 +2086,7 @@ void TestClearDeletesEmptyPattern(Harness& h)
   };
   // P04 copied: the clipboard follows it when it moves down.
   h.Chord(kFn, c);
-  assert(h.State().clipboardValid && h.State().clipboardIsPattern && h.State().clipboardIndex == 3);
+  assert(h.State().clipboardValid && h.State().clipboardIsPattern && h.State().clipboardTrack == track && h.State().clipboardPattern == 3);
   h.Chord(kFn, Key{2, 3});  // S: saved, so what follows is the unsaved change
   assert(!h.State().dirty);
 
@@ -2106,7 +2106,7 @@ void TestClearDeletesEmptyPattern(Harness& h)
   h.Tap(kEnter);
   assert(h.Modal() == nullptr && sequencer.PatternCount(track) == 3 && sequencer.ActivePattern(track) == 0);
   assert(sequencer.PatternHasEvents(0) && sequencer.PatternHasEvents(1) && !sequencer.PatternHasEvents(2));
-  assert(column() == (std::vector<int>{-1, 1, 2}) && h.State().clipboardIndex == 2 && h.State().clipboardValid);
+  assert(column() == (std::vector<int>{-1, 1, 2}) && h.State().clipboardPattern == 2 && h.State().clipboardValid);
   assert(h.State().toast.text == "P02 DELETED" && h.State().hud.label == "PATTERN 1/3" && h.State().hud.value == "P01");
   assert(h.State().dirty);
   h.Wait(1200);
@@ -2123,7 +2123,7 @@ void TestClearDeletesEmptyPattern(Harness& h)
   assert(h.Modal() != nullptr && h.Modal()->title == "DELETE P01?" && h.Modal()->detail == "P02-P03 BECOME P01-P02");
   h.Tap(kEnter);
   assert(sequencer.PatternCount(track) == 2 && sequencer.ActivePattern(track) == 0 && sequencer.PatternHasEvents(0));
-  assert(column() == (std::vector<int>{-1, 0, 1}) && h.State().clipboardIndex == 1);
+  assert(column() == (std::vector<int>{-1, 0, 1}) && h.State().clipboardPattern == 1);
   assert(h.State().toast.text == "P01 DELETED" && h.State().hud.label == "PATTERN 1/2");
 
   // The last one, empty and copied: the copy goes with it; the one before takes over.
@@ -2168,6 +2168,198 @@ void TestClearDeletesEmptyPattern(Harness& h)
 }
 
 // Every FN menu item says what it did (toast, HUD or a pop-up), and the tile under the key lights.
+// COPY on one track, PASTE on another (the user, 2026-11-20: another instrument plays what a track's
+// pattern holds). The clipboard keeps its track and pattern, PASTE names them, a pattern over notes
+// asks first, a drum track takes only its kit's drums, and deleting patterns moves the clipboard along.
+void TestPasteAcrossTracks(Harness& h)
+{
+  auto& app = h.App();
+  auto& sequencer = app.Sequencer();
+  GoToScene(h, 2);
+  while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
+  if (sequencer.Playing()) h.Tap(kPlay);
+  constexpr Key c{3, 5}, v{3, 6}, x{3, 4}, s{2, 3};
+  // A clean slate on T1-T3: one empty 16-step pattern each, no song.
+  for (std::size_t track = 0; track < 3; ++track)
+  {
+    h.Chord(kTab, Grid(track));
+    while (sequencer.PatternCount(track) > 1) assert(sequencer.DeletePattern(sequencer.PatternCount(track) - 1));
+    assert(sequencer.ClearPatternEvents(track, 0));
+    sequencer.SetTrackStepCount(track, 16);
+  }
+  while (sequencer.SongLength() > 0) assert(sequencer.DeleteSongRow(0));
+  const auto pitches = [&](std::size_t track, std::size_t step) {
+    std::array<synth::SynthSequencer::StepNoteView, 8> notes{};
+    std::vector<int> result;
+    for (std::size_t index = 0; index < sequencer.StepNoteEvents(track, step, notes); ++index) result.push_back(notes[index].note);
+    std::sort(result.begin(), result.end());
+    return result;
+  };
+  using Pitches = std::vector<int>;
+  groove::LedFrame frame{};
+  // The PASTE tile while FN is held, and how the V key is lit.
+  int level = 0;
+  const auto pasteTile = [&]() {
+    h.Down(kFn);
+    h.Wait(400);
+    const groove::MenuItem item = app.Ui().Menu()[1];
+    app.Ui().ComputeLeds(frame);
+    level = frame[groove::KeyIndex(v.row, v.column)].level;
+    h.Up(kFn);
+    h.Wait(400);
+    return item;
+  };
+  const auto set = [&](std::size_t track, std::size_t step, std::uint8_t note) { assert(sequencer.SetStepNotes(track, step, &note, 1, 100)); };
+
+  // T2's P01, 32 steps: C, E and a kick.
+  h.Chord(kTab, Grid(1));
+  set(1, 0, 60);
+  set(1, 4, 64);
+  set(1, 12, 36);
+  sequencer.SetTrackStepCount(1, 32);
+  h.Chord(kFn, c);
+  assert(h.State().toast.text == "COPIED T2 P01" && h.State().clipboardValid && h.State().clipboardIsPattern);
+  assert(h.State().clipboardTrack == 1 && h.State().clipboardPattern == 0);
+  // Onto itself: nothing to paste, and the tile says so.
+  groove::MenuItem item = pasteTile();
+  assert(std::string(item.label) == "PASTE" && item.detail == "T2 P01" && !item.available && level == kOff);
+  h.Chord(kFn, v);
+  assert(h.Modal() == nullptr && h.State().toast.text == "SAME PATTERN");
+  h.Wait(2200);
+
+  // On T3 the copy is still there; its P01 is empty, so it pastes at once: notes and length.
+  h.Chord(kTab, Grid(2));
+  h.Chord(kFn, s);
+  assert(!h.State().dirty && h.State().clipboardValid);
+  item = pasteTile();
+  assert(item.detail == "T2 P01" && item.available && level == kHalf);
+  h.Chord(kFn, v);
+  assert(h.Modal() == nullptr && h.State().toast.text == "T2 P01 > T3 P01" && h.State().toast.kind == groove::ToastKind::Ok);
+  assert(pitches(2, 0) == Pitches{60} && pitches(2, 4) == Pitches{64} && pitches(2, 12) == Pitches{36});
+  assert(sequencer.PatternStepCount(2, 0) == 32 && sequencer.ActivePattern(2) == 0 && h.State().dirty);
+  h.Render();
+  h.Wait(2200);
+
+  // Over notes it asks first (danger): ESC keeps them, ENTER replaces them.
+  set(2, 8, 67);
+  h.Chord(kFn, v);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm && h.Modal()->confirmPurpose == groove::ConfirmPurpose::PastePattern);
+  assert(h.Modal()->title == "PASTE T2 P01 TO T3 P01?" && h.Modal()->detail == "NOTES IN T3 P01 ARE REPLACED" && h.Modal()->danger);
+  h.Render();
+  h.Tap(kEsc);
+  h.Wait(300);
+  assert(h.Modal() == nullptr && pitches(2, 8) == Pitches{67});
+  // What PASTE takes is what the source holds then: a note added on T2 since COPY goes too.
+  set(1, 2, 62);
+  h.Chord(kFn, v);
+  h.Tap(kEnter);
+  h.Wait(300);
+  assert(h.Modal() == nullptr && pitches(2, 8).empty() && pitches(2, 2) == Pitches{62} && h.State().toast.text == "T2 P01 > T3 P01");
+  h.Wait(2200);
+
+  // Onto the drums: only the kit's drums go across (the kick), the toast counts the rest.
+  h.Chord(kTab, Grid(0));
+  assert(app.Ui().DrumTrack() && pasteTile().available);
+  h.Chord(kFn, v);
+  assert(h.Modal() == nullptr && h.State().toast.text == "T2 P01 > T1 P01 - 3 NOT DRUMS");
+  assert(pitches(0, 12) == Pitches{36} && pitches(0, 0).empty() && pitches(0, 4).empty() && sequencer.PatternStepCount(0, 0) == 32);
+  h.Render();
+  h.Wait(2200);
+  // A melody with none of them is no paste: said before anything is asked, the drums stay.
+  h.Chord(kTab, Grid(1));
+  assert(sequencer.SelectOrCreatePattern(1));
+  set(1, 0, 60);
+  h.Chord(kFn, c);
+  assert(h.State().toast.text == "COPIED T2 P02");
+  h.Chord(kTab, Grid(0));
+  h.Chord(kFn, v);
+  assert(h.Modal() == nullptr && h.State().toast.text == "T2 P02 HAS NO DRUMS" && h.State().toast.kind == groove::ToastKind::Error);
+  assert(pitches(0, 12) == Pitches{36});
+  h.Wait(2200);
+  // Drums onto a melodic track: their pitches become its notes.
+  h.Chord(kFn, c);
+  assert(h.State().toast.text == "COPIED T1 P01" && h.State().clipboardTrack == 0);
+  h.Chord(kTab, Grid(2));
+  h.Chord(kFn, v);
+  assert(h.Modal() != nullptr && h.Modal()->title == "PASTE T1 P01 TO T3 P01?");
+  h.Tap(kEnter);
+  h.Wait(300);
+  assert(pitches(2, 12) == Pitches{36} && pitches(2, 0).empty() && h.State().toast.text == "T1 P01 > T3 P01");
+  h.Wait(2200);
+
+  // A step: copied on T2 (P01's step 5, the E), pasted into T3's selected steps.
+  h.Chord(kTab, Grid(1));
+  assert(sequencer.SelectOrCreatePattern(0));
+  h.Tap(Grid(4));
+  assert(h.Seq().hasHeldSteps);
+  h.Chord(kFn, c);
+  assert(h.State().toast.text == "COPIED T2 P01 STEP 5" && !h.State().clipboardIsPattern && h.State().clipboardStep == 4);
+  h.Chord(kTab, Grid(2));
+  assert(!h.Seq().hasHeldSteps);
+  item = pasteTile();
+  assert(item.detail == "T2 S5" && !item.available && level == kOff);
+  h.Chord(kFn, v);
+  assert(h.State().toast.text == "SELECT STEPS TO PASTE");
+  sequencer.SetStepSelected(1, true);
+  sequencer.SetStepSelected(3, true);
+  assert(pasteTile().available && level == kHalf);
+  h.Chord(kFn, v);
+  assert(h.State().toast.text == "T2 P01 STEP 5 > T3 P01" && pitches(2, 1) == Pitches{64} && pitches(2, 3) == Pitches{64});
+  h.Render();
+  h.Tap(kEsc);
+  h.Wait(2200);
+  // Onto the drums: the E is no drum; the kick of step 13 is.
+  h.Chord(kTab, Grid(0));
+  sequencer.SetStepSelected(3, true);
+  h.Chord(kFn, v);
+  assert(h.State().toast.text == "T2 STEP 5 HAS NO DRUMS" && pitches(0, 3).empty());
+  h.Tap(kEsc);
+  h.Chord(kTab, Grid(1));
+  h.Tap(Grid(12));
+  h.Chord(kFn, c);
+  assert(h.State().toast.text == "COPIED T2 P01 STEP 13");
+  h.Tap(kEsc);
+  h.Chord(kTab, Grid(0));
+  sequencer.SetStepSelected(3, true);
+  h.Chord(kFn, v);
+  assert(h.State().toast.text == "T2 P01 STEP 13 > T1 P01" && pitches(0, 3) == Pitches{36});
+  h.Tap(kEsc);
+  h.Wait(2200);
+
+  // Deleting patterns: T2 has P01 (notes), P02 (emptied) and P03 (copied, empty). P02 goes: the
+  // copy, now P02, follows.
+  h.Chord(kTab, Grid(1));
+  assert(sequencer.ClearPatternEvents(1, 1) && sequencer.SelectOrCreatePattern(2));
+  h.Chord(kFn, c);
+  assert(h.State().toast.text == "COPIED T2 P03");
+  assert(sequencer.SelectOrCreatePattern(1));
+  h.Chord(kFn, x);
+  assert(h.Modal() != nullptr && h.Modal()->title == "DELETE P02?");
+  h.Tap(kEnter);
+  assert(sequencer.PatternCount(1) == 2 && h.State().clipboardValid && h.State().clipboardTrack == 1 && h.State().clipboardPattern == 1);
+  h.Wait(2200);
+  // A pattern deleted on another track leaves it alone.
+  h.Chord(kTab, Grid(2));
+  assert(sequencer.SelectOrCreatePattern(1));
+  h.Chord(kFn, x);
+  h.Tap(kEnter);
+  assert(sequencer.PatternCount(2) == 1 && h.State().clipboardValid && h.State().clipboardPattern == 1);
+  assert(pasteTile().detail == "T2 P02");
+  h.Wait(2200);
+  // The copied pattern itself deleted: the copy goes with it.
+  h.Chord(kTab, Grid(1));
+  assert(sequencer.SelectOrCreatePattern(1));
+  h.Chord(kFn, x);
+  h.Tap(kEnter);
+  assert(sequencer.PatternCount(1) == 1 && !h.State().clipboardValid);
+  item = pasteTile();
+  assert(!item.available && item.detail == "PATTERN" && std::string(item.refusal) == "NOTHING TO PASTE");
+  h.Chord(kFn, v);
+  assert(h.State().toast.text == "NOTHING TO PASTE");
+  h.Render();
+  h.Wait(2200);
+}
+
 void TestMenuFeedback(Harness& h)
 {
   auto& app = h.App();
@@ -2200,12 +2392,13 @@ void TestMenuFeedback(Harness& h)
       continue;
     feedback(index);
   }
-  // An item that does not apply here says so.
+  // An item that does not apply here says so (why, when it knows).
   for (std::size_t index = 0; index < groove::kGridCount; ++index)
     if (menu[index].action != groove::MenuAction::None && !app.Ui().Menu()[index].available)
     {
+      const char* refusal = app.Ui().Menu()[index].refusal;
       h.Chord(kFn, Grid(index));
-      assert(h.State().toast.text.find("NOT HERE") != std::string::npos);
+      assert(refusal != nullptr ? h.State().toast.text == refusal : h.State().toast.text.find("NOT HERE") != std::string::npos);
       break;
     }
   h.Render();
@@ -3833,6 +4026,7 @@ int main()
   TestGuide(h);
   TestEveryParameter(h);
   TestClearDeletesEmptyPattern(h);
+  TestPasteAcrossTracks(h);
   // Last: it runs every item of the SEQ menu, which changes the pattern.
   TestMenuFeedback(h);
 
