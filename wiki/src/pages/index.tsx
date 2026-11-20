@@ -9,6 +9,7 @@ import {useLang, useUrls} from '@site/src/components/cardenza/common';
 import {GUIDE, lessonPath} from '@site/src/guide/data';
 import {LauncherThumb} from '@site/src/guide/launcher';
 import {AnimThumb, GuideLayout} from '@site/src/guide/pieces';
+import {FirmwareTutorials} from '@site/src/guide/tutorials';
 import type {DeviceStep} from '@site/src/guide/run';
 import {useProgress} from '@site/src/guide/store';
 import {useSay} from '@site/src/guide/text';
@@ -68,6 +69,7 @@ export default function Home(): React.ReactElement {
             </div>
           </section>
         ))}
+        <FirmwareTutorials />
         <section className="device-card">
           <h2>{say('有一台鸣片？', 'Got a Cardenza?')}</h2>
           <p>{say('用 USB 线接上电脑，浏览器问能不能使用 MIDI 设备时点「允许」：机器会跟着课程走，该按的键会闪，做对了会告诉你「学会了」。没有机器也没关系，看图就能跟着学。',

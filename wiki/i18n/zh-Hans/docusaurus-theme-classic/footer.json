@@ -31,6 +31,10 @@
     "message": "203 固件社区",
     "description": "The label of footer link with label=203 Community linking to https://cardenza.203.io/community"
   },
+  "link.item.label.Firmware tutorials": {
+    "message": "固件教程",
+    "description": "The label of footer link with label=Firmware tutorials linking to https://cardenza.203.io/community/tutorials"
+  },
   "link.item.label.Make firmware": {
     "message": "做固件",
     "description": "The label of footer link with label=Make firmware linking to https://cardenza.203.io/community/develop"

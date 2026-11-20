@@ -131,6 +131,7 @@ const config: Config = {
           title: 'Community',
           items: [
             {label: '203 Community', href: 'https://cardenza.203.io/community', target: '_self'},
+            {label: 'Firmware tutorials', href: 'https://cardenza.203.io/community/tutorials', target: '_self'},
             {label: 'Discord', href: 'https://discord.gg/rRVCBHHPfw'},
             {label: 'Twitter / X', href: 'https://twitter.com/203Systems'},
             {label: 'Youtube', href: 'https://www.youtube.com/channel/UCl9tL-r4NzvGl-EIeVYZZ-g'},

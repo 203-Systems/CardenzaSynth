@@ -72,6 +72,31 @@
 .device-card p { margin: 0; }
 .dc-small { color: var(--g-faint); font-size: 13.5px; margin-top: 6px !important; }
 .g-ref { margin-top: 24px; font-size: 14px; }
+/* Firmware tutorials (./tutorials.tsx): the community's firmware with tutorials, as the lessons' cards, and the links. */
+.g-tutorials .tf-lead { color: var(--g-dim); font-size: 15px; max-width: 48em; margin: -4px 0 14px; }
+.tf-art.tf-screen img { object-fit: contain; }
+.tf-art.tf-plain { background: var(--ifm-color-emphasis-200); }
+.tf-art.tf-plain span { color: var(--g-dim); font: 600 14px var(--cz-mono); padding: 0 12px; text-align: center; }
+.tf-card .c-text { flex: 1; }
+.tf-card small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tf-go { margin-top: auto; padding-top: 8px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.tf-count { font: 12px var(--cz-mono); color: var(--g-faint); }
+.tf-btn { font: 700 13px var(--cz-mono); color: var(--ifm-font-color-base); }
+.tf-card:hover .tf-btn { text-decoration: underline; text-underline-offset: 3px; }
+.tf-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.tf-link { display: inline-flex; align-items: center; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--g-line);
+  color: var(--ifm-font-color-base) !important; font: 700 14px var(--cz-mono); text-decoration: none !important; }
+.tf-link:hover { border-color: var(--ifm-color-emphasis-600); }
+.g-rail .g-tf-link { color: var(--g-dim); padding: 4px 8px; border-radius: 4px; }
+.g-rail .g-tf-link:hover { color: var(--ifm-font-color-base); background: var(--g-panel); }
+/* A phone: the firmware as rows (the cover beside the words), below the lessons' cards. */
+@media (max-width: 520px) {
+  .tf-cards { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .tf-card { flex-direction: row; }
+  .tf-card .tf-art { width: 128px; flex: none; align-self: stretch; aspect-ratio: auto; min-height: 72px; }
+  .tf-card .c-text { padding: 9px 11px 10px; }
+  .tf-art.tf-plain span { font-size: 12px; }
+}
 .anim-stage svg, .hero-art svg, .c-art svg { display: block; width: 100%; height: 100%; }
 
 /* A lesson. */

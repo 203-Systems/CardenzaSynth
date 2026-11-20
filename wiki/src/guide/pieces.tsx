@@ -12,6 +12,7 @@ import {GUIDE, GUIDE_LEDS, lessonPath, loadAnim, type AnimPlayer} from './data';
 import {REASONS, STATUS, device, useDevice} from './device';
 import {layoutVariant, silentPads, type DeviceStep} from './run';
 import {clearDone, requestRestart, toast, useProgress, useToast} from './store';
+import {tutorialsUrl} from './tutorials';
 import {useSay} from './text';
 import './guide.css';
 
@@ -60,6 +61,7 @@ function Rail({active, open}: {active: string; open: boolean}) {
           </ol>
         </div>
       ))}
+      <a className="g-tf-link" href={tutorialsUrl()} target="_self">{say('其他固件的教程', 'Tutorials for other firmware')} ↗</a>
       <div className="g-progress">
         <span className="bar"><i style={{width: `${(100 * count) / Math.max(1, GUIDE.order.length)}%`}} /></span>
         <span>{say(`完成 ${count} / ${GUIDE.order.length} 课`, `${count} of ${GUIDE.order.length} lessons done`)}</span>
