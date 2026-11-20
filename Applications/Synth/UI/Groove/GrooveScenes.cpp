@@ -142,7 +142,7 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
     const auto& sequencer = host_.Sequencer();
     if (Is(id, "proj.bpm")) number(sequencer.Tempo(), 30, 300, 120, std::to_string(sequencer.Tempo()));
     else if (Is(id, "proj.swing")) number(sequencer.Swing(), 50, 75, 50, std::to_string(sequencer.Swing()) + "%");
-    else if (Is(id, "proj.mode")) choice(sequencer.SongMode() ? 1 : 0, 2, 0, sequencer.SongMode() ? "SONG" : "LOOP");
+    else if (Is(id, "proj.mode")) choice(PlaysSong() ? 1 : 0, 2, 0, PlaysSong() ? "SONG" : "LOOP");
     else if (Is(id, "proj.steps"))
       number(static_cast<int>(sequencer.TrackStepCount(state_.track)), 1, static_cast<int>(synth::kSequencerMaxSteps), static_cast<int>(synth::kSequencerStepCount),
              "T" + std::to_string(state_.track + 1) + " " + std::to_string(sequencer.TrackStepCount(state_.track)));
@@ -205,7 +205,7 @@ void Controller::AdjustSetting(const char* id, int delta)
   }
   else if (Is(id, "proj.bpm")) sequencer.SetTempo(static_cast<std::uint16_t>(value));
   else if (Is(id, "proj.swing")) sequencer.SetSwing(static_cast<std::uint8_t>(value));
-  else if (Is(id, "proj.mode")) sequencer.SetSongMode(value != 0);
+  else if (Is(id, "proj.mode")) sequencer.SetSongMode(value != 0 && sequencer.SongLength() > 0);
   else if (Is(id, "proj.steps")) sequencer.SetTrackStepCount(state_.track, static_cast<std::size_t>(value));
   else if (Is(id, "proj.rec")) sequencer.SetRecordArmed(value != 0);
   else if (Is(id, "sys.volume")) host_.SetMasterVolume(static_cast<std::uint8_t>(value));
@@ -352,10 +352,7 @@ void Controller::ProjectGrid(std::size_t index)
         state_.projectFocus = static_cast<std::uint8_t>(index);
         TapTempo();
         break;
-      case kProjectMode:
-        StepSetting("proj.mode");
-        ShowSettingHud("proj.mode", "PLAY");
-        break;
+      case kProjectMode: TogglePlayMode(); break;
       default: break;
     }
   }
@@ -1331,12 +1328,25 @@ void Controller::SongEnter()
   else ShowToast("START AT ROW " + std::to_string(state_.songRow + 1));
 }
 
-void Controller::SongFnEnter()
+bool Controller::PlaysSong() const
+{
+  const auto& sequencer = host_.Sequencer();
+  return sequencer.SongMode() && sequencer.SongLength() > 0;
+}
+
+void Controller::TogglePlayMode()
 {
   auto& sequencer = host_.Sequencer();
-  const bool song = !sequencer.SongMode();
-  sequencer.SetSongMode(song);
-  ShowToast(song ? "SONG MODE" : "LOOP MODE");
+  if (!PlaysSong() && sequencer.SongLength() == 0)
+  {
+    // Nothing to play as a song. A switch an earlier song left on goes off too (a new project keeps
+    // it), so the first row added later does not turn SONG on unasked.
+    sequencer.SetSongMode(false);
+    ShowToast("SONG IS EMPTY: ADD ROWS IN TAPE", ToastKind::Error);
+    return;
+  }
+  sequencer.SetSongMode(!PlaysSong());
+  ShowSettingHud("proj.mode", "PLAY");
 }
 
 void Controller::SongArrow(int horizontal, int vertical)
@@ -1845,7 +1855,8 @@ MenuItems Controller::Menu() const
       put(4, MenuAction::Duplicate, "DUP", "PATTERN", "D", ui.tracks[state_.track].patternCount < synth::kSequencerMaxPatternCount);
       put(5, MenuAction::View, "VIEW", PageTab(Scene::Sequence, 0), nullptr, true, View() == SeqView::Step);
       put(6, MenuAction::RecordPanel, "RECORD", "TAKES");
-      // Cell 7 is free. (One note of a chord: hold its pad, AdjustHeldPadNotes.)
+      // REC beside the RECORD panel (it left the shared row for PLAY; FN + PLAY arms it everywhere).
+      put(7, MenuAction::Record, "REC", sequencer.RecordArmed() ? "ARMED" : "OFF", "PLAY", true, sequencer.RecordArmed());
       // The pages of a long pattern, and how long it is.
       const std::string pages = std::to_string(ui.viewPage + 1) + "/" + std::to_string(ui.viewPageCount);
       const std::string length = std::to_string(ui.tracks[state_.track].stepCount);
@@ -1869,7 +1880,7 @@ MenuItems Controller::Menu() const
         put(1, MenuAction::Paste, "PASTE", "AFTER", "V", state_.songClipboardValid);
         put(2, MenuAction::Clear, "DELETE", target, "X", row);
         put(3, MenuAction::Duplicate, "DUP", target, "D", row);
-        put(4, MenuAction::SongMode, "PLAY", sequencer.SongMode() ? "SONG" : "LOOP", "OK", true, sequencer.SongMode());
+        // SONG / LOOP is the shared row's PLAY, which FN + ENTER also switches here.
       }
       else if (page == kTapeMix)
       {
@@ -1906,11 +1917,12 @@ MenuItems Controller::Menu() const
       break;
   }
 
-  // Row 3, the same everywhere: save the project, tap the tempo, arm recording, and SETUP (from
-  // SETUP: back to the scene it was opened from).
+  // Row 3, the same everywhere: save the project, tap the tempo, what PLAY plays (SONG / LOOP, on =
+  // SONG; FN + ENTER also switches it on SONG), and SETUP (from SETUP: back to the scene it was opened
+  // from). REC is FN + PLAY on every screen and a tile on SEQ.
   put(12, MenuAction::Save, "SAVE", state_.dirty ? "UNSAVED" : "PROJECT", "S");
   put(13, MenuAction::TapTempo, "TAP", std::to_string(ui.bpm) + " BPM", "T");
-  put(14, MenuAction::Record, "REC", sequencer.RecordArmed() ? "ARMED" : "OFF", "PLAY", true, sequencer.RecordArmed());
+  put(14, MenuAction::SongMode, "PLAY", PlaysSong() ? "SONG" : "LOOP", SongPage() ? "OK" : nullptr, true, PlaysSong());
   if (state_.scene == Scene::Setup)
   {
     const Scene back = IsMusicScene(state_.previousScene) ? state_.previousScene : Scene::Instrument;
@@ -1965,8 +1977,8 @@ void Controller::RunMenuAction(const MenuItem& item)
     case MenuAction::SampleRecord: RunSlotAction(SlotAction::SampleRecord); break;
     case MenuAction::SamplePreview: RunSlotAction(SlotAction::SamplePreview); break;
     case MenuAction::Default:
-    case MenuAction::Capture:
-    case MenuAction::SongMode: FnEnter(); break;
+    case MenuAction::Capture: FnEnter(); break;
+    case MenuAction::SongMode: TogglePlayMode(); break;
     case MenuAction::Copy: Copy(); break;
     case MenuAction::Paste: Paste(); break;
     case MenuAction::Clear: Clear(); break;

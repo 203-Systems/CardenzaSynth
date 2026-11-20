@@ -198,12 +198,12 @@ void DrawHeader(Gfx& g, const Controller& controller, Animator& animator)
     right -= Gfx::Measure("REC") + 2;
     if ((now / 250) % 2 || !seq.playing) g.Text(right, kHeaderY, "REC", kRec);
   }
-  if (seq.songMode && seq.songLength > 0)
+  // What PLAY plays: SONG in yellow when it plays the arrangement (while it plays, the rule below
+  // shows where); nothing for LOOP, every track on its own pattern (the FN menu's PLAY says LOOP).
+  if (controller.PlaysSong())
   {
-    char song[12];
-    std::snprintf(song, sizeof(song), "R%02u", static_cast<unsigned>(seq.songRow + 1));
-    right -= Gfx::Measure(song) + 4;
-    g.Text(right, kHeaderY, song, kFn);
+    right -= Gfx::Measure("SONG") + 4;
+    g.Text(right, kHeaderY, "SONG", kFn);
   }
   if (engine != nullptr)
   {

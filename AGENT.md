@@ -86,7 +86,7 @@ Keep the UI rules below in sync with behaviour changes.
 - Holding a parameter's GRID cell turns the pads into its values (`Controller::CellParameter`, `CellPickerActive`): a new page with parameter cells adds them to `CellParameter` and `SetCellParameter`. A cell's own press action on a focused switch or choice runs on release (`CellPress::stepOnRelease`), so holding it never changes the value first.
 - A pattern is 1–256 steps, shown one page (16 steps, `SequencerUiState::firstViewStep`) at a time: sequencer step numbers are absolute, `steps[]` is the page on the GRID. FN + ADD / SUB and the SEQ menu flip pages and set the length; the view follows the playhead until flipped by hand.
 - The microphone takes the speaker's clock pin (GPIO43), so the device layer hands it over (`PauseOutputForInput` / `ResumeOutputAfterInput`) and the controller cancels a recording when its screen is gone.
-- FN is the menu of the current screen (`Controller::Menu()`, `RunMenu`): held FN shows it on the GRID (FN + GRID runs an item), a tap keeps it open (`ModalKind::Menu`, GRID runs and closes). Rows 0–2 are the page's actions, row 3 is the same everywhere (SAVE, TAP, REC, SETUP / BACK). A new action for a screen goes into its menu (with its FN letter, if any); settings do not go in the menu, they go on a SETUP page. FN + CTRL is the previous page, FN + ADD / SUB big steps. In input screens (`FnYellowMode()`) FN is the yellow keycap layer instead (`; . , /` arrows, text cursor).
+- FN is the menu of the current screen (`Controller::Menu()`, `RunMenu`): held FN shows it on the GRID (FN + GRID runs an item), a tap keeps it open (`ModalKind::Menu`, GRID runs and closes). Rows 0–2 are the page's actions, row 3 is the same everywhere (SAVE, TAP, PLAY, SETUP / BACK). PLAY (the user, 2026-11-20: every screen needs to know what PLAY plays) is SONG or LOOP, a switch lit full in SONG (`OK` on TAPE SONG, where FN + ENTER switches it too); it, FN + ENTER on SONG and SETUP PROJECT's PLAY are one switch (`Controller::TogglePlayMode`, HUD `PLAY` `SONG` / `LOOP`), and every display of it reads `Controller::PlaysSong()` (on and the song has a row: a switch left on over an empty song plays loops and says LOOP). SONG needs a row: without one it says SONG IS EMPTY and stays on LOOP. REC gave row 3 to it: FN + PLAY arms it on every screen (in the footer) and SEQ keeps a REC tile beside RECORD. A new action for a screen goes into its menu (with its FN letter, if any); settings do not go in the menu, they go on a SETUP page. FN + CTRL is the previous page, FN + ADD / SUB big steps. In input screens (`FnYellowMode()`) FN is the yellow keycap layer instead (`; . , /` arrows, text cursor).
 - Every Fn letter shortcut must be the `key` of a menu item, and every other Fn combination on the edge keys must appear in `Controller::FnEntries()` so the menu footer documents it.
 - The left column is filtered in the device layer (`Devices/KeySettle.h`): a state must settle for 12 ms, and a key reading as held for over 15 s counts as released until it lets go. The filter logs what it did, which is how to tell a bad signal from a bug.
 - Key LEDs are driven by CardenzaHAL (see the top of this file); it drives each key at 16 linear duties and gamma-corrects only the master level, so `Device::LED` key levels are perceived brightness and the device layer gamma-maps them (gamma 2.6, `Devices/LedLight.h`, also the simulators' model). Every key is off (`groove::kLedOff`, nothing there), half (`kLedHalf` = 6, the dimmest glow, HAL duty 1/15, there but not chosen) or full (`kLedFull` = 15, chosen / held / sounding / playing); Blink is the only effect (waiting). The Learn guide's hint: the keys a step asks for are full (not a pad the keyboard leaves silent: PIANO's gaps stay dark), its practice projects keep the user's keyboard (a lesson start's f1 takes a new project's) and every other key at most half, as the lesson page frames them and dims the rest; they blink at half Blink's speed while the step waits for the user (`LedEffect::Hint`) and stay lit once it is learned; an edge key in it goes full too (`Controller::ComputeLeds`, `GrooveApp::UpdateLeds`). Do not add in-between levels, breathing or press ripples, and never let an animation keep a key lit that the state says is off. One exception, asked for by the user: the pads of a drum track, where a column is a drum and its rows are velocities (`kDrumRowVelocity`): they rest at half like any pad (no brighter than a melodic track's: half is the HAL's dimmest duty, so a resting gradient only made them brighter, 2026-11-05), a held pad lights its column from the bottom up to its row, and a hit runs along the column (`Animator::DrumWave`). That spread is for the key lights only: on screen the pads keep their blocks and show how hard by dither density. The screen's edge strips mirror the edge-key LEDs through `Animator::LedShown`.
@@ -212,18 +212,19 @@ FN 是**当前画面的菜单**。按住 FN 时内容区换成菜单：4×4 的�
 | 画面 | 行 0–2 |
 |---|---|
 | INSTR（所有页） | PRESETS 浏览、SAVE 存音色、SAVE AS、ENGINE；RESET（OK，焦点参数恢复默认，只在参数页，CHORD / ARP 页也是）；Sampler 另有 SAMPLES、RECORD、PREVIEW |
-| SEQ（所有页） | COPY（C）、PASTE（V）、CLEAR（X）、QUANT（Q）：对选中的 step，没有选中时对整个 Pattern；DUP（D）复制到下一个空位；VIEW（ROLL / STEP）；RECORD（RECORD 面板）；第 8 格空着；PAGE − / PAGE +（长 Pattern 翻页，音符页）；LEN − / LEN +（当前 Pattern 的长度） |
+| SEQ（所有页） | COPY（C）、PASTE（V）、CLEAR（X）、QUANT（Q）：对选中的 step，没有选中时对整个 Pattern；DUP（D）复制到下一个空位；VIEW（ROLL / STEP）；RECORD（RECORD 面板）；REC（PLAY，录音待命：2026-11-20 起不在行 3，这里在 RECORD 旁边，任何画面都是 Fn + PLAY）；PAGE − / PAGE +（长 Pattern 翻页，音符页）；LEN − / LEN +（当前 Pattern 的长度） |
 | TAPE SESSION | LAUNCH（发射光标所在行）、ADD（OK，正在播的 Pattern 记成 SONG 新一行） |
-| TAPE SONG | COPY / PASTE（插在光标行后）/ DELETE / DUP 一行（C / V / X / D）；PLAY（OK，SONG / LOOP） |
+| TAPE SONG | COPY / PASTE（插在光标行后）/ DELETE / DUP 一行（C / V / X / D）；SONG / LOOP 是行 3 的 PLAY，这一页它标 OK（Fn + ENTER 也切换） |
 | TAPE MIX | UNMUTE ALL、UNSOLO ALL |
 | TAPE SENDS / FX | RESET（OK） |
 | SETUP PROJECT / FILES | NEW、LOAD、SAVE AS、RENAME（PROJECT 页改当前工程的名字，FILES 页改光标所在的工程：卡上的文件直接改名，不留旧名，打开的工程照常继续；名字已被别的工程用了就提示 TAKEN，不覆盖；没存过的新工程是起名并保存） |
 | SETUP KEYS / SYSTEM | RESET（OK，焦点设置恢复默认） |
-| 行 3（所有画面） | SAVE（S，存工程）、TAP（T，Tap tempo，显示 BPM）、REC（PLAY，录音待命）、SETUP（进入 0 SETUP；在 SETUP 里是 BACK，回到进来之前的场景） |
+| 行 3（所有画面） | SAVE（S，存工程）、TAP（T，Tap tempo，显示 BPM）、PLAY（PLAY 键播什么：SONG 整首编排 / LOOP 各轨循环自己的 Pattern，SONG 时全亮反显；没有字母，TAPE SONG 上标 OK）、SETUP（进入 0 SETUP；在 SETUP 里是 BACK，回到进来之前的场景） |
 
 - 快捷调节：最常用的三项不用找页面，按住 FN 直接调。演奏区最右边紧挨 GRID 的 2×3 块，上排加、下排减（和右侧 ADD 在 SUB 上面一样）：`6` / `Y` 调 BPM，`7` / `U` 调主音量，`8` / `I` 调八度。按住连续调，屏幕底部弹出新值，这 6 个键在按住 FN 时半亮。
 - Fn + ADD / SUB 是大步调整：宽范围参数 ×10（BPM 一次 10），设置 ×5。
 - 底行列出菜单以外的 Fn 组合（Fn + ESC / TAB / CTRL / PLAY / ADD / SUB 和快捷调节）。
+- **PLAY（SONG / LOOP）在每个画面的菜单里**（用户 2026-11-20：不然不知道 PLAY 播的是什么）：行 3 第三格（GRID 15），写着现在是 SONG 还是 LOOP，SONG 时是开着的开关（全亮反显）。按一下切换，底部弹出「PLAY SONG」/「PLAY LOOP」；它和 TAPE SONG 的 Fn + ENTER、SETUP PROJECT 的 PLAY 格是同一个开关（`Controller::TogglePlayMode`）。编排还没有一行时不切到 SONG，提示 SONG IS EMPTY: ADD ROWS IN TAPE（红色），留在 LOOP。原来行 3 的 REC 让给了它：任何画面 Fn + PLAY 照旧是录音待命（底行列着），SEQ 菜单的第 8 格（RECORD 旁边）还有 REC。没有字母快捷键：好记的 P、L 在 GRID 上，S 已是 SAVE，FN + GRID 15 本身就是两键的快捷键。
 
 **输入画面里的 FN**：文字输入、预设 / 采样列表、确认框等弹窗打开时，按住 FN 不出菜单，而是键帽上的黄色丝印层：`;` `.` `,` `/` 是上、下、左、右，ADD / SUB 一次翻一页。文字输入里 Fn + `,` `/` 左右移动光标，Fn + `;` `.` 跳到开头 / 结尾，Fn + del 删除光标后的字符（不按 FN 的 del 删除光标前的字符）；光标是字符之间的竖线，在末尾时是方块。
 
@@ -255,7 +256,7 @@ PADS 与四周按键上的第二功能：
 
 | 子页面 | 内容 | GRID | ADD / SUB / ENTER |
 |---|---|---|---|
-| PROJECT | 工程名、是否未保存、四轨摘要（引擎、音色） | 行 0：SAVE / LOAD（跳到 FILES）/ NEW（SAVE AS、RENAME 在 FN 菜单：要打字的操作都不放在一级界面）；行 1：BPM / SWING / TAP / PLAY（LOOP ↔ SONG 开关，SONG 时灯全亮） | 调整 BPM / SWING；ENTER 保存（焦点在 TAP 时是打拍） |
+| PROJECT | 工程名、是否未保存、四轨摘要（引擎、音色） | 行 0：SAVE / LOAD（跳到 FILES）/ NEW（SAVE AS、RENAME 在 FN 菜单：要打字的操作都不放在一级界面）；行 1：BPM / SWING / TAP / PLAY（LOOP ↔ SONG 开关，SONG 时灯全亮；和 FN 菜单行 3 的 PLAY 是同一个开关，编排为空时不切到 SONG） | 调整 BPM / SWING；ENTER 保存（焦点在 TAP 时是打拍） |
 | FILES | 工程列表 | — | 选择；ENTER 载入（未保存时确认） |
 | KEYS | 键盘预览（中间一个八度为主，两边各半个八度、颜色更暗：F 到 F）：音阶音带点、根音带横线，按下的音用当前轨颜色亮起 | LAYOUT、SCALE、ROOT、OCTAVE / VELO、LOCK、SELECT | 选中的设置：ADD / SUB 调整，ENTER 切换选项，Fn + ENTER 恢复默认；再按一次已选中的格子切换选项或开关 |
 | SYSTEM | 音频后端、SD 卡、内存、构建日期（每次进来逐行打出） | VOLUME、KEY LED、SCREEN、LOG / THEME | 同上 |
@@ -342,12 +343,12 @@ RECORD 面板（GRID 4×4）：
 | 子页面 | 内容 | GRID | ADD / SUB / ENTER |
 |---|---|---|---|
 | SESSION | 像 Ableton Live 的 Session 视图：每列一条轨道（轨道色），每行一个 Pattern 槽，四轨同时显示。每格画出这个 Pattern 的步（超过 16 步时压缩成 16 格）；正在播的格子绿色底、▶ 和走动的播放头，排队的格子黄色蚂蚁线和 NXT，最后一个 Pattern 之后的空格是「+」 | 点格子 = 让这一轨播这个 Pattern（停止时立即切换，播放中在该轨循环结束时切换）；点「+」新建；从 SESSION 发射会退出 SONG 模式 | ADD / SUB 上下移动并滚动；ENTER 发射光标所在的整行（所有有这个 Pattern 的轨道）；Fn+ENTER 把当前每轨正在播（或排队）的 Pattern 记录成 SONG 的新一行 |
-| SONG | 整首歌像一段磁带：每列是一行编排（从左往右是时间），每行是一条轨道，格子里是这一段要播的 Pattern（`--` 表示该轨静音）和小节数（xN）。播放中的一列有绿色磁头扫过；状态行的点线变成整首歌的进度 | 列 = 4 个连续的编排行，行 = 轨道 1–4（每行带该轨的颜色）；点格子选中，再点一次同一格在「Pattern」和「小节数」之间切换（小节数编辑时 xN 高亮）；点最后一列之后的空列追加一行。列多于 4 时 Fn + ADD / SUB 左右走列（按住连发），GRID 跟着光标滚动，两侧的 `<` `>` 表示那边还有列；空列是最后一列 | ADD / SUB 换这一格的 Pattern，或改这一行的小节数；Fn + ADD / SUB 左右走列；ENTER 从这一行开始播（自动进入 SONG 模式）；Fn+ENTER 切换 SONG / LOOP |
+| SONG | 整首歌像一段磁带：每列是一行编排（从左往右是时间），每行是一条轨道，格子里是这一段要播的 Pattern（`--` 表示该轨静音）和小节数（xN）。播放中的一列有绿色磁头扫过；状态行的点线变成整首歌的进度 | 列 = 4 个连续的编排行，行 = 轨道 1–4（每行带该轨的颜色）；点格子选中，再点一次同一格在「Pattern」和「小节数」之间切换（小节数编辑时 xN 高亮）；点最后一列之后的空列追加一行。列多于 4 时 Fn + ADD / SUB 左右走列（按住连发），GRID 跟着光标滚动，两侧的 `<` `>` 表示那边还有列；空列是最后一列 | ADD / SUB 换这一格的 Pattern，或改这一行的小节数；Fn + ADD / SUB 左右走列；ENTER 从这一行开始播（自动进入 SONG 模式）；Fn+ENTER 切换 SONG / LOOP（同 FN 菜单的 PLAY） |
 | MIX | 四个轨道推子、活动表与峰值、MUTE / SOLO / SEQ，底部主音量与输出电平 | 列 = 轨道；行 0 选中、行 1 静音、行 2 独奏、行 3 序列开关 | ADD / SUB 调音量；ENTER 在选中轨与 MASTER 之间切换 |
 | SENDS | 四轨的效果总览：每列一条轨道，行 0 FILTER（双极：中心为关，左低通右高通）、行 1 CHORUS、行 2 DELAY 发送、行 3 REVERB 发送。关闭的格子变暗；轨道发声且发送打开时格子右缘发光 | 点格子选中（同时选中该轨） | ADD / SUB 调整；ENTER：CHORUS 换模式，其它格子关闭 / 恢复原值；Fn+ENTER 默认 |
 | FX | 总线效果（属于工程）：行 0 DELAY（按速度同步的音符时值、FDBK、TONE、RETURN），行 1 REVERB（SIZE、DAMP、LOCUT、RETURN），行 2 COMP、LOW / HIGH 搁架 EQ（±12 dB）、TAPE 饱和；行 3 画出当前速度下的回声序列与混响衰减时间，以及两路返回电平 | 点格子选中 | ADD / SUB 调整；ENTER 在 DELAY 上切换时值；Fn+ENTER 默认 |
 
-SONG 模式：编排非空时，播放从选中的行开始，每行播放 xN 小节（1 小节 = 16 步，SESSION 记下的新行默认覆盖它最长的 Pattern）后进入下一行，所有轨道在行首切到该行的 Pattern 并对齐；`--` 的轨道在这一行静音。结尾回到第一行循环。LOOP 模式即各轨循环自己的当前 Pattern。工程文件 v3 起保存编排，v4 起保存总线效果，v6 起保存键盘与每轨的和弦、ARP，v8 保存 HITS（已经读得懂，下一次准备测试版时才开始写）（开发版曾写过带 PLAY 行的 v5，读取时跳过该行）；SONG / LOOP 开关是演奏状态，不存。
+SONG 模式：编排非空时，播放从选中的行开始，每行播放 xN 小节（1 小节 = 16 步，SESSION 记下的新行默认覆盖它最长的 Pattern）后进入下一行，所有轨道在行首切到该行的 Pattern 并对齐；`--` 的轨道在这一行静音。结尾回到第一行循环。LOOP 模式即各轨循环自己的当前 Pattern。PLAY 键播什么在每个画面的 FN 菜单（行 3 的 PLAY）都看得到、改得了；SONG 时状态行在播放标记左边写黄色的 SONG（LOOP 时不写）。开关开着但编排是空的（比如开着 SONG 新建或载入了一个没有编排的工程）时播的是各轨的循环，所以菜单、SETUP PROJECT、SONG 页的角标和状态行都按 LOOP 显示（`Controller::PlaysSong`）。工程文件 v3 起保存编排，v4 起保存总线效果，v6 起保存键盘与每轨的和弦、ARP，v8 保存 HITS（已经读得懂，下一次准备测试版时才开始写）（开发版曾写过带 PLAY 行的 v5，读取时跳过该行）；SONG / LOOP 开关是演奏状态，不存。
 
 #### 效果器
 
@@ -410,7 +411,7 @@ SONG 模式：编排非空时，播放从选中的行开始，每行播放 xN �
 |---|---|
 | 左侧 4 条 dither | x 0–5，按物理行四等分，条间 3 px |
 | 右侧符号列 | x 233–239 |
-| 状态行 | y 0–9：场景号与名称、轨道、引擎·音色、REC / 播放 / BPM |
+| 状态行 | y 0–9：场景号与名称、轨道、引擎·音色、REC / SONG（PLAY 播整首歌时）/ 播放 / BPM |
 | 分隔点线 | y 11 |
 | 内容区 | x 10–228，y 14–121 |
 | 页签 / 提示行 | y 125–134 |
@@ -452,7 +453,7 @@ Micro 5×7（步进 6）用于终端正文；Small 6×9 用于强调；Large 10�
 | 按住 ESC | 只有 ESC 全亮 | 全灭 | 四列场景：当前场景那一列全亮，其它三列半亮（第一列是 SETUP） | 全灭 |
 | 按住 TAB | 只有 TAB 全亮 | 全灭 | 每列一轨：行 0 当前轨全亮、其它半亮；静音 / 独奏 / 音序开着全亮、关着半亮 | ADD / SUB 半亮，其它灭 |
 | 按住 CTRL | 只有 CTRL 全亮 | 全灭 | 每页一个键：当前页全亮，其它页半亮；没有页的键灭 | ADD / SUB 半亮，其它灭 |
-| 按住 FN | FN 全亮；ESC、TAB 半亮，CTRL 在有多页时半亮 | 菜单里能用的字母项和快捷调节的 6 个键半亮；其它灭 | 菜单项：能用的半亮，开着的开关全亮，用不了或空格灭 | ADD / SUB 半亮；ENTER 在有 Fn+ENTER 的画面半亮、否则灭；PLAY 半亮（录音已开全亮） |
+| 按住 FN | FN 全亮；ESC、TAB 半亮，CTRL 在有多页时半亮 | 菜单里能用的字母项和快捷调节的 6 个键半亮；其它灭 | 菜单项：能用的半亮，开着的开关全亮（行 3 的 PLAY 在 SONG 时），用不了或空格灭 | ADD / SUB 半亮；ENTER 在有 Fn+ENTER 的画面半亮、否则灭；PLAY 半亮（录音已开全亮） |
 | 输入画面里按住 FN | FN 全亮 | 全灭 | 方向键 `;` `,` `.` `/` 半亮，其它灭 | ADD / SUB 半亮，其它灭 |
 | 文本输入 | ESC、FN 半亮，TAB、CTRL 灭 | 字符键半亮 | 字符键半亮 | 删除键（右上）和 ENTER 有字时半亮、否则灭；空格半亮 |
 

@@ -248,7 +248,7 @@ void TestNavigation(Harness& h)
   assert(h.App().Ui().CurrentPage() == 0);
 
   // Held FN shows the menu of this screen after the hold threshold: the SEQ items on rows 0-2, the
-  // shared row (SAVE, TAP, REC, SETUP) at the bottom. Nothing touches the screen underneath until an
+  // shared row (SAVE, TAP, PLAY, SETUP) at the bottom. Nothing touches the screen underneath until an
   // item runs.
   const auto steps = h.Seq().populatedStepCount;
   h.Down(kFn);
@@ -1740,6 +1740,119 @@ void TestSession(Harness& h)
   for (int press = 0; press < 16; ++press) h.Tap(kAdd);
   assert(h.State().sessionPattern == 0 && h.State().sessionScroll == 0);
   h.Render();
+}
+
+// What PLAY plays (SONG / LOOP) is on every screen's FN menu, in the shared row (GRID 15), and the
+// other ways to switch it (FN + ENTER on SONG, SETUP PROJECT's PLAY) stay in step. SONG needs a row.
+void TestPlayModeEverywhere(Harness& h)
+{
+  auto& app = h.App();
+  auto& sequencer = app.Sequencer();
+  if (sequencer.Playing()) h.Tap(kPlay);
+  // Start from an empty song in LOOP; the song and the switch come back at the end.
+  const bool wasSong = sequencer.SongMode();
+  std::vector<synth::SongRow> song;
+  for (std::size_t row = 0; row < sequencer.SongLength(); ++row) song.push_back(sequencer.SongRowAt(row));
+  while (sequencer.SongLength() > 0) assert(sequencer.DeleteSongRow(0));
+  sequencer.SetSongMode(false);
+
+  constexpr std::size_t kPlayItem = 14;  // row 3, the third key
+  const Key playKey = Grid(kPlayItem);
+  std::array<std::uint8_t, groove::kKeyCount> levels{};
+  const auto level = [&](Key key) {
+    app.Ui().ComputeLeds(levels);
+    return static_cast<int>(levels[groove::KeyIndex(key.row, key.column)]);
+  };
+
+  // Every page of every scene: SAVE, TAP, PLAY, SETUP / BACK. PLAY says LOOP, a switch that is off,
+  // its FN shortcut OK only on SONG (where FN + ENTER switches it). REC (FN + PLAY anywhere) keeps a
+  // tile on SEQ, beside RECORD.
+  for (int scene = 0; scene < 4; ++scene)
+  {
+    GoToScene(h, scene);
+    const std::size_t pages = app.Ui().PageCount(h.State().scene);
+    for (std::size_t page = 0; page < pages; ++page)
+    {
+      while (app.Ui().CurrentPage() != page) h.Tap(kCtrl);
+      const groove::MenuItems menu = app.Ui().Menu();
+      assert(menu[12].action == groove::MenuAction::Save && menu[13].action == groove::MenuAction::TapTempo &&
+             menu[15].action == groove::MenuAction::Setup);
+      const groove::MenuItem& play = menu[kPlayItem];
+      assert(play.action == groove::MenuAction::SongMode && std::string(play.label) == "PLAY" && play.detail == "LOOP" && play.available &&
+             !play.on);
+      const bool songPage = h.State().scene == Scene::Tape && page == groove::kTapeSong;
+      assert(songPage ? play.key != nullptr && std::string(play.key) == "OK" : play.key == nullptr);
+      for (std::size_t index = 0; index < groove::kGridCount; ++index)
+      {
+        assert(index == kPlayItem || menu[index].action != groove::MenuAction::SongMode);
+        if (menu[index].action == groove::MenuAction::Record)
+          assert(h.State().scene == Scene::Sequence && index == 7 && std::string(menu[index].key) == "PLAY");
+      }
+    }
+  }
+
+  // No song yet: the tile is lit half (it answers), and switching says so and stays on LOOP.
+  GoToScene(h, 1);
+  h.Down(kFn);
+  h.Wait(300);
+  assert(app.Ui().FnOverlay() && level(playKey) == kHalf);
+  h.Tap(playKey);
+  assert(!sequencer.SongMode() && h.State().toast.kind == groove::ToastKind::Error && h.State().toast.text.find("SONG IS EMPTY") == 0);
+  h.Up(kFn);
+  // A switch left on by an earlier song (a new project keeps it) plays loops: the menu says LOOP, and
+  // the refusal turns the switch off, so a row added later does not start SONG unasked.
+  sequencer.SetSongMode(true);
+  assert(!app.Ui().PlaysSong() && app.Ui().Menu()[kPlayItem].detail == "LOOP" && !app.Ui().Menu()[kPlayItem].on);
+  h.Chord(kFn, playKey);
+  assert(!sequencer.SongMode());
+  // SETUP PROJECT's PLAY and FN + ENTER on SONG refuse the same way.
+  GoToSetupPage(h, groove::kSetupProject);
+  h.Tap(Grid(7));
+  assert(!sequencer.SongMode() && h.State().toast.text.find("SONG IS EMPTY") == 0);
+  GoToScene(h, 3);
+  while (app.Ui().CurrentPage() != groove::kTapeSong) h.Tap(kCtrl);
+  h.Chord(kFn, kEnter);
+  assert(!sequencer.SongMode());
+
+  // One row (the empty column appends it; FN + SUB brings the view back to the first column): now
+  // PLAY switches from any screen, with a HUD, and the tile is a switch lit full in SONG.
+  h.Chord(kFn, kSub);
+  h.Tap(Grid(0));
+  assert(sequencer.SongLength() == 1 && !sequencer.SongMode());
+  GoToScene(h, 2);
+  h.Down(kFn);
+  h.Wait(300);
+  h.Tap(playKey);
+  assert(sequencer.SongMode() && app.Ui().PlaysSong() && h.State().hud.label == "PLAY" && h.State().hud.value == "SONG");
+  assert(app.Ui().Menu()[kPlayItem].detail == "SONG" && app.Ui().Menu()[kPlayItem].on && level(playKey) == kFull);
+  h.Up(kFn);
+  h.Render();
+  // The menu kept open by a tap on FN runs it too (and closes).
+  h.Tap(kFn);
+  assert(app.Ui().MenuOpen());
+  h.Tap(playKey);
+  assert(!sequencer.SongMode() && !app.Ui().MenuOpen() && h.State().hud.value == "LOOP");
+  // SETUP PROJECT's PLAY cell and the menu agree, its LED too.
+  GoToSetupPage(h, groove::kSetupProject);
+  h.Tap(Grid(7));
+  assert(sequencer.SongMode() && level(Grid(7)) == kFull && app.Ui().Menu()[kPlayItem].on && h.State().hud.value == "SONG");
+  h.Render();
+  h.Tap(Grid(7));
+  assert(!sequencer.SongMode() && level(Grid(7)) == kHalf && !app.Ui().Menu()[kPlayItem].on);
+  // TAPE SONG: FN + ENTER, the shared row's OK.
+  GoToScene(h, 3);
+  while (app.Ui().CurrentPage() != groove::kTapeSong) h.Tap(kCtrl);
+  h.Chord(kFn, kEnter);
+  assert(sequencer.SongMode() && h.State().hud.label == "PLAY" && h.State().hud.value == "SONG");
+  h.Render();
+  // The last row deleted: nothing plays as a song, the menu says LOOP again.
+  h.Tap(Grid(0));
+  h.Chord(kFn, Key{3, 4});  // X: delete the row
+  assert(sequencer.SongLength() == 0 && !app.Ui().PlaysSong() && app.Ui().Menu()[kPlayItem].detail == "LOOP");
+  h.Render();
+
+  for (std::size_t row = 0; row < song.size(); ++row) assert(sequencer.InsertSongRow(row, song[row]));
+  sequencer.SetSongMode(wasSong);
 }
 
 // Every FN menu item says what it did (toast, HUD or a pop-up), and the tile under the key lights.
@@ -3387,6 +3500,7 @@ int main()
   TestPlayFeatures(h);
   TestFnQuick(h);
   TestSession(h);
+  TestPlayModeEverywhere(h);
   TestRecording(h);
   TestSelectMode(h);
   TestLongCapture(h);

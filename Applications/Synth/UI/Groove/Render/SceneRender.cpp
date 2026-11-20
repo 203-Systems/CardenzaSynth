@@ -1341,7 +1341,7 @@ void ProjectScene(Gfx& g, const Controller& controller, Animator& animator, std:
                          state.projectFocus == 5 ? CellStyle::Focused : CellStyle::Normal, 0.0f, now);
       widgets::ActionCell(g, Cell(1, 2), "TAP", state.gridDown[6], kDim);
       // PLAY: a switch, LOOP (each track loops its pattern) or SONG (the arrangement plays).
-      const bool song = host.Sequencer().SongMode();
+      const bool song = controller.PlaysSong();
       widgets::ParamCell(g, Cell(1, 3), "PLAY", song ? "SONG" : "LOOP", song ? 1.0f : 0.0f, CellStyle::Normal, 0.0f, now);
       for (std::size_t index = 4; index < 8; ++index) GridRipple(g, animator, index, kInk);
       const Rect info = CellSpan(2, 0, 2, 4);
@@ -1478,10 +1478,11 @@ void TapeScene(Gfx& g, const Controller& controller, Animator& animator)
     const Rect hint{kContentX + 60, kContentY + kContentHeight / 2 - 10, kContentWidth - 60, 20};
     g.TextAligned(hint, "TAP THE + COLUMN ON THE GRID", (now / 600) % 2 ? kDim : kFaint, Font::Micro, Align::Center);
   }
-  // Mode badge, bottom right of the tape.
-  const char* mode = seq.songMode ? "SONG" : "LOOP";
+  // Mode badge, bottom right of the tape: what PLAY plays (SONG needs a row).
+  const bool song = controller.PlaysSong();
+  const char* mode = song ? "SONG" : "LOOP";
   const Rect badge{kContentRight - Gfx::Measure(mode) - 4, kContentBottom - 9, Gfx::Measure(mode) + 4, 9};
-  g.Fill(badge, seq.songMode ? kFn : kFaint);
+  g.Fill(badge, song ? kFn : kFaint);
   g.Text(badge.x + 2, badge.y + 1, mode, kBlack);
 }
 

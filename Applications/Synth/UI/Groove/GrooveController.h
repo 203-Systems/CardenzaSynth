@@ -306,7 +306,7 @@ enum class MenuAction : std::uint8_t {
   // TAPE
   LaunchRow,
   Capture,   // the playing patterns become a new SONG row (also FN + ENTER on SESSION)
-  SongMode,  // SONG / LOOP (also FN + ENTER on SONG)
+  SongMode,  // PLAY: SONG / LOOP, on every screen (row 3; also FN + ENTER on SONG)
   UnmuteAll,
   UnsoloAll,
   // SETUP
@@ -591,6 +591,9 @@ public:
   bool MenuShown() const { return FnOverlay() || MenuOpen(); }
   // The menu of the current screen (the screen under the open menu).
   MenuItems Menu() const;
+  // What PLAY plays: the song (SONG: the switch is on and the song has a row) or every track looping
+  // its own pattern (LOOP). Shown and switched on every screen's menu (row 3).
+  bool PlaysSong() const;
 
   std::size_t PageCount(Scene scene) const;
   std::uint8_t CurrentPage() const { return state_.page[static_cast<std::size_t>(state_.scene)]; }
@@ -651,6 +654,9 @@ private:
   void FnEnter();
   void TogglePlay();
   void ToggleRecord();
+  // SONG <-> LOOP (the menu's PLAY, FN + ENTER on SONG, SETUP PROJECT's PLAY): SONG needs a song
+  // row, without one it says so and stays on LOOP.
+  void TogglePlayMode();
   void ArrowKey(Arrow arrow);
 
   // Scene handlers (GrooveScenes.cpp)
@@ -667,7 +673,6 @@ private:
   void SongGrid(std::size_t index);
   void SongAdjust(int delta, bool coarse);
   void SongEnter();
-  void SongFnEnter();
   void SongArrow(int horizontal, int vertical);
   void MixGrid(std::size_t index);
   void MixAdjust(int delta, bool coarse);

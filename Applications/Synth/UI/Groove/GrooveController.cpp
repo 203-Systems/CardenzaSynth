@@ -1059,7 +1059,7 @@ void Controller::FnEnter()
     return;
   }
   if (state_.scene == Scene::Instrument) InstrumentReset();
-  else if (state_.scene == Scene::Tape && CurrentPage() == kTapeSong) SongFnEnter();
+  else if (state_.scene == Scene::Tape && CurrentPage() == kTapeSong) TogglePlayMode();
   else if (state_.scene == Scene::Tape && CurrentPage() == kTapeSession) SessionCapture();
   else if (state_.scene == Scene::Tape && CurrentPage() == kTapeSends) SendsReset();
   else if (state_.scene == Scene::Tape && CurrentPage() == kTapeFx) FxReset();
@@ -1635,7 +1635,7 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
         for (const std::size_t action : {std::size_t{0}, std::size_t{1}, std::size_t{2}, std::size_t{6}}) setGrid(action, kLedHalf);
         setGrid(4, choice(state_.projectFocus == 4));
         setGrid(5, choice(state_.projectFocus == 5));
-        setGrid(7, choice(sequencer.SongMode()));
+        setGrid(7, choice(PlaysSong()));
       }
       else if (const InstrumentPage* settings = SettingsPageShown())
       {
