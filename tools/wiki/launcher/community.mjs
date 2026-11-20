@@ -7,7 +7,7 @@
 //
 //   PLAYWRIGHT_CORE=<path to playwright-core> CHROMIUM=<chromium or headless shell> node tools/wiki/launcher/community.mjs
 //
-// The site is https://cardenza.203.io/community (COMMUNITY_URL to change it). ONLY=rom-prompt,rom-done takes those
+// The site is https://stage.203.io (COMMUNITY_URL to change it). ONLY=rom-prompt,rom-done takes those
 // pictures alone and keeps the others' marks. The 刷入最新启动器 pictures use the community's demo chip (?rom=demo…: a
 // Cardenza in download mode on a fake port, a fake esptool; nothing is downloaded or written).
 import {createRequire} from 'node:module';
@@ -20,7 +20,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_CORE || 'playwright-core');
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const OUT = join(ROOT, 'wiki', 'static', 'img', 'community');
 const MARKS = join(ROOT, 'wiki', 'src', 'guide', 'community-shots.json');
-const SITE = (process.env.COMMUNITY_URL || 'https://cardenza.203.io/community').replace(/\/$/, '');
+const SITE = (process.env.COMMUNITY_URL || 'https://stage.203.io').replace(/\/$/, '');
 const SCALE = 2;
 
 // [name, page, what to do first, the part of the page (a selector, or several: the box around them all), what to

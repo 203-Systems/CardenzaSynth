@@ -18,5 +18,9 @@
   "item.label.Simulator": {
     "message": "模拟器",
     "description": "Navbar item with label Simulator"
+  },
+  "item.label.Community": {
+    "message": "社区",
+    "description": "Navbar item with label Community"
   }
 }

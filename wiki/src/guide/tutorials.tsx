@@ -7,7 +7,7 @@ import React, {useEffect, useState} from 'react';
 import {useLang} from '@site/src/components/cardenza/common';
 import {useSay} from './text';
 
-export const COMMUNITY = 'https://cardenza.203.io/community';
+export const COMMUNITY = 'https://stage.203.io';
 /** Cardenza Synth, the firmware these lessons teach (its community code). */
 export const SYNTH_CODE = 'V6QK28';
 export const tutorialsUrl = (code?: string) => (code ? `${COMMUNITY}/${code}/tutorials` : `${COMMUNITY}/tutorials`);
@@ -20,9 +20,9 @@ type FirmwareRef = {
 type TutorialRef = {id: string; kind: 'guide' | 'link'; title: string; official?: boolean; lessons?: number};
 type Entry = {firmware: FirmwareRef; total: number; tutorials: TutorialRef[]};
 
-// On cardenza.203.io the community is the same site (/community); anywhere else (a preview, localhost) its full address.
+// The Learn deployment's API proxy is same-origin on cardenza.203.io and cross-origin in previews.
 function apiBase(): string {
-  return typeof window !== 'undefined' && window.location.hostname === 'cardenza.203.io' ? '/community/api' : `${COMMUNITY}/api`;
+  return typeof window !== 'undefined' && window.location.hostname === 'cardenza.203.io' ? '/community/api' : 'https://cardenza.203.io/community/api';
 }
 
 // A picture's address as the API gives it (absolute), or one on the community's own site.

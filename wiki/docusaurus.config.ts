@@ -10,6 +10,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 // Keep the Cardenza brand in the browser title in every language.
 const baseUrl = process.env.CARDENZA_LEARN_BASE_URL || '/learn/';
 const simulatorUrl = process.env.CARDENZA_SIMULATOR_URL || 'pathname:///';
+const communityUrl = 'https://stage.203.io';
 
 const config: Config = {
   title: 'Cardenza',
@@ -103,6 +104,12 @@ const config: Config = {
           position: 'left',
         },
         {
+          href: communityUrl,
+          target: '_self',
+          label: 'Community',
+          position: 'left',
+        },
+        {
           type: 'localeDropdown',
           position: 'right',
         },
@@ -123,15 +130,15 @@ const config: Config = {
             {label: 'Guide', to: '/'},
             {label: 'Manual', to: '/manual/start'},
             {label: 'Simulator', href: simulatorUrl, target: '_self'},
-            {label: 'Make firmware', href: 'https://cardenza.203.io/community/develop', target: '_self'},
+            {label: 'Make firmware', href: `${communityUrl}/develop`, target: '_self'},
             {label: 'Firmware SDK (CardenzaHAL)', href: 'https://github.com/203-Systems/CardenzaHAL'},
           ],
         },
         {
           title: 'Community',
           items: [
-            {label: '203 Community', href: 'https://cardenza.203.io/community', target: '_self'},
-            {label: 'Firmware tutorials', href: 'https://cardenza.203.io/community/tutorials', target: '_self'},
+            {label: '203 Community', href: communityUrl, target: '_self'},
+            {label: 'Firmware tutorials', href: `${communityUrl}/tutorials`, target: '_self'},
             {label: 'Discord', href: 'https://discord.gg/rRVCBHHPfw'},
             {label: 'Twitter / X', href: 'https://twitter.com/203Systems'},
             {label: 'Youtube', href: 'https://www.youtube.com/channel/UCl9tL-r4NzvGl-EIeVYZZ-g'},

@@ -3,7 +3,7 @@
 > The Cardenza is 203 Systems' pocket synthesizer: an ESP32-S3 with 56 keys that light up, a 240 × 135 colour
 > screen, a speaker, a microphone, an SD card and USB. It ships with the 203 Launcher, which installs firmware from
 > the 203 community by a six-character code. This site (cardenza.203.io) is its user's guide and manual; the
-> community is at https://cardenza.203.io/community.
+> community is at https://stage.203.io.
 
 ## Making firmware for the Cardenza
 
@@ -14,8 +14,8 @@
   not build without it. Install it first (Node.js 18+, any OS): `npm install -g 203c && 203c skill install`; cloning
   https://github.com/203-Systems/203-CLI does not install it.
 - The rules for every step, for people and AI agents alike (one Markdown file):
-  https://cardenza.203.io/community/develop.md; the developer guide: https://cardenza.203.io/community/develop.
-- The community's API and what 203c does: https://cardenza.203.io/community/llms.txt.
+  https://stage.203.io/develop.md; the developer guide: https://stage.203.io/develop.
+- The community's API and what 203c does: https://stage.203.io/llms.txt.
 - Never `idf.py flash` a Cardenza: it erases the 203 Launcher. Install through it (`203c flash --bin build/<project>.bin`).
 - The official firmware, Cardenza Synth (code V6QK28), is the largest example: https://github.com/203-Systems/CardenzaSynth.
 - Schematic and PCB model: https://github.com/203-Systems/Cardenza-Hardware.

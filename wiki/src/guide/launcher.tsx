@@ -288,7 +288,7 @@ const WIRES: Record<string, (lang: 'zh' | 'en') => React.ReactElement> = {
       <path className="wf-line" d="M170 66 H590" />
       <circle className="wf-faint" cx="184" cy="53" r="4" /><circle className="wf-faint" cx="198" cy="53" r="4" /><circle className="wf-faint" cx="212" cy="53" r="4" />
       <rect className="wf-line" x="190" y="76" width="380" height="24" rx="12" />
-      <text className="wf-text" x="210" y="93">cardenza.203.io/community</text>
+      <text className="wf-text" x="210" y="93">stage.203.io</text>
       <rect className="wf-ink" x="170" y="108" width="420" height="26" />
       <rect className="wf-paper" x="182" y="116" width="34" height="10" />
       <rect className="wf-faint" x="188" y="148" width="250" height="10" /><rect className="wf-faint" x="188" y="166" width="180" height="8" />
@@ -313,7 +313,7 @@ const WIRES: Record<string, (lang: 'zh' | 'en') => React.ReactElement> = {
   chooser: (lang) => (
     <>
       <rect className="wf-line wf-page" x="130" y="40" width="380" height="300" rx="10" />
-      <text className="wf-title" x="154" y="82">{lang === 'zh' ? 'cardenza.203.io 想要连接到串口' : 'cardenza.203.io wants to connect to a serial port'}</text>
+      <text className="wf-title" x="154" y="82">{lang === 'zh' ? 'stage.203.io 想要连接到串口' : 'stage.203.io wants to connect to a serial port'}</text>
       <rect className="wf-line" x="154" y="104" width="332" height="150" rx="4" />
       <rect className="wf-ink" x="156" y="106" width="328" height="34" rx="3" />
       <text className="wf-text wf-on-ink" x="170" y="128">USB JTAG/serial debug unit</text>
