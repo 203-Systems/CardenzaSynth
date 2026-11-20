@@ -31,7 +31,7 @@ bool StartsWith(const char* text, const char* prefix)
 
 std::string PatternLabel(std::size_t index)
 {
-  char text[8];
+  char text[16];
   std::snprintf(text, sizeof(text), "P%02u", static_cast<unsigned>(index + 1));
   return text;
 }
