@@ -73,10 +73,9 @@ struct ProjectData {
   }
 };
 
-// The project format this build writes, and the newest it reads. Format 8 adds HITS and is read
-// already; it is written from the one format bump of the next test build on (kProjectWriteVersion = 8,
-// AGENT.md Storage Rules): until then a project saved, the autosave included, keeps no hits.
-inline constexpr int kProjectWriteVersion = 7;
+// The project format this build writes, and the newest it reads. Format 8 adds HITS; it is written
+// since the one format bump of the first test build after it (0.2.2-beta.1, AGENT.md Storage Rules).
+inline constexpr int kProjectWriteVersion = 8;
 inline constexpr int kProjectReadVersion = 8;
 
 enum class ProjectResult { Ok, Exists, Invalid, StorageError, NoMemory };

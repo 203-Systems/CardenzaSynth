@@ -3102,7 +3102,7 @@ void TestReleaseProjects(Harness& h)
   assert(app.Sequencer().StepNoteEvents(0, 4, notes) == 1 && notes[0].note == 39);
   // Saving it writes it in place, in the current format, and the list shows it once.
   h.Chord(kFn, Key{2, 3});  // S
-  assert(read(ours / "DEMO-1.ccproj").rfind("CARDENZA_PROJECT 7\n", 0) == 0);
+  assert(read(ours / "DEMO-1.ccproj").rfind("CARDENZA_PROJECT 8\n", 0) == 0);
   { const auto all = app.ListProjects(); assert(std::count(all.begin(), all.end(), std::string("DEMO-1")) == 1); }
   assert(read(ours / "DEMO-2.ccproj") == kReleaseProject);
   // A new project goes there too.

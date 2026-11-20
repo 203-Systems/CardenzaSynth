@@ -448,22 +448,15 @@ std::uint8_t LoadedHits(const synth::ProjectData& project, std::size_t step, std
 void TestFormat()
 {
   const synth::ProjectData project = HitsProject();
-  // Until the format bump this build writes format 7, without the hits: the file is what format 7
-  // always was, and the project loads with plain notes.
-  static_assert(synth::kProjectWriteVersion == 7, "HITS wait for the format bump of the next test build (format 8).");
+  // Format 7, what 0.2.2 and before write: no hits. It still loads, every note with one hit.
   const auto seven = projectDirectory / "seven.ccproj";
-  CHECK(synth::SaveProjectFileAt(seven.string(), project) == synth::ProjectResult::Ok);
+  CHECK(synth::SaveProjectFileAtVersionForTest(seven.string(), project, 7) == synth::ProjectResult::Ok);
   const std::string sevenText = ReadText(seven);
   CHECK(sevenText.rfind("CARDENZA_PROJECT 7\n", 0) == 0);
   CHECK(sevenText.find("\nT 1 0 110 24 1 0 16\nNOTES 3\n0 0 60 100 24 0\n0 0 62 90 24 0\n0 5 64 80 48 3\n") != std::string::npos);
-  synth::ProjectData loaded;
-  CHECK(synth::LoadProjectFileAt(seven.string(), loaded) == synth::ProjectResult::Ok);
-  CHECK(LoadedHits(loaded, 0, 60) == 1 && LoadedHits(loaded, 5, 64) == 1 && loaded.sequence->tracks[0].defaultHits == 1);
-  // Written again it is the same file: format 7 reads and writes exactly as before.
-  const auto again = projectDirectory / "again.ccproj";
-  CHECK(synth::SaveProjectFileAt(again.string(), loaded) == synth::ProjectResult::Ok && ReadText(again) == sevenText);
-  // Hits are no part of the format-7 fingerprint (they are not in the file).
-  CHECK(synth::ProjectFingerprint(project) == synth::ProjectFingerprint(loaded));
+  synth::ProjectData fromSeven;
+  CHECK(synth::LoadProjectFileAt(seven.string(), fromSeven) == synth::ProjectResult::Ok);
+  CHECK(LoadedHits(fromSeven, 0, 60) == 1 && LoadedHits(fromSeven, 5, 64) == 1 && fromSeven.sequence->tracks[0].defaultHits == 1);
 
   // Format 8, crafted from the format-7 file: NEW HITS after the new-note length on each T line, the
   // hits a seventh number on each note line.
@@ -485,34 +478,44 @@ void TestFormat()
       out = line + (line == "0 0 60 100 24 0" ? " 3" : line == "0 5 64 80 48 3" ? " 4" : " 1");
     crafted += out + "\n";
   }
+  // This build writes format 8 (the format bump of 0.2.2-beta.1): exactly that file, hits included.
+  static_assert(synth::kProjectWriteVersion == 8, "Format 8 (HITS) is what this build writes.");
   const auto eight = projectDirectory / "eight.ccproj";
-  WriteText(eight, crafted);
+  CHECK(synth::SaveProjectFileAt(eight.string(), project) == synth::ProjectResult::Ok);
+  CHECK(ReadText(eight) == crafted);
+  synth::ProjectData loaded;
   CHECK(synth::LoadProjectFileAt(eight.string(), loaded) == synth::ProjectResult::Ok);
   CHECK(LoadedHits(loaded, 0, 60) == 3 && LoadedHits(loaded, 0, 62) == 1 && LoadedHits(loaded, 5, 64) == 4);
   CHECK(loaded.sequence->tracks[0].defaultHits == 2 && loaded.sequence->tracks[1].defaultHits == 1);
-  // The writer behind the bump writes exactly that file.
-  const auto written = projectDirectory / "written8.ccproj";
-  CHECK(synth::SaveProjectFileAtVersionForTest(written.string(), project, 8) == synth::ProjectResult::Ok);
-  CHECK(ReadText(written) == crafted);
+  // Written again it is the same file, and the hits are part of the fingerprint: the autosave notices them.
+  const auto again = projectDirectory / "again.ccproj";
+  CHECK(synth::SaveProjectFileAt(again.string(), loaded) == synth::ProjectResult::Ok && ReadText(again) == crafted);
+  CHECK(synth::ProjectFingerprint(project) == synth::ProjectFingerprint(loaded));
+  CHECK(synth::ProjectFingerprint(project) != synth::ProjectFingerprint(fromSeven));
+  // A format-7 project saved again becomes format 8 with one hit a note.
+  const auto upgraded = projectDirectory / "upgraded.ccproj";
+  CHECK(synth::SaveProjectFileAt(upgraded.string(), fromSeven) == synth::ProjectResult::Ok);
+  CHECK(ReadText(upgraded).rfind("CARDENZA_PROJECT 8\n", 0) == 0 && ReadText(upgraded).find("\n0 5 64 80 48 3 1\n") != std::string::npos);
   // Hits out of range are refused, as any value out of range.
+  const auto bad8 = projectDirectory / "bad.ccproj";
   std::string bad = crafted;
   bad.replace(bad.find("0 5 64 80 48 3 4"), 16, "0 5 64 80 48 3 5");
-  WriteText(eight, bad);
-  CHECK(synth::LoadProjectFileAt(eight.string(), loaded) == synth::ProjectResult::Invalid);
+  WriteText(bad8, bad);
+  CHECK(synth::LoadProjectFileAt(bad8.string(), loaded) == synth::ProjectResult::Invalid);
   bad = crafted;
   bad.replace(bad.find("0 0 60 100 24 0 3"), 17, "0 0 60 100 24 0 0");
-  WriteText(eight, bad);
-  CHECK(synth::LoadProjectFileAt(eight.string(), loaded) == synth::ProjectResult::Invalid);
+  WriteText(bad8, bad);
+  CHECK(synth::LoadProjectFileAt(bad8.string(), loaded) == synth::ProjectResult::Invalid);
   // A format-7 file read as 8 (no hits on its lines) does not load.
   bad = sevenText;
   bad.replace(0, 18, "CARDENZA_PROJECT 8");
-  WriteText(eight, bad);
-  CHECK(synth::LoadProjectFileAt(eight.string(), loaded) == synth::ProjectResult::Invalid);
+  WriteText(bad8, bad);
+  CHECK(synth::LoadProjectFileAt(bad8.string(), loaded) == synth::ProjectResult::Invalid);
   // Nothing newer than 8 is read.
   bad = crafted;
   bad.replace(0, 18, "CARDENZA_PROJECT 9");
-  WriteText(eight, bad);
-  CHECK(synth::LoadProjectFileAt(eight.string(), loaded) == synth::ProjectResult::Invalid);
+  WriteText(bad8, bad);
+  CHECK(synth::LoadProjectFileAt(bad8.string(), loaded) == synth::ProjectResult::Invalid);
 }
 
 }  // namespace

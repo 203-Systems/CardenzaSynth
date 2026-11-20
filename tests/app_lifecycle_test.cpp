@@ -360,7 +360,7 @@ int main(int argc, char** argv)
   text = ReadText(synthSettings);
   assert(Contains(text, "future.synth=keep\n") && !Contains(text, "arp.") && !Contains(text, "keys.octave"));
   text = ReadText(product / "Projects" / "SONG 01.ccproj");
-  assert(text.find("CARDENZA_PROJECT 7\n") == 0 && Contains(text, "\nUI 0 1 0 0 0 ") && Contains(text, "\nKEYS 0 110\n"));
+  assert(text.find("CARDENZA_PROJECT 8\n") == 0 && Contains(text, "\nUI 0 1 0 0 0 ") && Contains(text, "\nKEYS 0 110\n"));
   assert(Contains(text, "\nPLAYFX 0 0 0 1 2 1 70 0\n") && Contains(text, "\nPLAYFX 1 0 0 0 3 1 50 0\n"));
 
   // A short HOME press does nothing in the groovebox: the key is unassigned for now.
@@ -451,7 +451,7 @@ int main(int argc, char** argv)
     assert(groove->Sequencer().InsertNote(1, 0, 5, 0, 72, 100, 24));
     Tap(1, 1);
     Frames(140);
-    assert(WriteTimes(sessionFolder) != before && Contains(ReadText(autosave), "\n0 5 72 100 24 0\n"));
+    assert(WriteTimes(sessionFolder) != before && Contains(ReadText(autosave), "\n0 5 72 100 24 0 1\n"));
     assert(groove->Sequencer().ClearPatternEvents(1, 0));
     Tap(1, 1);
     Frames(140);
