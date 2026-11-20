@@ -2031,6 +2031,8 @@ void TestPlayModeEverywhere(Harness& h)
 
   for (std::size_t row = 0; row < song.size(); ++row) assert(sequencer.InsertSongRow(row, song[row]));
   sequencer.SetSongMode(wasSong);
+}
+
 // FN + X without selected steps acts on the current pattern: notes in it are cleared (CLEAR P01?),
 // a pattern without notes is deleted (DELETE P02?), both after ENTER. A track keeps its only one.
 void TestClearDeletesEmptyPattern(Harness& h)
