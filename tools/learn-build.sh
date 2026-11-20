@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Vercel's build: generate the firmware-derived tutorial assets, then build both site languages.
+# Vercel build for the Learn site and the browser simulator.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,8 +18,7 @@ python3 tools/wiki/generate.py --host-build "$HOST_BUILD"
 
 export CARDENZA_LEARN_URL=https://cardenza.203.io
 export CARDENZA_LEARN_BASE_URL=/
-# cardenza-synth.203.io has no DNS record yet (2026-11-17): link the project's Vercel domain until it does.
-export CARDENZA_SIMULATOR_URL=https://cardenza-synth.vercel.app/
+export CARDENZA_SIMULATOR_URL=https://cardenza.203.io/sim/
 export CARDENZA_LEARN_COMMIT="${VERCEL_GIT_COMMIT_SHA:-$(git rev-parse HEAD)}"
 python3 - <<'PY'
 import json, os, pathlib
@@ -28,3 +27,17 @@ pathlib.Path('wiki/generated/static/deployment.json').write_text(
 PY
 npm --prefix wiki run build
 npm --prefix wiki run test:search
+
+# Keep the SDK's environment, including its bundled Node.js, local to the simulator build.
+(
+  WEB_EMSDK="$PWD/build/emsdk"
+  if [[ ! -x "$WEB_EMSDK/emsdk" ]]; then
+    git clone --depth 1 --branch 4.0.22 https://github.com/emscripten-core/emsdk.git "$WEB_EMSDK"
+  fi
+  "$WEB_EMSDK/emsdk" install 4.0.22
+  "$WEB_EMSDK/emsdk" activate 4.0.22
+  source "$WEB_EMSDK/emsdk_env.sh"
+  emcmake "$CMAKE" -S . -B build/learn-web -DDEVICE=CardenzaWeb -DCMAKE_BUILD_TYPE=Release \
+    -DCARDENZA_WEB_SITE_DIR="$PWD/wiki/build/sim"
+  "$CMAKE" --build build/learn-web --target CardenzaWeb --parallel 2
+)

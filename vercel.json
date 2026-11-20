@@ -21,6 +21,25 @@
       "continue": true
     },
     {
+      "src": "^/sim$",
+      "status": 308,
+      "headers": {"Location": "/sim/"}
+    },
+    {
+      "src": "^/sim/$",
+      "dest": "/sim/index.html"
+    },
+    {
+      "src": "^/sim/learn/?$",
+      "status": 307,
+      "headers": {"Location": "/"}
+    },
+    {
+      "src": "^/sim/cardenza\\.wasm$",
+      "headers": {"Content-Type": "application/wasm"},
+      "continue": true
+    },
+    {
       "src": "^/community/?$",
       "dest": "https://apps.203.io/community/"
     },
