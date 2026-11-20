@@ -4,42 +4,29 @@
   "installCommand": "npm --prefix wiki ci --no-audit --no-fund",
   "buildCommand": "bash tools/learn-build.sh",
   "outputDirectory": "wiki/build",
-  "headers": [
+  "routes": [
     {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        }
-      ]
+      "src": "^/(.*)$",
+      "has": [{"type": "host", "value": "stage.203.io"}],
+      "dest": "https://apps.203.io/community/_site/stage.203.io/$1"
     },
     {
-      "source": "/deployment.json",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
-        }
-      ]
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/community",
-      "destination": "https://apps.203.io/community/"
+      "src": "^/(.*)$",
+      "headers": {"X-Content-Type-Options": "nosniff"},
+      "continue": true
     },
     {
-      "source": "/community/",
-      "destination": "https://apps.203.io/community/"
+      "src": "^/deployment\\.json$",
+      "headers": {"Cache-Control": "no-store"},
+      "continue": true
     },
     {
-      "source": "/community/:path*/",
-      "destination": "https://apps.203.io/community/:path*/"
+      "src": "^/community/?$",
+      "dest": "https://apps.203.io/community/"
     },
     {
-      "source": "/community/:path*",
-      "destination": "https://apps.203.io/community/:path*"
+      "src": "^/community/(.*)$",
+      "dest": "https://apps.203.io/community/$1"
     }
   ]
 }
