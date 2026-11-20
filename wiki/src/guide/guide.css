@@ -133,19 +133,21 @@
 .cz-web-hl { fill: none; stroke: var(--cz-mark); stroke-width: 5; stroke-dasharray: 16 10; animation: cz-web-ants 1.2s linear infinite; }
 @keyframes cz-web-ants { to { stroke-dashoffset: -26; } }
 @media (prefers-reduced-motion: reduce) { .cz-web-hl { animation: none; } .cz-web svg { transition: none; } }
-/* The USB cable on the board (launcher.tsx UsbCable) and the line drawings (wire:): flat lines in the ink on the white the
-   device and the community pictures sit on, in both themes. */
-.cz-cable .line { fill: none; stroke: #1c1c1a; stroke-width: 1.6; stroke-linecap: round; }
-.cz-cable .plug { fill: #fff; stroke: #1c1c1a; stroke-width: 1.2; }
-.cz-cable .boot, .cz-cable .tip { fill: #1c1c1a; }
-.cz-cable .gap { fill: none; stroke: #1c1c1a; stroke-width: .8; stroke-dasharray: 2 2; }
+/* The USB cable and browser diagrams in the Launcher lessons. */
+.cz-device.cz-device-with-cable { background: transparent; box-shadow: none; border-radius: 0; }
+.cz-device-with-cable > .cz-pcb { background: transparent; }
+.cz-cable-line { fill: none; stroke: #62bf30; stroke-width: 6.8; stroke-linecap: round; }
+.cz-cable-grip { fill: #28292a; stroke: #161718; stroke-width: .8; }
+.cz-cable-boot { fill: #292b2d; stroke: #454749; stroke-width: .65; }
+.cz-cable-tip { fill: #d5dadd; stroke: #8e999f; stroke-width: .6; }
+.cz-cable-bevel { fill: none; stroke: #545658; stroke-width: .65; stroke-linecap: round; }
 .cz-wire .wf-line { fill: none; stroke: #1c1c1a; stroke-width: 2.5; stroke-linejoin: round; }
 .cz-wire .wf-page, .cz-wire .wf-paper { fill: #fff; }
 .cz-wire .wf-ink { fill: #1c1c1a; }
 .cz-wire .wf-faint { fill: #d4d4ce; }
 .cz-wire .wf-grey { fill: #ebebe6; }
 .cz-wire .wf-key { fill: #1c1c1a; opacity: .5; }
-.cz-wire .wf-cable { stroke-width: 3.5; stroke-linecap: round; }
+.cz-wire .wf-cable { stroke-width: 3; }
 .cz-wire .wf-text { fill: #1c1c1a; font: 500 15px var(--cz-mono); }
 .cz-wire .wf-title { fill: #1c1c1a; font-family: system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: 17px; font-weight: 600; }
 /* On the ink (the chosen port, the primary button): its own rule over the text's, whatever order the minifier leaves. */

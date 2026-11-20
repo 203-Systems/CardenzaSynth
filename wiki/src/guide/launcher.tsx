@@ -11,7 +11,7 @@
 //           the community, the browser's port chooser), drawn here (WIRES), in the reader's language.
 //   action: null; a key pressed as the frame ends ("OK", "/"); "hold:FN" held through the frame;
 //           "type:V6QK28" typed key by key through it; "cable:in" / "cable:out" the USB cable in the
-//           device's port or pulled out of it from this frame on (a board step; drawn as a line, no hands).
+//           device's port or pulled out of it from this frame on (a board step).
 //           Parts go together with a space: "hold:HOME cable:in". HOME (the side key, GPIO0) shows on the
 //           whole board.
 // A step with "board": true shows the whole board (the HOME key left of the screen); otherwise the keys
@@ -156,29 +156,41 @@ function useScreens(step: LauncherStep, shown: string): React.ReactElement {
   );
 }
 
-// The USB-C port on the board's top edge, right of the display (CN2 on the drawing: x 153.4-171.4, from the top edge).
-const PORT = {x: 162.4, y: 2.3};
-const CABLE_ROOM = 34; // above the board, where the cable comes from
+// The board drawing's USB-C receptacle (U4), beside the antenna.
+const USB_C = {x: 218.45, y: 0.27};
+const CABLE_ROOM = 72;
+const PLUG_BOOT_Y = -43;
 
-/** The USB cable as line art: its plug in the port (in) or lifted out of it (out), the cable going up and away. */
-function UsbCable({state}: {state: 'in' | 'out'}) {
-  const lift = state === 'out' ? 13 : 0;
-  const bottom = PORT.y + 1.2 - lift;
+function UsbPlug({unplugged = false}: {unplugged?: boolean}) {
   return (
-    <g className="cz-cable">
-      <path className="line" d={`M${PORT.x} ${bottom - 16} V${-12 - lift / 2} Q${PORT.x} ${-CABLE_ROOM + 4} ${PORT.x + 26} ${-CABLE_ROOM + 3} H${BOARD.w + 2}`} />
-      <rect className="boot" x={PORT.x - 3.6} y={bottom - 16} width="7.2" height="5" rx="1" />
-      <rect className="plug" x={PORT.x - 6.4} y={bottom - 11.5} width="12.8" height="11.5" rx="2" />
-      <rect className="tip" x={PORT.x - 4.2} y={bottom - 1.6} width="8.4" height="2.4" rx="0.8" />
-      {state === 'out' ? <path className="gap" d={`M${PORT.x - 9} ${PORT.y - 5.5} H${PORT.x + 9}`} /> : null}
+    <g>
+      <rect className="cz-cable-tip" x="-9.3" y="-3.4" width="18.6" height={unplugged ? 11 : 3.4} rx="1.1" />
+      <rect className="cz-cable-boot" x="-5" y={PLUG_BOOT_Y} width="10" height="8.5" rx="1.4" />
+      <rect className="cz-cable-grip" x="-11.6" y="-37" width="23.2" height="36" rx="2.2" />
+      <path className="cz-cable-bevel" d="M-9.8 -3.6 V-34 Q-9.8 -35.2 -8.5 -35.2 H8.6" />
+    </g>
+  );
+}
+
+/** The plug moves straight out from the receptacle, exposing its metal tip. */
+function UsbCable({state}: {state: 'in' | 'out'}) {
+  const unplugged = state === 'out';
+  const plugY = USB_C.y - (unplugged ? 20 : 0);
+  return (
+    <g>
+      <path className="cz-cable-line"
+        d={`M${USB_C.x} ${plugY + PLUG_BOOT_Y + 1} C${USB_C.x} ${plugY - 51} ${USB_C.x + 14} ${-CABLE_ROOM + 8} ${BOARD.w + 6} ${-CABLE_ROOM + 5}`} />
+      <g transform={`translate(${USB_C.x} ${plugY})`}>
+        <UsbPlug unplugged={unplugged} />
+      </g>
     </g>
   );
 }
 
 /** The whole board (HOME left of the screen), the screen in its display, keys and HOME framed; the USB cable when the
  *  step names it (the picture keeps its room above the board for every frame then). */
-function Board({screen, framed, down, label, cable = null, withCable = false}: {screen: React.ReactElement; framed: string[]; down: string[]; label: string;
-  cable?: Cable; withCable?: boolean}) {
+function Board({screen, framed, down, label, cable}: {screen: React.ReactElement; framed: string[]; down: string[]; label: string;
+  cable: Cable}) {
   const board = useBoardImage();
   const rects: [number, number, number, number][] = [];
   const frame = (token: string): [number, number, number, number][] =>
@@ -187,9 +199,9 @@ function Board({screen, framed, down, label, cable = null, withCable = false}: {
   const pressed: [number, number, number, number][] = [];
   down.forEach((token) => pressed.push(...frame(token)));
   return (
-    <svg className="cz-pcb" viewBox={withCable ? `0 ${-CABLE_ROOM} ${BOARD.w} ${BOARD.h + CABLE_ROOM}` : `0 0 ${BOARD.w} ${BOARD.h}`} role="img" aria-label={label}>
+    <svg className="cz-pcb" viewBox={cable ? `0 ${-CABLE_ROOM} ${BOARD.w} ${BOARD.h + CABLE_ROOM}` : `0 0 ${BOARD.w} ${BOARD.h}`} role="img" aria-label={label}>
       <image href={board} x="0" y="0" width={BOARD.w} height={BOARD.h} preserveAspectRatio="none" />
-      {withCable && cable ? <UsbCable state={cable} /> : null}
+      {cable && <UsbCable state={cable} />}
       <svg x={DISPLAY.x} y={DISPLAY.y} width={DISPLAY.w} height={DISPLAY.h} viewBox="0 0 240 135" preserveAspectRatio="none">
         {screen}
       </svg>
@@ -261,6 +273,11 @@ function MiniDevice({x, y, w}: {x: number; y: number; w: number}) {
   );
 }
 
+const miniBoard = {x: 10, y: 196, w: 110};
+const miniScale = miniBoard.w / BOARD.w;
+const miniPortX = miniBoard.x + USB_C.x * miniScale;
+const miniPortY = miniBoard.y + USB_C.y * miniScale;
+
 const WIRES: Record<string, (lang: 'zh' | 'en') => React.ReactElement> = {
   // The computer's browser on the community (any page), the device on a cable to it, its screen dark.
   browser: () => (
@@ -282,11 +299,14 @@ const WIRES: Record<string, (lang: 'zh' | 'en') => React.ReactElement> = {
       <rect className="wf-ink" x="488" y="153" width="80" height="6" /><rect className="wf-faint" x="488" y="164" width="64" height="5" />
       <rect className="wf-ink" x="462" y="186" width="62" height="16" /><rect className="wf-grey" x="530" y="186" width="40" height="16" />
       <g className="cz-web-mark"><rect className="under" x="444" y="134" width="144" height="88" rx="6" /><rect className="cz-web-hl" x="444" y="134" width="144" height="88" rx="6" /></g>
-      {/* The cable from the computer's side into the device's port on its top edge, right of its screen. */}
-      <path className="wf-line wf-cable" d="M82 190 V170 Q82 156 96 156 H118 Q132 156 132 170 V286 Q132 296 142 296" />
-      <rect className="wf-ink" x="77" y="186" width="10" height="11" rx="2" />
-      <rect className="wf-ink" x="140" y="290" width="12" height="12" rx="2" />
-      <MiniDevice x={10} y={196} w={110} />
+      <MiniDevice {...miniBoard} />
+      <rect className="wf-grey" x={miniPortX - 5.5} y={miniPortY} width="11" height="9" rx="1" />
+      <path className="cz-cable-line wf-cable"
+        d={`M${miniPortX} ${miniPortY + (PLUG_BOOT_Y + 1) * miniScale} V175 Q${miniPortX} 167 115 167 H119 Q133 167 133 181 V282 Q133 296 145 296`} />
+      <rect className="wf-ink" x="140" y="291" width="12" height="10" rx="2" />
+      <g transform={`translate(${miniPortX} ${miniPortY}) scale(${miniScale})`}>
+        <UsbPlug />
+      </g>
     </>
   ),
   // The browser's port chooser, its one port chosen and Connect framed.
@@ -338,15 +358,15 @@ export function LauncherStage({step}: {step: LauncherStep}) {
   const screen = useScreens(web || wire ? {...step, frames: []} : step, step.frames[index][0]);
   const framed = stepKeys(step);
   const label = step.say[lang];
+  const cable = step.board ? cableAt(step, index) : null;
   const marks = framed.filter((k) => k !== 'HOME').map((k) => ({keys: k}));
   const keys = usePcbKeys({levels: null, focusOnly: marks.length > 0, label, screen, marks, pressed: matrixIndices(down)});
   return (
     <div className="st-page">
       <div className="st-keys">
         {web ? <Web step={step} index={index} /> : wire ? <Wire step={step} index={index} /> : (
-          <div className="cz-device">
-            {step.board ? <Board screen={screen} framed={framed} down={down} label={label}
-              cable={cableAt(step, index)} withCable={cableAt(step, 0) !== null} /> : keys.svg}
+          <div className={cable ? 'cz-device cz-device-with-cable' : 'cz-device'}>
+            {step.board ? <Board screen={screen} framed={framed} down={down} label={label} cable={cable} /> : keys.svg}
           </div>
         )}
       </div>
