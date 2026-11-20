@@ -66,10 +66,10 @@ std::string Controller::GuideState() const
     if (sequencer.StepNoteEvents(track, step, notes) > 0) ++written;
   const Modal* modal = TopModal();
   const int overlay = EscOverlay() ? 1 : TabOverlay() ? 2 : FnOverlay() ? 3 : CtrlOverlay() ? 4 : 0;
-  // The preset as a number that changes with it.
+  // The preset as a number that changes with it: the track's own (one on trial in the browser is not
+  // chosen yet).
   unsigned preset = 0;
-  if (const auto* engine = host_.Engine(track))
-    for (const char c : engine->CurrentPresetId()) preset = (preset * 31u + static_cast<unsigned char>(c)) % 1000u;
+  for (const char c : KeptPresetId()) preset = (preset * 31u + static_cast<unsigned char>(c)) % 1000u;
   // The SONG cell under the cursor: its pattern number (P01 = 1), 0 for -- or past the song; its row
   // (from 1) and how many bars that row plays, 0 past the song.
   unsigned songCell = 0, songRow = 0, songBars = 0;

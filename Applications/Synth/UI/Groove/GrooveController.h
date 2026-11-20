@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -629,6 +630,15 @@ public:
   // Pads that sound right now for the active track, base keys and chord notes.
   bool IsChordNoteHeld(int note) const;
 
+  // The preset browser's preview: a pad plays the preset under the cursor on the track's own engine
+  // (PreviewPreset). Meanwhile the track's own sound, its preset and edits as CaptureChanges has
+  // them, waits here and comes back when the browser closes without a choice: the autosave and a
+  // project take it for that track, not the preset on trial. Null when nothing is on trial there.
+  const synth::SynthEngineState* PresetPreviewKept(std::size_t track) const;
+  // The preset the held pads play in the preset browser (the one on trial, or the track's own),
+  // empty when no pad is held: its row shows a play mark.
+  std::string PresetHeard() const;
+
 private:
   // Input routing
   void PressLeft(std::size_t row);
@@ -721,6 +731,23 @@ private:
   // picker it came from, so ESC goes back there.
   bool ConfirmLosingEdits(ConfirmPurpose purpose, const std::string& title, const std::string& payload);
   void ApplyPreset(const std::string& presetId);
+  // A pad pressed in the preset browser: the preset under the cursor goes on the track's engine (the
+  // track's own sound is set aside the first time, and comes back when the cursor is on its row).
+  void PreviewPreset();
+  // The browser closed: `restore` puts the track's own sound back (ESC, a scene change), otherwise it
+  // is dropped (a preset was chosen, or another project replaced the track).
+  void EndPresetPreview(bool restore);
+  // The preset the track keeps (its own while another is on trial).
+  std::string KeptPresetId() const;
+  bool PresetBrowserOpen() const;
+  struct PresetPreview {
+    std::size_t track = 0;
+    synth::SynthEngineKind kind = synth::SynthEngineKind::None;
+    synth::SynthEngineState kept;  // CaptureChanges before the first preset on trial
+    bool keptEdits = false;        // HasEdits then: what loading a preset would lose
+    std::string loaded;            // the preset on trial
+  };
+  std::optional<PresetPreview> preview_;
   void ApplyEngine(synth::SynthEngineKind kind);
   bool PadForSequence(std::size_t pad, int key, const std::uint8_t* notes, std::size_t count, std::uint8_t velocity = 0);
   // ADD / SUB with pads held on the note page: the current edit lane for their notes only, on the

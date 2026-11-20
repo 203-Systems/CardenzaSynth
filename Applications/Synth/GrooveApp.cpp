@@ -1070,7 +1070,10 @@ bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth:
       return false;
     }
     project.kinds[track] = slot.kind;
-    project.engines[track] = forSession ? slot.engine->CaptureChanges() : slot.engine->CaptureState();
+    // A preset on trial in the browser is not the track's yet: its own sound (preset and edits, the
+    // changes only: the rest is its preset's) is what the autosave and a project keep.
+    if (const synth::SynthEngineState* kept = controller_.PresetPreviewKept(track)) project.engines[track] = *kept;
+    else project.engines[track] = forSession ? slot.engine->CaptureChanges() : slot.engine->CaptureState();
     project.samples[track] = sample.sampleFileName;
     // Still waiting for the card it is on.
     if (forSession && sample.sampleFileName.empty() && slot.kind == synth::SynthEngineKind::Sampler) project.samples[track] = pendingSamples_[track];

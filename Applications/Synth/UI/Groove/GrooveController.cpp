@@ -41,6 +41,8 @@ Controller::Controller(Host& host) : host_(host)
 
 void Controller::Restore(const ProjectUiSettings& settings, const std::string& projectName, bool dirty)
 {
+  // Another project replaced the tracks: a preset on trial in the browser is gone with the old one.
+  preview_.reset();
   ReleaseAllPads();
   state_.modals.clear();
   state_.track = std::min(settings.activeTrack, kTrackCount - 1);
@@ -563,6 +565,12 @@ void Controller::PressPad(std::size_t row, std::size_t column)
   std::array<std::uint8_t, kMaxPadNotes> chord{};
   const std::size_t voices = PadNotes(state_.keyboard, state_.chords[state_.track], ActiveKind(), note, chord);
   if (voices == 0) return;
+  // In the preset browser a pad tries the preset under the cursor (it goes on the track first): its
+  // notes and chord as anywhere, but straight (no arpeggiator) and kept out of the pattern and the
+  // takes: the user is choosing a sound, not playing the part.
+  const Modal* top = TopModal();
+  const bool trying = top != nullptr && top->kind == ModalKind::PresetBrowser;
+  if (trying) PreviewPreset();
   auto& sequencer = host_.Sequencer();
   // On a drum track the row says how hard. On the drum page a pad also chooses what the GRID puts on
   // the steps: this drum, this hard.
@@ -591,16 +599,16 @@ void Controller::PressPad(std::size_t row, std::size_t column)
   state_.padChordCount[index] = static_cast<std::uint8_t>(voices);
   state_.padTrack[index] = static_cast<std::uint8_t>(state_.track);
   // Drums skip the arpeggiator: one hit per press.
-  state_.padArp[index] = audition && sequencer.GetArpSettings(state_.track).mode != synth::ArpMode::Off && ActiveKind() != synth::SynthEngineKind::Drums;
+  state_.padArp[index] = audition && !trying && sequencer.GetArpSettings(state_.track).mode != synth::ArpMode::Off && ActiveKind() != synth::SynthEngineKind::Drums;
   state_.lastTrackNoteAt[state_.track] = state_.now;
   if (!audition)
   {
     state_.padChordCount[index] = 0;  // edit only: nothing sounds, nothing to release
     return;
   }
-  SoundPad(index, true);
+  SoundPad(index, true, !trying);
   // The arpeggiator records its own notes; straight notes are recorded here.
-  if (!editing && !state_.padArp[index] && sequencer.RecordArmed() && sequencer.Playing())
+  if (!editing && !trying && !state_.padArp[index] && sequencer.RecordArmed() && sequencer.Playing())
   {
     for (std::size_t voice = 0; voice < voices; ++voice) sequencer.RecordNoteOn(state_.track, chord[voice], velocity);
     MarkDirty();
@@ -754,11 +762,12 @@ bool Controller::HandleTextKey(std::size_t row, std::size_t column)
 bool Controller::HandleSearchKey(std::size_t row, std::size_t column)
 {
   // In the preset / sample browsers the pads and GRID do not type: searching is FN + F, a field one
-  // step away, so a stray key never starts a filter.
-  (void)row;
-  (void)column;
+  // step away, so a stray key never starts a filter. The preset browser's pads play the preset under
+  // the cursor (PreviewPreset); the sample browser's stay silent.
   const Modal* modal = TopModal();
-  return modal != nullptr && (modal->kind == ModalKind::PresetBrowser || modal->kind == ModalKind::SampleBrowser);
+  if (modal == nullptr) return false;
+  if (modal->kind == ModalKind::PresetBrowser) return RoleFor(row, column) != KeyRole::Pad;
+  return modal->kind == ModalKind::SampleBrowser;
 }
 
 bool Controller::HandleFnKey(std::size_t row, std::size_t column)
@@ -850,6 +859,9 @@ void Controller::Tick(std::uint32_t nowMs)
     else Adjust(repeat.direction * step, repeat.coarse);
   }
   if (!state_.toast.text.empty() && nowMs >= state_.toast.until) state_.toast.text.clear();
+  // The preset browser went without ESC or ENTER (a scene change, a lesson's start): the track gets
+  // its own sound back, as after ESC.
+  if (preview_ && !PresetBrowserOpen()) EndPresetPreview(true);
   // The record modal follows the sampler's own state machine.
   const Modal* modal = TopModal();
   // The microphone takes the speaker's clock pin, so it never runs without its screen.
@@ -1220,7 +1232,9 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
   const Modal* modal = TopModal();
   const bool textEntry = modal != nullptr && modal->kind == ModalKind::TextEntry;
   const bool menuOpen = modal != nullptr && modal->kind == ModalKind::Menu;
-  const bool searching = modal != nullptr && (modal->kind == ModalKind::PresetBrowser || modal->kind == ModalKind::SampleBrowser);
+  // The sample browser lights the pads' letters (its search); in the preset browser the pads are the
+  // keyboard as everywhere: they play the preset under the cursor.
+  const bool searching = modal != nullptr && modal->kind == ModalKind::SampleBrowser;
   const std::size_t page = CurrentPage();
   auto set = [&](std::size_t index, std::uint8_t level, LedEffect effect = LedEffect::Steady) {
     frame[index] = LedCell{level, effect};

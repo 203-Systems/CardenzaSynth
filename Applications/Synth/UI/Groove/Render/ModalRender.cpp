@@ -51,6 +51,9 @@ void DrawList(Gfx& g, const Controller& controller, Animator& animator, const Mo
                                      static_cast<float>(listTop + static_cast<int>(modal.cursor - first) * 10), 40.0f);
   g.Fill(Rect{kContentX, static_cast<int>(std::lround(barY)), kContentWidth - 6, 9}, kInk);
   const float opened = fx::Clamp01(static_cast<float>(animator.Now() - animator.ModalOpenedAt()) / 260.0f);
+  // The preset browser: the row the held pads play (the preset on trial, or the track's own) has a
+  // play mark at its end.
+  const std::string heard = modal.kind == ModalKind::PresetBrowser ? controller.PresetHeard() : std::string();
   for (std::size_t row = 0; row < kListVisibleRows && first + row < modal.Count(); ++row)
   {
     const ListItem* listed = modal.Row(first + row);
@@ -60,9 +63,11 @@ void DrawList(Gfx& g, const Controller& controller, Animator& animator, const Mo
     const bool covered = std::fabs(static_cast<float>(y - 1) - barY) < 5.0f;
     const float reveal = fx::Clamp01(opened * 3.0f - static_cast<float>(row) * 0.25f);
     if (item.marked) g.Text(kContentX + 2, y, ">", covered ? kBlack : kTab);
+    const bool playing = !heard.empty() && item.id == heard;
+    if (playing) g.DrawGlyph(kContentRight - 14, y, Glyph::Play, covered ? kBlack : kPlay);
     std::string label = item.label;
     label.resize(std::min(label.size(), static_cast<std::size_t>(reveal * static_cast<float>(label.size()) + 0.5f)));
-    g.TextFit(kContentX + 10, y, kContentWidth - 18, label, covered ? kBlack : kInk);
+    g.TextFit(kContentX + 10, y, kContentWidth - (playing ? 27 : 18), label, covered ? kBlack : kInk);
   }
   widgets::ScrollIndicator(g, Rect{kContentRight - 2, listTop, 1, static_cast<int>(kListVisibleRows) * 10}, first, kListVisibleRows, modal.Count());
 }
@@ -366,7 +371,7 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
     case ModalKind::Confirm:
       if (modal.confirmPurpose == ConfirmPurpose::Notice) return "ENTER OR ESC CLOSES";
       return modal.danger ? "ENTER CONFIRM   ESC KEEP" : "ENTER YES   ESC NO";
-    case ModalKind::PresetBrowser: return "ENTER LOAD   FN+F SEARCH   ESC BACK";
+    case ModalKind::PresetBrowser: return "PADS PLAY IT  ENTER LOAD  ESC BACK";
     case ModalKind::SampleBrowser: return "ENTER LOAD  FN+F SEARCH  FN+ENTER EDIT";
     case ModalKind::SampleOptions: return "ENTER CHOOSE   ESC BACK";
     case ModalKind::EnginePicker: return "GRID OR SUB ADD   ENTER SWITCH";

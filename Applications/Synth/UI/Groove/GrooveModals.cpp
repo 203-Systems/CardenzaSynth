@@ -78,8 +78,12 @@ bool Controller::ConfirmLosingEdits(ConfirmPurpose purpose, const std::string& t
   // A lesson plays on a practice project the guide throws away, and its steps say which key to press
   // next: a question no step mentions would only stop it.
   const synth::ISynthEngine* engine = ActiveEngine();
-  if (guide_ || engine == nullptr || !engine->HasEdits()) return false;
-  OpenConfirm(purpose, Upper(title), "EDITS TO " + Upper(engine->CurrentPresetName()) + " WILL BE LOST", true, payload);
+  if (guide_ || engine == nullptr) return false;
+  // While the browser plays another preset, the edits at stake are those of the sound set aside.
+  const synth::SynthEngineState* kept = PresetPreviewKept(state_.track);
+  if (kept != nullptr ? !preview_->keptEdits : !engine->HasEdits()) return false;
+  const std::string name = kept != nullptr ? kept->presetName : engine->CurrentPresetName();
+  OpenConfirm(purpose, Upper(title), "EDITS TO " + Upper(name) + " WILL BE LOST", true, payload);
   return true;
 }
 
@@ -88,8 +92,94 @@ void Controller::ApplyPreset(const std::string& presetId)
   synth::ISynthEngine* engine = ActiveEngine();
   if (engine == nullptr) return;
   ReleaseAllPads();
-  if (engine->LoadPreset(presetId)) MarkDirty();
-  else ShowToast("PRESET UNAVAILABLE", ToastKind::Error);
+  // The preview already plays it as loading it would (nothing can edit it in the browser): it stays,
+  // and AMY builds no voices again.
+  const bool previewed = PresetPreviewKept(state_.track) != nullptr && preview_->loaded == presetId && !engine->HasEdits();
+  if (!previewed && !engine->LoadPreset(presetId))
+  {
+    EndPresetPreview(true);
+    ShowToast("PRESET UNAVAILABLE", ToastKind::Error);
+    return;
+  }
+  preview_.reset();
+  MarkDirty();
+}
+
+const synth::SynthEngineState* Controller::PresetPreviewKept(std::size_t track) const
+{
+  // Only while the preset on trial is still what the track's engine has: a project that replaced it
+  // took the preview's place.
+  if (!preview_ || preview_->track != track) return nullptr;
+  const synth::ISynthEngine* engine = host_.Engine(track);
+  if (engine == nullptr || host_.EngineKind(track) != preview_->kind || engine->CurrentPresetId() != preview_->loaded) return nullptr;
+  return &preview_->kept;
+}
+
+std::string Controller::KeptPresetId() const
+{
+  if (const synth::SynthEngineState* kept = PresetPreviewKept(state_.track)) return kept->presetId;
+  const synth::ISynthEngine* engine = ActiveEngine();
+  return engine != nullptr ? engine->CurrentPresetId() : std::string();
+}
+
+bool Controller::PresetBrowserOpen() const
+{
+  return std::any_of(state_.modals.begin(), state_.modals.end(), [](const Modal& modal) { return modal.kind == ModalKind::PresetBrowser; });
+}
+
+std::string Controller::PresetHeard() const
+{
+  const synth::ISynthEngine* engine = ActiveEngine();
+  if (engine == nullptr) return {};
+  for (std::size_t index = 0; index < state_.padNote.size(); ++index)
+    if (state_.padNote[index] != kNoNote && state_.padTrack[index] == state_.track && state_.padChordCount[index] != 0)
+      return engine->CurrentPresetId();
+  return {};
+}
+
+void Controller::PreviewPreset()
+{
+  Modal* modal = Top();
+  synth::ISynthEngine* engine = ActiveEngine();
+  if (modal == nullptr || modal->kind != ModalKind::PresetBrowser || engine == nullptr) return;
+  const ListItem* row = modal->Row(modal->cursor);
+  if (row == nullptr || row->id == engine->CurrentPresetId()) return;  // that one sounds already
+  // Back on the track's own preset: its own sound, edits and all.
+  if (const synth::SynthEngineState* kept = PresetPreviewKept(state_.track); kept != nullptr && row->id == kept->presetId)
+  {
+    EndPresetPreview(true);
+    return;
+  }
+  // The first preset on trial sets the track's sound aside (only what differs from its preset: a
+  // few values, often none).
+  if (PresetPreviewKept(state_.track) == nullptr)
+    preview_ = PresetPreview{state_.track, ActiveKind(), engine->CaptureChanges(), engine->HasEdits(), {}};
+  // As loading a preset anywhere: notes of the last one end first. The heavy part (AMY building the
+  // voices) waits on the render thread for the output to be ahead; this pad's note waits behind it.
+  ReleaseAllPads();
+  const std::string id = row->id;
+  if (!engine->LoadPreset(id))
+  {
+    EndPresetPreview(true);
+    ShowToast("PRESET UNAVAILABLE", ToastKind::Error);
+    return;
+  }
+  preview_->loaded = id;
+}
+
+void Controller::EndPresetPreview(bool restore)
+{
+  if (!preview_) return;
+  const bool current = PresetPreviewKept(preview_->track) != nullptr;
+  const PresetPreview preview = std::move(*preview_);
+  preview_.reset();
+  if (!restore || !current) return;
+  synth::ISynthEngine* engine = host_.Engine(preview.track);
+  if (preview.track == state_.track) ReleaseAllPads();
+  if (engine->RestoreState(preview.kept)) return;
+  // Not expected (the state came from this engine a moment ago): the preset at least.
+  std::printf("ui: the sound before the preset preview did not come back: %s\n", preview.kept.presetId.c_str());
+  (void)engine->LoadPreset(preview.kept.presetId);
 }
 
 void Controller::ApplyEngine(synth::SynthEngineKind kind)
@@ -130,6 +220,8 @@ void Controller::RefreshPresetBrowser()
   if (modal == nullptr || engine == nullptr) return;
   const bool reopened = modal->cursor < modal->presets.size();
   const std::size_t previous = reopened ? modal->presets[modal->cursor] : 0;
+  // The track's own preset, also while another one is on trial (PreviewPreset).
+  const std::string kept = KeptPresetId();
   modal->presets.clear();
   modal->cursor = 0;
   constexpr std::size_t kPage = 16;
@@ -141,7 +233,7 @@ void Controller::RefreshPresetBrowser()
     {
       const auto& preset = page.items[index];
       if (!Matches(preset.name, modal->search)) continue;
-      if (reopened ? offset + index == previous : preset.active) modal->cursor = modal->presets.size();
+      if (reopened ? offset + index == previous : preset.id == kept) modal->cursor = modal->presets.size();
       modal->presets.push_back(static_cast<std::uint16_t>(offset + index));
     }
     if (page.items.empty() || offset + kPage >= page.totalCount) break;
@@ -156,10 +248,12 @@ void Controller::FillPresetRows(Modal& modal) const
   modal.itemCount = modal.presets.size();
   modal.firstItem = ListFirstRow(modal.cursor);
   if (engine == nullptr) return;
+  // Marked: the track's own preset, not one on trial (PreviewPreset).
+  const std::string kept = KeptPresetId();
   for (std::size_t index = modal.firstItem; index < modal.firstItem + kListVisibleRows && index < modal.presets.size(); ++index)
   {
     const auto page = engine->ListPresets({modal.presets[index], 1});
-    if (!page.items.empty()) modal.items.push_back({page.items.front().id, Upper(page.items.front().name), page.items.front().active});
+    if (!page.items.empty()) modal.items.push_back({page.items.front().id, Upper(page.items.front().name), page.items.front().id == kept});
   }
 }
 
@@ -416,7 +510,10 @@ void Controller::ModalCancel()
     default:
       break;
   }
+  const bool presets = modal->kind == ModalKind::PresetBrowser;
   CloseModal();
+  // ESC leaves the track as the browser found it: the preset on trial goes, its own sound comes back.
+  if (presets) EndPresetPreview(true);
 }
 
 void Controller::CommitText()
