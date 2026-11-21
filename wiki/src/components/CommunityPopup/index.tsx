@@ -40,12 +40,13 @@ export function CommunityNavbarItem({mobile}: {mobile?: boolean}) {
 
 export default function CommunityPopupProvider({children}: PropsWithChildren) {
   const {i18n} = useDocusaurusContext();
+  const isChineseLocale = i18n.currentLocale === 'zh-Hans';
   const [region, setRegion] = useState<Region | null>(null);
   const openedFromNavbar = useRef(false);
 
   function openFromNavbar() {
     openedFromNavbar.current = true;
-    setRegion(i18n.currentLocale === 'zh-Hans' ? 'china' : 'international');
+    setRegion(isChineseLocale ? 'china' : 'international');
   }
 
   useEffect(() => {
@@ -53,6 +54,11 @@ export default function CommunityPopupProvider({children}: PropsWithChildren) {
       if (localStorage.getItem(dismissalKey) === '1') return;
     } catch {
       // The dialog can still be dismissed when browser storage is blocked.
+    }
+
+    if (isChineseLocale) {
+      if (!openedFromNavbar.current) setRegion('china');
+      return;
     }
 
     const request = new AbortController();
@@ -67,7 +73,7 @@ export default function CommunityPopupProvider({children}: PropsWithChildren) {
       window.clearTimeout(timeout);
       request.abort();
     };
-  }, []);
+  }, [isChineseLocale]);
 
   return (
     <OpenCommunity.Provider value={openFromNavbar}>
