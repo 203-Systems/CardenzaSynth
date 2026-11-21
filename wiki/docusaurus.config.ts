@@ -6,6 +6,7 @@
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
+import {discordInvite} from './community';
 
 // Keep the Cardenza brand in the browser title in every language.
 const baseUrl = process.env.CARDENZA_LEARN_BASE_URL || '/learn/';
@@ -109,6 +110,7 @@ const config: Config = {
           label: 'Community',
           position: 'left',
         },
+        {type: 'custom-community', position: 'right'},
         {
           type: 'localeDropdown',
           position: 'right',
@@ -139,7 +141,7 @@ const config: Config = {
           items: [
             {label: '203 Community', href: communityUrl, target: '_self'},
             {label: 'Firmware tutorials', href: `${communityUrl}/tutorials`, target: '_self'},
-            {label: 'Discord', href: 'https://discord.gg/rRVCBHHPfw'},
+            {label: 'Discord', href: discordInvite},
             {label: 'Twitter / X', href: 'https://twitter.com/203Systems'},
             {label: 'Youtube', href: 'https://www.youtube.com/channel/UCl9tL-r4NzvGl-EIeVYZZ-g'},
           ],

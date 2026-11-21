@@ -28,10 +28,15 @@ for file in index.html cardenza.js cardenza.wasm cardenza-web.js cardenza-web.cs
   [[ -f $SITE/$file ]] || { echo "web-deploy: $SITE/$file missing, run make web" >&2; exit 1; }
 done
 
-# Stage only the page files; the Vercel link survives between runs next to the build.
-cp "$SITE"/index.html "$SITE"/*.js "$SITE"/*.css "$SITE"/*.wasm "$STAGE"/
+# Keep the region function outside the static output directory.
+mkdir -p "$STAGE/site"
+cp "$SITE"/index.html "$SITE"/*.js "$SITE"/*.css "$SITE"/*.wasm "$STAGE/site/"
 # The Learn site (/learn: the guide and the manual, wiki/), when built (make learn).
-[[ -d $SITE/learn ]] && cp -r "$SITE"/learn "$STAGE"/learn
+if [[ -d $SITE/learn ]]; then
+  cp -r "$SITE/learn" "$STAGE/site/learn"
+  mkdir -p "$STAGE/api"
+  cp api/learn-region.mjs "$STAGE/api/"
+fi
 cp Devices/CardenzaWeb/vercel.json "$STAGE"/
 [[ -d $LINK ]] && cp -r "$LINK" "$STAGE"/.vercel
 
