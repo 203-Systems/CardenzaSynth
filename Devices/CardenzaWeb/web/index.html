@@ -105,7 +105,7 @@ If this stays, the wasm build is missing: run make web and serve build/web/site.
     <span class="audio-hint-icon" aria-hidden="true">♪</span> Click anywhere or press a key to start audio
   </div>
 
-  <script src="cardenza-web.js"></script>
-  <script src="cardenza.js" async onload="window.CardenzaWeb && window.CardenzaWeb.start()" onerror="window.CardenzaWeb && window.CardenzaWeb.fail('cardenza.js could not be loaded: the wasm build is missing. Run make web, then serve build/web/site (make web-serve).')"></script>
+  <script src="cardenza.js" defer></script>
+  <script src="cardenza-web.js" defer></script>
 </body>
 </html>

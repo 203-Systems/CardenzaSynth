@@ -326,7 +326,8 @@
     } catch (error) { /* exists */ }
     let persistent = true;
     try {
-      if (typeof indexedDB === 'undefined') throw new Error('IndexedDB unavailable');
+      // The Community player uses an opaque-origin iframe where IndexedDB is unavailable.
+      if (window.origin === 'null' || typeof indexedDB === 'undefined') throw new Error('IndexedDB unavailable');
       // autoPersist writes every closed file, rename and delete back to IndexedDB.
       FS.mount(module.IDBFS, { autoPersist: true }, STORAGE_MOUNT);
     } catch (error) {
@@ -406,7 +407,10 @@
     window.cardenzaBootMs = ms;
     present();
     audio.updateUi();
-    if (EMBED && window.parent !== window) window.parent.postMessage({ type: 'cardenza-booted', ms }, location.origin);
+    if (window.parent !== window) {
+      window.parent.postMessage({ cardenza_sim: 'ready' }, '*');
+      if (EMBED) window.parent.postMessage({ type: 'cardenza-booted', ms }, location.origin);
+    }
   }
 
   function fail(message) {
@@ -1068,4 +1072,5 @@
     new ResizeObserver(reportSize).observe(document.querySelector('.device'));
     reportSize();
   }
+  start();
 })();
