@@ -8,6 +8,6 @@
   "publish": {
     "bins": {"cardenza": "build/Cardenza/CardenzaSynthFirmware.bin"},
     "notes_file": "CHANGELOG.md",
-    "sim": false
+    "sim": "build/web/site"
   }
 }

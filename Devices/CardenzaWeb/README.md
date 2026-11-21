@@ -32,6 +32,13 @@ Makefile variables: `EMSDK` (default `~/emsdk`, used when `emcmake` is not on `P
 
 `build/web/site/` holds `index.html`, `cardenza-web.js`, `cardenza-web.css`, `cardenza-audio-worklet.js`, `cardenza.js` and `cardenza.wasm`. Any static web server can serve it. It needs no COOP/COEP headers (no threads), so it also works inside an iframe, and it makes no network requests outside its own directory. Opening the page over `file://` does not work (browsers block wasm fetches there). AudioWorklet needs a secure context (https or localhost); on plain http from another host the page falls back to ScriptProcessorNode.
 
+## 203 Community releases
+
+The firmware workflow builds `build/web/site/` with the Learn site's Emscripten SDK version and uploads it alongside
+the firmware version. For a manual release, run `make web` before publishing. Use `203cli sim upload <version-code> build/web/site`
+to attach a build prepared from that version's source to an existing release. The Play button is enabled after the community
+checker receives the simulator's ready message. The community iframe keeps its SD-card data in memory for that visit.
+
 ## How it works
 
 - `WebMain.cpp` boots the runtime like the device and `CardenzaSimShot` (`os::system::Begin`, then `os::system::RunFrame` about every 16 ms from `emscripten_set_main_loop`). Key changes go through `CardenzaSim::Input` and run a frame immediately, like the headless runner.

@@ -84,12 +84,38 @@ jobs:
           cmake -S . -B build/host -DDEVICE=CardenzaSim -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
           cmake --build build/host --parallel
           ctest --test-dir build/host --output-on-failure
+  simulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+      - name: Build the browser simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Match the Learn site's CardenzaWeb toolchain.
+          sdk="$RUNNER_TEMP/emsdk"
+          git clone --depth 1 --branch 4.0.22 https://github.com/emscripten-core/emsdk.git "$sdk"
+          "$sdk/emsdk" install 4.0.22
+          "$sdk/emsdk" activate 4.0.22
+          source "$sdk/emsdk_env.sh"
+          make web
+          test -s build/web/site/index.html
+          test -s build/web/site/cardenza.wasm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cardenza-synth-simulator
+          if-no-files-found: error
+          path: build/web/site/
   publish:
     # Only this repository publishes (a fork's runs are not linked to V6QK28).
     if: >-
       github.repository == '203-Systems/CardenzaSynth' && github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [firmware, host]
+    needs: [firmware, host, simulator]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -108,6 +134,10 @@ jobs:
         with:
           name: cardenza-synth-firmware
           path: build/Cardenza
+      - uses: actions/download-artifact@v4
+        with:
+          name: cardenza-synth-simulator
+          path: build/web/site
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -141,7 +171,7 @@ jobs:
               echo "::error::the community did not trust this run for $firmware: link 203-Systems/CardenzaSynth (workflow firmware.yml) on its page, 自动发布"
               return 1; }
           }
-          # The BIN, the notes (CHANGELOG.md), the source archive and no simulator version come from
+          # The BIN, notes (CHANGELOG.md), source archive and browser simulator come from
           # 203.json. Exit 3 (try again: the network, the checks still running) and 4 (the 15-minute
           # credential ran out) sign in again and run it again: it resumes the same version, never a second.
           # Notes: CHANGELOG.md's "## <label>" entry (stable has one: the build checked it); a beta without its
