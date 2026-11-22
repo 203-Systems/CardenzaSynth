@@ -105,6 +105,29 @@ void Controller::ApplyPreset(const std::string& presetId)
   MarkDirty();
 }
 
+bool Controller::ProgramChange(std::size_t track, std::size_t index)
+{
+  synth::ISynthEngine* engine = host_.Engine(track);
+  // A lesson's practice project follows the lesson page alone.
+  if (engine == nullptr || guide_) return false;
+  const auto page = engine->ListPresets({index, 1});
+  if (page.items.empty()) return false;
+  const synth::SynthPresetInfo& preset = page.items.front();
+  // The browser trying sounds on this track: the track's own sound comes back first, then the
+  // program change replaces it (its preset is no longer the one on trial, so nothing restores later).
+  if (preview_ && preview_->track == track) EndPresetPreview(true);
+  if (engine->CurrentPresetId() == preset.id) return true;
+  if (track == state_.track) ReleaseAllPads();
+  if (!engine->LoadPreset(preset.id))
+  {
+    ShowToast("PRESET UNAVAILABLE", ToastKind::Error);
+    return false;
+  }
+  MarkDirty();
+  ShowToast("T" + std::to_string(track + 1) + " " + Upper(preset.name), ToastKind::Ok);
+  return true;
+}
+
 const synth::SynthEngineState* Controller::PresetPreviewKept(std::size_t track) const
 {
   // Only while the preset on trial is still what the track's engine has: a project that replaced it

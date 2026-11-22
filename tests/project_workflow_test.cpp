@@ -105,6 +105,8 @@ void NoteOn(std::size_t index, std::uint8_t note, std::uint8_t velocity) {
 }
 void NoteOff(std::size_t, std::uint8_t) {}
 void AllNotesOff(std::size_t index) { ++audioAllNotesOffCounts.at(index); }
+void SetPitchBend(std::size_t, float) {}
+float PitchBend(std::size_t) { return 0.0f; }
 void WarmUp() {}
 std::size_t RenderFrames(std::int16_t* frames, std::size_t count) { std::fill_n(frames, count, std::int16_t{0}); return count; }
 void SetTrackGain(std::size_t index, float gain) { if (index < audioTrackGains.size()) audioTrackGains[index] = gain > 0.0f ? std::min(gain, 1.0f) : 0.0f; }

@@ -70,6 +70,12 @@ std::uint32_t ReleasedOrphanVoiceCount();
 void NoteOn(std::size_t engineIndex, std::uint8_t note, std::uint8_t velocity);
 void NoteOff(std::size_t engineIndex, std::uint8_t note);
 void AllNotesOff(std::size_t engineIndex);
+// A track's pitch bend in semitones (MIDI pitch bend from a computer: ±2), on the notes it sounds now
+// and later, from the next rendered block. Not queued: a wheel sends hundreds a second, and only the
+// latest counts. Each AMY oscillator bends by its patch's bend amount (COEF_BEND, as AMY's own pitch
+// bend would, but per track); the sampler bends its voices; drum tracks do not bend. 0 is none.
+void SetPitchBend(std::size_t engineIndex, float semitones);
+float PitchBend(std::size_t engineIndex);
 void WarmUp();
 std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount);
 

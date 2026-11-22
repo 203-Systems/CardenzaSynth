@@ -161,6 +161,7 @@ struct SamplerVoice {
   std::uint64_t sampleCursor = 0;
   std::uint64_t cursorStep = 0;
   std::uint32_t revision = 0;
+  float bend = 0.0f;  // The pitch bend cursorStep was worked out for, in semitones.
   StreamCursor stream{};
   float filterLow = 0.0f;
   float filterBand = 0.0f;
@@ -245,6 +246,7 @@ struct PublishedTrackMix {
   std::atomic<float> gain{1.0f};
   std::atomic<bool> muted{false};
   std::atomic<float> activity{0.0f};
+  std::atomic<float> bend{0.0f};  // Semitones (SetPitchBend), read by the render thread each block.
 };
 
 std::once_flag g_amyInitFlag;
@@ -1177,7 +1179,7 @@ void UpdateSamplerDerived(SamplerParams& params)
 // stays in locals over the block: called once per frame and voice it took 355 cycles a frame on the
 // board, five times what reading and interpolating the sample costs, most of it the call and the state
 // going to memory and back (the stress test, 2026-11-04).
-void RenderSamplerVoiceBlock(SamplerParams& params, SamplerVoice& voice, float* out, std::size_t frames)
+void RenderSamplerVoiceBlock(SamplerParams& params, SamplerVoice& voice, float bend, float* out, std::size_t frames)
 {
   if (!voice.active || !SamplerHasSample(params))
   {
@@ -1185,11 +1187,13 @@ void RenderSamplerVoiceBlock(SamplerParams& params, SamplerVoice& voice, float* 
     return;
   }
   if (params.derivedRevision != params.revision) UpdateSamplerDerived(params);
-  if (voice.revision != params.revision)
+  if (voice.revision != params.revision || voice.bend != bend)
   {
     voice.revision = params.revision;
+    voice.bend = bend;
     const double sourceRate = static_cast<double>(params.sampleRate == 0 ? kSampleRate : params.sampleRate);
-    const double pitchRatio = std::pow(2.0, static_cast<double>(static_cast<int>(voice.note) - params.sampleRoot + params.sampleTune) / 12.0);
+    const double pitchRatio =
+        std::pow(2.0, (static_cast<double>(static_cast<int>(voice.note) - params.sampleRoot + params.sampleTune) + static_cast<double>(bend)) / 12.0);
     voice.cursorStep = static_cast<std::uint64_t>((std::max)(0.0001, (sourceRate / static_cast<double>(kSampleRate)) * pitchRatio) * 4294967296.0);
   }
   const SampleBuffer& buffer = *params.sampleFrames;
@@ -1274,12 +1278,12 @@ void RenderSamplerVoiceBlock(SamplerParams& params, SamplerVoice& voice, float* 
 // level, which moves toward `target` frame by frame.
 std::array<float, kAmyFramesPerBlock> g_samplerVoiceMix{};
 
-void RenderSamplerTrackNoLock(EngineState& engine, TrackMixState& trackMix, float target, float* out, std::size_t frames)
+void RenderSamplerTrackNoLock(EngineState& engine, TrackMixState& trackMix, float target, float bend, float* out, std::size_t frames)
 {
   float* voices = g_samplerVoiceMix.data();
   std::fill_n(voices, frames, 0.0f);
   for (SamplerVoice& voice : engine.samplerVoices)
-    if (voice.active) RenderSamplerVoiceBlock(engine.sampler, voice, voices, frames);
+    if (voice.active) RenderSamplerVoiceBlock(engine.sampler, voice, bend, voices, frames);
   for (std::size_t frame = 0; frame < frames; ++frame)
   {
     if (trackMix.samplerGain != target) trackMix.samplerGain = ApproachGain(trackMix.samplerGain, target, kTrackGainStepPerFrame);
@@ -2291,6 +2295,33 @@ SAMPLE RenderVoiceRunNoLock(const VoiceRun& run, std::uint8_t core)
 {
   const bool fading = VoiceFading(run.from);
   g_voiceFading[run.from] = false;
+  // The track's pitch bend (SetPitchBend). AMY's own bend is one value for every oscillator
+  // (amy_global.pitch_bend, which nothing here sets: it stays 0), read in hold_and_modify while both
+  // cores render. Per track, it goes into each oscillator's constant term for this block instead,
+  // scaled by the oscillator's bend amount (COEF_BEND) as AMY's would be, and the exact value comes
+  // back after the run. The whole voice is in the run (its operators, chained oscillators and
+  // modulators: hold_and_modify runs only inside render_osc_wave), and note-ons read the constant
+  // between blocks, never during one. Drum pads name their samples: they do not bend.
+  constexpr std::uint16_t kMaxBentOscs = 32;
+  std::array<float, kMaxBentOscs> bentFrom{};
+  std::array<float, kMaxBentOscs> bentTo{};
+  std::uint16_t bent = 0;
+  const float bendOctaves = run.track < kSynthTrackCount && run.kind != static_cast<std::uint8_t>(SynthEngineKind::Drums)
+                                ? g_publishedMix[run.track].bend.load(std::memory_order_relaxed) * (1.0f / 12.0f)
+                                : 0.0f;
+  if (bendOctaves != 0.0f)
+  {
+    bent = static_cast<std::uint16_t>((std::min)(static_cast<int>(run.to - run.from), static_cast<int>(kMaxBentOscs)));
+    for (std::uint16_t index = 0; index < bent; ++index)
+    {
+      auto* voice = amy_embed::synth[run.from + index];
+      if (voice == nullptr) continue;
+      float& constant = voice->logfreq_coefs[amy_embed::COEF_CONST];
+      bentFrom[index] = constant;
+      constant += bendOctaves * voice->logfreq_coefs[amy_embed::COEF_BEND];
+      bentTo[index] = constant;
+    }
+  }
   SAMPLE highest = 0;
   for (std::uint16_t osc = run.from; osc < run.to; ++osc)
   {
@@ -2320,6 +2351,13 @@ SAMPLE RenderVoiceRunNoLock(const VoiceRun& run, std::uint8_t core)
       amy_embed::mix_with_pan(amy_embed::fbl[core][bus], buffer, amy_embed::msynth[osc]->last_pan, amy_embed::msynth[osc]->pan, level);
     }
     highest = (std::max)(highest, peak);
+  }
+  // The patch's own values back, bit for bit (adding and taking away again would drift); an
+  // oscillator that stopped and was reset in the run keeps what the reset gave it.
+  for (std::uint16_t index = 0; index < bent; ++index)
+  {
+    auto* voice = amy_embed::synth[run.from + index];
+    if (voice != nullptr && voice->logfreq_coefs[amy_embed::COEF_CONST] == bentTo[index]) voice->logfreq_coefs[amy_embed::COEF_CONST] = bentFrom[index];
   }
   g_voicePeak[run.from] = static_cast<float>(highest < 0 ? -highest : highest);
   if (fading) StopVoiceRunNoLock(run);
@@ -2660,7 +2698,7 @@ void RenderFxSamplerTracksNoLock(float* mix, float* delaySend, float* reverbSend
     {
       std::fill_n(out, frames, 0.0f);
     }
-    RenderSamplerTrackNoLock(engine, trackMix, targets[track], out, frames);
+    RenderSamplerTrackNoLock(engine, trackMix, targets[track], g_publishedMix[track].bend.load(std::memory_order_relaxed), out, frames);
     if (routed)
     {
       MixRoutedTrackNoLock(track, out, mix, delaySend, reverbSend, frames);
@@ -2917,7 +2955,7 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
       // Muted voices keep running silently, so held notes resume on unmute.
       for (std::size_t index = 0; index < g_engines.size(); ++index)
         if (g_engines[index].configured && g_engines[index].kind == SynthEngineKind::Sampler)
-          RenderSamplerTrackNoLock(g_engines[index], g_trackMix[index], samplerTargets[index], mixed.data(), chunk);
+          RenderSamplerTrackNoLock(g_engines[index], g_trackMix[index], samplerTargets[index], g_publishedMix[index].bend.load(std::memory_order_relaxed), mixed.data(), chunk);
     }
     float mixedSample = mixed[mixedFrames];
 
@@ -3066,6 +3104,19 @@ void SetTrackGain(std::size_t engineIndex, float gain)
   {
     g_pendingEvents.push_back(std::move(event));
   }
+}
+
+void SetPitchBend(std::size_t engineIndex, float semitones)
+{
+  if (engineIndex >= g_publishedMix.size()) return;
+  // NaN bends nothing; a stray value cannot detune a track by more than an octave.
+  semitones = semitones == semitones ? std::clamp(semitones, -12.0f, 12.0f) : 0.0f;
+  g_publishedMix[engineIndex].bend.store(semitones, std::memory_order_relaxed);
+}
+
+float PitchBend(std::size_t engineIndex)
+{
+  return engineIndex < g_publishedMix.size() ? g_publishedMix[engineIndex].bend.load(std::memory_order_relaxed) : 0.0f;
 }
 
 float TrackGain(std::size_t engineIndex)

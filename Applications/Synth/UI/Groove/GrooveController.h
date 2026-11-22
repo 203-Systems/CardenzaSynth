@@ -540,6 +540,11 @@ public:
   void AddHeldPadNotes(std::size_t track, std::array<std::uint32_t, 4>& notes) const;
   void UsePianoRollOnDrums(bool roll) { state_.record.drumView = roll ? SeqView::Roll : SeqView::Step; }  // Tests: the drum tracks' view.
   std::size_t DrumLane() const { return state_.drumLane[state_.track]; }
+  // A computer's program change (USB MIDI, after its bank select): the track's preset at `index` in
+  // its list (the browser's order), loaded at once, without asking about edits (no one may be at the
+  // device). The preset already loaded is left alone, edits and all: DAWs send their program change
+  // again at every start. False when there is no such preset or it did not load.
+  bool ProgramChange(std::size_t track, std::size_t index);
   // A take came back from the card: its screen opens, as it was left.
   void ResumeTake(std::size_t track);
   // The autosave could not be written.

@@ -1,0 +1,88 @@
+  203 Systems  Cardenza Synth (groovebox firmware)       MIDI Implementation Chart
+  Model: Cardenza  (USB-MIDI 1.0, cable 0)               Date: 2026-11-22   Version: 0.2.x
++-------------------------------+---------------------+---------------------+---------------------------+
+| Function                      | Transmitted         | Recognized          | Remarks                   |
++-------------------------------+---------------------+---------------------+---------------------------+
+| Basic        Default          | 1-4                 | 1-16                | Tx: track n -> ch n       |
+| Channel      Changed          | x                   | x                   | Rx: ch 1-4 -> T1-T4,      |
+|                               |                     |                     | ch 5-16 -> current track  |
++-------------------------------+---------------------+---------------------+---------------------------+
+| Mode         Default          | Mode 3              | Mode 3              | Omni off, Poly            |
+|              Messages         | x                   | x                   |                           |
+|              Altered          | ********            | x                   |                           |
++-------------------------------+---------------------+---------------------+---------------------------+
+| Note                          | 0-127 *1            | 0-127               | Note 0 is never sounded   |
+| Number       : True Voice     | ********            | 1-127               | (AMY has no note 0) *2    |
++-------------------------------+---------------------+---------------------+---------------------------+
+| Velocity     Note ON          | o  1-127            | o  1-127            | 9n v=0 = Note Off         |
+|              Note OFF         | x  (8n, v=0)        | x  (ignored)        | Tx always 8n with v=0     |
++-------------------------------+---------------------+---------------------+---------------------------+
+| After        Key's            | x                   | x                   |                           |
+| Touch        Ch's             | x                   | x                   |                           |
++-------------------------------+---------------------+---------------------+---------------------------+
+| Pitch Bend                    | x                   | o  *5               | ±2 semitones, per track   |
++-------------------------------+---------------------+---------------------+---------------------------+
+|                               |                     |                     |                           |
+| Control      0                | x                   | o                   | Bank select (coarse) *6   |
+| Change       64               | x                   | o                   | Sustain pedal, >=64 on *7 |
+|              other 1-119      | x                   | x  *3               | Passed to the track's     |
+|                               |                     |                     | engine, which maps none   |
++-------------------------------+---------------------+---------------------+---------------------------+
+| Program                       | x                   | o  0-127 *6         | Loads the track's preset  |
+| Change       : True #         | ********            | bank*128 + program  | at that list position     |
++-------------------------------+---------------------+---------------------+---------------------------+
+| System Exclusive              | o  *4               | o  *4               | 203 Systems ID 0x23/0x24  |
++-------------------------------+---------------------+---------------------+---------------------------+
+| System       : Song Pos       | x                   | x                   |                           |
+| Common       : Song Sel       | x                   | x                   |                           |
+|              : Tune           | x                   | x                   |                           |
++-------------------------------+---------------------+---------------------+---------------------------+
+| System       : Clock          | x                   | x                   | Internal clock only       |
+| Real Time    : Commands       | x                   | x                   | (no Start/Stop/Continue)  |
++-------------------------------+---------------------+---------------------+---------------------------+
+| Aux          : Local ON/OFF   | x                   | x                   |                           |
+| Messages     : All Notes OFF  | x                   | o  (CC 123)         | Ends the computer's notes |
+|              : Active Sense   | x                   | x                   | on that track             |
+|              : Reset          | x                   | x                   |                           |
+|              : All Sound OFF  | x                   | o  (CC 120)         | Same as CC 123            |
++-------------------------------+---------------------+---------------------+---------------------------+
+| Notes:                                                                                                 |
+| *1  Transmitted: notes from the pads (after the keyboard layout, scale, octave, chord and arp), from   |
+|     the sequencer, and from REC playback, each on its track's channel. Notes received over USB are     |
+|     not echoed back out. CCs, including the sequencer's internal CC 120 on stop, are never sent.       |
+| *2  Drum track (T1 default) sounds only its kit: 36 BD, 38 SD, 42 CH, 46 OH, 39 CP, 43 TM, 56 CB,      |
+|     70 MA. Pads send fixed velocities by row: 127 / 100 / 70 / 40.                                     |
+|     Voices per track: DX7 4, Juno 6, Drums 6, Sampler 4; when all are busy, a new note takes the       |
+|     oldest voice (a released one first).                                                               |
+| *3  The other CCs reach the engine (PagedSynthEngine::ProcessMidi) but only update its debug "last     |
+|     event" text. They change no parameter.                                                             |
+| *4  Answered by CardenzaHAL (usb/usb.cpp) before the firmware sees MIDI; same commands as HID report   |
+|     0xCB (HAL protocol version 2):                                                                     |
+|       Rx F0 23 40 F7          restart into the Launcher (ROM download mode if there is no Launcher)    |
+|       Rx F0 23 41 F7          reboot the firmware                                                      |
+|       Rx F0 23 42 F7          restart into ROM download mode (esptool)                                 |
+|       Rx F0 23 43 <0|1> F7    stop / start console output: Tx F0 24 43 <text> F7                       |
+|       Rx F0 23 44 F7          identify: Tx F0 24 44 02 <product name> F7                               |
+|       Rx F0 23 45 <req> F7    development channel: firmware info, partitions, memory, card files,      |
+|                               screen, keys (CardenzaHAL docs/usb-dev.md)                               |
+|       Rx F0 23 7F <ascii> F7  app channel, handed to the firmware: Learn-guide link ("G..." messages)  |
+|                               and 'S' (USB stats); Tx F0 24 7F <ascii> F7                              |
+|     40-42 are acknowledged (Tx F0 24 <cmd> F7) before the restart. Replies are 7-bit: over HID they    |
+|     carry <cmd | 0x80>, over SysEx the high bit is masked off. SysEx with any other ID (not 0x23) is   |
+|     passed on to the firmware, which ignores it.                                                       |
+| *5  Each AMY oscillator bends by its patch's bend amount (COEF_BEND), as AMY's own bend would, but     |
+|     per track (synth::audio::SetPitchBend). Sampler voices bend; drum tracks do not.                   |
+| *6  CC 0 sets the bank per track (default 0). Program change loads preset bank * 128 + program in the  |
+|     order the preset browser lists the track's engine. No question about edits; the preset already     |
+|     loaded is left alone (DAWs resend it at every start); ignored during a Learn lesson; out-of-range  |
+|     is logged and ignored. The project counts as changed and is autosaved.                             |
+| *7  Notes released while the pedal is down keep sounding until it lifts; a held note struck again      |
+|     ends its old voice first. CC 120 / 123 end sustained notes too.                                    |
+| Also: when USB disconnects, every note the computer started is released, pitch bend returns to 0,      |
+|     and sustain and bank select reset.                                                                 |
++--------------------------------------------------------------------------------------------------------+
+  Mode 1: OMNI ON, POLY    Mode 2: OMNI ON, MONO     o : Yes
+  Mode 3: OMNI OFF, POLY   Mode 4: OMNI OFF, MONO    x : No
+
+  Sources: Applications/Synth/GrooveApp.cpp (ReadComputerMidi, SendComputerMidi, SendSequencerMidi),
+           Library/Synth/Core/PagedSynthEngine.cpp (ProcessMidi), tools/usb/cardenza_usb.py, Devices/Cardenza/CardenzaHAL/usb/usb.{h,cpp} (SysEx).
