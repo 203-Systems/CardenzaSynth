@@ -212,6 +212,39 @@ EMSCRIPTEN_KEEPALIVE const char* cardenza_web_app_take()
   return message.c_str();
 }
 
+// Web MIDI (the page's MIDI ports stand in for a computer on the device's USB MIDI). Connected, the
+// firmware reads what the page sends and writes what it plays (Device::USB::ReadMidi / WriteMidi);
+// disconnecting is unplugging the cable: the computer's notes end and its controllers reset.
+EMSCRIPTEN_KEEPALIVE void cardenza_web_midi_connect(int connected)
+{
+  CardenzaSim::Input::SetComputerConnected(connected != 0);
+}
+
+// One complete MIDI message from the page: a channel message (status 0x80-0xEF) or a one-byte system
+// real time message (0xF8-0xFF). Others (SysEx, system common) are not passed on, as the firmware
+// reads neither. Packed as USB-MIDI 1.0 on cable 0: the code index number, then the three bytes.
+EMSCRIPTEN_KEEPALIVE void cardenza_web_midi_in(int status, int data1, int data2)
+{
+  std::uint8_t packet[4] = {0, static_cast<std::uint8_t>(status), static_cast<std::uint8_t>(data1 & 0x7F),
+                            static_cast<std::uint8_t>(data2 & 0x7F)};
+  if (status >= 0x80 && status <= 0xEF)
+    packet[0] = static_cast<std::uint8_t>(status >> 4);
+  else if (status >= 0xF8 && status <= 0xFF)
+    packet[0] = 0x0F, packet[2] = 0, packet[3] = 0;
+  else
+    return;
+  CardenzaSim::Input::SendComputerMidi(packet);
+}
+
+// The oldest message the firmware sent (its notes, track n on channel n) as status << 16 | data1 << 8
+// | data2, or 0 when there is none.
+EMSCRIPTEN_KEEPALIVE int cardenza_web_midi_out()
+{
+  std::uint8_t packet[4];
+  if (!CardenzaSim::Input::TakeDeviceMidi(packet)) return 0;
+  return (packet[1] << 16) | (packet[2] << 8) | packet[3];
+}
+
 // Focus loss: nothing may stay held.
 EMSCRIPTEN_KEEPALIVE void cardenza_web_release_all()
 {

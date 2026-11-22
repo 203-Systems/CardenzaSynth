@@ -57,11 +57,17 @@ If this stays, the wasm build is missing: run make web and serve build/web/site.
       </button>
       <button type="button" class="tool" id="project-button" title="Copy Cardenza projects (.ccproj) into this browser and open the first one. Nothing is overwritten.">Load project…</button>
       <button type="button" class="tool" id="wav-button" title="Copy WAV files into the sampler's Sample folder (stored in this browser)">Load WAV…</button>
+      <button type="button" class="tool" id="midi-button" title="Use this computer's MIDI ports as the device's USB MIDI: a controller or DAW plays the device, and the device's notes go out (Chrome, Edge, Firefox)">
+        <span class="tool-dot" id="midi-dot" aria-hidden="true"></span><span id="midi-label">Enable MIDI</span>
+      </button>
+      <select class="tool" id="midi-in" title="MIDI input: what plays the device (channels 1-4 = tracks 1-4)" hidden></select>
+      <select class="tool" id="midi-out" title="MIDI output: where the device's notes go (track n on channel n)" hidden></select>
       <a class="tool" href="learn/" title="The manual: every key, page and setting, searchable, 中文 / English">Learn · 说明书</a>
       <input type="file" id="project-input" accept=".ccproj,.bak" multiple hidden>
       <input type="file" id="wav-input" accept=".wav,audio/wav,audio/x-wav,audio/*" multiple hidden>
       <span class="tool-info" id="storage-info">storage: …</span>
       <span class="tool-info" id="audio-info"></span>
+      <span class="tool-info" id="midi-info"></span>
     </section>
 
     <section class="help">
