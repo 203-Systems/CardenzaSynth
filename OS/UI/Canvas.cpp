@@ -3,6 +3,7 @@
 #include "OS/UI/FontAtlas.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <string>
 
 namespace ui {
