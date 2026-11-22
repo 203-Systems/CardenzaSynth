@@ -625,7 +625,7 @@ void GrooveApp::EndOrphanNotes(std::uint32_t now)
     synth::audio::NoteSet owned{};
     controller_.AddHeldPadNotes(track, owned);
     sequencer_.AddSoundingNotes(track, owned);
-    for (std::size_t word = 0; word < owned.size(); ++word) owned[word] |= computerNotes_[track][word];
+    for (std::size_t word = 0; word < owned.size(); ++word) owned[word] |= computerNotes_[track][word] | deviceSustained_[track][word];
     // A sample preview plays the sample's root note, whichever that is.
     const bool preview = sampler_.Previewing(track);
     for (std::size_t word = 0; word < held.size(); ++word)
@@ -817,14 +817,30 @@ bool GrooveApp::SwitchEngine(std::size_t track, synth::SynthEngineKind kind, std
 
 void GrooveApp::NoteOn(std::size_t track, std::uint8_t note, std::uint8_t velocity)
 {
-  if (track >= synth::kSynthTrackCount) return;
+  if (track >= synth::kSynthTrackCount || note > 127) return;
+  // A note the computer's pedal holds, played again: its voice ends first, as one note has one voice.
+  auto& sustained = deviceSustained_[track][note / 32];
+  if (sustained & (1u << (note % 32)))
+  {
+    sustained &= ~(1u << (note % 32));
+    os::midi::Send(midi::MidiPacket::NoteOff(0, note, 0), rack_.PortForTrack(track));
+  }
   os::midi::Send(midi::MidiPacket::NoteOn(0, note, velocity), rack_.PortForTrack(track));
   SendComputerMidi(0x90, track, note, velocity);
 }
 
 void GrooveApp::NoteOff(std::size_t track, std::uint8_t note)
 {
-  if (track >= synth::kSynthTrackCount) return;
+  if (track >= synth::kSynthTrackCount || note > 127) return;
+  // The computer's sustain pedal (CC 64) holds the device's own notes on its track too, pads and step
+  // auditions alike (not the arpeggiator or the sequencer, which end their notes in time). The
+  // computer hears the key let go at once, as from any keyboard; the sound waits for the pedal.
+  if (computerSustain_[track])
+  {
+    deviceSustained_[track][note / 32] |= 1u << (note % 32);
+    SendComputerMidi(0x80, track, note, 0);
+    return;
+  }
   os::midi::Send(midi::MidiPacket::NoteOff(0, note, 0), rack_.PortForTrack(track));
   SendComputerMidi(0x80, track, note, 0);
 }
@@ -933,6 +949,7 @@ void GrooveApp::ReleaseComputerNotes(std::size_t onlyTrack)
         if (computerNotes_[track][word] & (1u << bit)) synth::audio::NoteOff(track, static_cast<std::uint8_t>(word * 32 + bit));
     computerNotes_[track] = {};
     computerSustained_[track] = {};
+    ReleaseDeviceSustained(track);
   }
 }
 
@@ -946,6 +963,17 @@ void GrooveApp::ReleaseSustainedNotes(std::size_t track)
     computerNotes_[track][word] &= ~computerSustained_[track][word];
   }
   computerSustained_[track] = {};
+  ReleaseDeviceSustained(track);
+}
+
+// The device's own notes the pedal held: they end through the engine, as a pad's release would have.
+void GrooveApp::ReleaseDeviceSustained(std::size_t track)
+{
+  for (std::size_t word = 0; word < deviceSustained_[track].size(); ++word)
+    for (std::size_t bit = 0; bit < 32; ++bit)
+      if (deviceSustained_[track][word] & (1u << bit))
+        os::midi::Send(midi::MidiPacket::NoteOff(0, static_cast<std::uint8_t>(word * 32 + bit), 0), rack_.PortForTrack(track));
+  deviceSustained_[track] = {};
 }
 
 void GrooveApp::Panic()
@@ -953,6 +981,9 @@ void GrooveApp::Panic()
   sequencer_.Stop();
   sequencer_.SetRecordArmed(false);
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) synth::audio::AllNotesOff(track);
+  // Everything stopped: the pedal holds nothing any more (it holds new notes while still down).
+  deviceSustained_ = {};
+  computerSustained_ = {};
 }
 
 void GrooveApp::SendSequencerMidi(void* context, std::size_t trackIndex, const midi::MidiPacket& packet)

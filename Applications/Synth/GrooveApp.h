@@ -115,6 +115,7 @@ private:
   void SendGuideLeds(std::uint32_t now);
   void ReleaseComputerNotes(std::size_t onlyTrack = synth::kSynthTrackCount);
   void ReleaseSustainedNotes(std::size_t track);
+  void ReleaseDeviceSustained(std::size_t track);
   static void SendComputerMidi(std::uint8_t status, std::size_t track, std::uint8_t data1, std::uint8_t data2);
   std::uint32_t NowMs() const;
   void ApplyMix();
@@ -195,6 +196,9 @@ private:
   // (still in computerNotes_: they sound and are owned until the pedal lifts).
   std::array<bool, synth::kSynthTrackCount> computerSustain_{};
   std::array<synth::audio::NoteSet, synth::kSynthTrackCount> computerSustained_{};
+  // The device's own notes (pads, step auditions) let go while that pedal is down: their note-off
+  // waits for the pedal (GrooveApp::NoteOff), and they are owned until then.
+  std::array<synth::audio::NoteSet, synth::kSynthTrackCount> deviceSustained_{};
   // The computer's bank select (CC 0) per track: a program change picks preset bank * 128 + program.
   std::array<std::uint8_t, synth::kSynthTrackCount> computerBank_{};
   bool computerConnected_ = false;
