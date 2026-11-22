@@ -2289,39 +2289,19 @@ bool VoiceUnheardNoLock(std::uint16_t osc)
          voice->note_on_clock == static_cast<std::uint32_t>(amy_embed::amy_global.total_blocks * AMY_BLOCK_SIZE);
 }
 
-// What amy_render does for each oscillator, for one run; a fading run goes to silence over the block and
-// stops.
-SAMPLE RenderVoiceRunNoLock(const VoiceRun& run, std::uint8_t core)
+// Each track's pitch bend for this block, in octaves (SetPitchBend): read once per block, before the cores
+// share the voices, so the voice loop reads plain floats (an atomic is a library call on this chip).
+std::array<float, kSynthTrackCount> g_blockBendOctaves{};
+
+void SnapshotPitchBendsNoLock()
 {
-  const bool fading = VoiceFading(run.from);
-  g_voiceFading[run.from] = false;
-  // The track's pitch bend (SetPitchBend). AMY's own bend is one value for every oscillator
-  // (amy_global.pitch_bend, which nothing here sets: it stays 0), read in hold_and_modify while both
-  // cores render. Per track, it goes into each oscillator's constant term for this block instead,
-  // scaled by the oscillator's bend amount (COEF_BEND) as AMY's would be, and the exact value comes
-  // back after the run. The whole voice is in the run (its operators, chained oscillators and
-  // modulators: hold_and_modify runs only inside render_osc_wave), and note-ons read the constant
-  // between blocks, never during one. Drum pads name their samples: they do not bend.
-  constexpr std::uint16_t kMaxBentOscs = 32;
-  std::array<float, kMaxBentOscs> bentFrom{};
-  std::array<float, kMaxBentOscs> bentTo{};
-  std::uint16_t bent = 0;
-  const float bendOctaves = run.track < kSynthTrackCount && run.kind != static_cast<std::uint8_t>(SynthEngineKind::Drums)
-                                ? g_publishedMix[run.track].bend.load(std::memory_order_relaxed) * (1.0f / 12.0f)
-                                : 0.0f;
-  if (bendOctaves != 0.0f)
-  {
-    bent = static_cast<std::uint16_t>((std::min)(static_cast<int>(run.to - run.from), static_cast<int>(kMaxBentOscs)));
-    for (std::uint16_t index = 0; index < bent; ++index)
-    {
-      auto* voice = amy_embed::synth[run.from + index];
-      if (voice == nullptr) continue;
-      float& constant = voice->logfreq_coefs[amy_embed::COEF_CONST];
-      bentFrom[index] = constant;
-      constant += bendOctaves * voice->logfreq_coefs[amy_embed::COEF_BEND];
-      bentTo[index] = constant;
-    }
-  }
+  for (std::size_t track = 0; track < kSynthTrackCount; ++track)
+    g_blockBendOctaves[track] = g_publishedMix[track].bend.load(std::memory_order_relaxed) * (1.0f / 12.0f);
+}
+
+// What amy_render does for each oscillator of one run; returns the run's peak.
+SAMPLE RenderVoiceRunOscsNoLock(const VoiceRun& run, std::uint8_t core, bool fading)
+{
   SAMPLE highest = 0;
   for (std::uint16_t osc = run.from; osc < run.to; ++osc)
   {
@@ -2352,13 +2332,51 @@ SAMPLE RenderVoiceRunNoLock(const VoiceRun& run, std::uint8_t core)
     }
     highest = (std::max)(highest, peak);
   }
+  return highest;
+}
+
+// A run of a bent track (SetPitchBend). AMY's own bend is one value for every oscillator
+// (amy_global.pitch_bend, which nothing here sets: it stays 0), read in hold_and_modify while both cores
+// render. Per track, it goes into each oscillator's constant term for this block instead, scaled by the
+// oscillator's bend amount (COEF_BEND) as AMY's would be, and the exact value comes back after the run.
+// The whole voice is in the run (its operators, chained oscillators and modulators: hold_and_modify
+// runs only inside render_osc_wave), and note-ons read the constant between blocks, never during one.
+// Its own function, so the saved values take stack only while a track is bent.
+__attribute__((noinline)) SAMPLE RenderBentVoiceRunNoLock(const VoiceRun& run, std::uint8_t core, bool fading, float bendOctaves)
+{
+  constexpr int kMaxBentOscs = 32;
+  float bentFrom[kMaxBentOscs];
+  float bentTo[kMaxBentOscs];
+  const int bent = (std::min)(static_cast<int>(run.to - run.from), kMaxBentOscs);
+  for (int index = 0; index < bent; ++index)
+  {
+    auto* voice = amy_embed::synth[run.from + index];
+    if (voice == nullptr) continue;
+    float& constant = voice->logfreq_coefs[amy_embed::COEF_CONST];
+    bentFrom[index] = constant;
+    constant += bendOctaves * voice->logfreq_coefs[amy_embed::COEF_BEND];
+    bentTo[index] = constant;
+  }
+  const SAMPLE highest = RenderVoiceRunOscsNoLock(run, core, fading);
   // The patch's own values back, bit for bit (adding and taking away again would drift); an
   // oscillator that stopped and was reset in the run keeps what the reset gave it.
-  for (std::uint16_t index = 0; index < bent; ++index)
+  for (int index = 0; index < bent; ++index)
   {
     auto* voice = amy_embed::synth[run.from + index];
     if (voice != nullptr && voice->logfreq_coefs[amy_embed::COEF_CONST] == bentTo[index]) voice->logfreq_coefs[amy_embed::COEF_CONST] = bentFrom[index];
   }
+  return highest;
+}
+
+// One run; a fading run goes to silence over the block and stops. Drum pads name their samples: they
+// do not bend.
+SAMPLE RenderVoiceRunNoLock(const VoiceRun& run, std::uint8_t core)
+{
+  const bool fading = VoiceFading(run.from);
+  g_voiceFading[run.from] = false;
+  const float bendOctaves =
+      run.track < kSynthTrackCount && run.kind != static_cast<std::uint8_t>(SynthEngineKind::Drums) ? g_blockBendOctaves[run.track] : 0.0f;
+  const SAMPLE highest = bendOctaves != 0.0f ? RenderBentVoiceRunNoLock(run, core, fading, bendOctaves) : RenderVoiceRunOscsNoLock(run, core, fading);
   g_voicePeak[run.from] = static_cast<float>(highest < 0 ? -highest : highest);
   if (fading) StopVoiceRunNoLock(run);
   return highest;
@@ -2612,6 +2630,7 @@ void WaitForHelper()
 void RenderAmyVoicesNoLock()
 {
   const std::int64_t start = VoiceClockMicros();
+  SnapshotPitchBendsNoLock();
   const std::uint32_t total = PlanVoiceRunsNoLock();
   KeepVoicesWithinBudgetNoLock();
   const bool shared = total >= kNoSplitBelowWeight && g_voiceRunCount > 1 && StartHelper();
@@ -2628,6 +2647,7 @@ void RenderAmyVoicesNoLock()
 // One core here: the same runs, every one on it.
 void RenderAmyVoicesNoLock()
 {
+  SnapshotPitchBendsNoLock();
   (void)PlanVoiceRunsNoLock();
   RenderClaimedRunsNoLock(0);
   LearnVoiceCostsNoLock();
