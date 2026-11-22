@@ -119,13 +119,16 @@ end
 
 
 PITCH_SCRIPT = CHANNEL_LUA + """
--- 14 bits, 8192 the centre (the device bends +/-2 semitones); back to the centre when let go.
+-- 14 bits, 8192 the centre (the device bends +/-2 semitones); back to the centre when let go. The
+-- centre is sent here itself: a value the script sets does not reliably come back through
+-- onValueChanged, and the last value the finger left would keep the track out of tune.
 function onValueChanged(key)
   if key == 'x' then
     local v = math.floor(self.values.x * 16383 + 0.5)
     sendMIDI({ 0xE0 + channel(), v % 128, math.floor(v / 128) })
   elseif key == 'touch' and not self.values.touch then
     self.values.x = 0.5
+    sendMIDI({ 0xE0 + channel(), 0, 64 })
   end
 end
 """
