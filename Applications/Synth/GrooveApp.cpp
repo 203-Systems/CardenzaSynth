@@ -862,8 +862,7 @@ void GrooveApp::ReadComputerMidi()
   if (!connected && computerConnected_)
   {
     ReleaseComputerNotes();
-    for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) synth::audio::SetPitchBend(track, 0.0f);
-    computerSustain_ = {};
+    for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) ResetComputerControllers(track);
     computerBank_ = {};
   }
   computerConnected_ = connected;
@@ -935,6 +934,20 @@ void GrooveApp::ReadComputerMidi()
     {
       computerBank_[track] = data2;
     }
+    else if (status == 0xB0 && data1 == 11)
+    {
+      // Expression: a live level on top of the fader, never saved (a swell, not an edit).
+      computerExpressionCut_[track] = static_cast<std::uint8_t>(127 - data2);
+      ApplyMix();
+    }
+    else if (status == 0xB0 && data1 == 121)
+    {
+      ResetComputerControllers(track);
+    }
+    else if (status == 0xB0 && controller_.MidiControlChange(track, data1, data2))
+    {
+      MidiEdited();
+    }
     else if (status == 0xB0)
     {
       os::midi::Send(midi::MidiPacket::ControlChange(0, data1, data2), rack_.PortForTrack(track));
@@ -948,9 +961,7 @@ void GrooveApp::ReadComputerMidi()
                     static_cast<unsigned>(computerBank_[track]), static_cast<unsigned>(data1));
         continue;
       }
-      // A project change like any key's: the autosave takes it.
-      if (!sessionChanged_) sessionChangedAt_ = NowMs();
-      sessionChanged_ = true;
+      MidiEdited();
     }
     else if (status == 0xE0)
     {
@@ -958,6 +969,33 @@ void GrooveApp::ReadComputerMidi()
       const int value = (static_cast<int>(data2) << 7) | data1;
       synth::audio::SetPitchBend(track, static_cast<float>(value - 8192) * (2.0f / 8192.0f));
     }
+  }
+}
+
+// A project change from the computer (a program change, a CC that edits), counted like a key's: the
+// autosave takes it once the input rests, so a knob turned for a while is written once, after.
+void GrooveApp::MidiEdited()
+{
+  const std::uint32_t now = NowMs();
+  if (!sessionChanged_) sessionChangedAt_ = now;
+  sessionChanged_ = true;
+  lastKeyAt_ = now;
+}
+
+// Reset all controllers (CC 121, and a USB disconnect): bend centred, pedal up (what it held ends),
+// expression full. Not the bank, and not the CCs that edit the sound: those are the project's.
+void GrooveApp::ResetComputerControllers(std::size_t track)
+{
+  synth::audio::SetPitchBend(track, 0.0f);
+  if (computerSustain_[track])
+  {
+    computerSustain_[track] = false;
+    ReleaseSustainedNotes(track);
+  }
+  if (computerExpressionCut_[track] != 0)
+  {
+    computerExpressionCut_[track] = 0;
+    ApplyMix();
   }
 }
 
@@ -1075,7 +1113,9 @@ void GrooveApp::ApplyMix()
   const bool anySolo = std::any_of(soloed_.begin(), soloed_.end(), [](bool soloed) { return soloed; });
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
-    synth::audio::SetTrackGain(track, static_cast<float>(levels_[track]) / 100.0f);
+    // The fader, times the computer's expression (CC 11, full unless it sent one).
+    synth::audio::SetTrackGain(track, static_cast<float>(levels_[track]) / 100.0f *
+                                          static_cast<float>(127 - computerExpressionCut_[track]) / 127.0f);
     synth::audio::SetTrackMuted(track, muted_[track] || (anySolo && !soloed_[track]));
   }
 }

@@ -1,6 +1,8 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
+#include "Library/Synth/Audio/SynthFx.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -125,6 +127,76 @@ bool Controller::ProgramChange(std::size_t track, std::size_t index)
   }
   MarkDirty();
   ShowToast("T" + std::to_string(track + 1) + " " + Upper(preset.name), ToastKind::Ok);
+  return true;
+}
+
+bool Controller::MidiControlChange(std::size_t track, std::uint8_t control, std::uint8_t value)
+{
+  synth::ISynthEngine* engine = host_.Engine(track);
+  // A lesson's practice project follows the lesson page alone.
+  if (engine == nullptr || guide_ || value > 127) return false;
+  const std::string name = "T" + std::to_string(track + 1) + " ";
+  if (control == 7)
+  {
+    const int level = (value * 100 + 63) / 127;
+    host_.SetTrackLevel(track, static_cast<std::uint8_t>(level));
+    MarkDirty();
+    ShowHud(name + "LEVEL", std::to_string(level), static_cast<float>(level) / 100.0f);
+    return true;
+  }
+  // Each CC's parameters, the first one the engine has wins (Juno, Sampler, DX7 names).
+  struct Target {
+    std::uint8_t control;
+    bool sound;  // Group 2: the sound, not on drum tracks.
+    std::array<const char*, 3> ids;
+  };
+  static constexpr std::array<Target, 12> kTargets{{
+      {91, false, {"fx.reverb", nullptr, nullptr}},
+      {93, false, {"fx.chorus", nullptr, nullptr}},
+      {94, false, {"fx.delay", nullptr, nullptr}},
+      {95, false, {"fx.drive", nullptr, nullptr}},
+      {74, true, {"vcf.cutoff", "filter.cutoff", nullptr}},
+      {71, true, {"vcf.resonance", "filter.resonance", "fx.resonance"}},
+      {73, true, {"env.attack", nullptr, nullptr}},
+      {72, true, {"env.release", nullptr, nullptr}},
+      {75, true, {"env.decay", nullptr, nullptr}},
+      {76, true, {"lfo.rate", "global.lfo_speed", nullptr}},
+      {1, true, {"dco.lfo", "global.lfo_pitch", nullptr}},
+      {77, true, {"dco.lfo", "global.lfo_pitch", nullptr}},
+  }};
+  const auto target = std::find_if(kTargets.begin(), kTargets.end(), [&](const Target& t) { return t.control == control; });
+  if (target == kTargets.end()) return false;
+  if (target->sound && host_.EngineKind(track) == synth::SynthEngineKind::Drums) return false;
+  synth::SynthParameterInfo info;
+  std::string id;
+  for (const char* candidate : target->ids)
+    if (candidate != nullptr && engine->GetParameterInfo(candidate, info))
+    {
+      id = candidate;
+      break;
+    }
+  int scaled = 0;
+  bool bipolar = false;
+  if (!id.empty())
+  {
+    scaled = info.minValue + ((info.maxValue - info.minValue) * value + 63) / 127;
+  }
+  else if (control == 74 && engine->GetParameterInfo("fx.filter", info))
+  {
+    // No filter of its own (DX7): the track's DJ filter, its low-pass half (127 open, 0 darkest).
+    id = "fx.filter";
+    scaled = (synth::fx::kFilterCenter * value + 63) / 127;
+    bipolar = true;
+  }
+  else
+  {
+    return false;
+  }
+  if (!engine->SetParameterValue(id, scaled)) return false;
+  MarkDirty();
+  (void)engine->GetParameterInfo(id, info);
+  const float fraction = info.maxValue > info.minValue ? static_cast<float>(info.value - info.minValue) / static_cast<float>(info.maxValue - info.minValue) : 0.0f;
+  ShowHud(name + Upper(info.label), Upper(engine->DescribeParameterValue(id)), fraction, bipolar);
   return true;
 }
 

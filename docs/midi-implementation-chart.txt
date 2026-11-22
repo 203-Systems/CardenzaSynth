@@ -24,9 +24,18 @@
 +-------------------------------+---------------------+---------------------+---------------------------+
 |                               |                     |                     |                           |
 | Control      0                | x                   | o                   | Bank select (coarse) *6   |
-| Change       64               | x                   | o                   | Sustain pedal, >=64 on *7 |
-|              other 1-119      | x                   | x  *3               | Passed to the track's     |
-|                               |                     |                     | engine, which maps none   |
+| Change       1                | x                   | o  *9               | Mod wheel: vibrato depth  |
+|              7                | x                   | o  *9               | Track fader (0-100)       |
+|              11               | x                   | o                   | Expression (live, unsaved)|
+|              64               | x                   | o                   | Sustain pedal, >=64 on *7 |
+|              71               | x                   | o  *9               | Resonance                 |
+|              72 / 73 / 75     | x                   | o  *9               | Release / attack / decay  |
+|              74               | x                   | o  *9               | Cutoff (brightness)       |
+|              76 / 77          | x                   | o  *9               | Vibrato rate / depth      |
+|              91 / 93          | x                   | o  *9               | Reverb / chorus send      |
+|              94 / 95          | x                   | o  *9               | Delay send / drive        |
+|              121              | x                   | o                   | Reset all controllers *10 |
+|              other            | x                   | x  *3               | Ignored                   |
 +-------------------------------+---------------------+---------------------+---------------------------+
 | Program                       | x                   | o  0-127 *6         | Loads the track's preset  |
 | Change       : True #         | ********            | bank*128 + program  | at that list position     |
@@ -55,7 +64,7 @@
 |     Voices per track: DX7 4, Juno 6, Drums 6, Sampler 4; when all are busy, a new note takes the       |
 |     oldest voice (a released one first).                                                               |
 | *3  The other CCs reach the engine (PagedSynthEngine::ProcessMidi) but only update its debug "last     |
-|     event" text. They change no parameter.                                                             |
+|     event" text. They change nothing.                                                                  |
 | *4  Answered by CardenzaHAL (usb/usb.cpp) before the firmware sees MIDI; same commands as HID report   |
 |     0xCB (HAL protocol version 2):                                                                     |
 |       Rx F0 23 40 F7          restart into the Launcher (ROM download mode if there is no Launcher)    |
@@ -84,8 +93,20 @@
 |     from where it stopped, FC Stop stops it, as the PLAY key would (SONG / LOOP as set). The device    |
 |     keeps its own tempo: without MIDI clock it drifts from the DAW after the start. Ignored during a   |
 |     Learn lesson.                                                                                      |
-| Also: when USB disconnects, every note the computer started is released, pitch bend returns to 0,      |
-|     and sustain and bank select reset.                                                                 |
+| *9  Edits, as the track's knob on the device would make them (Controller::MidiControlChange): the      |
+|     project and the preset count as changed (autosaved once the input rests; loading another preset    |
+|     asks first), and a HUD shows the value. 0-127 is spread over the parameter's range. Each CC takes  |
+|     the first parameter the track's engine has:                                                        |
+|       1, 77  dco.lfo (Juno) / global.lfo_pitch (DX7)      74  vcf.cutoff / filter.cutoff (Sampler);    |
+|       76     lfo.rate (Juno) / global.lfo_speed (DX7)         DX7: fx.filter, low-pass half (127 open) |
+|       71     vcf.resonance / filter.resonance / fx.resonance                                           |
+|       73 72 75  env.attack / env.release / env.decay (Juno, Sampler)                                   |
+|       7  the TAPE MIX fader   91 fx.reverb   93 fx.chorus (OFF / I / II / I+II)   94 fx.delay          |
+|       95 fx.drive                                                                                      |
+|     Drum tracks take 7, 91, 93, 94 and 95 only. Ignored during a Learn lesson.                         |
+| *10 Pitch bend to 0, sustain off (its notes end), expression full. Bank and the edits stay.            |
+| Also: when USB disconnects, every note the computer started is released, the controllers reset (*10)   |
+|     and bank select returns to 0.                                                                      |
 +--------------------------------------------------------------------------------------------------------+
   Mode 1: OMNI ON, POLY    Mode 2: OMNI ON, MONO     o : Yes
   Mode 3: OMNI OFF, POLY   Mode 4: OMNI OFF, MONO    x : No
