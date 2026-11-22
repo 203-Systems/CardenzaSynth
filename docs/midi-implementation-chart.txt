@@ -1,5 +1,6 @@
   203 Systems  Cardenza Synth (groovebox firmware)       MIDI Implementation Chart
-  Model: Cardenza  (USB-MIDI 1.0, cable 0)               Date: 2026-11-22   Version: 0.2.x
+  Model: Cardenza  (USB-MIDI 1.0, cable 0)               Date: 2026-11-22   Version: 0.2.2
+  Build: branch feat/midi-amy-controls (SETUP > SYSTEM shows 0.2.2 MIDI-AMY-CONTROLS)
 +-------------------------------+---------------------+---------------------+---------------------------+
 | Function                      | Transmitted         | Recognized          | Remarks                   |
 +-------------------------------+---------------------+---------------------+---------------------------+
@@ -103,13 +104,23 @@
 |       73 72 75  env.attack / env.release / env.decay (Juno, Sampler)                                   |
 |       7  the TAPE MIX fader   91 fx.reverb   93 fx.chorus (OFF / I / II / I+II)   94 fx.delay          |
 |       95 fx.drive                                                                                      |
-|     Drum tracks take 7, 91, 93, 94 and 95 only. Ignored during a Learn lesson.                         |
+|     CC 93 picks the chorus mode: 0-21 OFF, 22-63 I, 64-105 II, 106-127 I+II.                           |
+|     Drum tracks take 7, 91, 93, 94 and 95 of these (and CC 0, 11, 64, 121 and program change); the     |
+|     sound CCs (1, 71-77) do nothing there. These edits are ignored during a Learn lesson.              |
 | *10 Pitch bend to 0, sustain off (its notes end), expression full. Bank and the edits stay.            |
 | Also: when USB disconnects, every note the computer started is released, the controllers reset (*10)   |
 |     and bank select returns to 0.                                                                      |
+|     The browser simulator (make web) takes the page's Web MIDI ports for this USB MIDI: "Enable MIDI", |
+|     then an input plays it and the output receives its notes; with neither chosen it is unplugged.     |
 +--------------------------------------------------------------------------------------------------------+
   Mode 1: OMNI ON, POLY    Mode 2: OMNI ON, MONO     o : Yes
   Mode 3: OMNI OFF, POLY   Mode 4: OMNI OFF, MONO    x : No
 
-  Sources: Applications/Synth/GrooveApp.cpp (ReadComputerMidi, SendComputerMidi, SendSequencerMidi),
-           Library/Synth/Core/PagedSynthEngine.cpp (ProcessMidi), tools/usb/cardenza_usb.py, Devices/Cardenza/CardenzaHAL/usb/usb.{h,cpp} (SysEx).
+  Sources: Applications/Synth/GrooveApp.cpp (ReadComputerMidi: notes, sustain, bank, transport, expression,
+             reset; SendComputerMidi; NoteOff for the device's sustained notes)
+           Applications/Synth/UI/Groove/GrooveModals.cpp (Controller::ProgramChange, MidiControlChange)
+           Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp (SetPitchBend, RenderBentVoiceRunNoLock)
+           Library/Synth/Core/PagedSynthEngine.cpp (ProcessMidi: the other CCs)
+           Devices/Cardenza/CardenzaHAL/usb/usb.{h,cpp}, tools/usb/cardenza_usb.py (SysEx)
+           Devices/CardenzaWeb/WebMain.cpp, web/cardenza-web.js (the simulator's Web MIDI)
+  TouchOSC: tools/touchosc/make_cardenza_touchosc.py builds an iPad template for all of the above.
