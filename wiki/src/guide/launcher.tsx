@@ -279,8 +279,8 @@ const miniPortX = miniBoard.x + USB_C.x * miniScale;
 const miniPortY = miniBoard.y + USB_C.y * miniScale;
 
 const WIRES: Record<string, (lang: 'zh' | 'en') => React.ReactElement> = {
-  // The computer's browser on the community (any page), the device on a cable to it, its screen dark.
-  browser: () => (
+  // The recovery page highlights the Launcher-only action. The connected device is in download mode.
+  browser: (lang) => (
     <>
       <rect className="wf-line wf-page" x="150" y="22" width="460" height="292" rx="12" />
       <path className="wf-line" d="M118 330 H642 L622 350 H138 Z" />
@@ -288,17 +288,16 @@ const WIRES: Record<string, (lang: 'zh' | 'en') => React.ReactElement> = {
       <path className="wf-line" d="M170 66 H590" />
       <circle className="wf-faint" cx="184" cy="53" r="4" /><circle className="wf-faint" cx="198" cy="53" r="4" /><circle className="wf-faint" cx="212" cy="53" r="4" />
       <rect className="wf-line" x="190" y="76" width="380" height="24" rx="12" />
-      <text className="wf-text" x="210" y="93">stage.203.io</text>
+      <text className="wf-text" x="210" y="93">stage.203.io/recover</text>
       <rect className="wf-ink" x="170" y="108" width="420" height="26" />
       <rect className="wf-paper" x="182" y="116" width="34" height="10" />
-      <rect className="wf-faint" x="188" y="148" width="250" height="10" /><rect className="wf-faint" x="188" y="166" width="180" height="8" />
-      <rect className="wf-grey" x="188" y="190" width="120" height="92" /><rect className="wf-grey" x="318" y="190" width="120" height="92" />
-      {/* The prompt under the header at the right. */}
-      <rect className="wf-line wf-page" x="452" y="142" width="128" height="72" />
-      <rect className="wf-ink" x="462" y="152" width="18" height="12" />
-      <rect className="wf-ink" x="488" y="153" width="80" height="6" /><rect className="wf-faint" x="488" y="164" width="64" height="5" />
-      <rect className="wf-ink" x="462" y="186" width="62" height="16" /><rect className="wf-grey" x="530" y="186" width="40" height="16" />
-      <g className="cz-web-mark"><rect className="under" x="444" y="134" width="144" height="88" rx="6" /><rect className="cz-web-hl" x="444" y="134" width="144" height="88" rx="6" /></g>
+      <text className="wf-title" x="188" y="158">{lang === 'zh' ? '恢复刷机' : 'Recovery flash'}</text>
+      <rect className="wf-line wf-page" x="188" y="171" width="384" height="91" rx="6" />
+      <rect className="wf-faint" x="202" y="185" width="290" height="8" />
+      <rect className="wf-faint" x="202" y="199" width="216" height="6" />
+      <rect className="wf-ink" x="202" y="217" width="248" height="32" rx="5" />
+      <text className="wf-text wf-on-ink" x="214" y="239">{lang === 'zh' ? '刷入最新启动器' : 'Flash the newest Launcher'}</text>
+      <g className="cz-web-mark"><rect className="under" x="182" y="165" width="396" height="103" rx="8" /><rect className="cz-web-hl" x="182" y="165" width="396" height="103" rx="8" /></g>
       <MiniDevice {...miniBoard} />
       <rect className="wf-grey" x={miniPortX - 5.5} y={miniPortY} width="11" height="9" rx="1" />
       <path className="cz-cable-line wf-cable"
