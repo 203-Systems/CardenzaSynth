@@ -7,7 +7,7 @@
 <p align="center">
   The official four-track groovebox firmware of the <b>203 Systems Cardenza</b> (鸣片), an ESP32-S3 pocket synthesizer,
   built on <a href="https://github.com/203-Systems/CardenzaHAL">CardenzaHAL</a>, the Cardenza's firmware SDK.
-  To make a firmware of your own: CardenzaHAL and <a href="https://github.com/203-Systems/203-CLI">203-CLI</a> (<code>203c</code>).
+  To make a firmware of your own: CardenzaHAL and <a href="https://github.com/203-Systems/203-CLI">203-CLI</a> (<code>203cli</code>).
 </p>
 
 <p align="center">
@@ -133,18 +133,18 @@ make web-serve
 
 ## Make your own
 
-To make a firmware of your own from CardenzaSynth and share it, install [203-CLI](https://github.com/203-Systems/203-CLI) first: the 203 community's command line `203c` (Node.js 18 or newer), with an Agent Skill for AI coding assistants and the development guide and hardware notes of every 203 device (Cardenza, 零序, 魔矩); the Cardenza's are in [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md):
+To make a firmware of your own from CardenzaSynth and share it, install [203-CLI](https://github.com/203-Systems/203-CLI) first: the 203 community's command line `203cli` (Node.js 18 or newer), with an Agent Skill for AI coding assistants and the development guide and hardware notes of every 203 device (Cardenza, 零序, 魔矩); the Cardenza's are in [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md):
 
 ```sh
-npm install -g 203c              # 203-CLI's command (macOS, Linux, Windows)
-203c skill install               # its Agent Skill, for Claude Code and Codex
-203c login                       # approve in the browser, on the community site (--no-browser when remote)
-203c fork V6QK28 my-synth        # clones the source, makes the fork in the community, writes 203.json (forked_from)
+npm install -g 203cli            # 203-CLI's command (macOS, Linux, Windows)
+203cli skill install             # its Agent Skill, for Claude Code and Codex
+203cli login                     # approve in the browser, on the community site (--no-browser when remote)
+203cli fork V6QK28 my-synth      # clones the source, makes the fork in the community, writes 203.json (forked_from)
 cd my-synth && git submodule update --init --recursive
 # change name and summary in 203.json, change the code, raise version.txt, then
 make DEVICE=Cardenza build
-203c publish --dry-run
-203c publish
+203cli publish --dry-run
+203cli publish
 ```
 
 The project rules (the environment, the files a firmware needs, how to use the HAL, what the community checks before a release, versions and channels, forks, what must never be committed) are in one place: CardenzaHAL's [docs/FIRMWARE-PROJECT.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md), where the community's [developer guide](https://stage.203.io/develop) starts too. `203.json` at the root is this firmware in the community (Cardenza Synth, code `V6QK28`); its version is `version.txt`, so `203.json` has no `version`.
@@ -168,7 +168,7 @@ The official firmware and every third-party firmware are released the same way: 
 ## Related
 
 - [CardenzaHAL](https://github.com/203-Systems/CardenzaHAL): the Cardenza's hardware layer and firmware SDK, which every Cardenza firmware builds on.
-- [203-CLI](https://github.com/203-Systems/203-CLI): `203c`, the 203 community's command line, and the device guides.
+- [203-CLI](https://github.com/203-Systems/203-CLI): `203cli`, the 203 community's command line, and the device guides.
 - [Cardenza-Hardware](https://github.com/203-Systems/Cardenza-Hardware): the Cardenza's schematics and hardware documentation.
 - [203-Systems/amy](https://github.com/203-Systems/amy): our branch of the AMY synthesizer.
 

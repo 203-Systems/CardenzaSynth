@@ -7,7 +7,7 @@
 #   tag vX.Y.Z-beta.N    beta    X.Y.Z-beta.N  (X.Y.Z equal to version.txt)
 #
 # Trusted publishing: no community secret. The publish job's GitHub OIDC token is traded for a credential
-# that lasts 15 minutes and only publishes versions of V6QK28 (`203c login --github-oidc`); the
+# that lasts 15 minutes and only publishes versions of V6QK28 (`203cli login --github-oidc`); the
 # firmware's owner linked this repository and workflow on its page (自动发布 / Trusted publishing). The
 # same rules as CardenzaHAL's .github/actions/community-publish, the action every other firmware uses.
 #
@@ -157,14 +157,14 @@ jobs:
           esac
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "label=$label" >> "$GITHUB_OUTPUT"
-          # 203c from the community (its installer checks the download's SHA-256); its sign-in stays in
+          # 203cli from the community (its installer checks the download's SHA-256); its sign-in stays in
           # this run's temporary folder.
-          home="$RUNNER_TEMP/203c"
+          home="$RUNNER_TEMP/203cli"
           export PATH="$home/bin:$PATH"
           curl -fsSL --retry 3 "${COMMUNITY_SKILL_URL%/}/install.sh" |
             CLAUDE_SKILLS_DIR="$home/skills" COMMUNITY_BIN_DIR="$home/bin" sh > /dev/null
           export XDG_CONFIG_HOME="$home/config"
-          cli() { node "$home/skills/203-community/scripts/203c.mjs" "$@"; }
+          cli() { node "$home/skills/203-community/scripts/203cli.mjs" "$@"; }
           signin() {
             [ -z "${COMMUNITY_TOKEN:-}" ] || return 0   # a token given on purpose (a local test) instead
             cli login --github-oidc --firmware "$firmware" --json > /dev/null || {
@@ -175,7 +175,7 @@ jobs:
           # 203.json. Exit 3 (try again: the network, the checks still running) and 4 (the 15-minute
           # credential ran out) sign in again and run it again: it resumes the same version, never a second.
           # Notes: CHANGELOG.md's "## <label>" entry (stable has one: the build checked it); a beta without its
-          # own entry gets a line naming it (203c asks for notes on beta), a dev version none.
+          # own entry gets a line naming it (203cli asks for notes on beta), a dev version none.
           set --
           if [ "$channel" = beta ] && ! grep -Eqs "^#{1,3} +v?${label//./\\.}( |$)" CHANGELOG.md; then
             set -- --notes "Beta $label for testing (commit ${GITHUB_SHA:0:7})."
@@ -191,7 +191,7 @@ jobs:
           done
           if [ "$code" != 0 ]; then
             cat "$out" "$err" >&2
-            echo "::error::203c publish $label ($channel) failed with exit $code (5: sent back by the checks, 6: a decision)"
+            echo "::error::203cli publish $label ($channel) failed with exit $code (5: sent back by the checks, 6: a decision)"
             exit 1
           fi
           node -e '

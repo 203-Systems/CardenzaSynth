@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <b>203 Systems 鸣片</b>（Cardenza，ESP32-S3 掌上合成器）的官方四轨 groovebox 固件，基于鸣片的固件 SDK <a href="https://github.com/203-Systems/CardenzaHAL">CardenzaHAL</a>。想做自己的固件：CardenzaHAL 和 <a href="https://github.com/203-Systems/203-CLI">203-CLI</a>（<code>203c</code>）。
+  <b>203 Systems 鸣片</b>（Cardenza，ESP32-S3 掌上合成器）的官方四轨 groovebox 固件，基于鸣片的固件 SDK <a href="https://github.com/203-Systems/CardenzaHAL">CardenzaHAL</a>。想做自己的固件：CardenzaHAL 和 <a href="https://github.com/203-Systems/203-CLI">203-CLI</a>（<code>203cli</code>）。
 </p>
 
 <p align="center">
@@ -131,18 +131,18 @@ make web-serve
 
 ## 做自己的版本
 
-想在 CardenzaSynth 上改出自己的固件并分享，先装 [203-CLI](https://github.com/203-Systems/203-CLI)：203 社区的命令行 `203c`（需要 Node.js 18 以上），附给 AI 编程助手用的 Agent Skill，以及每台 203 设备（鸣片、零序、魔矩）的开发指引和硬件资料，鸣片的在 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)：
+想在 CardenzaSynth 上改出自己的固件并分享，先装 [203-CLI](https://github.com/203-Systems/203-CLI)：203 社区的命令行 `203cli`（需要 Node.js 18 以上），附给 AI 编程助手用的 Agent Skill，以及每台 203 设备（鸣片、零序、魔矩）的开发指引和硬件资料，鸣片的在 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)：
 
 ```sh
-npm install -g 203c              # 203-CLI 的命令（macOS、Linux、Windows 都一样）
-203c skill install               # 它的 Agent Skill，给 Claude Code 和 Codex
-203c login                       # 打开浏览器，在社区网站上批准（远程时加 --no-browser）
-203c fork V6QK28 my-synth        # 克隆源码，在社区建 Fork，写好 203.json（forked_from）
+npm install -g 203cli            # 203-CLI 的命令（macOS、Linux、Windows 都一样）
+203cli skill install             # 它的 Agent Skill，给 Claude Code 和 Codex
+203cli login                     # 打开浏览器，在社区网站上批准（远程时加 --no-browser）
+203cli fork V6QK28 my-synth      # 克隆源码，在社区建 Fork，写好 203.json（forked_from）
 cd my-synth && git submodule update --init --recursive
 # 改 203.json 的 name 和 summary，改代码，提高 version.txt，然后
 make DEVICE=Cardenza build
-203c publish --dry-run
-203c publish
+203cli publish --dry-run
+203cli publish
 ```
 
 工程规则（环境、必需的文件、HAL 的用法、社区发布前检查什么、版本与渠道、Fork、绝不能提交的东西）只有一份：CardenzaHAL 的 [docs/FIRMWARE-PROJECT.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md)，社区的[开发指引](https://cardenza.203.io/community/develop)也从它开始。根目录的 `203.json` 是这个固件在社区里的信息（Cardenza Synth，代码 `V6QK28`）；版本号就是 `version.txt`，所以 `203.json` 里没有 `version`。
@@ -166,7 +166,7 @@ make DEVICE=Cardenza build
 ## 相关仓库
 
 - [CardenzaHAL](https://github.com/203-Systems/CardenzaHAL)：鸣片的硬件层和固件 SDK，所有鸣片固件都基于它。
-- [203-CLI](https://github.com/203-Systems/203-CLI)：203 社区的命令行 `203c` 和各设备的开发指引。
+- [203-CLI](https://github.com/203-Systems/203-CLI)：203 社区的命令行 `203cli` 和各设备的开发指引。
 - [Cardenza-Hardware](https://github.com/203-Systems/Cardenza-Hardware)：鸣片的原理图和硬件资料。
 - [203-Systems/amy](https://github.com/203-Systems/amy)：我们维护的 AMY 合成器分支。
 

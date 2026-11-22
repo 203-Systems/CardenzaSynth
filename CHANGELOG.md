@@ -12,7 +12,7 @@ stable 渠道（社区的版本页和 GitHub Release 显示的就是它）；没
 - FN + X：Pattern 里有音符时清除音符；空的 Pattern 再按一次就删掉它（按 ENTER 确认），后面的 Pattern 往前补，SONG 里的引用跟着改。一条轨道最后一个 Pattern 不删。
 - 复制的 Pattern 或 step 可以贴到别的轨道，让别的乐器来弹：PASTE 格写着复制的来源（如 T1 P02）；贴到有音符的 Pattern 上先确认；贴到鼓轨只保留鼓的音。
 - 工程格式升到 8：连击（HITS）会保存在工程和自动保存里。这一版存过的工程，0.2.2 和更早的版本打不开；以前的工程照常打开。
-- CardenzaHAL 更新：电脑可以通过 USB 查看固件的信息、分区和内存，截屏、模拟按键、读写 SD 卡上的文件（203c board）。
+- CardenzaHAL 更新：电脑可以通过 USB 查看固件的信息、分区和内存，截屏、模拟按键、读写 SD 卡上的文件（203cli board）。
 
 ## 0.2.2
 
