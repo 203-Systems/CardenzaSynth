@@ -38,7 +38,7 @@
 |              : Tune           | x                   | x                   |                           |
 +-------------------------------+---------------------+---------------------+---------------------------+
 | System       : Clock          | x                   | x                   | Internal clock only       |
-| Real Time    : Commands       | x                   | x                   | (no Start/Stop/Continue)  |
+| Real Time    : Commands       | x                   | o  *8               | Start, Continue, Stop     |
 +-------------------------------+---------------------+---------------------+---------------------------+
 | Aux          : Local ON/OFF   | x                   | x                   |                           |
 | Messages     : All Notes OFF  | x                   | o  (CC 123)         | Ends the computer's notes |
@@ -80,6 +80,10 @@
 |     ends its old voice first. It holds the track's notes from the computer and from the device's own   |
 |     pads and step auditions (their note-off still goes out to the computer at once), not the arp's or  |
 |     the sequencer's. CC 120 / 123 and FN + ESC (all stop) end sustained notes too.                     |
+| *8  FA Start plays the sequencer from the beginning (restarting it when playing), FB Continue resumes  |
+|     from where it stopped, FC Stop stops it, as the PLAY key would (SONG / LOOP as set). The device    |
+|     keeps its own tempo: without MIDI clock it drifts from the DAW after the start. Ignored during a   |
+|     Learn lesson.                                                                                      |
 | Also: when USB disconnects, every note the computer started is released, pitch bend returns to 0,      |
 |     and sustain and bank select reset.                                                                 |
 +--------------------------------------------------------------------------------------------------------+

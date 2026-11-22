@@ -870,9 +870,31 @@ void GrooveApp::ReadComputerMidi()
   std::uint8_t packet[4];
   for (int count = 0; count < 64 && Device::USB::ReadMidi(packet); ++count)
   {
+    const std::uint8_t code = packet[0] & 0x0F;
+    // System real time, one byte (code index number F): the transport. The device keeps its own
+    // tempo (MIDI clock, F8, is not followed), so a DAW's Start and the device's bar lines meet only
+    // at the start. A lesson's practice project follows the lesson page alone.
+    if (code == 0xF)
+    {
+      if (guide_) continue;
+      switch (packet[1])
+      {
+        case 0xFA:  // Start: from the beginning, also when already playing.
+          if (sequencer_.Playing()) sequencer_.Stop();
+          sequencer_.Play();
+          break;
+        case 0xFB:  // Continue: on from where Stop left the position.
+          if (!sequencer_.Playing()) sequencer_.Resume();
+          break;
+        case 0xFC:  // Stop
+          if (sequencer_.Playing()) sequencer_.Stop();
+          break;
+        default: break;
+      }
+      continue;
+    }
     // Channel messages only (code index numbers 8-E): the pieces of a SysEx (4-7) carry data bytes
     // where the status would be.
-    const std::uint8_t code = packet[0] & 0x0F;
     if (code < 0x8 || code > 0xE) continue;
     const std::uint8_t status = packet[1] & 0xF0;
     const std::uint8_t channel = packet[1] & 0x0F;
