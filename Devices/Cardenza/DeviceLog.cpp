@@ -337,8 +337,8 @@ void Install()
   char elf[17] = {};
   esp_app_get_elf_sha256(elf, sizeof(elf));
   // version.txt, the Git commit (+: built with local changes) and the ELF's hash, which decodes a backtrace.
-  std::printf("\n==== %s %s %s%s (elf %s) started, reset: %s, previous run: %s\n", app->project_name, app->version,
-              cardenza::build::kHash, cardenza::build::kDirty ? "+" : "", elf,
+  std::printf("\n==== %s %s%s%s %s%s (elf %s) started, reset: %s, previous run: %s\n", app->project_name, app->version,
+              cardenza::build::kLabel[0] != 0 ? " " : "", cardenza::build::kLabel, cardenza::build::kHash, cardenza::build::kDirty ? "+" : "", elf,
               ResetReasonName(esp_reset_reason()),
               g_previousCrashed ? "CRASHED (the !!! lines above)" : (g_previousKept ? "ended" : "unknown (power was off)"));
 }

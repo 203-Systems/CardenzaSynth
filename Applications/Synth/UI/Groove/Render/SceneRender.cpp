@@ -1300,7 +1300,10 @@ void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, co
     y += 11;
     ++line;
   };
-  row("VERSION", cardenza::build::kVersion, kInk);
+  // A build from a branch says which (cardenza::build::kLabel), so it is not taken for the release.
+  const std::string label = cardenza::build::kLabel;
+  row("VERSION", label.empty() ? std::string(cardenza::build::kVersion) : std::string(cardenza::build::kVersion) + " " + label,
+      kInk);
   row("SD CARD", info.storageReady ? "READY" : "NOT FOUND", info.storageReady ? kPlay : kRec);
   // Internal RAM, and PSRAM beside it when there is some (one row: a fifth would run into the tabs).
   std::string memory = "N/A";
