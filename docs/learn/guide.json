@@ -294,7 +294,7 @@
          "keys": "OK", "done": [["state", "l", 1]], "demo": "tap OK; wait 10"},
         {"say": {"zh": "按 {{key:PLAY}} 完整试听你的第一首歌，顺次经过前奏、主歌、副歌与尾声。", "en": "Press {{key:PLAY}} to listen to your finished song play through intro, verse, chorus, and outro."},
          "keys": "PLAY", "done": [["state", "y", 1]], "demo": "tap PLAY; wait 120"},
-        {"say": {"zh": "听完后按 {{key:PLAY}} 停止。整首编排会自动保留在设备上。", "en": "When you are done listening, press {{key:PLAY}} to stop. Your song is automatically saved on the device."},
+        {"say": {"zh": "听完后，再按一次 {{key:PLAY}} 停止。你的第一首歌完成了！退出教程时，鸣片会丢弃这次的练习内容，恢复你原来的工程。", "en": "When you’re done listening, press {{key:PLAY}} again to stop. You’ve finished your first song! When you leave the guide, Cardenza discards the practice project and restores your previous session."},
          "keys": "PLAY", "done": [["state", "y", 0]], "demo": "tap PLAY"}
       ]
     },
