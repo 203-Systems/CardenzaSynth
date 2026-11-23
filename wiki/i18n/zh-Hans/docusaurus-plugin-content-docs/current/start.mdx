@@ -6,94 +6,98 @@ sidebar_position: 1
 
 :::tip
 
-第一次用？先跟着[入门教程](/)走一遍：几分钟一课，按一步、亮一步。这本说明书是字典，用来查。
+初次上手？建议先看[入门教程](/)，每课只需几分钟，跟着步骤操作即可掌握基础。本说明书用于按需查阅各项功能、参数与快捷键。
 
 :::
 
-鸣片 Groovebox 是一台口袋音乐工作站：4 条轨道（鼓、Juno 合成器、DX7 FM 合成器、采样器），每条轨道有自己的音序器 Pattern，再加上编排、混音、效果器和工程存档。
+鸣片（Cardenza Synth）是一台便携式四轨合成器工作站，内置四种音源引擎（鼓机、Juno 模拟合成器、DX7 FM 合成器、采样器），支持分轨音序器、歌曲编排、混音、轨道与总线效果器，以及 SD 卡工程存储。
 
-键盘分成四块，**颜色就是角色**：这本说明书里每个键都用它的颜色画出来，和机器屏幕上用的颜色一样。
+机身键盘按功能分为四个色区，说明书中的按键配色与设备屏幕完全一致。
 
 <Keymap>
-  <Group keys="ESC TAB FN CTRL">左侧四键：去哪儿</Group>
-  <Group keys="PADS">演奏区：弹当前轨</Group>
-  <Group keys="GRID">GRID：按屏幕上的格子</Group>
-  <Group keys="RIGHT">右侧四键：调值 · 播放</Group>
-  <Caption>四块键盘：左边导航，中间演奏，右边 GRID 对应屏幕格子，最右调值和播放</Caption>
+  <Group keys="ESC TAB FN CTRL">左侧四键：导航与菜单</Group>
+  <Group keys="PADS">演奏区 PADS：演奏当前轨</Group>
+  <Group keys="GRID">GRID：对应屏幕 4×4 格子</Group>
+  <Group keys="RIGHT">右侧四键：调值、确认与播放</Group>
+  <Caption>键盘四大分区：左侧负责导航，中间用于演奏，右侧 4×4 GRID 对应屏幕格子，最右一列负责数值调节与走带控制。</Caption>
 </Keymap>
 
-| 颜色 | 键 | 管什么 |
+| 颜色 | 按键 | 功能 |
 |---|---|---|
-| <Key k="ESC" /> 红橙 | 场景 | 1 INSTR / 2 SEQ / 3 TAPE，还有 0 SETUP |
-| <Key k="TAB" /> 青 | 轨道 | <Track n="1" /> <Track n="2" /> <Track n="3" /> <Track n="4" /> |
-| <Key k="FN" /> 黄 | 第二功能 | 当前画面的菜单、快捷键 |
-| <Key k="CTRL" /> 紫 | 页面 | 屏幕最下面的页签，如 <Page name="ROLL" /> |
-| <Key k="PLAY" /> 绿 | 走带 | 播放 / 停止 |
+| <Key k="ESC" /> 红橙 | 场景 | 在 1 INSTR、2 SEQ、3 TAPE 间切换，或进入 0 SETUP |
+| <Key k="TAB" /> 青 | 轨道 | 切换 <Track n="1" /> <Track n="2" /> <Track n="3" /> <Track n="4" /> |
+| <Key k="FN" /> 黄 | 第二功能 | 打开当前页面的快捷菜单及组合快捷键 |
+| <Key k="CTRL" /> 紫 | 页面 | 切换屏幕底部的子页签（如 <Page name="ROLL" />） |
+| <Key k="PLAY" /> 绿 | 走带 | 开始 / 停止播放 |
 
-这本说明书怎么用：<Icon name="search" /> 顶部搜索任何词（「音量」「volume」「声音太小」都能找到同一处）；<Icon name="map" /> [按键地图](./keys.mdx#keys-map) 说明每个键和屏幕每一块做什么，[场景与页面地图](./navigate.mdx#nav-scene-map) 有每一页的截图；<Icon name="usb" /> 在 [教程](/) 里，USB 连着的鸣片会跟着课程走（见 [连接真机（USB）](./web.mdx#web-usb)）；<Icon name="web" /> 没有设备时可以在 [网页模拟器](./web.mdx) 里试。
+本说明书的使用方式：
+- <Icon name="search" /> 可在顶部搜索栏输入任意关键词（如「音量」「volume」「声音太小」均会指向对应章节）。
+- <Icon name="map" /> [按键地图](./keys.mdx#keys-map)展示每个按键与屏幕区域的功能，[场景与页面地图](./navigate.mdx#nav-scene-map)汇总了全部页面的截图。
+- <Icon name="usb" /> 在[入门教程](/)中通过 USB 连接鸣片，设备会随课程自动跳转并点亮引导键（见[连接真机（USB）](./web.mdx#web-usb)）。
+- <Icon name="web" /> 手边没有设备时，可以直接使用[网页模拟器](./web.mdx)。
 
 <Keywords k="介绍, 概览, 是什么, overview, introduction, 开始, 新手" />
 
 ## 一分钟上手 {#quick-start}
 
-跟着这几格做一遍，就会了一大半：
+按以下流程操作一遍，即可掌握核心用法：
 
 <Strip>
-  <Step shot="instr-boot" at="8,0,41,11 51,0,15,11 10,89,220,38">开机停在 <Scene name="INSTR" /> 的 VOICE 页，当前轨是 <Track n="1" /> 鼓（808 KIT）：演奏区每一列是一个鼓，最上面一行打得最重。</Step>
-  <Step keys="ESC" shot="seq-empty" at="scene">单击 <Key k="ESC" />：到 <Scene name="SEQ" />，在这里写这一轨的音符。还是 <Track n="1" />：鼓轨这一页是鼓机，左边是各个鼓，GRID 上是选中那个鼓的各步。</Step>
-  <Step keys="hold r3c1~底鼓 + G1, G5, G9, G13" shot="seq-drums" at="9,17,92,10">按住底鼓键，点 GRID 1、5、9、13：四拍底鼓写好了。军鼓、踩镲也这样写。</Step>
-  <Step keys="PLAY" shot="seq-drums-playing">播放！绿线走到哪一步，哪一步就响。再按一次停止。</Step>
-  <Step keys="TAB" shot="seq-keyboard" at="track">单击 <Key k="TAB" />：换到 <Track n="2" /> Juno。现在演奏区是钢琴：两个完整的八度，第 2、4 行白键，第 1、3 行黑键，缺口不亮；C3 在左下角。</Step>
-  <Step keys="hold r3c1~C3 + G1" shot="seq-hold-tap" at="28,57,15,10">按住一个音，点一步：音符写进去了。按住的键全亮。</Step>
-  <Step keys="hold OK" shot="record">刚才随便弹过的不会丢：按住 <Key k="OK" />，把它放进 Pattern。</Step>
+  <Step shot="instr-boot" at="8,0,41,11 51,0,15,11 10,89,220,38">开机默认停在 <Scene name="INSTR" /> 的 VOICE 页，当前轨道为 <Track n="1" /> 鼓机（808 KIT）。演奏区每一列对应一种鼓，越靠上的行击打力度越大。</Step>
+  <Step keys="ESC" shot="seq-empty" at="scene">单击 <Key k="ESC" /> 进入 <Scene name="SEQ" /> 编写音符。鼓轨默认打开鼓机视图，左侧显示全部鼓声部，右侧 GRID 对应当前选中鼓的 16 步。</Step>
+  <Step keys="hold r3c1~底鼓 + G1, G5, G9, G13" shot="seq-drums" at="9,17,92,10">按住底鼓键并依次点按 GRID 1、5、9、13，即可写入四拍底鼓。军鼓和踩镲同理。</Step>
+  <Step keys="PLAY" shot="seq-drums-playing">按 <Key k="PLAY" /> 开始播放，绿色播放头经过有音符的步时即会触发发声，再按一次停止。</Step>
+  <Step keys="TAB" shot="seq-keyboard" at="track">单击 <Key k="TAB" /> 切换到 <Track n="2" />（Juno）。此时演奏区变为两个完整八度的钢琴键盘：第 2、4 行为白键，第 1、3 行为黑键，无黑键的空位熄灭，左下角为 C3。</Step>
+  <Step keys="hold r3c1~C3 + G1" shot="seq-hold-tap" at="28,57,15,10">按住演奏区的音符键再点按 GRID 步进键，即可写入该音符。按住的按键会全亮。</Step>
+  <Step keys="hold OK" shot="record">后台会自动缓存你刚才弹奏的内容。按住 <Key k="OK" /> 打开 RECORD 面板，即可将满意的乐句导入 Pattern。</Step>
 </Strip>
 
-再记住四件事：
+另外四个常用操作：
 
 <Strip>
-  <Step keys="hold ESC" shot="map-esc" at="cells:1,1-4,4">单击 <Key k="ESC" /> 在三个音乐场景里循环：<Scene name="INSTR" /> 音色 → <Scene name="SEQ" /> 音符 → <Scene name="TAPE" /> 编排混音。按住它是这张地图：第 1 列是 <Scene name="SETUP" />，工程和设置都在那里。</Step>
-  <Step keys="hold FN" shot="fn-held" at="cells:1,1-4,4">按住 <Key k="FN" />：GRID 上是当前画面的菜单（复制、粘贴、保存、录音……），FN + GRID 键执行。</Step>
-  <Step keys="hold FN + 7" shot="fn-volume" at="14,94,212,28">按住 FN 时：<Key k="6" /> <Key k="Y" /> 调 BPM，<Key k="7" /> <Key k="U" /> 调音量，<Key k="8" /> <Key k="I" /> 调八度。</Step>
-  <Step keys="FN+S" shot="save-done" at="footer"><Key k="FN+S" /> 保存工程；还没起名的工程不问名字，直接用第一个空着的名字 SONG 01。</Step>
+  <Step keys="hold ESC" shot="map-esc" at="cells:1,1-4,4">单击 <Key k="ESC" /> 在三个创作场景间循环：<Scene name="INSTR" />（音色）→ <Scene name="SEQ" />（音序）→ <Scene name="TAPE" />（编排与混音）。按住 <Key k="ESC" /> 可打开场景地图，第 1 列用于进入 <Scene name="SETUP" /> 管理工程与系统设置。</Step>
+  <Step keys="hold FN" shot="fn-held" at="cells:1,1-4,4">按住 <Key k="FN" /> 会在 GRID 上显示当前页面的快捷菜单（复制、粘贴、保存、录音等），按对应 GRID 键即可执行。</Step>
+  <Step keys="hold FN + 7" shot="fn-volume" at="14,94,212,28">按住 <Key k="FN" /> 时，可通过 <Key k="6" /> / <Key k="Y" /> 调节 BPM、<Key k="7" /> / <Key k="U" /> 调节主音量、<Key k="8" /> / <Key k="I" /> 调节八度。</Step>
+  <Step keys="FN+S" shot="save-done" at="footer">在任意页面按 <Key k="FN+S" /> 即可保存工程。未命名的工程会自动按序命名为 SONG 01、SONG 02……</Step>
 </Strip>
 
 <Keywords k="快速开始, 上手, 第一次, 教程, 开机, 第一个节奏, quick start, tutorial, getting started, 入门教程" />
 
 ## 屏幕上有什么 {#screen-layout}
 
-屏幕 240×135 像素，分成五块，和键盘的位置一一对应：
+240×135 彩色屏幕划分为五个区域，与机身按键位置一一对应：
 
 <Shot name="seq-notes">
   <Mark at="scene">场景</Mark>
-  <Mark at="track">轨道（轨道色）</Mark>
-  <Mark at="bpm">BPM · 播放状态</Mark>
+  <Mark at="track">轨道（按轨道配色）</Mark>
+  <Mark at="bpm">BPM 与播放状态</Mark>
   <Mark at="strip:ESC">ESC</Mark>
   <Mark at="strip:TAB">TAB</Mark>
   <Mark at="strip:FN">FN</Mark>
   <Mark at="strip:CTRL">CTRL</Mark>
-  <Mark at="content">内容区：16 步 = GRID</Mark>
+  <Mark at="content">内容区（16 步对应 GRID）</Mark>
   <Mark at="strip:PLAY">PLAY</Mark>
-  <Mark at="footer">页签：CTRL 换页</Mark>
-  <KeyMark keys="PADS">能发声：半亮</KeyMark>
-  <KeyMark keys="G1">有音符：半亮</KeyMark>
+  <Mark at="footer">页签栏（CTRL 切换）</Mark>
+  <KeyMark keys="PADS">可发声按键：半亮</KeyMark>
+  <KeyMark keys="G1">有音符的步：半亮</KeyMark>
   <KeyMark keys="G2">空步：灭</KeyMark>
-  <Caption>SEQ 音符页（ROLL），T2 上的几个音。下面是同一时刻的按键灯。</Caption>
+  <Caption>SEQ 音符页（ROLL）显示 T2 上的音符，下方为同一时刻的机身按键灯状态。</Caption>
 </Shot>
 
-| 区域 | 在哪 | 内容 |
+| 区域 | 位置 | 显示内容 |
 |---|---|---|
-| 状态行 | 最上面 | 场景编号和名称、当前轨（轨道色）、音源和音色、REC、播放 / 停止、BPM、`*` 有未保存的改动 |
-| 左侧四个色块 | 左边缘 | 就是 <Key k="ESC" /> <Key k="TAB" /> <Key k="FN" /> <Key k="CTRL" /> 四个键，各带图标（返回、轨道、菜单、页面）；按住哪个键，它的色块就填满 |
-| 内容区 | 中间 | 4×4 格子 = 右边 GRID 4×4：按哪个键就是哪一格 |
-| 页签 | 最下面 | 当前场景的页面，当前页紫底 <Page name="ROLL" />；<Key k="CTRL" /> 换页 |
-| 右侧四个色块 | 右边缘 | <Key k="ADD" /> <Key k="SUB" /> <Key k="OK" /> <Key k="PLAY" />；ADD / SUB 的图标说明它们在这里做什么（调数值和列表是 ▲ ▼，横向移动是 → ←），PLAY 播放时绿色、录音待命时红色 |
+| 状态栏 | 顶部 | 场景编号与名称、当前轨道（轨道色）、音源与音色、REC 指示、播放/停止状态、BPM，以及未保存标记 `*` |
+| 左侧边条 | 左边缘 | 对应 <Key k="ESC" /> <Key k="TAB" /> <Key k="FN" /> <Key k="CTRL" /> 四个功能键及图标（返回、轨道、菜单、页面）；按住某键时其边条会填满 |
+| 内容区 | 中间 | 4×4 网格区域，与右侧 4×4 GRID 按键一一对应 |
+| 页签栏 | 底部 | 当前场景包含的所有子页面，当前页以紫色高亮显示（如 <Page name="ROLL" />），按 <Key k="CTRL" /> 切换 |
+| 右侧边条 | 右边缘 | 对应 <Key k="ADD" /> <Key k="SUB" /> <Key k="OK" /> <Key k="PLAY" />；ADD / SUB 图标会随页面变化（调值与列表为 ▲ ▼，横向翻页为 → ←）；PLAY 播放时为绿色，录音待命时为红色 |
 
 :::tip
 
-屏幕上第 2 行第 3 格，就是 GRID 第 2 行第 3 个键（键帽 `[`）。所有页面都是这条规则：**屏幕格子在哪，键就在哪。**
+屏幕上第 2 行第 3 格对应 GRID 第 2 行第 3 个键（键帽 `[`）。所有页面均遵循这种屏幕格子与物理按键一一对应的空间映射。
 
 :::
 
-两侧色块显示这些键的状态：<Led state="off">灭</Led> 很淡，<Led state="half">半亮</Led> 是 30% 点阵，<Led state="full">全亮</Led> 是实色。边上这八个键自己的灯最多 <Led state="half">半亮</Led>，所以要看色块。详见 [屏幕两侧和按键灯同步](./lights.mdx#lights-edges)。
+两侧边条同步反映这八个边缘按键的灯光状态：<Led state="off">灭</Led> 显示为极淡色，<Led state="half">半亮</Led> 显示为 30% 点阵，<Led state="full">全亮</Led> 显示为实色块。由于两侧八个物理按键本身的亮度上限为 <Led state="half">半亮</Led>，其激活或全亮状态通过屏幕边条呈现。详见[屏幕两侧和按键灯同步](./lights.mdx#lights-edges)。
 
 <Keywords k="界面, 屏幕布局, 状态栏, 页签, 内容区, 未保存, 星号, 图标, screen, display, layout, status line, tabs, header, footer" />

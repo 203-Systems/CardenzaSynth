@@ -4,69 +4,69 @@ sidebar_position: 9
 
 # 3 TAPE 走带
 
-TAPE 是四轨合在一起：哪一段放哪些 Pattern、整首歌的编排、混音、发送和总线效果。五页（<Key k="CTRL" /> 翻）：
+**TAPE** 将四条轨道汇总在一起，用于片段发射、歌曲编排、混音、效果发送与总线效果。按 <Key k="CTRL" /> 在五个子页面间切换：
 
 <Page name="SESSION" /> <Page name="SONG" /> <Page name="MIX" /> <Page name="SENDS" /> <Page name="FX" />
 
-保存、载入和工程的 BPM 属于全局，在 <Scene name="SETUP" /> 里：见 [PROJECT 工程](./setup.mdx#setup-project) 和 [FILES 工程文件](./setup.mdx#setup-files)。这五页上除了主音量，全部属于工程。每一页 FN 菜单的最下面一行都一样：SAVE（<Key k="FN+S" />）、TAP（<Key k="FN+T" />）、REC（<Key k="FN+PLAY" />）和 SETUP。
+工程保存、载入与全局 BPM 位于 <Scene name="SETUP" />（见[PROJECT 工程](./setup.mdx#setup-project)与[FILES 工程文件](./setup.mdx#setup-files)）。除主输出音量外，TAPE 这五页上的全部参数均随工程保存。每一页 FN 菜单的第 4 行均保持统一：SAVE（<Key k="FN+S" />）、TAP（<Key k="FN+T" />）、REC（<Key k="FN+PLAY" />）与 SETUP。
 
 <Keywords k="走带, 整首歌, 编排, 混音, 四轨, tape, song, arrangement, mixer" />
 
 ## SESSION：像 Ableton 那样发射 {#tape-session}
 
-每列一条轨道（轨道色），每行一个 Pattern 槽；每格画出这个 Pattern 的 16 步。
+每列对应一条轨道（按轨道配色），每行对应一个 Pattern 槽位，每个格子内以缩略图预览该 Pattern 的 16 步内容。
 
 <Shot name="tape-session">
   <Mark at="cells:1,1-4,1">T1</Mark>
   <Mark at="cells:1,2-4,2">T2</Mark>
   <Mark at="cells:1,3-4,3">T3</Mark>
   <Mark at="cells:1,4-4,4">T4</Mark>
-  <Mark at="cell:2,2">T2 的第二个 Pattern</Mark>
-  <Mark at="cell:2,1">+：新建</Mark>
-  <KeyMark keys="G1-G4">当前 Pattern：全亮</KeyMark>
-  <KeyMark keys="G6">另一个 Pattern：半亮</KeyMark>
-  <Caption>SESSION：四轨并排。</Caption>
+  <Mark at="cell:2,2">T2 的第 2 个 Pattern</Mark>
+  <Mark at="cell:2,1">+：新建空 Pattern</Mark>
+  <KeyMark keys="G1-G4">当前播放 Pattern：全亮</KeyMark>
+  <KeyMark keys="G6">其他 Pattern：半亮</KeyMark>
+  <Caption>SESSION 视图：四条轨道的 Pattern 并列排布。</Caption>
 </Shot>
 
 <Strip>
-  <Step keys="PLAY, G6" shot="tape-session-queued" at="cell:2,2">播放中点一格：这一轨在这一圈结束时切换。格子写着 NXT，键灯 <Led state="blink">闪烁</Led>。</Step>
-  <Step >一圈播完，T2 换成 P02。停止时点格子立即切换。</Step>
+  <Step keys="PLAY, G6" shot="tape-session-queued" at="cell:2,2">播放中点按任意格子可将其排队，待该轨本圈循环结束后切换。格子显示 `NXT`，按键灯 <Led state="blink">闪烁</Led>。</Step>
+  <Step >本圈播完后，T2 自动切换至 P02。停止状态下点按格子会立即切换。</Step>
 </Strip>
 
-- 点格子：让这一轨播这个 Pattern（同时这一轨成为当前轨）。一轨最后一个 Pattern 之后的「+」新建一个空的并开始播。
-- <Key k="ADD" /> / <Key k="SUB" />：光标行上移 / 下移并滚动；<Key k="OK" />：发射光标所在的整行（所有有这个 Pattern 的轨道）。
-- <Key k="FN+OK" />：把每轨正在播（或排队）的 Pattern 记成 SONG 末尾的新一段；这一段的长度等于其中最长的 Pattern。
-- FN 菜单：**LAUNCH**（发射光标所在的行）和 **ADD** TO SONG（同 <Key k="FN+OK" />）。
-- 从 SESSION 发射会退出 SONG 模式。正在播的格子是绿色底、▶ 和走动的播放头。
+- 点按任意格子即可在该轨发射对应 Pattern（同时将该轨设为当前轨）。点按某轨最后一个 Pattern 下方的 `+` 格，可新建空 Pattern 并立即发射。
+- 用 <Key k="ADD" /> / <Key k="SUB" /> 上下移动光标行并滚动列表，按 <Key k="OK" /> 同步发射光标所在的整行 Pattern。
+- 按 <Key k="FN+OK" /> 可把四轨当前正在播放（或已排队）的 Pattern 组合捕获为 **SONG** 末尾的新段落，其小节长度自动匹配其中最长的 Pattern。
+- FN 菜单包含 **LAUNCH**（发射光标所在整行）与 **ADD** TO SONG（等同 <Key k="FN+OK" />）。
+- 在 SESSION 中发射片段会自动退出 SONG 模式并回到 LOOP 模式。正在播放的格子以绿底、▶ 及走动的播放头标示。
 
 <Keywords k="session, 片段, 发射, 场景发射, ableton, live, clip, launch, scene launch" />
 
 ## SONG：编排整首歌 {#tape-song}
 
-整首歌像一段磁带：每**列**是一段（从左往右是时间），每**行**是一条轨道，格子里是这一段要播的 Pattern 和小节数（xN）。
+SONG 按从左到右的时间轴排布全曲结构：每**列**为一个段落，每**行**为一条轨道，每个格子记录该轨在此段落播放的 Pattern 编号，并标注该段落的小节数（`xN`）。
 
 <Shot name="tape-song">
   <Mark at="cells:1,1-4,1">第 1 段</Mark>
   <Mark at="cells:1,2-4,2">第 2 段</Mark>
-  <Mark at="cell:1,1">选中的格子</Mark>
-  <Mark at="47,15,17,10">小节数 xN</Mark>
-  <Mark at="cells:1,3-4,3">+ 列：追加一段</Mark>
-  <Mark at="199,111,31,12">LOOP / SONG 模式</Mark>
-  <Caption>SONG：每列是一段，每行是一轨。</Caption>
+  <Mark at="cell:1,1">已选中格子</Mark>
+  <Mark at="47,15,17,10">段落小节数（xN）</Mark>
+  <Mark at="cells:1,3-4,3">+ 列：追加新段落</Mark>
+  <Mark at="199,111,31,12">LOOP / SONG 播放模式</Mark>
+  <Caption>SONG 视图：每列为一个段落，每行为一条轨道。</Caption>
 </Shot>
 
-- 点格子选中，再点一次同一格在「Pattern」和「小节数」之间切换（编辑小节数时这一段的 xN 变黄）。`--` 表示这一轨在这一段不出声。
-- 点最后一段之后的 + 列：追加一段，内容复制最后一段（歌曲还是空的时候：每轨正在播的 Pattern）。
-- <Key k="ADD" /> / <Key k="SUB" />：换这一格的 Pattern（包括 `--`），或改这一段的小节数（1–16）；<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 总是改小节数。
-- <Key k="OK" />：从这一段开始播（自动进入 SONG 模式；正在播时直接跳过去）；<Key k="FN+OK" />：切换 SONG / LOOP。
-- <Key k="FN+C" /> / <Key k="FN+V" /> / <Key k="FN+X" /> / <Key k="FN+D" />：复制、粘贴（插在光标之后）、删除、复制一段。FN 菜单里也有（COPY、PASTE、DELETE、DUP，写着 ROW n），另有 PLAY 切换 SONG / LOOP。
-- [PROJECT 工程](./setup.mdx#setup-project) 上的 PLAY 开关就是同一个 SONG / LOOP 设置。它是演奏控制，不存进工程；在 SESSION 里发射会切回 LOOP。
+- 点按格子将其选中；再次点按同一格可在编辑 **Pattern** 与编辑**小节数**之间切换（编辑小节数时 `xN` 变为黄色）。`--` 表示该轨在此段落静音。
+- 点按末段右侧的 `+` 列会追加一段（默认复制末段内容；空歌曲时填入四轨当前 Pattern）。
+- 用 <Key k="ADD" /> / <Key k="SUB" /> 更改当前格子的 Pattern（含 `--`）或段落小节数（1–16）；<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 始终直接调整小节数。
+- 按 <Key k="OK" /> 从当前选中段落开始播放（自动切入 SONG 模式；若已在播放则立即跳转）；按 <Key k="FN+OK" /> 切换 SONG / LOOP 模式。
+- 按 <Key k="FN+C" />、<Key k="FN+V" />、<Key k="FN+X" />、<Key k="FN+D" /> 可复制、粘贴（插入光标后）、删除或复制当前段落。FN 菜单同样提供这四项（标注 `ROW n`）以及 **PLAY**（SONG / LOOP 切换）。
+- [PROJECT 工程](./setup.mdx#setup-project)页的 **PLAY** 开关同步控制此 SONG / LOOP 状态。该开关属于现场演奏控制，不写入工程文件；在 SESSION 中发射片段会自动切回 LOOP。
 
-SONG 模式下每段播放 xN 小节（1 小节 = 16 步）后进入下一段，结尾回到第一段。LOOP 模式即各轨循环自己的当前 Pattern。正在播的一段有绿色的磁头扫过；等着开始的一段有黄色虚线框。
+在 **SONG** 模式下，每段依次播放 `xN` 小节（1 小节 = 16 步）并循环全曲；在 **LOOP** 模式下，各轨独立循环当前 Pattern。正在播放的段落带绿色播放头，等待切入的段落带黄色框提示。
 
 :::tip
 
-在 SESSION 里搭好一个组合，<Key k="FN+OK" /> 就把它记成 SONG 的下一段：边玩边编排。
+可以在 SESSION 中即兴组合段落，满意后按 <Key k="FN+OK" /> 直接追加到 SONG 末尾。
 
 :::
 
@@ -75,26 +75,26 @@ SONG 模式下每段播放 xN 小节（1 小节 = 16 步）后进入下一段，
 ## MIX：混音 {#tape-mix}
 
 <Shot name="tape-mix">
-  <Mark at="cells:1,1-4,1">T1 一列</Mark>
-  <Mark at="cell:1,2">选中轨</Mark>
+  <Mark at="cells:1,1-4,1">T1 通道条</Mark>
+  <Mark at="cell:1,2">当前选中轨</Mark>
   <Mark at="cells:2,1-2,4">MUTE 静音</Mark>
   <Mark at="cells:3,1-3,4">SOLO 独奏</Mark>
   <Mark at="cells:4,1-4,4">SEQ 音序开关</Mark>
-  <Mark at="footer">MASTER 主音量 · 输出电平</Mark>
-  <KeyMark keys="G2">选中：全亮</KeyMark>
-  <KeyMark keys="G5-G12">MUTE / SOLO 没开：半亮</KeyMark>
-  <KeyMark keys="G13-G16">SEQ 开着：全亮</KeyMark>
-  <Caption>MIX：四个推子，MUTE / SOLO / SEQ 开关，底部是主音量。</Caption>
+  <Mark at="footer">MASTER 主音量与输出电平</Mark>
+  <KeyMark keys="G2">选中轨：全亮</KeyMark>
+  <KeyMark keys="G5-G12">未启用的 MUTE / SOLO：半亮</KeyMark>
+  <KeyMark keys="G13-G16">已启用的 SEQ：全亮</KeyMark>
+  <Caption>MIX 混音页：四轨推子、MUTE / SOLO / SEQ 开关与底部主音量。</Caption>
 </Shot>
 
-- GRID 每列一条轨道：行 1 选中、行 2 静音、行 3 独奏、行 4 音序开关。
-- <Key k="ADD" /> / <Key k="SUB" /> 调选中轨的音量（0–100，默认 100；<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 一次 10）；<Key k="OK" /> 在选中轨和 MASTER 之间切换。按住某一轨第 1 行的键：演奏键就是它的音量值。
-- MASTER 是设备的输出音量，和 [SYSTEM 系统](./setup.mdx#setup-system) 的 VOLUME 是同一个：属于设备，不属于工程。各轨音量、静音、独奏和 SEQ 开关存在工程里。
-- FN 菜单：**UNMUTE** ALL 全部取消静音、**UNSOLO** ALL 全部取消独奏（有轨道被静音 / 独奏时才能用）。
+- GRID 每列对应一条轨道：第 1 行选轨，第 2 行 **MUTE**（静音），第 3 行 **SOLO**（独奏），第 4 行 **SEQ**（音序开关）。
+- 用 <Key k="ADD" /> / <Key k="SUB" /> 调节当前选中轨的音量（0–100，默认 100；按住 <Key k="FN" /> 步进 ±10）；按 <Key k="OK" /> 在选中轨与 **MASTER** 主音量之间切换焦点。按住某轨第 1 行按键可直接通过 32 颗演奏键快速定位音量值。
+- **MASTER** 即设备输出主音量，与[SYSTEM 系统](./setup.mdx#setup-system)中的 **VOLUME** 同步，归属设备全局设置而非工程；各轨音量、静音、独奏和 SEQ 状态随工程保存。
+- 当任意轨道处于静音或独奏状态时，FN 菜单会启用 **UNMUTE ALL** 与 **UNSOLO ALL**。
 
 :::tip
 
-按住 <Key k="TAB" /> 在任何画面都能用同一个布局（轨道地图）。
+在任意页面按住 <Key k="TAB" /> 打开的轨道地图均采用与 MIX 相同的四列布局。
 
 :::
 
@@ -107,32 +107,32 @@ SONG 模式下每段播放 xN 小节（1 小节 = 16 步）后进入下一段，
   <Mark at="cells:2,1-2,4">CHORUS</Mark>
   <Mark at="cells:3,1-3,4">DELAY 发送</Mark>
   <Mark at="cells:4,1-4,4">REVERB 发送</Mark>
-  <Mark at="cell:1,3">焦点</Mark>
+  <Mark at="cell:1,3">当前焦点</Mark>
   <KeyMark keys="G3">焦点：全亮</KeyMark>
-  <KeyMark keys="G1 G2 G4-G16">改过默认值：半亮 · 默认（关）：灭</KeyMark>
-  <Caption>SENDS：每列一条轨道，每行一种效果。</Caption>
+  <KeyMark keys="G1 G2 G4-G16">已启用（非默认）：半亮；关闭/默认：灭</KeyMark>
+  <Caption>SENDS 页面：每列对应一条轨道，每行对应一项效果。</Caption>
 </Shot>
 
-- 点格子选中（同时选中那一轨），<Key k="ADD" /> / <Key k="SUB" /> 调整（<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 一次 10）；按住格子，演奏键就是它的取值。关着的格子变暗。
-- <Key k="OK" />，或在 CHORUS 格子上再点一次：CHORUS 换模式，其它格子关闭 / 恢复原值；<Key k="FN+OK" /> 或 FN 菜单的 RESET：恢复默认。
-- 这些就是这一轨 INSTR FX 页上的那几个 `fx.*` 值（[发送：延迟和混响](./effects.mdx#fx-sends)）。
+- 点按格子选中对应参数（同步切换至该轨），用 <Key k="ADD" /> / <Key k="SUB" /> 调节（按住 <Key k="FN" /> 步进 10），或按住格子直接通过演奏区选值。未启用的格子呈暗显。
+- 按 <Key k="OK" />（或再次点按 CHORUS 格）可切换 CHORUS 模式，或将其他参数在关闭与原值之间一键切换；按 <Key k="FN+OK" /> 或 FN 菜单 **RESET** 恢复默认。
+- 这里调整的与各轨 INSTR FX 页中的 `fx.*` 参数完全同步（见[发送：延迟和混响](./effects.mdx#fx-sends)）。
 
 <Keywords k="发送, 效果发送, 混响发送, 延迟发送, sends, send, aux, reverb send, delay send" />
 
 ## FX：总线效果 {#tape-fx}
 
-属于工程的总线效果：
+总线效果作用于四轨混音后的立体声主输出，并随工程保存：
 
 <Shot name="tape-fx">
-  <Mark at="cells:1,1-1,4">DELAY：时值 · 反馈 · TONE · 返回</Mark>
-  <Mark at="cells:2,1-2,4">REVERB：SIZE · DAMP · LOCUT · 返回</Mark>
-  <Mark at="cells:3,1-3,4">COMP · LOW · HIGH · TAPE</Mark>
-  <Mark at="cells:4,1-4,4">回声序列 · 混响衰减</Mark>
+  <Mark at="cells:1,1-1,4">DELAY：时值、反馈、TONE、返回</Mark>
+  <Mark at="cells:2,1-2,4">REVERB：SIZE、DAMP、LOCUT、返回</Mark>
+  <Mark at="cells:3,1-3,4">COMP、LOW EQ、HIGH EQ、TAPE</Mark>
+  <Mark at="cells:4,1-4,4">延迟回声预览与混响衰减</Mark>
   <KeyMark keys="G1">焦点：全亮</KeyMark>
   <KeyMark keys="G2-G12">参数：半亮</KeyMark>
-  <Caption>总线效果 FX。</Caption>
+  <Caption>总线效果 FX 页面。</Caption>
 </Shot>
 
-点格子选中，<Key k="ADD" /> / <Key k="SUB" /> 调整（范围大的参数 <Key k="FN+ADD" /> / <Key k="FN+SUB" /> 一次 10），按住格子演奏键就是它的取值。<Key k="OK" /> 在 DELAY 上切换时值（时间跟着 BPM）；<Key k="FN+OK" />（或 FN 菜单的 RESET）恢复默认。详见 [总线效果](./effects.mdx#fx-master)。
+点按参数格聚焦后，用 <Key k="ADD" /> / <Key k="SUB" /> 调节（大范围参数配合 <Key k="FN" /> 步进 10），或按住格子在演奏区快速选值。聚焦 DELAY 时按 <Key k="OK" /> 可按音符时值切换速度同步延迟；按 <Key k="FN+OK" />（或 FN 菜单 **RESET**）恢复默认值。详见[总线效果](./effects.mdx#fx-master)。
 
 <Keywords k="总线, 主效果, 压缩, 均衡, 饱和, master fx, bus, compressor, eq, tape saturation, master delay, master reverb" />

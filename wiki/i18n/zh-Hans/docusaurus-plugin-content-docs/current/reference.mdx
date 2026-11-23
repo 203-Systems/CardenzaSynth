@@ -7,71 +7,71 @@ sidebar_position: 16
 <Keywords k="速查, 参考, 一览, reference, cheat sheet, summary" />
 
 <Keymap>
-  <Group keys="ESC">场景 · 返回</Group>
+  <Group keys="ESC">场景 / 返回</Group>
   <Group keys="TAB">轨道</Group>
-  <Group keys="FN">FN 菜单 · 第二功能</Group>
+  <Group keys="FN">FN 菜单 / 第二功能</Group>
   <Group keys="CTRL">页面</Group>
   <Group keys="PADS">演奏当前轨</Group>
   <Group keys="GRID">屏幕格子</Group>
-  <Group keys="ADD SUB">加 / 减</Group>
-  <Group keys="OK">确认 · 录音</Group>
+  <Group keys="ADD SUB">增 / 减</Group>
+  <Group keys="OK">确认 / 录音</Group>
   <Group keys="PLAY">播放 / 停止</Group>
-  <Caption>全部按键一览</Caption>
+  <Caption>全部按键分区一览。</Caption>
 </Keymap>
 
 ## 全部按键速查 {#ref-shortcuts}
 
-**两侧按键**
+**导航与走带按键**
 
-| 按键 | 作用 |
+| 按键 | 功能 |
 |---|---|
-| <Key k="ESC" /> 单击 | 循环场景 1 INSTR → 2 SEQ → 3 TAPE（在 SETUP 里回到进来之前的场景；弹窗里是取消；SEQ 有选中的步时先取消选择） |
-| <Key k="hold ESC" /> + <Key k="GRID" /> | 场景地图：四列依次是 0 SETUP、1 INSTR、2 SEQ、3 TAPE；第 1 列是进 SETUP 的路 |
+| <Key k="ESC" /> 单击 | 循环切换场景（`1 INSTR → 2 SEQ → 3 TAPE`）；退出 SETUP；取消弹窗；在 SEQ 中清除选步 |
+| <Key k="hold ESC" /> + <Key k="GRID" /> | 展开场景地图（`0 SETUP`、`1 INSTR`、`2 SEQ`、`3 TAPE`），第 1 列进入 SETUP |
 | <Key k="TAB" /> 单击 | 下一轨 |
-| <Key k="hold TAB" /> + <Key k="GRID" /> | 轨道地图，和 MIX 一样排：每列一轨，各行是选中 / 静音 / 独奏 / 音序开关 |
+| <Key k="hold TAB" /> + <Key k="GRID" /> | 展开轨道地图（同 MIX 布局：选轨、静音、独奏、音序开关） |
 | <Key k="TAB" /> + <Key k="ADD" /> / <Key k="SUB" /> | 下一轨 / 上一轨 |
 | <Key k="CTRL" /> 单击 | 下一页 |
-| <Key k="hold CTRL" /> + <Key k="GRID" /> | 页面地图：这个场景的全部页面，按哪个去哪页 |
+| <Key k="hold CTRL" /> + <Key k="GRID" /> | 展开当前场景页面地图，点按直达任意页面 |
 | <Key k="CTRL" /> + <Key k="ADD" /> / <Key k="SUB" /> | 下一页 / 上一页 |
-| <Key k="FN" /> 单击 | 打开 / 关闭当前画面的菜单（常驻；按 GRID 执行一项后关闭） |
-| <Key k="hold FN" /> | 按住期间显示同一个菜单；下面的字母和两侧按键是它的第二功能 |
-| <Key k="ADD" /> <Key k="SUB" /> | 加 / 减，在列表里移动；按住连发并加速；SEQ 音符页没有选中的步时：GRID 翻到下一页 / 上一页 |
-| SEQ 音符页的 <Key k="GRID" /> | 单击：选中一步并保持（再点一次放开）；按住：按住期间选中；按着 PADS 时：把这些音放进这一步，或去掉 |
-| <Key k="OK" /> | 确认、进入、开关；SEQ 音符页单击切换 ROLL / STEP，按住打开 RECORD，有选中的步时循环 NOTE → LEN → VEL → TIME |
+| <Key k="FN" /> 单击 | 常驻打开或关闭当前页面的 FN 菜单（点按 GRID 执行后关闭） |
+| <Key k="hold FN" /> | 按住期间显示 FN 菜单并激活全键盘第二功能 |
+| <Key k="ADD" /> / <Key k="SUB" /> | 增减数值或在列表中上下移动（长按连发加速）；SEQ 音符页未选步时翻 16 步页 |
+| SEQ 音符页的 <Key k="GRID" /> | 单击锁定选步（再点取消）；按住临时选步；按住 PADS 点按 GRID 添加或移除音符 |
+| <Key k="OK" /> | 确认、进入或切换；SEQ 音符页单击切换 ROLL / STEP、长按打开 RECORD 面板，选步时循环 `NOTE → LEN → VEL → TIME` |
 | <Key k="PLAY" /> | 播放 / 停止 |
-| HOME 侧键 | Groovebox 不用它（全部停止是 <Key k="FN+ESC" />） |
-| 按住 GRID 上的参数格 | 演奏区变成它的档位：按哪个设到哪一档 |
+| HOME 侧键 | 打开系统菜单（返回启动器、重新启动、关机、下载模式；Cardenza Synth 0.2.1 起） |
+| 按住 GRID 参数格 | 将该参数的全部取值映射至 32 颗演奏区按键以便直选 |
 
-**FN + 一个键**
+**FN 组合快捷键**
 
-| 按键 | 作用 |
+| 按键 | 功能 |
 |---|---|
-| <Key k="FN+GRID" /> | 执行菜单里这一格 |
-| <Key k="FN" /> + <Key k="6" /> / <Key k="Y" /> | BPM + / −（任何画面，按住连发） |
+| <Key k="FN+GRID" /> | 执行对应 FN 菜单项 |
+| <Key k="FN" /> + <Key k="6" /> / <Key k="Y" /> | BPM + / −（全局生效，支持长按连发） |
 | <Key k="FN" /> + <Key k="7" /> / <Key k="U" /> | 主音量 + / − |
 | <Key k="FN" /> + <Key k="8" /> / <Key k="I" /> | 八度 + / − |
-| <Key k="FN+ESC" /> | 全部停止：音序、所有 ARP 和所有发声 |
+| <Key k="FN+ESC" /> | 全部停止：停止音序器、全部 ARP 与所有发声 |
 | <Key k="FN+TAB" /> | 上一轨 |
 | <Key k="FN+CTRL" /> | 上一页 |
-| <Key k="FN+ADD" /> / <Key k="FN+SUB" /> | 大步调整（BPM 一次 10，设置 ×5）；SEQ 音符页没有选中的步时：下一个 / 上一个 Pattern；列表里：一次一页 |
-| <Key k="FN+OK" /> | 这个画面的第二个 OK：RESET（恢复默认）、SCOPE（SEQ）、ADD TO SONG（SESSION）、SONG / LOOP（SONG）；采样列表里：改名 / 删除 |
-| <Key k="FN+PLAY" /> | 录音开关（REC） |
-| <Key k="FN+C" /> <Key k="FN+V" /> | 复制 / 粘贴（选中的步、Pattern 或编排行） |
-| <Key k="FN+X" /> | 清除（整个 Pattern 会先确认）/ 删除编排行 |
-| <Key k="FN+Q" /> | 量化 |
-| <Key k="FN+D" /> | 复制一份 Pattern / 编排行 |
-| <Key k="FN+T" /> | 敲击速度 |
-| <Key k="FN+S" /> | 保存工程（新工程自动起名 SONG 01、SONG 02……） |
+| <Key k="FN+ADD" /> / <Key k="FN+SUB" /> | 大步调节（BPM ±10、SETUP 设置 ±5）；SEQ 音符页未选步时切换上/下一个 Pattern；列表按页翻动 |
+| <Key k="FN+OK" /> | 页面第二 OK：RESET 恢复默认、SCOPE 切换和弦编辑范围（SEQ）、ADD TO SONG（SESSION）、SONG / LOOP 切换（SONG）、合并 take（RECORD 面板）、重命名/删除（采样列表） |
+| <Key k="FN+PLAY" /> | 开关实时录音待命（REC） |
+| <Key k="FN+C" /> / <Key k="FN+V" /> | 复制 / 粘贴（选中的步、Pattern 或 SONG 段落） |
+| <Key k="FN+X" /> | 清除步进/Pattern（清空整段需确认），或删除 SONG 段落 |
+| <Key k="FN+Q" /> | 将选中步或整个 Pattern 量化对齐至整步 |
+| <Key k="FN+D" /> | 复制当前 Pattern 或 SONG 段落 |
+| <Key k="FN+T" /> | 敲击定速（Tap tempo） |
+| <Key k="FN+S" /> | 保存工程（未命名工程自动保存为 `SONG 01`、`SONG 02`……） |
 
 **输入画面里的 FN**（列表、文字输入、确认框）
 
-| 按键 | 作用 |
+| 按键 | 功能 |
 |---|---|
-| <Key k="FN" /> + <Key k=";" /> <Key k="." /> <Key k="," /> <Key k="/" /> | 上 / 下 / 左 / 右（文字输入里：光标到开头 / 结尾、左移 / 右移） |
-| <Key k="FN+F" /> | 在音色 / 采样列表里搜索 |
-| <Key k="FN+ADD" /> / <Key k="FN+SUB" /> | 一次翻一页 |
-| <Key k="ADD~del" /> / <Key k="FN" /> + <Key k="ADD~del" /> | 文字输入里（右上角的键）：删除光标前 / 光标后的字符 |
-| <Key k="OK" /> / <Key k="ESC" /> | 是 / 否，确定 / 取消 |
+| <Key k="FN" /> + <Key k=";" /> <Key k="." /> <Key k="," /> <Key k="/" /> | 上 / 下 / 左 / 右（文字输入中：行首 / 行尾、光标左移 / 右移） |
+| <Key k="FN+F" /> | 在音色或采样列表中按名称搜索 |
+| <Key k="FN+ADD" /> / <Key k="FN+SUB" /> | 向上 / 向下翻页 |
+| <Key k="ADD~del" /> / <Key k="FN" /> + <Key k="ADD~del" /> | 文字输入中退格删除 / 向后删除 |
+| <Key k="OK" /> / <Key k="ESC" /> | 确定 / 取消 |
 
 <Keywords k="快捷键表, 全部快捷键, 按键表, 字母键, 按住地图, shortcut list, all shortcuts, key list, cheat sheet" />
 
@@ -89,23 +89,23 @@ sidebar_position: 16
 
 ## 名词解释 {#glossary}
 
-| 名词 | 意思 |
+| 名词 | 说明 |
 |---|---|
-| 轨道 Track | 四条之一，每条有一个音源、自己的 Pattern、和弦与 ARP；开机在 T1 |
-| 音源 Engine | 发声的合成器：DRUMS、JUNO、DX7、SAMPLER |
-| 音色 Preset / Sound | 一个音源的一组参数 |
-| 步 Step | 音序器的最小格子，1/16 音符 |
-| 微步 Microstep | 一步里的 6 个细分，用来记录不完全对齐的时间 |
-| Pattern | 一段 1 到 256 步的音序，一次显示 16 步；每轨最多 16 个 |
-| 编排行 Song row | SONG 里的一段：每轨播哪个 Pattern、播几小节（SONG 页上的一列，FN 菜单里写作 ROW n） |
-| 场景 Scene | 界面的四个部分：0 SETUP、1 INSTR、2 SEQ、3 TAPE |
-| SETUP | 场景 0：工程、文件和所有轨道共用的设置；按住 ESC + GRID 第 1 列进入 |
-| FN 菜单 | 当前画面能做的事，按住 FN 时铺在 GRID 上（单击 FN 常驻） |
-| Take | 无感录制记下的一段弹奏 |
-| 自动保存 Autosave | 工作状态自动存在 SD 卡上，随时可以拔电 |
-| GRID | 右侧 4×4，对应屏幕中间的 4×4 |
-| PADS 演奏区 | 中间 4×8，永远弹当前轨 |
-| 发送 Send | 送到总线延迟 / 混响的量 |
-| 总线 Master bus | 四轨混在一起之后的效果 |
+| 轨道 Track | 四个独立声部通道（T1–T4），各配备独立引擎、Pattern、和弦与琶音器 |
+| 音源 Engine | 分配给轨道的发声合成器：DRUMS、JUNO、DX7 或 SAMPLER |
+| 音色 Preset / Sound | 音源的一组已保存参数配置 |
+| 步 Step | 音序器最小时间格（1/16 音符） |
+| 微步 Microstep | 单步内的 6 等分细分，用于记录非严格对齐网格的演奏时间 |
+| Pattern | 1 至 256 步的音序片段（每页显示 16 步），每轨最多 16 个 |
+| 编排行 / 段落 Song row | SONG 模式中的单个段落，指定各轨播放的 Pattern 与小节数（SONG 页中为一列，FN 菜单写作 `ROW n`） |
+| 场景 Scene | 界面的四个顶层视图：0 SETUP、1 INSTR、2 SEQ、3 TAPE |
+| SETUP | 0 号场景，集中管理工程与全局键盘/设备设置（按住 ESC + GRID 第 1 列进入） |
+| FN 菜单 | 按住或单击 FN 时在 GRID 上展开的当前页面快捷菜单 |
+| Take | 后台无感录制自动缓存的一段演奏乐句 |
+| 自动保存 Autosave | 后台写入 SD 卡的工作会话快照，确保随时断电不丢进度 |
+| GRID | 右侧 4×4 按键阵列，与屏幕中央 4×4 网格一一对应 |
+| PADS 演奏区 | 中间 4×8 按键区，用于实时演奏当前轨道 |
+| 发送 Send | 从单轨送往共用总线延迟或混响的信号电平 |
+| 总线 Master bus | 四轨混音后统一经过的母带效果链（EQ、压缩、磁带饱和） |
 
 <Keywords k="名词, 术语, 解释, glossary, terms, definitions, meaning" />

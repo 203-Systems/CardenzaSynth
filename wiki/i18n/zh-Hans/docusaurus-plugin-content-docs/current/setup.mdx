@@ -4,91 +4,91 @@ sidebar_position: 10
 
 # 0 SETUP 设置
 
-SETUP 是 0 号场景，排在最前面，也是唯一不在 <Key k="ESC" /> 循环里的场景：放的是**工程**（保存、载入、速度）和**全局设置**（所有轨道的键盘、设备）。四页（<Key k="CTRL" /> 翻，按住 CTRL 看页面地图）：
+**SETUP**（0 号场景）独立于常规的 <Key k="ESC" /> 场景循环之外，集中管理工程文件、四轨共用键盘设置与设备系统设置。按 <Key k="CTRL" /> 在四个子页面间切换（按住 <Key k="CTRL" /> 可查看页面地图）：
 
 <Page name="PROJECT" /> <Page name="FILES" /> <Page name="KEYS" /> <Page name="SYSTEM" />
 
-| 页 | 类别 | 存在哪 |
+| 页面 | 作用范围 | 存储位置 |
 |---|---|---|
-| PROJECT · FILES | 工程 | 工程存在 SD 卡上；BPM、Swing 属于工程 |
-| KEYS | 四条轨道共用的键盘 | 存在工程里（SELECT 是应用偏好，所有工程都一样） |
-| SYSTEM | 设备设置 | 所有应用共用，不进工程 |
+| PROJECT、FILES | 当前工程与已保存的工程列表 | SD 卡工程文件（含 BPM 与 Swing） |
+| KEYS | 四轨共用键盘设置 | 随工程保存（`SELECT` 除外，为全局应用偏好） |
+| SYSTEM | 硬件与设备级设置 | 所有鸣片应用共用，独立于工程 |
 
-和弦和琶音是每条轨道各自的，在 <Scene name="INSTR" /> 的 CHORD 和 ARP 页（见 [和弦和琶音](#setup-chord-arp)）。
+和弦与琶音器为分轨设置，位于 <Scene name="INSTR" /> 的 **CHORD** 和 **ARP** 页（见[和弦和琶音](#setup-chord-arp)）。
 
 <Keywords k="设置, 全局, 设置页, 偏好, 选项, 工程, 文件, 键盘, 和弦, 琶音, 系统, 0 号场景, setup, settings, global, preferences, options" />
 
 ## 进出 SETUP {#setup-open}
 
 <Strip>
-  <Step keys="hold ESC" shot="map-esc" at="cells:1,1-4,1">按住 <Key k="ESC" />：场景地图的第 1 列就是 0 SETUP，右边一条虚线、编号是暗的。</Step>
-  <Step keys="hold ESC + G1" shot="setup-project" at="8,0,41,11">按第 1 列任意一个键：进入 SETUP，停在上次离开时的那一页。</Step>
-  <Step keys="ESC" shot="instr-voice" at="scene">单击 <Key k="ESC" />：回到进来之前的场景（这里是 INSTR）。</Step>
+  <Step keys="hold ESC" shot="map-esc" at="cells:1,1-4,1">按住 <Key k="ESC" /> 展开场景地图，第 1 列即为 **0 SETUP**（带虚线边框与暗色编号）。</Step>
+  <Step keys="hold ESC + G1" shot="setup-project" at="8,0,41,11">按第 1 列任意键即可进入 SETUP，并停在上次离开的子页面。</Step>
+  <Step keys="ESC" shot="instr-voice" at="scene">在 SETUP 中单击 <Key k="ESC" /> 即可返回原场景（本例中为 INSTR）。</Step>
 </Strip>
 
-- 单击 <Key k="ESC" /> 只在三个音乐场景 1 INSTR → 2 SEQ → 3 TAPE 之间循环，永远不会进 SETUP（见 [场景：ESC](./navigate.mdx#nav-scenes)）。
-- 每个画面的 FN 菜单里都有 SETUP（GLOBAL）一项，在 GRID 右下角那个键上（<Key k="FN" /> + 这个键直接执行，见 [每个画面的菜单](./fn.mdx#fn-menus)）。在 SETUP 里这一项写着 BACK 和你来的那个场景。
-- 在 SETUP 里演奏区照常弹当前轨，改了什么马上能听到。
+- 单击 <Key k="ESC" /> 只在 1 INSTR → 2 SEQ → 3 TAPE 之间循环，不会进入 SETUP（见[场景：ESC](./navigate.mdx#nav-scenes)）。
+- 也可通过任意画面 FN 菜单右下角的 **SETUP** 格进入（见[每个画面的菜单](./fn.mdx#fn-menus)）；进入 SETUP 后，同一位置会显示 **BACK** 用于返回原场景。
+- 在 SETUP 中演奏区保持可用，方便随时试听键盘或音量调整效果。
 
 <Keywords k="进入设置, 打开设置, 离开设置, 返回, 0 号场景, 第 1 列, open setup, enter setup, back" />
 
 ## PROJECT 工程 {#setup-project}
 
 <Shot name="setup-project">
-  <Mark at="cells:1,1-1,3">SAVE · LOAD · NEW</Mark>
+  <Mark at="cells:1,1-1,3">SAVE、LOAD、NEW</Mark>
   <Mark at="cell:2,1">BPM（焦点）</Mark>
   <Mark at="cell:2,2">SWING</Mark>
-  <Mark at="cell:2,3">TAP 敲速度</Mark>
-  <Mark at="cell:2,4">PLAY：LOOP / SONG</Mark>
-  <Mark at="8,69,224,18">工程名（保存前是 UNTITLED）· UNSAVED / SAVED</Mark>
-  <Mark at="8,89,224,25">四条轨道：音源和音色</Mark>
-  <KeyMark keys="G1-G3 G7">动作：半亮</KeyMark>
+  <Mark at="cell:2,3">TAP 敲击定速</Mark>
+  <Mark at="cell:2,4">PLAY：LOOP / SONG 模式</Mark>
+  <Mark at="8,69,224,18">工程名（保存前为 UNTITLED）与 UNSAVED / SAVED 状态</Mark>
+  <Mark at="8,89,224,25">四轨概览（音源与当前音色）</Mark>
+  <KeyMark keys="G1-G3 G7">操作项：半亮</KeyMark>
   <KeyMark keys="G5">焦点：全亮</KeyMark>
-  <KeyMark keys="G6 G8">SWING、PLAY：半亮（SONG 时 PLAY 全亮）</KeyMark>
-  <Caption>SETUP PROJECT：工程的操作、速度和播放模式，下面是工程名和四轨摘要。</Caption>
+  <KeyMark keys="G6 G8">SWING 与 PLAY（SONG 模式下 PLAY 全亮）</KeyMark>
+  <Caption>SETUP PROJECT 页面：工程操作、速度与播放模式、工程状态及四轨摘要。</Caption>
 </Shot>
 
-| GRID | 作用 |
+| GRID 行 | 功能 |
 |---|---|
-| 行 1 | **SAVE** 马上保存 · **LOAD** 跳到 FILES · **NEW** 新建（默认四轨，有未保存的改动时先确认） |
-| 行 2 | **BPM**（30–300）和 **SWING**（50–75 %）：点一下选中，<Key k="ADD" /> / <Key k="SUB" /> 调 · **TAP**：跟着节奏点，按间隔设 BPM · **PLAY**：LOOP ↔ SONG 开关（SONG 时全亮，见 [SONG：编排整首歌](./tape.mdx#tape-song)） |
+| 第 1 行 | **SAVE**（立即保存）、**LOAD**（跳转 FILES）、**NEW**（新建默认四轨工程；存在未保存改动时会先确认） |
+| 第 2 行 | **BPM**（30–300）与 **SWING**（50–75%）：点选后用 <Key k="ADD" /> / <Key k="SUB" /> 调节；**TAP**：按节奏连点设定 BPM；**PLAY**：切换 LOOP / SONG 播放模式（SONG 时全亮，见[SONG：编排整首歌](./tape.mdx#tape-song)）。 |
 
-- <Key k="OK" /> 保存工程；焦点在 TAP 上时 <Key k="OK" /> 是敲速度。
-- <Key k="FN+ADD" /> / <Key k="FN+SUB" /> 大步调：BPM 一次 10，Swing 一次 5。按住 BPM 或 SWING：32 个演奏键变成它的取值，左上最小、右下最大，按一个直接跳过去。
-- 还没起名的工程保存时自动用第一个空着的名字 SONG 01、SONG 02……；想自己起名用 FN 菜单里的 SAVE AS（最多 24 个字母、数字、空格和 -，见 [输入文字](./fn.mdx#fn-text)）。卡上已有同名工程时先问要不要覆盖（<Key k="OK" /> 是，<Key k="ESC" /> 否）。
-- NEW 从默认的四轨开始：C 大调、没有和弦、所有琶音关闭；SELECT 保持不变。
-- PLAY 开关是演奏控制，不存进工程。
+- 按 <Key k="OK" /> 直接保存工程；若当前焦点在 **TAP** 上，按 <Key k="OK" /> 则执行敲击定速。
+- 按住 <Key k="FN" /> 配合 <Key k="ADD" /> / <Key k="SUB" /> 可大步调节（BPM ±10，Swing ±5）。按住 **BPM** 或 **SWING** 格不放，32 颗演奏键会映射其完整范围（左上最小、右下最大），点按即可直达目标值。
+- 未命名工程点击 SAVE 时会自动按序命名为 `SONG 01`、`SONG 02`……；如需自定义名称（最多 24 个字符，支持字母、数字、空格与 `-`），请使用 FN 菜单中的 **SAVE AS**（见[输入文字](./fn.mdx#fn-text)）。若目标名称已存在，覆盖前会要求确认（<Key k="OK" /> 确认，<Key k="ESC" /> 取消）。
+- **NEW** 会创建默认四轨工程（C 大调、关闭和弦与全部琶音器），`SELECT` 偏好保持不变。
+- **PLAY**（LOOP / SONG）属于实时演奏控制，不随工程文件保存。
 
-PROJECT 和 FILES 页的 FN 菜单：
+PROJECT 与 FILES 页的 FN 菜单：
 
-| GRID | 项目 |
+| GRID 行 | 菜单项 |
 |---|---|
-| 行 1 | **NEW** PROJECT 新建 · **LOAD** PROJECT 载入（跳到 FILES） · **SAVE AS** PROJECT 另存（输入名字） |
-| 行 4 | **SAVE** 保存（<Key k="FN+S" />，有改动时写着 UNSAVED） · **TAP** 敲速度（<Key k="FN+T" />） · **REC** 录音预备（<Key k="FN+PLAY" />） · **BACK** 回到来的那个场景 |
+| 第 1 行 | **NEW** PROJECT（新建）、**LOAD** PROJECT（进入 FILES）、**SAVE AS** PROJECT（另存并命名） |
+| 第 4 行 | **SAVE**（<Key k="FN+S" />，有未保存改动时显示 `UNSAVED`）、**TAP**（<Key k="FN+T" />）、**REC**（<Key k="FN+PLAY" />）、**BACK**（返回原场景） |
 
 <Keywords k="工程, 保存, 另存, 载入, 新建, bpm, swing, 敲速度, 循环, 歌曲模式, 工程页, 未保存, 覆盖, project, save, save as, load, new, tap tempo, untitled, unsaved, overwrite" />
 
 ## FILES 工程文件 {#setup-files}
 
-SD 卡上的所有工程，按名字排列；当前打开的那个前面有 `>`。
+按字母顺序列出 SD 卡上的全部工程文件，当前打开的工程前带有 `>` 标记。
 
 <Shot name="setup-files">
-  <Mark at="content">工程列表</Mark>
-  <Mark at="footer">FILES：第 2 / 4 页</Mark>
-  <Caption>SETUP FILES：卡上的工程（一个都没有时写着 NO PROJECTS ON THE CARD）。</Caption>
+  <Mark at="content">工程文件列表</Mark>
+  <Mark at="footer">FILES（第 2 / 4 页）</Mark>
+  <Caption>SETUP FILES 页面（无工程时显示 NO PROJECTS ON THE CARD）。</Caption>
 </Shot>
 
-- <Key k="ADD" /> / <Key k="SUB" /> 选择（<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 一次 8 个），<Key k="OK" /> 载入。
-- 有未保存的改动时先问：<Key k="OK" /> 照样载入，<Key k="ESC" /> 保留现在的。
-- 载入的工程从 T1 开始，并带回它自己的键盘、和弦和琶音（旧固件存的工程没有这些，保持现在的设置）。
-- PROJECT 页的 LOAD 和 FN 菜单里的 LOAD 也会跳到这里。0.1.0 版的工程就在同一个文件夹里，所以也在列表里（见 [SD 卡上的目录](./projects.mdx#storage-layout)）；再保存一次就变成格式 7，0.1.0 打不开。
-- 没有 SD 卡时列表是空的（见 [没插卡或卡坏了](./projects.mdx#storage-card)）。
+- 使用 <Key k="ADD" /> / <Key k="SUB" /> 浏览（按住 <Key k="FN" /> 每次翻 8 行），按 <Key k="OK" /> 载入。
+- 若当前工程有未保存改动，载入前会要求确认（<Key k="OK" /> 放弃改动并载入，<Key k="ESC" /> 取消）。
+- 载入工程后默认停在 T1，并恢复该工程保存的键盘、和弦与琶音设置（旧版本不含这些字段的工程会保留当前设置）。
+- 0.1.0 版本保存的工程位于同一目录，可直接显示并加载（见[SD 卡上的目录](./projects.mdx#storage-layout)）；重新保存后会升级为格式 7，0.1.0 无法再打开。
+- 未插 SD 卡时列表为空（见[没插卡或卡坏了](./projects.mdx#storage-card)）。
 
 <Keywords k="文件, 载入工程, 打开工程, 工程列表, 载入, 打开, 读档, files, load project, open project, project list, load" />
 
 ## KEYS 键盘 {#setup-keys}
 
-演奏区怎么弹，四条轨道通用。键盘设置存在工程里；SELECT 是应用的偏好，所有工程都一样。
+配置四条轨道共用的演奏区行为。除 **SELECT** 作为全局应用偏好保存外，其余各项均随工程保存。
 
 <Shot name="setup-keys">
   <Mark at="cell:1,1">LAYOUT 排列（焦点）</Mark>
@@ -97,39 +97,39 @@ SD 卡上的所有工程，按名字排列；当前打开的那个前面有 `>`�
   <Mark at="cell:1,4">OCTAVE 八度</Mark>
   <Mark at="cell:2,1">VELO 力度</Mark>
   <Mark at="cell:2,2">LOCK 锁定</Mark>
-  <Mark at="cell:2,3">SELECT 选择方式</Mark>
-  <Mark at="cells:3,1-4,4">预览：音阶音带点，根音带横线</Mark>
+  <Mark at="cell:2,3">SELECT 选步方式</Mark>
+  <Mark at="cells:3,1-4,4">键盘预览（音阶音带点，根音带下划线）</Mark>
   <KeyMark keys="G1">焦点：全亮</KeyMark>
-  <KeyMark keys="G2-G7">设置：半亮</KeyMark>
-  <Caption>SETUP KEYS：七项设置和两个八度的键盘预览。</Caption>
+  <KeyMark keys="G2-G7">可调设置：半亮</KeyMark>
+  <Caption>SETUP KEYS 页面：七项键盘设置与两个八度的键盘预览。</Caption>
 </Shot>
 
 | 设置 | 选项 | 详见 |
 |---|---|---|
 | LAYOUT | PIANO / SCALE / CHROMA | [键盘排列](./play.mdx#play-keyboard) |
-| SCALE · ROOT | 14 种音阶 · C–B | [音阶和根音](./play.mdx#play-scale) |
-| OCTAVE | −3 … +3 | [八度](./play.mdx#play-octave) |
-| VELO | 1–127（默认 110），演奏区每个键的力度 | [力度](./play.mdx#play-velocity) |
+| SCALE / ROOT | 14 种音阶 / C–B | [音阶和根音](./play.mdx#play-scale) |
+| OCTAVE | −3 至 +3 | [八度](./play.mdx#play-octave) |
+| VELO | 1–127（默认 110），旋律轨固定力度 | [力度](./play.mdx#play-velocity) |
 | LOCK | OFF / MUTE / SNAP | [音阶锁定 LOCK](./play.mdx#play-lock) |
-| SELECT | SEQ 音符页（ROLL、STEP、鼓机）上单击 GRID 怎么选步：ONE：只选一步，点别处就换过去 · MULTI：每次单击加选一步，或把它移出 | [选中与编辑](./seq.mdx#seq-edit) |
+| SELECT | SEQ 音符页（ROLL、STEP、鼓机）单击 GRID 的选步方式：**ONE** 每次单选一步；**MULTI** 每次单击增减多步选区 | [选中与编辑](./seq.mdx#seq-edit) |
 
-两个设置页（KEYS 和 SYSTEM）的操作一样：
+**KEYS** 与 **SYSTEM** 两页的操作方式完全一致：
 
-| 要做 | 怎么做 |
+| 操作 | 按键 |
 |---|---|
-| 选设置 | 点它的 GRID 键（焦点格子反显） |
-| 调整 | <Key k="ADD" /> / <Key k="SUB" />，按住连发；<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 一次 5 |
-| 直接跳到某个值 | 按住它的 GRID 键：演奏键就是它的取值，左上最小、右下最大 |
-| 切换选项或开关 | 再点一次焦点那个键，或按 <Key k="OK" /> |
-| 恢复默认 | <Key k="FN+OK" />，或 FN 菜单里的 RESET |
+| 聚焦设置项 | 点按对应 GRID 键（焦点格反显） |
+| 调节数值 | <Key k="ADD" /> / <Key k="SUB" />（支持长按连发；<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 步进 5） |
+| 快速选值 | 按住对应 GRID 键，演奏区映射其完整范围（左上最小、右下最大） |
+| 切换选项或开关 | 再次点按焦点键，或按 <Key k="OK" /> |
+| 恢复默认 | 按 <Key k="FN+OK" />，或在 FN 菜单选择 **RESET** |
 
-每一页记住自己选中的是哪个设置。
+每页都会自动记住上次聚焦的设置项。
 
 <Keywords k="键盘设置, 排列, 音阶, 根音, 八度, 力度, 锁定, 多选, 选择方式, 设置页, keys, keyboard settings, layout, scale, root, octave, velocity, lock, select, multi select" />
 
 ## 和弦和琶音 {#setup-chord-arp}
 
-和弦和琶音已经不在 SETUP 里了：每条轨道有自己的一套，在 <Scene name="INSTR" /> 紧跟 VOICE 的 **CHORD** 和 **ARP** 页（鼓轨没有），并且存在工程里。详见 [和弦](./play.mdx#play-chords) 和 [琶音 ARP](./play.mdx#play-arp)。
+和弦与琶音器按轨道独立配置，位于 <Scene name="INSTR" /> 紧随 VOICE 之后的 **CHORD** 与 **ARP** 页（鼓轨不含），并随工程保存。详见[和弦](./play.mdx#play-chords)与[琶音 ARP](./play.mdx#play-arp)。
 
 <Keywords k="和弦页, 琶音页, 和弦设置, 琶音设置, 和弦页在哪, 每轨和弦, chord page, arp page, chord settings, arpeggiator settings" />
 
@@ -137,37 +137,37 @@ SD 卡上的所有工程，按名字排列；当前打开的那个前面有 `>`�
 
 <Shot name="setup-system">
   <Mark at="cell:1,1">VOLUME 主音量（焦点）</Mark>
-  <Mark at="cell:1,2">KEY LED 按键灯</Mark>
-  <Mark at="cell:1,3">SCREEN 屏幕</Mark>
-  <Mark at="cell:1,4">LOG 日志</Mark>
-  <Mark at="8,71,224,44">版本 · SD 卡 · 内存 · 构建</Mark>
+  <Mark at="cell:1,2">KEY LED 按键灯亮度</Mark>
+  <Mark at="cell:1,3">SCREEN 屏幕亮度</Mark>
+  <Mark at="cell:1,4">LOG 运行日志</Mark>
+  <Mark at="8,71,224,44">固件版本、SD 卡状态、可用内存与构建信息</Mark>
   <KeyMark keys="G1">焦点：全亮</KeyMark>
-  <KeyMark keys="G2 G3 G4">设置：半亮</KeyMark>
-  <Caption>SETUP SYSTEM：四项设备设置和一份设备状态。</Caption>
+  <KeyMark keys="G2 G3 G4">可调设置：半亮</KeyMark>
+  <Caption>SETUP SYSTEM 页面：四项硬件设置与设备运行状态信息。</Caption>
 </Shot>
 
-| 设置 | 范围 |  |
+| 设置 | 范围 | 说明 |
 |---|---|---|
-| VOLUME | 0–100（默认 70），一步 2 | 输出音量，按听感分布：0 静音，1 约 −59 dB，50 约 −21 dB，70 约 −10 dB，100 最大；小音量一端步子大，大音量一端细。和 [MIX：混音](./tape.mdx#tape-mix) 的 MASTER 是同一个，任何画面也能用 <Key k="FN" /> + <Key k="7" /> / <Key k="U" /> 调（[快捷调节：BPM、音量、八度](./fn.mdx#fn-quick)） |
-| KEY LED | 0–15（默认 15） | 所有按键灯的总亮度；选中它时演奏区显示亮度梯（[亮度设置与灯光测试](./lights.mdx#lights-ramp)） |
-| SCREEN | 3–100 %（默认 70 %） | 屏幕亮度 |
-| LOG | ON / OFF（默认 ON） | 把设备的日志写到 SD 卡上，出问题时用（[日志](./projects.mdx#storage-log)） |
+| VOLUME | 0–100（默认 70，步进 2） | 采用符合人耳听感的对数音量曲线：0 为静音，1 约 −59 dB，50 约 −21 dB，70 约 −10 dB，100 为满量程（低音量段步幅大、高音量段更精细）。与[MIX：混音](./tape.mdx#tape-mix)的 MASTER 以及全局快捷键 <Key k="FN" /> + <Key k="7" /> / <Key k="U" />（[快捷调节](./fn.mdx#fn-quick)）联动。 |
+| KEY LED | 0–15（默认 15） | 全部按键背光的全局亮度；聚焦该项时演奏区会显示亮度测试梯（[亮度设置与灯光测试](./lights.mdx#lights-ramp)）。 |
+| SCREEN | 3–100%（默认 70%） | 屏幕背光亮度。 |
+| LOG | ON / OFF（默认 ON） | 将运行与崩溃诊断日志写入 SD 卡（[日志](./projects.mdx#storage-log)）。 |
 
-这些是设备设置：鸣片上所有应用共用，存在 SD 卡的 `CardenzaSynth/Settings/system.cfg`，不会进任何工程。
+以上均为设备级设置，由所有鸣片应用共享并存放在 SD 卡 `CardenzaSynth/Settings/system.cfg` 中，切换工程不会覆盖它们。
 
-下面的状态每次进来逐行打出：固件版本 VERSION、SD CARD（READY 或 NOT FOUND，见 [没插卡或卡坏了](./projects.mdx#storage-card)）、剩余内存 MEMORY（设备上是内部内存、它的最低点和 PSRAM）、BUILD（固件的提交号和构建时间）。
+页面下方在每次进入时逐行刷新设备状态：固件版本 **VERSION**、**SD CARD** 状态（`READY` 或 `NOT FOUND`，见[没插卡或卡坏了](./projects.mdx#storage-card)）、剩余内存 **MEMORY**（内部 RAM、历史最低水位及 PSRAM），以及 **BUILD**（提交号与编译时间）。
 
 <Keywords k="系统, 主音量, 音量, 按键灯亮度, 屏幕亮度, 亮度, 日志, sd 卡, 设备信息, 版本, 固件版本, 构建, system, volume, key led, screen brightness, brightness, log, version" />
 
 ## 全部设置 {#setup-ref}
 
-两个设置页的每一项、范围和默认值（直接从固件代码生成）：
+以下列出 SETUP KEYS 与 SETUP SYSTEM 的全部参数、取值范围与默认值（直接由固件代码生成）：
 
 <Ref kind="fn" />
 
 :::note
 
-旧固件的 FN 面板没有了：BPM、SWING、PLAY 在 SETUP PROJECT，轨道的 STEPS 在 SEQ TRACK（[TRACK 页](./seq.mdx#seq-track)），和弦和琶音在 INSTR（[和弦和琶音](#setup-chord-arp)），REC 在 FN 菜单、<Key k="FN+PLAY" /> 和 RECORD 面板。
+从早期带 FN 设置面板的固件升级而来？BPM、SWING 与 PLAY 现位于 SETUP PROJECT，轨道步数 STEPS 位于[SEQ TRACK](./seq.mdx#seq-track)，和弦与琶音位于[INSTR](./setup.mdx#setup-chord-arp)，REC 开关则集成在 FN 菜单、<Key k="FN+PLAY" /> 和 RECORD 面板中。
 
 :::
 

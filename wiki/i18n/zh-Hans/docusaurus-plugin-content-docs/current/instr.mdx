@@ -4,141 +4,140 @@ sidebar_position: 6
 
 # 1 INSTR 乐器
 
-INSTR 管当前轨的声音：用哪个音源（引擎）、哪个音色、这个音源的所有参数和这一轨的效果。四条轨道各用一个音源，每条轨道记住自己停在哪一页。
+**INSTR** 控制当前轨道的声音设计，包括音源引擎选择、预设浏览、MIDI 效果（和弦与琶音）、合成参数与轨道效果器。四条轨道各自运行独立引擎，并分别记住上次停留的子页面。
 
-| 音源 | 默认轨道 | 页面（<Key k="CTRL" /> 翻） |
+| 音源引擎 | 默认轨道 | 子页面（按 <Key k="CTRL" /> 切换） |
 |---|---|---|
-| DRUMS 鼓机 | <Track n="1" /> | VOICE、KIT、FX |
-| JUNO 模拟合成器 | <Track n="2" /> | VOICE、CHORD、ARP、DCO、VCF、ENV、LFO、FX |
-| DX7 FM 合成器 | <Track n="3" /> | VOICE、CHORD、ARP、ALGO、LEVELS、OP1–OP6、LFO、FX |
-| SAMPLER 采样器 | <Track n="4" /> | VOICE、CHORD、ARP、SAMPLE、TONE、FX |
+| DRUMS（808 鼓机） | <Track n="1" /> | VOICE、KIT、FX |
+| JUNO（模拟合成器） | <Track n="2" /> | VOICE、CHORD、ARP、DCO、VCF、ENV、LFO、FX |
+| DX7（FM 合成器） | <Track n="3" /> | VOICE、CHORD、ARP、ALGO、LEVELS、OP1–OP6、LFO、FX |
+| SAMPLER（采样器） | <Track n="4" /> | VOICE、CHORD、ARP、SAMPLE、TONE、FX |
 
-页面按信号顺序排：音色（VOICE）、这一轨的 MIDI 效果（CHORD、ARP：按键先经过它们）、音源的参数页、最后是效果（FX）。页签放不下时，底部只显示当前页附近的几个，两端用 `<` `>` 提示，右边是「当前 / 总数」；按住 <Key k="CTRL" /> 看所有页面的地图。
+子页面按音频信号流排序：**VOICE**（音源与预设）→ MIDI 效果（**CHORD**、**ARP**）→ 合成/采样参数页 → 轨道 **FX**。当页签数量超出底部宽度时，两侧显示 `<` `>` 指示并附带右侧「当前页 / 总页数」。随时可按住 <Key k="CTRL" /> 通过页面地图直达目标页。
 
 <Keywords k="乐器, 音源, 合成器, 音色, 引擎, instrument, synth, synthesizer, engine, sound, patch" />
 
 ## VOICE：音源和音色 {#instr-voice}
 
-每个音源的第一页：大字是音色名，下面是实时键盘（鼓轨画着八个鼓垫）。
+VOICE 是每个引擎的首页，大字显示当前音色名，下方附带实时键盘预览（鼓轨显示八个鼓垫）。
 
 <Shot name="instr-voice">
-  <Mark at="cell:1,1">ENGINE 换音源</Mark>
-  <Mark at="cell:1,2">PRESET 浏览</Mark>
-  <Mark at="8,40,200,26">音色名</Mark>
-  <Mark at="8,66,120,8">音源 · 键盘排列 · 八度</Mark>
-  <Mark at="8,75,222,44">实时键盘</Mark>
-  <KeyMark keys="ADD SUB">列表里的上一个 / 下一个音色</KeyMark>
-  <KeyMark keys="OK">音色浏览</KeyMark>
-  <KeyMark keys="G1 G2">ENGINE PRESET</KeyMark>
-  <Caption>INSTR VOICE（T2 Juno）。</Caption>
+  <Mark at="cell:1,1">ENGINE：切换音源引擎</Mark>
+  <Mark at="cell:1,2">PRESET：打开音色浏览器</Mark>
+  <Mark at="8,40,200,26">当前音色名</Mark>
+  <Mark at="8,66,120,8">引擎、键盘排列与八度</Mark>
+  <Mark at="8,75,222,44">实时键盘显示</Mark>
+  <KeyMark keys="ADD SUB">上一个 / 下一个音色</KeyMark>
+  <KeyMark keys="OK">打开音色浏览器</KeyMark>
+  <KeyMark keys="G1 G2">ENGINE 与 PRESET</KeyMark>
+  <Caption>T2（Juno）的 INSTR VOICE 页面。</Caption>
 </Shot>
 
-- <Key k="ADD" /> / <Key k="SUB" />：直接切到列表里上一个 / 下一个音色（ADD 往上走，和浏览列表一样），马上可以试听。按住 <Key k="FN" /> 一次跳 10 个。
-- <Key k="OK" />：打开音色浏览。
-- 保存在 FN 菜单里：INSTR 的每一页，FN 菜单都有 PRESETS、SAVE、SAVE AS、ENGINE，不用回到 VOICE 也能浏览和保存音色（见 [每个画面的菜单](./fn.mdx#fn-menus)）。
+- 按 <Key k="ADD" /> / <Key k="SUB" /> 可直接切换列表中的上/下一个音色并即时试听（ADD 对应列表向上，与浏览器一致）；按住 <Key k="FN" /> 一次跳转 10 个音色。
+- 按 <Key k="OK" /> 打开音色浏览器。
+- 在 INSTR 任意子页中，FN 菜单均提供 **PRESETS**、**SAVE**、**SAVE AS** 和 **ENGINE**，无需退回 VOICE 即可浏览或保存音色（见[每个画面的菜单](./fn.mdx#fn-menus)）。
 
-换音源会把这条轨道换成新音源的默认音色，并回到 VOICE 页；这一轨的音序、和弦和 ARP 都不受影响。
+切换音源引擎会加载新引擎的默认音色并返回 VOICE 页，该轨原有的 Pattern、和弦和琶音设置保持不变。
 
 <Strip>
-  <Step keys="G1" shot="engine-picker" at="cells:2,1-2,4">ENGINE：四个音源，当前的写着 NOW。在 GRID 上点一个（或 <Key k="ADD" /> / <Key k="SUB" /> 再按 <Key k="OK" />）切换；<Key k="ESC" /> 不换。</Step>
-  <Step keys="ADD" shot="instr-voice" at="8,40,200,26"><Key k="ADD" /> / <Key k="SUB" /> 在 VOICE 页直接换音色。</Step>
+  <Step keys="G1" shot="engine-picker" at="cells:2,1-2,4">点按 ENGINE 展开四个音源引擎（当前引擎标注 `NOW`）。在 GRID 上点选（或用 <Key k="ADD" /> / <Key k="SUB" /> + <Key k="OK" />）即可切换，按 <Key k="ESC" /> 取消。</Step>
+  <Step keys="ADD" shot="instr-voice" at="8,40,200,26">在 VOICE 页直接按 <Key k="ADD" /> / <Key k="SUB" /> 即可快速切换音色。</Step>
 </Strip>
 
-**改过的音色会先问一句。** 只要有一个参数和这个音色载入时不一样，载入音色（VOICE 上的 <Key k="ADD" /> / <Key k="SUB" />、浏览列表里的 <Key k="OK" />，重新载入同一个也算）或换音源之前都会先问，免得改动白白丢掉：
+**未保存的音色改动会触发确认提示。** 只要修改过当前音色的任意参数，在切换音色（包括 VOICE 页按 <Key k="ADD" /> / <Key k="SUB" />、浏览器选定或重新载入同一音色）或更换引擎前，系统会先弹出确认框以防误丢改动：
 
 <Shot name="preset-confirm">
-  <Mark at="8,43,172,11">会丢掉的改动（红字）</Mark>
-  <Mark at="10,70,104,26">OK：换</Mark>
-  <Mark at="125,70,104,26">ESC：保留改动</Mark>
-  <KeyMark keys="OK">闪烁：等你决定</KeyMark>
-  <KeyMark keys="ESC">保留</KeyMark>
-  <Caption>T2 改了 CUTOFF，再在 VOICE 上按 ADD：换掉改过的 LEAD I 之前先问 LOAD …?。</Caption>
+  <Mark at="8,43,172,11">红色警告：将丢失的音色改动</Mark>
+  <Mark at="10,70,104,26">OK：放弃改动并载入</Mark>
+  <Mark at="125,70,104,26">ESC：保留当前改动</Mark>
+  <KeyMark keys="OK">闪烁：等待确认</KeyMark>
+  <KeyMark keys="ESC">取消</KeyMark>
+  <Caption>在 T2 修改 CUTOFF 后于 VOICE 页按 ADD，系统在覆盖 LEAD I 前先弹出确认提示。</Caption>
 </Shot>
 
-- 标题是 `LOAD <音色>?` 或 `SWITCH TO <音源>?`，下面写着 `EDITS TO <音色> WILL BE LOST`。<Key k="OK" /> 换；<Key k="ESC" /> 保留现在的音色（从浏览列表或音源选择进来的，回到那里）。
-- 想留下改过的音色，先用 FN 菜单的 SAVE 或 SAVE AS 存起来。
-- 教程里不会问：练习工程本来就会丢掉。
+- 弹窗显示 `LOAD <音色>?` 或 `SWITCH TO <音源>?` 及提示 `EDITS TO <音色> WILL BE LOST`。按 <Key k="OK" /> 继续加载，按 <Key k="ESC" /> 取消并保留当前编辑（若从列表或引擎选择进入则会退回原界面）。
+- 如需保留修改，请先通过 FN 菜单的 **SAVE** 或 **SAVE AS** 保存。
+- 交互教程运行在临时练习工程中，不会弹出该提示。
 
 <Keywords k="换音色, 下一个音色, 音源, 引擎, 选择合成器, 改动会丢失, 改过的音色, voice, preset, next sound, change sound, engine picker, edits will be lost" />
 
 ## 音色浏览与保存 {#instr-presets}
 
 <Strip>
-  <Step keys="G2" shot="preset-browser" at="0,13,240,10">PRESET：音色列表，右上角是「第几个 / 总数」。</Step>
-  <Step keys="FN + F, B, A, S, S, OK" shot="preset-filtered" at="0,13,240,10"><Key k="FN+F" /> 打开搜索框：输入（例如 `BASS`）后按 <Key k="OK" />，列表只留下匹配的音色。</Step>
-  <Step keys="OK" shot="instr-voice" at="8,40,200,26"><Key k="ADD" /> / <Key k="SUB" /> 移动，<Key k="OK" /> 载入。</Step>
+  <Step keys="G2" shot="preset-browser" at="0,13,240,10">点按 PRESET（或在 VOICE 页按 <Key k="OK" />）打开音色列表，右上角显示当前位置与总数。</Step>
+  <Step keys="FN + F, B, A, S, S, OK" shot="preset-filtered" at="0,13,240,10">按 <Key k="FN+F" /> 打开名称过滤，输入关键词（如 `BASS`）后按 <Key k="OK" /> 仅保留匹配项。</Step>
+  <Step keys="OK" shot="instr-voice" at="8,40,200,26">用 <Key k="ADD" /> / <Key k="SUB" /> 上下选择，按 <Key k="OK" /> 载入。</Step>
 </Strip>
 
-- 列表里演奏区和 GRID 不打字，误按不会开始过滤：搜索总是 <Key k="FN+F" />。搜索框留空就显示全部。
-- <Key k="ESC" /> 先清空过滤，再按一次关闭。
-- <Key k="ADD" /> 往上、<Key k="SUB" /> 往下；<Key k="FN" /> + <Key k=";" /> <Key k="." /> 也可以。<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 一次走 8 行。
-- **SAVE**（FN 菜单）：自己的音色直接覆盖；出厂音色存成一个新的自己的音色，名字自动加上下一个空着的编号（例如 `LEAD I 2`），不用起名。**SAVE AS** 会让你输入名字。自己的音色存在 SD 卡上，每个音源一个音色库（`CardenzaSynth/Presets/<音源>/`）。
+- 在音色列表中，演奏区与 GRID 不响应打字，避免误触过滤；搜索统一使用 <Key k="FN+F" />，提交空内容即可恢复显示全部音色。
+- 按一次 <Key k="ESC" /> 清除当前过滤条件，再按一次关闭列表。
+- 使用 <Key k="ADD" /> / <Key k="SUB" />（或 <Key k="FN" /> + <Key k=";" /> / <Key k="." />）上下移动，<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 每次翻 8 行。
+- **SAVE**（FN 菜单）：若当前为用户自定义音色则直接覆盖保存；若编辑了出厂音色，会自动追加顺延编号保存为新用户音色（如 `LEAD I 2`）。需要自定义名称请使用 **SAVE AS**。用户音色按引擎分类存放在 SD 卡的 `CardenzaSynth/Presets/<音源>/` 目录中。
 
 <Keywords k="音色库, 预设, 浏览, 搜索音色, 查找, 过滤, 保存音色, 另存, preset, presets, browse, search, find, filter, fn f, save sound, patch library" />
 
 ## 参数页 {#instr-params}
 
-音源的其它页面（还有 CHORD 和 ARP）都是参数页：**GRID 上每个键直接选中一个参数**，<Key k="ADD" /> / <Key k="SUB" /> 调值（按住连发，按住 <Key k="FN" /> 大步走），<Key k="FN+OK" />（或 FN 菜单的 RESET）恢复默认。开关和选项型参数再按一次同一个键就切换，按 <Key k="OK" /> 也行。
+引擎的其余子页（以及 CHORD、ARP 页）均为参数页：**每个 GRID 键对应一个参数**。点按 GRID 键选中参数后，用 <Key k="ADD" /> / <Key k="SUB" /> 调节（支持长按连发，按住 <Key k="FN" /> 大步调节），按 <Key k="FN+OK" />（或 FN 菜单 **RESET**）恢复默认值。开关或枚举型参数可再次点按同一 GRID 键或按 <Key k="OK" /> 切换选项。
 
 <Shot name="instr-juno-vcf">
-  <Mark at="cell:1,1">焦点参数：白底</Mark>
+  <Mark at="cell:1,1">焦点参数（白底高亮）</Mark>
   <Mark at="cell:1,2">RESO</Mark>
   <Mark at="cell:1,3">ENV</Mark>
   <Mark at="cell:1,4">POL</Mark>
-  <Mark at="cells:3,1-4,4">这一组的图：滤波曲线</Mark>
-  <KeyMark keys="G1">焦点：全亮</KeyMark>
-  <KeyMark keys="G2-G6">参数：半亮</KeyMark>
-  <KeyMark keys="G7-G16">空格：灭</KeyMark>
-  <KeyMark keys="ADD SUB">调值</KeyMark>
-  <Caption>Juno VCF 页：上面两行是参数，下面画着滤波曲线。</Caption>
+  <Mark at="cells:3,1-4,4">实时滤波曲线图</Mark>
+  <KeyMark keys="G1">当前焦点：全亮</KeyMark>
+  <KeyMark keys="G2-G6">可调参数：半亮</KeyMark>
+  <KeyMark keys="G7-G16">空白格：灭</KeyMark>
+  <KeyMark keys="ADD SUB">调节数值</KeyMark>
+  <Caption>Juno VCF 页面：上方两行为滤波器参数，下方为实时滤波曲线。</Caption>
 </Shot>
 
-没有参数的格子画着这一组的图：包络、滤波曲线、算法、波形、示波器……每个参数的范围、默认值和全部选项见下面各音源的参考表。
+参数下方的空白区域会实时绘制对应图形视图（如包络线、滤波曲线、FM 算法拓扑图、波形或示波器）。各参数的完整范围、选项与默认值请查阅下方引擎参考表。
 
-**按住参数格**一会儿，演奏区就变成它的档位：每个值一个键（值太多时均匀分布在所有键上），当前值全亮。按一个键直接跳到那一档，屏幕底部弹出新值。松开参数格，演奏区又变回键盘。短按还是原来的选中。
+**按住快速选值**：按住 GRID 上任意参数格不放，32 颗演奏区按键会临时映射为该参数的全部取值（数值范围较大时均匀分段），当前值对应按键全亮。按下任意演奏键即可直接跳至对应档位并在底栏弹出数值，松开参数格后演奏区立即恢复正常弹奏。短按仍仅用于聚焦参数。
 
 <Keywords k="参数, 调参数, 旋钮, 编辑音色, 恢复默认, 按住选值, parameter, parameters, edit sound, knob, default, reset, hold cell, pick value" />
 
 ## CHORD 和 ARP 页 {#instr-midifx}
 
-紧跟在 VOICE 后面，每个旋律音源都有这一轨的两个 MIDI 效果：**CHORD**（一个键弹出一个和弦）和 **ARP**（按住的键轮流发声）。它们属于轨道而不是音色：换音色或换音源都保留，随工程保存。鼓轨没有这两页。用法见 [和弦](./play.mdx#play-chords) 和 [琶音 ARP](./play.mdx#play-arp)。
+紧接在 VOICE 之后，每条旋律轨都设有 **CHORD**（单键和弦）与 **ARP**（琶音器）两页。它们绑定在轨道而非单个音色上，因此更换音色或音源引擎时均会保留，并随工程一并存储。鼓轨不含这两页。详细说明见[和弦](./play.mdx#play-chords)与[琶音 ARP](./play.mdx#play-arp)。
 
 <Strip>
-  <Step keys="hold CTRL + G2" shot="instr-chord" at="cells:1,1-1,2">CHORD：CHORD 和 VOICING，根音上的键弹出的音，这个调的各级三和弦。</Step>
-  <Step keys="hold CTRL + G3" shot="instr-arp" at="cells:1,1-2,1">ARP：模式、RATE、RANGE、GATE 和 HOLD，下面是演奏顺序。</Step>
+  <Step keys="hold CTRL + G2" shot="instr-chord" at="cells:1,1-1,2">CHORD 页用于设置和弦模式与转位，并预览根音和弦及当前调性的各级三和弦。</Step>
+  <Step keys="hold CTRL + G3" shot="instr-arp" at="cells:1,1-2,1">ARP 页用于设置模式、RATE、RANGE、GATE 和 HOLD，下方实时显示演奏顺序。</Step>
 </Strip>
 
 <Keywords k="和弦页, 琶音页, MIDI 效果, 每轨和弦, 每轨琶音, chord page, arp page, midi fx, midi effects" />
 
 ## FX 页：这一轨的效果 {#instr-fx}
 
-每个音源最后一页都是 FX：
+每个引擎的最后一页均为轨道 **FX** 页：
 
 <Shot name="instr-juno-fx">
-  <Mark at="cell:1,1">DRIVE 饱和</Mark>
-  <Mark at="cell:1,2">CRUSH 降采样</Mark>
-  <Mark at="cell:1,3">FILTER DJ 滤波</Mark>
-  <Mark at="cell:1,4">RESO</Mark>
-  <Mark at="cell:2,1">CHORUS</Mark>
-  <Mark at="cell:2,2">DELAY 发送</Mark>
-  <Mark at="cell:2,3">REVERB 发送</Mark>
-  <Mark at="cells:3,1-4,4">信号链：IN → … → OUT</Mark>
-  <Caption>FX 页和信号链。</Caption>
+  <Mark at="cell:1,1">DRIVE：软饱和激励</Mark>
+  <Mark at="cell:1,2">CRUSH：降采样与降位深</Mark>
+  <Mark at="cell:1,3">FILTER：DJ 低通 / 高通滤波</Mark>
+  <Mark at="cell:1,4">RESO：滤波共振</Mark>
+  <Mark at="cell:2,1">CHORUS：合唱</Mark>
+  <Mark at="cells:2,2-2,3">DELAY / REVERB 发送量</Mark>
+  <Mark at="cells:3,1-4,4">信号链：IN → ... → OUT</Mark>
+  <Caption>轨道 FX 页与实时信号链示意图。</Caption>
 </Shot>
 
-这些是音色的一部分，随音色和工程保存。详见 [效果器](./effects.mdx)。
+轨道效果参数属于音色配置的一部分，随音色与工程一并保存。详细信号路由见[效果器](./effects.mdx)。
 
 <Keywords k="效果, 失真, 降采样, 滤波, 合唱, 延迟, 混响, fx, effects, drive, distortion, bitcrush, filter, chorus, delay, reverb" />
 
 ## DRUMS 鼓机 {#engine-drums}
 
-八个鼓：底鼓、军鼓、闭镲、开镲、拍手、通鼓、牛铃、沙锤，每个在演奏区占一列。KIT 页调每个鼓的音量和总音量。
+经典 808 风格八声部鼓机（底鼓、军鼓、闭镲、开镲、拍手、通鼓、牛铃、沙锤），在演奏区按列排布。**KIT** 页用于调节各鼓声部的独立音量与鼓组总音量。
 
 <Shot name="instr-drums-kit">
-  <Mark at="cells:1,1-2,4">八个鼓的音量</Mark>
-  <Mark at="cell:3,1">MASTER 总音量</Mark>
-  <Mark at="cells:3,2-4,4">鼓垫（按下时亮）</Mark>
-  <Caption>DRUMS KIT 页：八个鼓的音量，右下画着鼓垫。</Caption>
+  <Mark at="cells:1,1-2,4">八个鼓声部的独立音量</Mark>
+  <Mark at="cell:3,1">MASTER 鼓组总音量</Mark>
+  <Mark at="cells:3,2-4,4">鼓垫状态（触发时点亮）</Mark>
+  <Caption>DRUMS KIT 页面：各鼓声部音量及右下角实时鼓垫指示。</Caption>
 </Shot>
 
 <Ref engine="DRUMS" />
@@ -147,16 +146,16 @@ INSTR 管当前轨的声音：用哪个音源（引擎）、哪个音色、这�
 
 ## JUNO 模拟合成器 {#engine-juno}
 
-经典减法合成：DCO 振荡器 → VCF 滤波器 → VCA 包络，加上 LFO 和 Juno 合唱。
+经典 Juno 风格减法合成架构：DCO 振荡器 → VCF 滤波器 → VCA 包络，并配备 LFO 与合唱效果。
 
 <Strip>
-  <Step keys="hold CTRL + G4" shot="instr-juno-dco" at="cells:3,1-4,4">**DCO**：RANGE、SAW、PULSE、PWM、PW SRC、SUB、NOISE、LFO，附示波器。</Step>
-  <Step keys="CTRL" shot="instr-juno-vcf" at="cells:3,1-4,4">**VCF**：CUTOFF、RESO、ENV、POL、LFO、KBD，附滤波曲线。</Step>
-  <Step keys="CTRL" shot="instr-juno-env" at="cells:3,1-4,4">**ENV**：ADSR、VCA 模式（ENV / GATE）、LEVEL，附包络图。</Step>
-  <Step keys="CTRL" shot="instr-juno-lfo" at="cells:3,1-4,4">**LFO**：RATE、DELAY（延迟渐入），附波形。</Step>
+  <Step keys="hold CTRL + G4" shot="instr-juno-dco" at="cells:3,1-4,4">**DCO**：RANGE、SAW、PULSE、PWM、PW SRC、SUB、NOISE、LFO 调制，附实时示波器。</Step>
+  <Step keys="CTRL" shot="instr-juno-vcf" at="cells:3,1-4,4">**VCF**：CUTOFF、RESO、ENV、POL、LFO、KBD 键位跟踪，附滤波曲线。</Step>
+  <Step keys="CTRL" shot="instr-juno-env" at="cells:3,1-4,4">**ENV**：ADSR 包络、VCA 模式（ENV / GATE）、LEVEL，附包络曲线。</Step>
+  <Step keys="CTRL" shot="instr-juno-lfo" at="cells:3,1-4,4">**LFO**：RATE 速率与 DELAY 延迟渐入，附波形预览。</Step>
 </Strip>
 
-Juno 预设自带的 Chorus I / II 映射到 FX 页的 CHORUS。
+Juno 预设自带的 Chorus I / II 参数会自动映射到轨道 FX 页的 **CHORUS**。
 
 <Ref engine="JUNO" />
 
@@ -164,13 +163,13 @@ Juno 预设自带的 Chorus I / II 映射到 FX 页的 CHORUS。
 
 ## DX7 FM 合成器 {#engine-dx7}
 
-六算子 FM 合成，兼容 DX7 音色：
+六算子调频合成引擎，兼容经典 DX7 音色：
 
 <Strip>
-  <Step keys="hold CTRL + G4" shot="instr-dx7-algo" at="cells:3,1-4,4">**ALGO**：32 种算法、反馈、移调，附算法图。</Step>
-  <Step keys="CTRL" shot="instr-dx7-levels" at="cells:3,1-4,4">**LEVELS**：六个算子的输出电平。实心是能听到的载波，点阵是调制器。</Step>
-  <Step keys="CTRL" shot="instr-dx7-op1" at="cell:2,3">**OP1–OP6**：OUT、CRS、FINE、DTN、MODE、AMOD、R1–R4 / L1–L4 包络，CAR / MOD 标记。</Step>
-  <Step keys="hold CTRL + G12" shot="instr-dx7-lfo" at="cells:3,1-4,4">**LFO**：SPEED、WAVE、PMD、AMD、P SENS，附波形。</Step>
+  <Step keys="hold CTRL + G4" shot="instr-dx7-algo" at="cells:3,1-4,4">**ALGO**：32 种 FM 算法、反馈（Feedback）与移调，附算法拓扑图。</Step>
+  <Step keys="CTRL" shot="instr-dx7-levels" at="cells:3,1-4,4">**LEVELS**：六个算子的输出电平。实心柱为直接输出声音的载波，点阵柱为调制器。</Step>
+  <Step keys="CTRL" shot="instr-dx7-op1" at="cell:2,3">**OP1–OP6**：OUT、CRS、FINE、DTN、MODE、AMOD、四段 R1–R4 / L1–L4 包络，以及 CAR / MOD 标识。</Step>
+  <Step keys="hold CTRL + G12" shot="instr-dx7-lfo" at="cells:3,1-4,4">**LFO**：SPEED、WAVE、PMD、AMD、P SENS，附波形预览。</Step>
 </Strip>
 
 <Ref engine="DX7" />
@@ -179,15 +178,15 @@ Juno 预设自带的 Chorus I / II 映射到 FX 页的 CHORUS。
 
 ## SAMPLER 采样器 {#engine-sampler}
 
-播放一段 WAV：SAMPLE 页选文件、录音、裁剪、根音、循环、增益（附波形）；TONE 页是滤波、包络和电平。完整流程见 [采样](./sampler.mdx)。
+用于播放 SD 卡上的 WAV 音频或内置麦克风录制的采样。**SAMPLE** 页集成文件载入、录音、起止点裁剪、根音、微调、循环与增益控制，并实时显示波形；**TONE** 页提供滤波、起释音包络与输出电平控制。完整工作流见[采样](./sampler.mdx)。
 
 <Shot name="instr-sampler-sample">
-  <Mark at="cell:1,1">FILE 载入</Mark>
-  <Mark at="cell:1,2">REC 录音</Mark>
-  <Mark at="cell:1,3">START</Mark>
-  <Mark at="cell:1,4">END</Mark>
-  <Mark at="cells:2,1-2,4">ROOT · TUNE · LOOP · GAIN</Mark>
-  <Caption>SAMPLER SAMPLE 页（还没有采样）。</Caption>
+  <Mark at="cell:1,1">FILE：浏览采样</Mark>
+  <Mark at="cell:1,2">REC：麦克风录音</Mark>
+  <Mark at="cell:1,3">START 起点</Mark>
+  <Mark at="cell:1,4">END 终点</Mark>
+  <Mark at="cells:2,1-2,4">ROOT、TUNE、LOOP、GAIN</Mark>
+  <Caption>未载入音频时的 SAMPLER SAMPLE 页面。</Caption>
 </Shot>
 
 <Ref engine="SAMPLER" />

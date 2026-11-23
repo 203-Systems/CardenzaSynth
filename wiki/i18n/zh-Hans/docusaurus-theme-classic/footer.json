@@ -36,7 +36,7 @@
     "description": "The label of footer link with label=Firmware tutorials linking to https://stage.203.io/tutorials"
   },
   "link.item.label.Make firmware": {
-    "message": "做固件",
+    "message": "开发固件",
     "description": "The label of footer link with label=Make firmware linking to https://stage.203.io/develop"
   },
   "link.item.label.Firmware SDK (CardenzaHAL)": {

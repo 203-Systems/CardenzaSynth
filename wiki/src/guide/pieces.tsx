@@ -21,7 +21,7 @@ export function learnAgain(id: string) {
   const from = GUIDE.order.indexOf(id);
   const cleared = clearDone(from >= 0 ? GUIDE.order.slice(from) : [id]);
   if (cleared > 1) {
-    toast([`这一课和之后的课一起重新开始：清掉了 ${cleared} 课的完成记录。`,
+    toast([`已重置本课及后续课程（共清除 ${cleared} 课进度）。`,
       `Resetting this lesson and the following ones (${cleared} lessons cleared).`]);
   }
   requestRestart(id);
@@ -35,7 +35,7 @@ function Rail({active, open}: {active: string; open: boolean}) {
   const {withBaseUrl} = useBaseUrlUtils();
   const count = GUIDE.order.filter((id) => done[id]).length;
   const allAgain = () => {
-    if (!count || !window.confirm(say(`清除全部 ${count} 课的完成记录，从第一课重新学习？`,
+    if (!count || !window.confirm(say(`重置全部 ${count} 课的学习进度，并从第一课重新开始？`,
       `Reset progress for all ${count} completed lessons and start from lesson 1?`))) return;
     clearDone(GUIDE.order);
     const first = GUIDE.order[0];
@@ -91,7 +91,7 @@ export function GuideLayout({active, title, children}: {active: string; title: s
   }, []);
   useEffect(() => setOpen(false), [location.pathname]);
   return (
-    <Layout title={title} description={say('鸣片入门：一课几步，接上机器跟着按。', 'Interactive Cardenza guide: short step-by-step lessons with live USB hardware support.')}>
+    <Layout title={title} description={say('鸣片交互入门教程：分步引导，支持 USB 连接真机联动操作。', 'Interactive Cardenza guide: short step-by-step lessons with live USB hardware support.')}>
       <div className="cz-guide" data-lang={lang}>
         <div className="g-layout">
           <Rail active={active} open={open} />

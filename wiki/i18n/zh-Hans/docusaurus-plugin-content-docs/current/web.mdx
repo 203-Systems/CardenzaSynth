@@ -4,59 +4,59 @@ sidebar_position: 14
 
 # 网页模拟器
 
-<Icon name="web" /> 没有机器时，可以直接在浏览器里用：[cardenza-synth.203.io](https://cardenza-synth.203.io/)（或 [cardenza-synth.vercel.app](https://cardenza-synth.vercel.app/)）。它不是仿造的界面，而是同一套固件代码（Groovebox 界面、AMY 音源、音序器、存储协议）编译成 WebAssembly：屏幕、按键灯、声音和机器上一样。
+<Icon name="web" /> 无需实体硬件，直接在浏览器中即可体验鸣片：[cardenza-synth.203.io](https://cardenza-synth.203.io/)（或 [cardenza-synth.vercel.app](https://cardenza-synth.vercel.app/)）。模拟器由真实固件代码（完整界面、AMY 合成引擎、音序器与存储协议）编译为 WebAssembly 运行，屏幕显示、按键背光与音色均与硬件完全一致。
 
 <Keywords k="模拟器, 网页版, 浏览器, 在线, 没有机器, 试一试, simulator, emulator, web, browser, online, try, try it live" />
 
 ## 连接真机（USB） {#web-usb}
 
-<Icon name="usb" /> 用 USB 线把鸣片接到电脑上（Chrome 或 Edge），打开 [入门教程](/)。不用点任何按钮：教程页面会问浏览器能不能使用 MIDI 设备，选「允许」，之后机器一接上就自动连好。
+<Icon name="usb" /> 使用 Chrome 或 Edge 浏览器打开[入门教程](/)，并用 USB 数据线将鸣片连接到电脑。网页会自动请求 Web MIDI 权限，点选「允许」后，今后只要插上线即可自动连接。
 
-- 机器会跟着课程走：换到这一课的画面，要按的键一直闪（其他键变暗），做对了就常亮；网页上会出现「学会了」，再多试几下，然后点「下一步」。
-- 你自己的东西不会动：一课开始时，机器先把工作状态存到 SD 卡上，换成一个练习工程；教程结束时（离开课程、关掉网页、拔掉线，或者 30 秒没收到网页的消息）原样恢复。教程需要机器插着 SD 卡。
-- 说明书页面不会操作机器，机器照常运行。
-- 拔掉线就断开，插回去自动连上。
-- 它通过 USB MIDI 和机器通信（Web MIDI，包括 SysEx）：不需要装驱动，USB MIDI 和 USB 音频照常可用。之前点了「阻止」的话，在地址栏左边的网站设置里把 MIDI 设备改成允许，再刷新。
+- **硬件联动教学**：开始课程后，鸣片会自动切换到对应页面并闪烁目标按键（其余按键变暗），完成操作后常亮并在网页提示进入下一步。
+- **不改动个人工程**：进入课程前，设备会先把当前工作会话暂存到 SD 卡并切换至临时练习工程；离开教程、关闭标签页、拔掉数据线或超过 30 秒无通信时自动恢复原状。运行硬件联动教程需确保设备已插入 SD 卡。
+- **查阅说明书不接管设备**：浏览说明书页面不会影响已连接的硬件正常运行。
+- **即插即用**：拔线即断开，重插即自动重连。
+- **通信协议**：教程通过 Web MIDI（含 SysEx）与设备通信，免装驱动且不影响正常的 USB MIDI 与 USB 音频功能。若此前误点了「阻止」，请在地址栏左侧的网站设置中重新允许 MIDI 设备并刷新页面。
 
 <Keywords k="usb, 连接, 真机, 实体设备, 串口, 数据线, 找不到设备, midi, web midi, sysex, 允许, 教程, 课程, 跟着操作, 跟着做, connect, device, cable, web serial, hardware, real device, guide, follow along" />
 
 ## 电脑键盘对应哪个键 {#web-keys}
 
-<Icon name="keyboard" /> 电脑键盘按**物理位置**对应设备的 4×14 键盘，每个键帽上都标着对应的电脑键，按下时屏幕上的键会亮：
+<Icon name="keyboard" /> 电脑键盘按**物理键位**直接映射到鸣片的 4×14 按键阵列。模拟器上每个键帽均标注了对应的电脑按键，按下时会同步亮起：
 
 <Keymap>
-  <Group keys="r0c1-r0c12">数字行 1 … =</Group>
-  <Group keys="r1c1-r1c12">Q 那一行</Group>
-  <Group keys="r2c1-r2c12">A 那一行</Group>
-  <Group keys="r3c1-r3c12">Z 那一行</Group>
+  <Group keys="r0c1-r0c12">数字行（1 到 =）</Group>
+  <Group keys="r1c1-r1c12">Q 行</Group>
+  <Group keys="r2c1-r2c12">A 行</Group>
+  <Group keys="r3c1-r3c12">Z 行</Group>
   <Group keys="ESC TAB FN CTRL">Esc · Tab · Caps Lock / 左 Shift · Ctrl</Group>
   <Group keys="ADD SUB OK PLAY">Backspace · \\ · Enter · 空格</Group>
-  <Caption>电脑键盘的四行就是设备的四行</Caption>
+  <Caption>电脑键盘的四行与鸣片的四行按键直接对应。</Caption>
 </Keymap>
 
-| 设备 | 电脑 |
+| 硬件按键 | 电脑按键 |
 |---|---|
 | <Key k="ESC" /> <Key k="TAB" /> <Key k="FN" /> <Key k="CTRL" /> | Esc / Tab / Caps Lock 或左 Shift / Ctrl |
 | <Key k="ADD" /> <Key k="SUB" /> <Key k="OK" /> <Key k="PLAY" /> | Backspace / `\` / Enter / 空格 |
 | HOME 侧键 | Home |
-| 没有字母的演奏键 | 右 Shift（第 3 行）· 左 / 右 Alt（第 4 行） |
+| 无字母键帽的演奏键 | 右 Shift（第 3 行）· 左 / 右 Alt（第 4 行） |
 
-- <Key k="ESC" /> 也可以用反引号键（1 左边那个）。macOS 上 Caps Lock 会锁住 <Key k="FN" />（再按一次松开）；按住左 Shift 则是松手就放开的 <Key k="FN" />。
-- 也可以直接用鼠标或手指点屏幕上的键，触屏可以多点同时按。右键点一个键会把它锁住按下（方便按住 ESC、FN……再点 GRID），再右键一次松开。
+- 反引号键（`1` 左侧）同样可作为 <Key k="ESC" />。在 macOS 上，Caps Lock 会锁定 <Key k="FN" /> 直到再次按下；按住左 Shift 则为松手即释放的瞬时 <Key k="FN" />。
+- 也可用鼠标或触屏直接点击屏幕上的按键（触屏支持多指同按）。鼠标右键点击任意按键可将其锁定为按住状态（方便按住 ESC / FN 再点 GRID），再次右键即可释放。
 
 <Keywords k="键盘对应, 键位映射, 电脑键盘, 右键, 锁住, keyboard mapping, computer keyboard, which key, key bindings, shortcuts, caps lock, right click" />
 
 ## 声音 {#web-audio}
 
-<Icon name="sound" /> 浏览器要求先点一下页面才能出声，第一次请点任意位置或「Start audio」。声音由同一个音频引擎实时合成，延迟取决于浏览器和电脑。
+<Icon name="sound" /> 受浏览器音频策略限制，首次打开需先点击页面任意位置（或点击 **Start audio**）解锁发声。音频由同一套 AMY 引擎在浏览器中实时合成，实际延迟取决于浏览器与电脑性能。
 
 <Keywords k="没声音, 声音, 音频, 开启声音, no sound, audio, start audio, sound not working" />
 
 ## 存储与采样 {#web-storage}
 
-- 设置、工程和音色存在浏览器里（IndexedDB），目录结构和 SD 卡一样（`CardenzaSynth/…`），刷新页面后还在。清除网站数据会把它们删掉。
-- 机器自动保留的工作状态（[工作状态会被保留](./projects.mdx#project-session)）浏览器也保留：边做边存，页面切到后台时也存，刷新或关闭页面后回来还在，和真机拔电一样。要留成一个工程，仍然用 <Key k="FN+S" /> 保存。
-- 模拟器页面上的「Load project…」把鸣片卡上的 `.ccproj` 文件复制到浏览器里（不会覆盖已有工程，重名的自动加编号），并打开第一个；其余的在 SETUP FILES 里。
-- 「Load WAV…」把电脑上的音频文件放进共用采样目录 `Samples/`，之后在 SAMPLER 的文件列表里就能选到。不是单声道 16 位 WAV 的文件（立体声、24 位、MP3……）会转换成单声道 16 位 44.1 kHz，并截到 5 秒。
+- 设置、工程与用户音色保存在浏览器的 IndexedDB 中，目录结构与 SD 卡一致（`CardenzaSynth/...`），刷新页面不会丢失；清除网站数据会将其一并清空。
+- 会话自动保存（[工作状态会被保留](./projects.mdx#project-session)）在浏览器中同样生效，会在编辑过程中及切换标签页时自动保存，刷新或关闭页面后仍可恢复。正式存档仍请使用 <Key k="FN+S" />。
+- 点击模拟器页面的 **Load project...** 可从电脑或 SD 卡导入 `.ccproj` 工程（不会覆盖已有同名工程，重名会自动加编号）；首个导入的工程会立即打开，其余可在 SETUP FILES 中查看。
+- 点击 **Load WAV...** 可将本地音频导入共用 `Samples/` 目录供 SAMPLER 使用。非单声道 16 位 WAV 格式（如立体声、24 位或 MP3）会自动转码为单声道 16 位 44.1 kHz 并截取前 5 秒。
 
 <Keywords k="浏览器存储, 自动保存, 刷新不丢, 导入 wav, 上传采样, 导入工程, 保存在哪, 刷新, browser storage, indexeddb, load wav, upload sample, load project, ccproj" />

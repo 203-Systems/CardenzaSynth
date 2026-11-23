@@ -107,7 +107,7 @@ export function Shot({name, children}: {name: string; children?: React.ReactNode
   });
   return (
     <figure className="cz-figure cz-shot" data-shot={name}>
-      <span className="cz-keys-label" data-nosearch=""><Icon name="light" />{say(lang, '同一时刻的屏幕和按键灯', 'Matching screen and key LEDs')}</span>
+      <span className="cz-keys-label" data-nosearch=""><Icon name="light" />{say(lang, '同步的屏幕与按键灯状态', 'Matching screen and key LEDs')}</span>
       <div className="cz-device">{keys.svg}</div>
       <Legend items={[...screen.items, ...keys.items]} />
       {cap && <figcaption>{cap}</figcaption>}

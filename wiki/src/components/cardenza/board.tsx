@@ -56,23 +56,23 @@ function fnFor(row: number, column: number): {keys: string; label: string}[] {
 
 const LEFT_TEXT: Record<string, {name: Words; lines: Words[]; section: string}> = {
   ESC: {name: ['场景 / 返回', 'Scenes / back'], section: 'nav-scenes', lines: [
-    ['单击：在 1 INSTR、2 SEQ、3 TAPE 之间轮换；在 SETUP 里回到原来的场景，确认框里是「否」。',
+    ['单击可在 1 INSTR、2 SEQ、3 TAPE 之间循环；在 SETUP 中返回原场景，在确认框中取消。',
       'Tap to cycle between 1 INSTR, 2 SEQ, and 3 TAPE, exit SETUP, or cancel dialogs.'],
-    ['按住：GRID 变成场景地图（第 1 列进 0 SETUP）。', 'Hold to show the scene map on the GRID (column 1 opens 0 SETUP).']]},
+    ['按住可在 GRID 上展开场景地图（第 1 列进入 0 SETUP）。', 'Hold to show the scene map on the GRID (column 1 opens 0 SETUP).']]},
   TAB: {name: ['轨道', 'Tracks'], section: 'nav-tracks', lines: [
-    ['单击：换到下一条轨道。', 'Tap to switch to the next track.'],
-    ['按住：GRID 变成轨道地图，直接选一条。', 'Hold to open the track map on the GRID.']]},
-  FN: {name: ['这一页的菜单', 'Context menu'], section: 'fn-menu', lines: [
-    ['单击：打开这一页的菜单，再点 GRID 执行。', 'Tap to latch the current screen menu open; tap a GRID key to run an item.'],
-    ['按住：菜单显示在 GRID 上；和别的键一起按是第二功能。', 'Hold to display the menu on the GRID and activate secondary shortcuts.']]},
+    ['单击切换到下一条轨道。', 'Tap to switch to the next track.'],
+    ['按住可在 GRID 上展开轨道地图。', 'Hold to open the track map on the GRID.']]},
+  FN: {name: ['快捷菜单', 'Context menu'], section: 'fn-menu', lines: [
+    ['单击常驻打开当前页面菜单，点按 GRID 执行对应项。', 'Tap to latch the current screen menu open; tap a GRID key to run an item.'],
+    ['按住显示 GRID 菜单，并启用全键盘第二功能。', 'Hold to display the menu on the GRID and activate secondary shortcuts.']]},
   CTRL: {name: ['页面', 'Pages'], section: 'nav-pages', lines: [
-    ['单击：换到下一页。', 'Tap to move to the next page.'],
-    ['按住：GRID 变成这个场景的页面地图。', 'Hold to display the page map for the current scene.']]},
+    ['单击切换到下一页。', 'Tap to move to the next page.'],
+    ['按住可在 GRID 上展开当前场景的页面地图。', 'Hold to display the page map for the current scene.']]},
 };
 const RIGHT_TEXT: Record<string, {name: Words; lines: Words[]; section: string}> = {
-  ADD: {name: ['调大 / 往上', 'Increase / up'], section: 'keys-right', lines: [['调大当前的值；在列表里往上。', 'Increase the focused value or move up in lists.']]},
-  SUB: {name: ['调小 / 往下', 'Decrease / down'], section: 'keys-right', lines: [['调小当前的值；在列表里往下。', 'Decrease the focused value or move down in lists.']]},
-  OK: {name: ['确认', 'Confirm'], section: 'keys-right', lines: [['确认、进入；确认框里是「是」。', 'Confirm, open, or toggle (answers "yes" in prompts).']]},
+  ADD: {name: ['增大 / 上移', 'Increase / up'], section: 'keys-right', lines: [['增大当前焦点数值，或在列表中向上移动。', 'Increase the focused value or move up in lists.']]},
+  SUB: {name: ['减小 / 下移', 'Decrease / down'], section: 'keys-right', lines: [['减小当前焦点数值，或在列表中向下移动。', 'Decrease the focused value or move down in lists.']]},
+  OK: {name: ['确认', 'Confirm'], section: 'keys-right', lines: [['确认、进入或切换（确认框中表示「是」）。', 'Confirm, open, or toggle (answers "yes" in prompts).']]},
   PLAY: {name: ['播放 / 停止', 'Play / stop'], section: 'seq-transport', lines: [['开始或停止播放。', 'Start or stop playback.']]},
 };
 
@@ -90,28 +90,28 @@ function spots(): Spot[] {
       } else if (column >= 9) {
         const n = row * 4 + column - 8;
         out.push({...base, cap: `G${n}`, section: 'keys-grid', name: ['GRID', 'GRID'], lines: [
-          [`屏幕中间 4×4 的第 ${row + 1} 行第 ${column - 8} 列：点一下选中这一格。`, `Row ${row + 1}, column ${column - 8} of the on-screen 4×4 grid. Tap to select this cell.`],
-          ['按住一个参数格：琴键变成它的取值。', 'Hold a parameter cell to pick its value directly on the pads.']]});
+          [`对应屏幕 4×4 网格第 ${row + 1} 行第 ${column - 8} 列，点按选中该格。`, `Row ${row + 1}, column ${column - 8} of the on-screen 4×4 grid. Tap to select this cell.`],
+          ['按住参数格可在演奏区直接选择档位。', 'Hold a parameter cell to pick its value directly on the pads.']]});
       } else {
-        out.push({...base, cap: `r${row}c${column}`, section: 'play-keyboard', name: ['琴键', 'Pads'], lines: [
-          ['弹当前轨道：两个八度，下排白键、上排黑键。', 'Play the active track: two octaves with white keys below and black keys above.'],
-          ['鼓轨上一列是一种鼓，越往上越重。', 'On drum tracks, each column is one drum with higher rows playing louder.']]});
+        out.push({...base, cap: `r${row}c${column}`, section: 'play-keyboard', name: ['演奏区', 'Pads'], lines: [
+          ['演奏当前轨道：两个八度，下排白键、上排黑键。', 'Play the active track: two octaves with white keys below and black keys above.'],
+          ['鼓轨每列对应一种鼓，越靠上力度越大。', 'On drum tracks, each column is one drum with higher rows playing louder.']]});
       }
     }
   }
   out.push({id: 'home', rect: [HOME.x - 1, HOME.y - 1, HOME.w + 2, HOME.h + 2], kind: 'home', name: ['HOME 侧键', 'HOME side button'],
-    section: 'keys-home', lines: [['按一下打开系统菜单（Cardenza Synth 0.2.1 起）：返回启动器、重新启动、关机、下载模式。', 'Press to open the system menu (Cardenza Synth 0.2.1+): Back to Launcher, Restart, Power off, Download mode.'],
-      ['插线时别按住它（那是下载模式）；停下所有声音是 FN + ESC。', 'Do not hold while plugging in USB (boots download mode). Use FN + ESC for All Stop.']]});
-  out.push({id: 'header', rect: screen(9, 0, 221, 11), kind: 'screen', name: ['状态行', 'Status bar'], section: 'screen-layout',
-    lines: [['场景、轨道、音色和 BPM。', 'Active scene, track, preset, and BPM.']]});
+    section: 'keys-home', lines: [['按下打开系统菜单（Cardenza Synth 0.2.1 起）：返回启动器、重新启动、关机、下载模式。', 'Press to open the system menu (Cardenza Synth 0.2.1+): Back to Launcher, Restart, Power off, Download mode.'],
+      ['插线时请勿按住（会进入下载模式）；全部停止请按 FN + ESC。', 'Do not hold while plugging in USB (boots download mode). Use FN + ESC for All Stop.']]});
+  out.push({id: 'header', rect: screen(9, 0, 221, 11), kind: 'screen', name: ['状态栏', 'Status bar'], section: 'screen-layout',
+    lines: [['显示当前场景、轨道、音色与 BPM。', 'Active scene, track, preset, and BPM.']]});
   out.push({id: 'content', rect: screen(9, 13, 222, 110), kind: 'screen', name: ['内容区', 'Content area'], section: 'keys-grid',
-    lines: [['4×4 的格子，和右边的 GRID 一一对应。', '4×4 cell layout matching the physical GRID keys on the right.']]});
-  out.push({id: 'footer', rect: screen(9, 123, 221, 12), kind: 'screen', name: ['页签', 'Page tabs'], section: 'nav-pages',
-    lines: [['这个场景的页面；CTRL 切换。', 'Pages in the current scene (switch with CTRL).']]});
-  out.push({id: 'strips-left', rect: screen(0, 0, 8, 135), kind: 'screen', name: ['两侧色块', 'Edge strips'], section: 'lights-edges',
-    lines: [['对应左边的 ESC、TAB、FN、CTRL，颜色和亮度跟键灯一样。', 'Mirrors the color and LED state of ESC, TAB, FN, and CTRL.']]});
-  out.push({id: 'strips-right', rect: screen(232, 0, 8, 135), kind: 'screen', name: ['两侧色块', 'Edge strips'], section: 'lights-edges',
-    lines: [['对应右边的 ↑、↓、OK、PLAY，颜色和亮度跟键灯一样。', 'Mirrors the color and LED state of ADD, SUB, OK, and PLAY.']]});
+    lines: [['4×4 格子区域，与右侧物理 GRID 一一对应。', '4×4 cell layout matching the physical GRID keys on the right.']]});
+  out.push({id: 'footer', rect: screen(9, 123, 221, 12), kind: 'screen', name: ['页签栏', 'Page tabs'], section: 'nav-pages',
+    lines: [['当前场景的全部子页面（按 CTRL 切换）。', 'Pages in the current scene (switch with CTRL).']]});
+  out.push({id: 'strips-left', rect: screen(0, 0, 8, 135), kind: 'screen', name: ['左侧边条', 'Edge strips'], section: 'lights-edges',
+    lines: [['同步显示左侧 ESC、TAB、FN、CTRL 的配色与背光状态。', 'Mirrors the color and LED state of ESC, TAB, FN, and CTRL.']]});
+  out.push({id: 'strips-right', rect: screen(232, 0, 8, 135), kind: 'screen', name: ['右侧边条', 'Edge strips'], section: 'lights-edges',
+    lines: [['同步显示右侧 ADD、SUB、OK、PLAY 的配色与背光状态。', 'Mirrors the color and LED state of ADD, SUB, OK, and PLAY.']]});
   return out;
 }
 
@@ -194,8 +194,8 @@ export function DeviceMap() {
       </div>
       {spot && <Pop spot={spot} lang={lang} below={spot.kind !== 'key'} onEnter={() => show(spot.id)} onLeave={hideSoon} />}
       <figcaption>{hover
-        ? say('把鼠标移到一个键或屏幕上，看它做什么；点一下去它的说明。', 'Hover over any key or screen area to see its role; click to jump to its documentation.')
-        : say('点一个键或屏幕看它做什么，再点说明链接。', 'Tap any key or screen area to see its role, then tap the link to read more.')}</figcaption>
+        ? say('将鼠标移至任意按键或屏幕区域即可查看说明，点击跳转至对应章节。', 'Hover over any key or screen area to see its role; click to jump to its documentation.')
+        : say('点击任意按键或屏幕区域查看说明，再点击链接阅读详情。', 'Tap any key or screen area to see its role, then tap the link to read more.')}</figcaption>
     </figure>
   );
 }
