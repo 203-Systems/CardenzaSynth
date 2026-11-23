@@ -144,6 +144,11 @@ foreach(old_function "SampleDirectoryPath" "ProjectDirectoryPath" "PresetDirecto
     cardenza_forbid_text("Devices/Device.h" "${old_function}")
 endforeach()
 cardenza_forbid_text("Devices/Cardenza/Device.cpp" "/sdcard/CardenzaSynth")
+# Storage protocol 3: the product root is CardenzaHAL's folder for this firmware, /sdcard/Apps/CardenzaSynth (its
+# docs/SD-CARD.md), and its name stays the one the cards have.
+cardenza_require_text("OS/Storage/Storage.cpp" "Device::Storage::AppRoot()")
+cardenza_require_text("Devices/Cardenza/Device.cpp" "CardenzaHAL::Storage::AppDir()")
+cardenza_require_text("Devices/Cardenza/sdkconfig.defaults" "CONFIG_CARDENZA_HAL_APP_NAME=\"CardenzaSynth\"")
 file(GLOB_RECURSE cardenza_storage_client_sources RELATIVE "${CARDENZA_ROOT}"
      "${CARDENZA_ROOT}/Applications/*.cpp" "${CARDENZA_ROOT}/Applications/*.h"
      "${CARDENZA_ROOT}/Library/Synth/*.cpp" "${CARDENZA_ROOT}/Library/Synth/*.h")

@@ -146,8 +146,9 @@ void QuickSave()
 void TestNoCardBoot(const fs::path& root)
 {
   const fs::path card = root / "sdcard";
+  // A card protocol 2 wrote (the 0.1.0 release's folder at the card's root), with settings, a project and an
+  // autosave: none of it may be read, changed or moved.
   const fs::path product = card / "CardenzaSynth";
-  // A card with settings, a project and an autosave: none of it may be read or changed.
   WriteText(product / "Settings" / "system.cfg", "protocol=2\nsys.volume=47\nsys.volume.rev=2\nsys.led=5\nboot.app=Cardenza/Synth\n");
   WriteText(product / "Settings" / "synth.cfg", "keys.select=1\n");
   WriteText(product / "Projects" / "ON CARD.ccproj", "CARDENZA_PROJECT 4\n");
@@ -251,18 +252,20 @@ int main(int argc, char** argv)
   }
   assert(argc == 1);
   const fs::path card = root / "sdcard";
-  const fs::path product = card / "CardenzaSynth";
+  const fs::path product = card / "Apps" / "CardenzaSynth";
   const fs::path systemSettings = product / "Settings" / "system.cfg";
   const fs::path synthSettings = product / "Settings" / "synth.cfg";
   const fs::path sessionFolder = product / "Session";
 
-  // A card the 0.1.0 release wrote: its files are read where they are.
-  WriteText(product / "Samples" / "kick.wav", "RIFF not really a wave");
-  WriteText(product / "Projects" / "OLD SONG.ccproj", "CARDENZA_PROJECT 4\n");
+  // A card the 0.1.0 release wrote (storage protocol 2, at the card's root): the start moves the folder to
+  // this firmware's folder (CardenzaHAL's layout, protocol 3), and its files are read there.
+  const fs::path release = card / "CardenzaSynth";
+  WriteText(release / "Samples" / "kick.wav", "RIFF not really a wave");
+  WriteText(release / "Projects" / "OLD SONG.ccproj", "CARDENZA_PROJECT 4\n");
   // Its volume, key lights and screen are the board's now (CardenzaHAL's system settings): carried over to
   // the board once (Device::Settings; the simulator has none) and gone from system.cfg.
-  WriteText(systemSettings, "protocol=2\nsys.volume=85\nsys.led=9\nfuture.system=keep\n");
-  WriteText(synthSettings, "keys.select=1\nfuture.synth=keep\n");
+  WriteText(release / "Settings" / "system.cfg", "protocol=2\nsys.volume=85\nsys.led=9\nfuture.system=keep\n");
+  WriteText(release / "Settings" / "synth.cfg", "keys.select=1\nfuture.synth=keep\n");
   // What development builds wrote in between (protocol 1, Cardenza/): neither read nor changed.
   const fs::path between = card / "Cardenza";
   WriteText(between / "System" / "settings.cfg", "protocol=1\nsys.led=3\n");
@@ -273,6 +276,7 @@ int main(int argc, char** argv)
   os::system::UseClock(&FakeClock);
   assert(os::system::Begin());
   assert(!os::storage::CardMissingThisRun() && os::storage::CardMounted());
+  assert(!fs::exists(release) && fs::is_regular_file(product / "Projects" / "OLD SONG.ccproj"));
   assert(os::system::ActiveApplicationId() == "Cardenza/Synth");
   auto* groove = &Groove();
   assert(groove->Ui().TopModal() == nullptr);  // no notice with a card
@@ -286,11 +290,11 @@ int main(int argc, char** argv)
   const auto samples = groove->ListSamples();
   assert(std::find(samples.begin(), samples.end(), "kick.wav") != samples.end());
   std::string text = ReadText(systemSettings);
-  assert(Contains(text, "protocol=2\n") && Contains(text, "future.system=keep\n") && Contains(text, "boot.app=Cardenza/Synth\n"));
+  assert(Contains(text, "protocol=3\n") && Contains(text, "future.system=keep\n") && Contains(text, "boot.app=Cardenza/Synth\n"));
   for (const char* folder : {"Settings", "Samples", "Projects", "Presets/DX7", "Presets/Drums", "Session"}) assert(fs::is_directory(product / folder));
   assert(!fs::exists(product / "Apps") && !fs::exists(root / "internal"));
 
-  // The console log (OS/System/Log.h): on by default, written to CardenzaSynth/Logs every few seconds.
+  // The console log (OS/System/Log.h): on by default, written to Apps/CardenzaSynth/Logs every few seconds.
   const fs::path logFile = product / "Logs" / "log.txt";
   assert(os::storage::LogEnabled() && os::log::FilePath() == logFile.generic_string());
   gNow += os::log::kWriteIntervalMs;

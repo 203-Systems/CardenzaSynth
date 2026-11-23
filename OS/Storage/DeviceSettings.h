@@ -31,7 +31,7 @@ inline constexpr Theme kDefaultTheme = Theme::Dark;
 // (Device::Settings::CarryOver), and leave system.cfg.
 void ApplyDeviceSettings();
 
-// The console log written to the card (CardenzaSynth/Logs).
+// The console log written to the card (Apps/CardenzaSynth/Logs).
 void SetLogEnabled(bool enabled);
 bool LogEnabled();
 // The screen theme. The app that draws applies it (only it knows its colors).

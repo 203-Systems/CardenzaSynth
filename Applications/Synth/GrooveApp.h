@@ -20,7 +20,7 @@ namespace apps {
 // The Cardenza groovebox: four engine tracks, the step sequencer, sampler, mixer and project
 // storage behind the terminal / dither UI in Applications/Synth/UI/Groove.
 //
-// Storage (docs/app-storage-protocol.md), on the SD card only, below CardenzaSynth/: projects in
+// Storage (docs/app-storage-protocol.md), on the SD card only, below Apps/CardenzaSynth/: projects in
 // Projects/, preset banks in Presets/<engine>/, samples in Samples/. SELECT is an app setting in
 // Settings/synth.cfg; volume, key LEDs and screen are device settings in Settings/system.cfg
 // (os::storage). Neither changes when a project is loaded or created. The working state is the

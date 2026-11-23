@@ -21,6 +21,7 @@ fs::path cardRoot;
 bool cardInserted = true;
 unsigned writeFailureChecks = 0;
 unsigned mountCalls = 0;
+unsigned moveCalls = 0;
 
 void Require(bool condition, const char* message)
 {
@@ -63,7 +64,7 @@ struct ScratchCard {
 
 std::string Path(const char* name)
 {
-  return (cardRoot / "CardenzaSynth" / "Settings" / name).generic_string();
+  return (cardRoot / "Apps" / "CardenzaSynth" / "Settings" / name).generic_string();
 }
 
 void MissingCardAndLateInsertion()
@@ -224,6 +225,7 @@ void RunWithoutCard()
   cardInserted = true;  // put in after the start
   const unsigned mounts = mountCalls;
   const unsigned checks = writeFailureChecks;
+  const unsigned moves = moveCalls;
   Require(!os::storage::CardPresent() && !os::storage::CardMounted() && os::storage::CardFreeBytes() == 0 &&
               !os::storage::EnsureSystemLayout(),
           "a run without a card used the card put in later");
@@ -240,11 +242,11 @@ void RunWithoutCard()
               !settings.Flush() && settings.Dirty() && settings.GetInt("sys.volume", 0) == 25,
           "settings without a card are not kept in RAM");
   os::storage::ReportCardIoError();
-  Require(mountCalls == mounts && writeFailureChecks == checks, "a run without a card asked the device about the card");
-  Require(Read(path) == "sys.volume=80\n" && !fs::exists(cardRoot / "CardenzaSynth" / "New") && !fs::exists(path + ".tmp"),
+  Require(mountCalls == mounts && writeFailureChecks == checks && moveCalls == moves, "a run without a card asked the device about the card");
+  Require(Read(path) == "sys.volume=80\n" && !fs::exists(cardRoot / "Apps" / "CardenzaSynth" / "New") && !fs::exists(path + ".tmp"),
           "the card changed in a run without one");
-  // The next start finds it.
-  Require(os::storage::DecideCardAtStart() && !os::storage::CardMissingThisRun() && os::storage::Exists(path),
+  // The next start finds it, and moves the 0.1.0 layout's folder first (the device's MigrateAppDir).
+  Require(os::storage::DecideCardAtStart() && !os::storage::CardMissingThisRun() && os::storage::Exists(path) && moveCalls == moves + 1,
           "a start with the card did not find it");
 }
 
@@ -255,6 +257,12 @@ namespace Device::Storage {
 void CheckAfterIoError() { ++writeFailureChecks; }
 
 std::string RootPath() { return cardRoot.generic_string(); }
+std::string AppRoot() { return (cardRoot / "Apps" / "CardenzaSynth").generic_string(); }
+void MoveToAppRoot(const std::string& oldPath)
+{
+  ++moveCalls;
+  Require(oldPath == (cardRoot / "CardenzaSynth").generic_string() && IsMounted(), "the old folder moved without a card, or the wrong one");
+}
 bool Mount()
 {
   ++mountCalls;

@@ -3379,14 +3379,14 @@ R 2 3 0 0 2
 END
 )FIXTURE";
 
-// The 0.1.0 release kept its projects and samples where they are now, <card>/CardenzaSynth/{Projects,
-// Samples} (storage protocol 2): they are listed and load as they are. Its session handover file is not
-// read or changed.
+// The 0.1.0 release's projects and samples, in the folder the start moved them to (<card>/CardenzaSynth
+// became <card>/Apps/CardenzaSynth, storage protocol 3; the move: storage_protocol_test, app_lifecycle_test):
+// they are listed and load as they are. Its session handover file is not read or changed.
 void TestReleaseProjects(Harness& h)
 {
   namespace fs = std::filesystem;
   auto& app = h.App();
-  const fs::path release = fs::path(Device::Storage::RootPath()) / "CardenzaSynth";
+  const fs::path release = fs::path(Device::Storage::AppRoot());
   const fs::path ours = fs::path(synth::storage::ProjectDirectory());
   assert(fs::equivalent(ours, release / "Projects"));
   const auto write = [](const fs::path& path, const std::string& text) {

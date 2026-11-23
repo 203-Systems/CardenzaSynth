@@ -193,6 +193,8 @@ function(cardenza_collect_sim_device_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Devices/CardenzaSim/Device.cpp
         ${root_dir}/Devices/CardenzaSim/Storage.cpp
+        # CardenzaHAL's pure folder move (no ESP-IDF): the simulators move the card's folder as the device does.
+        ${root_dir}/Devices/Cardenza/CardenzaHAL/storage/app_dir_logic.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)
 endfunction()

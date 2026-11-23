@@ -20,7 +20,7 @@ namespace os::storage {
 
 namespace {
 
-constexpr std::string_view kRootFolder = "CardenzaSynth";
+constexpr std::string_view kLegacyRootFolder = "CardenzaSynth";  // protocol 2: at the card's root
 constexpr std::string_view kSettingsFolder = "Settings";
 constexpr std::string_view kSamplesFolder = "Samples";
 constexpr std::string_view kAppsFolder = "Apps";
@@ -74,7 +74,12 @@ std::string JoinPath(std::string_view directory, std::string_view name)
 
 std::string Root()
 {
-  return JoinPath(Device::Storage::RootPath(), kRootFolder);
+  return Device::Storage::AppRoot();
+}
+
+std::string LegacyRoot()
+{
+  return JoinPath(Device::Storage::RootPath(), kLegacyRootFolder);
 }
 
 std::string SystemDirectory()
@@ -166,6 +171,9 @@ bool DecideCardAtStart()
   // The device tried to mount the card as it started; this asks once more at most (the device limits
   // how often a missing card is probed).
   const bool present = Device::Storage::Mount();
+  // Before anything reads the card: protocol 2's folder at the card's root moves to this firmware's folder
+  // (once; then it is a stat). A run without a card makes no card operation, this one included.
+  if (present) Device::Storage::MoveToAppRoot(LegacyRoot());
   g_cardRun.store(present ? kCardThere : kCardMissing, std::memory_order_relaxed);
   return present;
 }

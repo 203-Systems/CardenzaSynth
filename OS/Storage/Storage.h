@@ -6,11 +6,12 @@
 #include <string_view>
 #include <vector>
 
-// The storage protocol, version 2 (docs/app-storage-protocol.md): the layout the 0.1.0 release
-// wrote, on the SD card only. Nothing is kept in internal flash. Apps reach the card only through
-// this API:
+// The storage protocol, version 3 (docs/app-storage-protocol.md): the layout the 0.1.0 release wrote,
+// in this firmware's folder of the card's shared layout (CardenzaHAL docs/SD-CARD.md: a folder per firmware
+// in Apps/, the 203 Launcher's in Launcher/, nothing at the root), on the SD card only. Nothing is kept in
+// internal flash. Apps reach the card only through this API:
 //
-//   <card>/CardenzaSynth/
+//   <card>/Apps/CardenzaSynth/   the product root (Device::Storage::AppRoot)
 //     Settings/system.cfg     device settings (os::storage::SystemSettings)
 //     Settings/synth.cfg      the groovebox's settings (os::storage::AppSettings("Cardenza/Synth"))
 //     Projects/ Presets/<engine>/ Session/   the groovebox's documents and working state
@@ -18,15 +19,19 @@
 //     Logs/                   the console log (OS/System/Log.h)
 //     Apps/<Author>/<Name>/   any other app, created when it needs it
 //
-// The primary app (Cardenza/Synth) uses the product root itself. FAT long names are required. The
-// device layer (Device::Storage) only provides the card root, mounting and capacity.
+// Protocol 2 had the same folder at <card>/CardenzaSynth/: the run that finds a card moves it here first
+// (DecideCardAtStart). The primary app (Cardenza/Synth) uses the product root itself. FAT long names are
+// required. The device layer (Device::Storage) only provides the card root, this firmware's folder, the
+// move, mounting and capacity.
 namespace os::storage {
 
-inline constexpr int kProtocolVersion = 2;
+inline constexpr int kProtocolVersion = 3;
 inline constexpr std::string_view kPrimaryAppId = "Cardenza/Synth";
 
-// <card>/CardenzaSynth and its folders. SystemDirectory is Settings/; SharedDirectory is the root.
+// <card>/Apps/CardenzaSynth and its folders. SystemDirectory is Settings/; SharedDirectory is the root.
 std::string Root();
+// Where protocol 2 (the 0.1.0 release up to this one) kept the same folder: <card>/CardenzaSynth.
+std::string LegacyRoot();
 std::string SystemDirectory();
 std::string SystemSettingsPath();
 std::string SharedDirectory();
@@ -63,7 +68,9 @@ private:
 };
 
 // Whether this run of the device has a card. The system decides it once, as it starts
-// (os::system::Begin, before any app is set up), from whether the card is mounted then. A run that
+// (os::system::Begin, before any app is set up), from whether the card is mounted then; with a card it
+// first moves LegacyRoot() to Root() (Device::Storage::MoveToAppRoot: one rename, or a merge that never
+// overwrites when both are there; a power cut at any moment loses nothing). A run that
 // starts without one makes no card operation at all until the device restarts: nothing probes for a
 // card, CardPresent() and CardMounted() stay false, the file helpers below refuse every path on the
 // card, and nothing is saved (a card put in meanwhile changes nothing). A card that was there at the
@@ -89,7 +96,7 @@ void ReportCardIoError();
 std::uint64_t CardCapacityBytes();
 std::uint64_t CardFreeBytes();
 
-// Creates CardenzaSynth/, Settings/ and Samples/. False without a writable card.
+// Creates Apps/CardenzaSynth/, Settings/ and Samples/. False without a writable card.
 bool EnsureSystemLayout();
 // The system layout plus the app's root, its Settings/, Projects/, Presets/, Session/ and one
 // Presets/<group>/ per entry of `presetGroups`.

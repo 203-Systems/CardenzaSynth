@@ -191,6 +191,16 @@ struct FileHandleView {
 // Root of the removable card: "/sdcard" on the device, "<working directory>/sdcard" in the
 // simulator (beside the executable on Windows).
 std::string RootPath();
+// This firmware's own folder on the card, as every firmware on CardenzaHAL has one (its docs/SD-CARD.md: a
+// folder per firmware in Apps/, the 203 Launcher's in Launcher/): "<RootPath()>/Apps/CardenzaSynth"
+// (CardenzaHAL::Storage::AppDir on the device). Computed without touching the card.
+std::string AppRoot();
+// Moves the folder this firmware used before, `oldPath` (below RootPath()), to AppRoot(): CardenzaHAL's
+// MigrateAppDir. One rename when only the old folder is there; when both are, what AppRoot() lacks moves in
+// and what both have stays in the old folder (never overwritten or deleted); safe against a power cut at any
+// moment (the next call finishes). Logs one line when it moved or left something. Needs a mounted card; the
+// OS calls it once, as the run decides it has one, before anything reads the card.
+void MoveToAppRoot(const std::string& oldPath);
 // Mounts the card when it is not mounted. False when it is missing or cannot be mounted; the device
 // may limit how often a missing card is probed.
 bool Mount();

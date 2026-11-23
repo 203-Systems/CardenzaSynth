@@ -22,6 +22,7 @@
 #include <sdkconfig.h>
 
 #include "cardenzaHAL.h"
+#include "storage/app_dir.h"
 #include "usb/usb.h"
 #include "Devices/Cardenza/DevicePresence.h"
 #include "Devices/Cardenza/DeviceUsbStats.h"
@@ -382,6 +383,15 @@ namespace Storage {
 
 std::string RootPath() {
   return kCardRoot;
+}
+
+// /sdcard/Apps/CardenzaSynth: the HAL's folder for this firmware (CONFIG_CARDENZA_HAL_APP_NAME, sdkconfig.defaults).
+std::string AppRoot() {
+  return CardenzaHAL::Storage::AppDir();
+}
+
+void MoveToAppRoot(const std::string& oldPath) {
+  (void)CardenzaHAL::Storage::MigrateAppDir(oldPath);
 }
 
 bool Mount() {

@@ -1,6 +1,7 @@
-// Protocol 2: the 0.1.0 release's CardenzaSynth layout and SD-only settings; earlier layouts remain
-// untouched. The simulator card is taken out and put back without resetting the settings cache, and
-// last a run starts without one.
+// Protocol 3: the 0.1.0 release's layout and SD-only settings, in this firmware's folder <card>/Apps/CardenzaSynth
+// (CardenzaHAL's card layout); protocol 2's <card>/CardenzaSynth moves there at the start, merged when both are
+// there; the layouts before stay as they were. The simulator card is taken out and put back without resetting
+// the settings cache, and last a run starts without one.
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -67,9 +68,10 @@ void ResetCard()
 
 void TestAppPaths()
 {
-  const std::string root = Card().generic_string() + "/CardenzaSynth";
-  assert(Root() == root);
-  assert(kProtocolVersion == 2);
+  const std::string root = Card().generic_string() + "/Apps/CardenzaSynth";
+  assert(Root() == root && Root() == Device::Storage::AppRoot());
+  assert(LegacyRoot() == Card().generic_string() + "/CardenzaSynth");
+  assert(kProtocolVersion == 3);
   assert(SystemDirectory() == root + "/Settings");
   assert(SystemSettingsPath() == root + "/Settings/system.cfg");
   assert(SharedDirectory() == root && SharedSamplesDirectory() == root + "/Samples");
@@ -155,7 +157,7 @@ void TestSettingsRoundTrip()
   // The app folder is created on demand.
   assert(fs::is_regular_file(app.SettingsPath()));
   const std::string file = ReadText(app.SettingsPath());
-  assert(file.find("# Cardenza settings: Test/RoundTrip (storage protocol 2)\n") == 0);
+  assert(file.find("# Cardenza settings: Test/RoundTrip (storage protocol 3)\n") == 0);
   assert(file.find("\nvolume=42\nlatch=1\nlast=Cardenza/Synth\n") != std::string::npos);
   assert(!fs::exists(app.SettingsPath() + ".tmp") && !fs::exists(app.SettingsPath() + ".bak"));
 
@@ -315,48 +317,106 @@ void TestScreenTheme()
   std::cout << "screen theme passed\n";
 }
 
-void TestLegacyLayoutsRemainUntouched()
+// A card protocol 2 wrote (the 0.1.0 release up to this firmware): <card>/CardenzaSynth moves to
+// <card>/Apps/CardenzaSynth at the start, in one rename, and is read there; every byte stays as it was. The
+// folders of the firmware before 0.1.0 inside it (Project, Preset, Sample) move with it, unread; protocol 1's
+// <card>/Cardenza stays where it is.
+void TestMoveFromProtocol2()
 {
   ResetCard();
   const AppFolder synth("Cardenza/Synth");
-  const fs::path original = Card() / "CardenzaSynth";
+  const fs::path old = Card() / "CardenzaSynth";
   const fs::path previous = Card() / "Cardenza";
-  const fs::path oldSynth = previous / "Apps" / "Cardenza" / "Synth";
-  const std::vector<std::pair<fs::path, std::string>> legacyFiles{
-      {original / "Project" / "ORIGINAL.ccproj", "original project bytes"},
-      {original / "Preset" / "DX7" / "original.ccpreset", "original preset bytes"},
-      {original / "Sample" / "original.wav", "original sample bytes"},
-      {original / "notes.txt", "user notes"},
-      {previous / "System" / "settings.cfg", "protocol=1\nsys.volume=61\nfuture.system=untouched\n"},
-      {previous / "System" / "settings.cfg.bak", "protocol=1\nsys.volume=62\n"},
-      {oldSynth / "settings.cfg", "keys.octave=2\nfuture.synth=untouched\n"},
-      {oldSynth / "settings.cfg.tmp", "uncommitted bytes"},
-      {oldSynth / "Projects" / "PREVIOUS.ccproj", "previous project bytes"},
-      {oldSynth / "Projects" / "RECOVERY.ccproj.bak", "previous recovery bytes"},
-      {oldSynth / "Presets" / "Juno" / "previous.ccpreset", "previous preset bytes"},
-      {oldSynth / "Session" / "session.cfg", "pending=1\nname=PREVIOUS\n"},
-      {previous / "Shared" / "Samples" / "previous.wav", "previous sample bytes"},
-      {previous / "Apps" / "Other" / "Tool" / "settings.cfg", "other.option=untouched\n"},
+  const std::vector<std::pair<std::string, std::string>> release{
+      {"Settings/system.cfg", "protocol=2\nsys.theme=light\nfuture.system=kept\n"},
+      {"Settings/synth.cfg", "keys.select=1\n"},
+      {"Projects/DEMO-2.ccproj", "CARDENZA_PROJECT 6\n"},
+      {"Presets/DX7/user.ccpreset", "CARDENZA_PRESETS 1 \"dx7\"\n"},
+      {"Samples/kick.wav", "RIFF kick"},
+      {"Session/autosave.ccproj", "CARDENZA_PROJECT 7\n"},
+      {"Session/autosave.txt", "generation=4\nname=DEMO-2\n"},
+      {"Session/session.cfg", "pending=1\n"},  // 0.1.0's own: not read
+      {"Logs/log.txt", "==== started\n"},
+      {"Project/ORIGINAL.ccproj", "original project bytes"},  // before 0.1.0: not read
+      {"Preset/DX7/original.ccpreset", "original preset bytes"},
+      {"Sample/original.wav", "original sample bytes"},
+      {"notes.txt", "user notes"},
   };
-  for (const auto& file : legacyFiles) WriteText(file.first, file.second);
-  assert(EnsureAppLayout(synth, {"DX7", "Juno"}));
-  Settings& system = SystemSettings();
-  Settings& app = AppSettings(synth.Id());
-  assert(system.GetInt("sys.volume", 85) == 85 && !system.Has("future.system"));
-  assert(app.GetInt("keys.octave", 0) == 0 && !app.Has("future.synth"));
-  assert(system.SetInt("sys.volume", 42) && app.SetInt("keys.octave", 1) && FlushAllSettings());
-  assert(ReadText(SystemSettingsPath()).find("sys.volume=42\n") != std::string::npos);
-  assert(ReadText(SystemSettingsPath()).find("future.system") == std::string::npos);
-  assert(ReadText(synth.SettingsPath()).find("keys.octave=1\n") != std::string::npos);
-  assert(ReadText(synth.SettingsPath()).find("future.synth") == std::string::npos);
-  // The ordinary new-layout APIs neither discover nor move documents from either older layout.
-  assert(ListDirectory(synth.Projects()).empty() && ListDirectory(SharedSamplesDirectory()).empty());
-  assert(ListDirectory(synth.Presets("DX7")).empty() && ListDirectory(synth.Presets("Juno")).empty());
-  assert(ListDirectory(synth.Session()).empty());
-  for (const auto& file : legacyFiles) assert(ReadText(file.first) == file.second && fs::is_regular_file(file.first));
-  assert(!fs::exists(Internal()));
+  for (const auto& [name, text] : release) WriteText(old / name, text);
+  const std::vector<std::pair<fs::path, std::string>> between{
+      {previous / "System" / "settings.cfg", "protocol=1\nsys.volume=61\n"},
+      {previous / "Apps" / "Cardenza" / "Synth" / "Projects" / "PREVIOUS.ccproj", "previous project bytes"},
+      {previous / "Shared" / "Samples" / "previous.wav", "previous sample bytes"},
+  };
+  for (const auto& [path, text] : between) WriteText(path, text);
+
+  assert(DecideCardAtStart() && !CardMissingThisRun());
+  assert(!fs::exists(old) && fs::is_directory(Root()));
+  for (const auto& [name, text] : release) assert(ReadText(fs::path(Root()) / name) == text);
+  for (const auto& [path, text] : between) assert(ReadText(path) == text);
+  ReloadAllSettings();
+  ApplyDeviceSettings();
+  assert(ScreenTheme() == Theme::Light && SystemSettings().GetString("future.system") == "kept");
+  assert(AppSettings(synth.Id()).GetInt("keys.select", 0) == 1);
+  const auto projects = ListDirectory(synth.Projects());
+  assert(projects.size() == 1 && projects[0].name == "DEMO-2.ccproj");
+  assert(ListDirectory(SharedSamplesDirectory()).size() == 1);
+  // The ordinary APIs do not look into the older folders that moved with it.
+  assert(EnsureAppLayout(synth, {"DX7", "Juno"}) && ListDirectory(synth.Presets("Juno")).empty());
+  // Done: the next start finds nothing to move and changes nothing.
+  const auto files = [](const fs::path& root) {
+    std::vector<std::string> names;
+    for (const auto& entry : fs::recursive_directory_iterator(root)) names.push_back(entry.path().generic_string());
+    std::sort(names.begin(), names.end());
+    return names;
+  };
+  const auto before = files(Card());
+  assert(DecideCardAtStart() && files(Card()) == before);
   ReleaseAppSettings(synth.Id());
-  std::cout << "legacy layouts and file bytes remain untouched\n";
+  assert(!fs::exists(Internal()));
+  std::cout << "protocol 2's folder moved, every byte kept\n";
+}
+
+// Back on an older version after the move, the user saved there; this version again: what the new folder
+// lacks moves in, what both have stays in the old folder (never overwritten), and both are read as before.
+void TestMergeAfterDowngrade()
+{
+  ResetCard();
+  const AppFolder synth("Cardenza/Synth");
+  const fs::path old = Card() / "CardenzaSynth";
+  const fs::path root = Device::Storage::AppRoot();
+  WriteText(root / "Settings" / "system.cfg", "protocol=3\nsys.theme=retro\n");
+  WriteText(root / "Projects" / "SONG 01.ccproj", "CARDENZA_PROJECT 8 new\n");
+  WriteText(root / "Session" / "autosave.ccproj", "CARDENZA_PROJECT 8 newer firmware\n");
+  // What the older version made and saved: its folder again, a project, its own settings and autosave.
+  WriteText(old / "Settings" / "system.cfg", "protocol=2\nsys.theme=light\n");
+  WriteText(old / "Projects" / "SONG 01.ccproj", "CARDENZA_PROJECT 7 old\n");
+  WriteText(old / "Projects" / "DOWNGRADED.ccproj", "CARDENZA_PROJECT 7 made on the older version\n");
+  WriteText(old / "Session" / "autosave.ccproj", "CARDENZA_PROJECT 7 older firmware\n");
+  WriteText(old / "Samples" / "take.wav", "RIFF take");
+  fs::create_directories(old / "Presets" / "Juno");
+
+  assert(DecideCardAtStart());
+  assert(ReadText(root / "Projects" / "DOWNGRADED.ccproj") == "CARDENZA_PROJECT 7 made on the older version\n");
+  assert(ReadText(root / "Samples" / "take.wav") == "RIFF take" && fs::is_directory(root / "Presets" / "Juno"));
+  // Never overwritten: the new folder keeps its own; the old one keeps the three it could not move.
+  assert(ReadText(root / "Settings" / "system.cfg") == "protocol=3\nsys.theme=retro\n");
+  assert(ReadText(root / "Projects" / "SONG 01.ccproj") == "CARDENZA_PROJECT 8 new\n");
+  assert(ReadText(root / "Session" / "autosave.ccproj") == "CARDENZA_PROJECT 8 newer firmware\n");
+  assert(ReadText(old / "Settings" / "system.cfg") == "protocol=2\nsys.theme=light\n");
+  assert(ReadText(old / "Projects" / "SONG 01.ccproj") == "CARDENZA_PROJECT 7 old\n");
+  assert(ReadText(old / "Session" / "autosave.ccproj") == "CARDENZA_PROJECT 7 older firmware\n");
+  assert(!fs::exists(old / "Samples") && !fs::exists(old / "Presets") && !fs::exists(old / "Projects" / "DOWNGRADED.ccproj"));
+  ReloadAllSettings();
+  ApplyDeviceSettings();
+  assert(ScreenTheme() == Theme::Retro);
+  assert(ListDirectory(synth.Projects()).size() == 2);
+  // Once the user moved those three by hand, the old folder goes at the next start.
+  fs::remove(old / "Settings" / "system.cfg");
+  fs::rename(old / "Projects" / "SONG 01.ccproj", root / "Projects" / "SONG 01 (old).ccproj");
+  fs::remove(old / "Session" / "autosave.ccproj");
+  assert(DecideCardAtStart() && !fs::exists(old));
+  std::cout << "merge after a downgrade passed\n";
 }
 
 // A run that starts without a card makes no card operation until the next start, a card put in
@@ -366,7 +426,10 @@ void TestRunWithoutCard()
   ResetCard();
   assert(EnsureSystemLayout());
   const std::string settingsPath = SystemSettingsPath();
-  WriteText(settingsPath, "protocol=2\nsys.volume=47\n");
+  WriteText(settingsPath, "protocol=3\nsys.volume=47\n");
+  // Protocol 2's folder too: a run without a card does not move it.
+  const fs::path old = fs::path(LegacyRoot()) / "Projects" / "OLD.ccproj";
+  WriteText(old, "CARDENZA_PROJECT 6\n");
   CardenzaSim::Input::SetCardInserted(false);
   assert(!DecideCardAtStart() && CardMissingThisRun());
   CardenzaSim::Input::SetCardInserted(true);
@@ -383,10 +446,11 @@ void TestRunWithoutCard()
   assert(system.GetInt("sys.volume", 85) == 85 && system.SetInt("sys.volume", 30));
   assert(!RefreshAllSettingsFromCard() && !FlushAllSettings() && AnySettingsDirty() && system.GetInt("sys.volume", 0) == 30);
   ReportCardIoError();
-  assert(ReadText(settingsPath) == "protocol=2\nsys.volume=47\n");
+  assert(ReadText(settingsPath) == "protocol=3\nsys.volume=47\n" && ReadText(old) == "CARDENZA_PROJECT 6\n");
   assert(!fs::exists(fs::path(Root()) / "New") && !fs::exists(settingsPath + ".tmp") && !fs::exists(synth.Presets("DX7")));
-  // The next start with the card reads it again.
+  // The next start with the card reads it again, and moves the old folder in.
   assert(DecideCardAtStart() && !CardMissingThisRun());
+  assert(!fs::exists(LegacyRoot()) && ReadText(fs::path(synth.Projects()) / "OLD.ccproj") == "CARDENZA_PROJECT 6\n");
   ReloadAllSettings();
   assert(SystemSettings().GetInt("sys.volume", 0) == 47);
   std::cout << "run without a card passed\n";
@@ -415,7 +479,8 @@ int main()
   TestMissingCardRamOnly();
   TestDeviceSettings();
   TestScreenTheme();
-  TestLegacyLayoutsRemainUntouched();
+  TestMoveFromProtocol2();
+  TestMergeAfterDowngrade();
   TestRunWithoutCard();
   assert(!fs::exists(Internal()));
 
