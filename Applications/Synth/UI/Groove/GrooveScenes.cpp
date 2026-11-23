@@ -1,5 +1,7 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
+#include "Applications/Synth/Runtime/SoundFont/SoundFonts.h"
 #include "Applications/Synth/Runtime/Vocal/VoicePacks.h"
+#include "Library/Synth/Core/Engines/SoundFont/SoundFontSynthEngine.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
 #include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
 #include "OS/Storage/DeviceSettings.h"
@@ -1157,6 +1159,7 @@ void Controller::RunSlotAction(SlotAction action)
     }
     case SlotAction::SamplePreview: host_.PreviewSample(state_.track); break;
     case SlotAction::VoicePack: OpenVoiceBrowser(); break;
+    case SlotAction::SoundFont: OpenFontBrowser(); break;
     case SlotAction::None:
     default: break;
   }
@@ -2192,6 +2195,8 @@ MenuItems Controller::Menu() const
         put(9, MenuAction::SampleRecord, "RECORD", "SAMPLE");
         put(10, MenuAction::SamplePreview, "PREVIEW", "SAMPLE");
       }
+      if (const auto* font = synth::SoundFontSynthEngine::From(ActiveEngine()))
+        put(8, MenuAction::SoundFont, "FONT", font->HasFont() ? synth::SoundFontLabel(font->FontFileName()) : std::string("NONE"));
       if (const synth::VocalSynthEngine* vocal = ActiveVocal())
       {
         put(8, MenuAction::VoicePack, "SINGER", vocal->BuiltinPack() ? std::string("BUILTIN") : synth::VoicePackLabel(vocal->PackFileName()));
@@ -2344,6 +2349,7 @@ void Controller::RunMenuAction(const MenuItem& item)
     case MenuAction::SampleRecord: RunSlotAction(SlotAction::SampleRecord); break;
     case MenuAction::SamplePreview: RunSlotAction(SlotAction::SamplePreview); break;
     case MenuAction::VoicePack: RunSlotAction(SlotAction::VoicePack); break;
+    case MenuAction::SoundFont: RunSlotAction(SlotAction::SoundFont); break;
     case MenuAction::LyricRestart: RestartLyric(); break;
     case MenuAction::LyricDelete: DeleteLyricWord(); break;
     case MenuAction::LyricClear:

@@ -24,6 +24,7 @@
 
 #include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Applications/Synth/Runtime/SynthStorage.h"
+#include "Applications/Synth/Runtime/SoundFont/SoundFonts.h"
 #include "Applications/Synth/Runtime/Vocal/VoicePacks.h"
 #include "Applications/Synth/UI/Groove/Render/Gfx.h"
 #include "Applications/Synth/UI/Groove/Render/GrooveRenderer.h"
@@ -31,6 +32,7 @@
 #include "Devices/LedLight.h"
 #include "Library/Synth/Audio/Braids/BraidsVoice.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
+#include "Library/Synth/Core/Engines/SoundFont/SoundFontSynthEngine.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
 #include "OS/MIDI/MIDI.h"
 #include "OS/Storage/DeviceSettings.h"
@@ -98,6 +100,9 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
     // which looks for their memory itself and plays with fewer, or none, when it is short.
     case synth::SynthEngineKind::Plaits: return 6 * 1024;
     case synth::SynthEngineKind::Vocal: return 8 * 1024;
+    // The engine's parameters only: a patch's regions and samples are in PSRAM, within the track's
+    // budget (SoundFontSynthEngine).
+    case synth::SynthEngineKind::SoundFont: return 6 * 1024;
     case synth::SynthEngineKind::None:
     default: return 0;
   }
@@ -357,6 +362,18 @@ void GrooveApp::ApplyPendingSamples()
       SyncTrackKeys();
       continue;
     }
+    if (auto* font = synth::SoundFontSynthEngine::From(rack_.Slot(track).engine.get()))
+    {
+      // The patch the track played waits in the engine: it comes back with its file.
+      if (font->HasFont()) continue;
+      std::string message;
+      if (std::shared_ptr<synth::soundfont::Font> file = SharedSoundFont(track, name, message))
+      {
+        font->SetFont(std::move(file), name);
+        if (!font->RetryPatch() && !font->PatchWaits()) (void)font->LoadFirstPatch();
+      }
+      continue;
+    }
     const auto kind = rack_.Slot(track).kind;
     if ((kind != synth::SynthEngineKind::Sampler && kind != synth::SynthEngineKind::Chop) || !sampler_.BuildUiState(track).sampleFileName.empty()) continue;
     synth::SamplerManager::PreparedSample sample;
@@ -609,6 +626,20 @@ void GrooveApp::Tick()
   KeepSessionCurrent(now);
   EndOrphanNotes(now);
   CheckPlaitsVoices();
+  CheckSoundFontLoads();
+}
+
+// A patch read in the background that did not load: its track went back to what it played, and the
+// screen says why.
+void GrooveApp::CheckSoundFontLoads()
+{
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    auto* font = synth::SoundFontSynthEngine::From(rack_.Slot(track).engine.get());
+    if (font == nullptr) continue;
+    const std::string failure = font->TakeLoadFailure();
+    if (!failure.empty()) controller_.ReportTrackProblem(track, failure);
+  }
 }
 
 // A Plaits track plays with the voices its memory allowed (the audio side allocates them when it sets
@@ -842,6 +873,14 @@ bool GrooveApp::SwitchEngine(std::size_t track, synth::SynthEngineKind kind, std
   slot.kind = kind;
   sampler_.OnTrackEngineChanged(track, kind);
   SyncTrackKeys();
+  // A SoundFont track starts with the first file on the card, so it sounds at once; without one it
+  // is silent and says so (INSTR VOICE).
+  if (kind == synth::SynthEngineKind::SoundFont)
+  {
+    const std::vector<std::string> fonts = synth::ListSoundFonts();
+    std::string message;
+    if (!fonts.empty()) (void)SetSoundFont(track, fonts.front(), message);
+  }
   return true;
 }
 
@@ -1165,6 +1204,47 @@ synth::vocal::Status GrooveApp::VocalStatus(std::size_t track) const
 }
 
 // ---------------------------------------------------------------------------------------------
+// SoundFont tracks
+
+std::vector<std::string> GrooveApp::ListSoundFonts() const
+{
+  return synth::ListSoundFonts();
+}
+
+// The file as another track has it open already (one list of patches for both), or opened now.
+std::shared_ptr<synth::soundfont::Font> GrooveApp::SharedSoundFont(std::size_t track, const std::string& fileName, std::string& message)
+{
+  for (std::size_t other = 0; other < synth::kSynthTrackCount; ++other)
+    if (const auto* sharing = synth::SoundFontSynthEngine::From(rack_.Slot(other).engine.get());
+        sharing != nullptr && other != track && sharing->HasFont() && sharing->FontFileName() == fileName)
+      return sharing->SharedFont();
+  return synth::OpenSoundFont(fileName, message);
+}
+
+bool GrooveApp::SetSoundFont(std::size_t track, const std::string& fileName, std::string& message)
+{
+  auto* engine = track < synth::kSynthTrackCount ? synth::SoundFontSynthEngine::From(rack_.Slot(track).engine.get()) : nullptr;
+  if (engine == nullptr)
+  {
+    message = "NOT A SOUNDFONT TRACK";
+    return false;
+  }
+  std::shared_ptr<synth::soundfont::Font> font = SharedSoundFont(track, fileName, message);
+  if (!font) return false;
+  // The same instrument of the new file when it has one there (a piano stays a piano).
+  unsigned bank = 0;
+  unsigned program = 0;
+  const bool hadPatch = engine->CurrentPatch(bank, program);
+  synth::audio::AllNotesOff(track);
+  engine->SetFont(std::move(font), fileName);
+  pendingSamples_[track].clear();
+  std::printf("Groove: track %u plays from %s\n", static_cast<unsigned>(track + 1), fileName.c_str());
+  if ((hadPatch && engine->LoadPatch(bank, program)) || engine->LoadFirstPatch()) return true;
+  message = engine->LoadMessage().empty() ? "NO PATCH LOADED" : engine->LoadMessage();
+  return false;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Projects
 
 std::vector<std::string> GrooveApp::ListProjects() const
@@ -1192,10 +1272,11 @@ bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth:
     project.kinds[track] = slot.kind;
     project.engines[track] = forSession ? slot.engine->CaptureChanges() : slot.engine->CaptureState();
     const auto* vocal = synth::VocalSynthEngine::From(slot.engine.get());
-    project.samples[track] = vocal != nullptr ? vocal->PackFileName() : sample.sampleFileName;
+    const auto* font = synth::SoundFontSynthEngine::From(slot.engine.get());
+    project.samples[track] = vocal != nullptr ? vocal->PackFileName() : font != nullptr ? font->FontFileName() : sample.sampleFileName;
     // Still waiting for the card it is on.
     if (forSession && project.samples[track].empty() &&
-        (slot.kind == synth::SynthEngineKind::Sampler || slot.kind == synth::SynthEngineKind::Chop || vocal != nullptr))
+        (slot.kind == synth::SynthEngineKind::Sampler || slot.kind == synth::SynthEngineKind::Chop || vocal != nullptr || font != nullptr))
       project.samples[track] = pendingSamples_[track];
   }
   project.sequence = sequencer_.CaptureState();
@@ -1469,6 +1550,27 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
     message = "VOICE MISSING";
     return false;
   }
+  // The files of the SoundFont tracks (tracks naming the same file share its list of patches). A
+  // patch itself is read when its engine takes the track, below.
+  std::array<std::shared_ptr<synth::soundfont::Font>, synth::kSynthTrackCount> fonts;
+  for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
+  {
+    if (project.kinds[track] != synth::SynthEngineKind::SoundFont || project.samples[track].empty()) continue;
+    for (std::size_t previous = 0; previous < track && !fonts[track]; ++previous)
+      if (project.kinds[previous] == synth::SynthEngineKind::SoundFont && project.samples[previous] == project.samples[track]) fonts[track] = fonts[previous];
+    std::string why;
+    if (!fonts[track]) fonts[track] = synth::OpenSoundFont(project.samples[track], why);
+    if (fonts[track]) continue;
+    // The working state does not fall over a file that is not there: the track is silent and keeps
+    // its patch until the file comes back.
+    if (workingState)
+    {
+      pending[track] = project.samples[track];
+      continue;
+    }
+    message = "FONT MISSING";
+    return false;
+  }
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
     // A sample of a sampler or a chop track (a vocal track's file is its voice pack, above).
@@ -1506,6 +1608,9 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   {
     auto& slot = rack_.Slot(track);
     auto engine = BuildEngine(project.kinds[track], 0, true);
+    // A SoundFont track's file first: its patches are the presets the saved state names.
+    if (auto* font = synth::SoundFontSynthEngine::From(engine.get()); font != nullptr && fonts[track])
+      font->SetFont(fonts[track], project.samples[track]);
     if (engine && !createNew && !engine->RestoreState(project.engines[track]) && !workingState)
       std::printf("Groove: track %u lost its sound while loading\n", static_cast<unsigned>(track + 1));
     // Its values are in the engine now: they go back to the heap before the next track is built.

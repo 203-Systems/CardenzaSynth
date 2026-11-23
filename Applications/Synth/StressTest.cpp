@@ -5,6 +5,7 @@
 #include "Applications/Synth/GrooveApp.h"
 #include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
+#include "Applications/Synth/StressSoundFont.h"
 #include "Devices/Device.h"
 #include "Library/Memory/Memory.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
@@ -77,6 +78,7 @@ struct Result {
   std::uint16_t lostStolen;   // held notes whose voice a newer one took (the track's voices all held)
   std::uint16_t dx7Us, junoUs, drumsUs, waveUs, braidsUs, overheadUs;  // the budget's model at the end
   std::uint16_t plaitsUs;  // a voice of the dearest Plaits track (0: none)
+  std::uint16_t sf2Us;     // a voice of the dearest SoundFont track (0: none)
   std::uint16_t scalePercent;
   std::uint16_t uiMaxMs;
   std::uint16_t uiDrops;
@@ -96,11 +98,11 @@ struct Persist {
   Result results[kMaxScenarios];
 };
 static_assert(std::is_trivially_default_constructible_v<Persist>, "a constructor would clear it at every start");
-constexpr std::uint32_t kMagic = 0x53545233u;  // "STR3": Result gained the new engines' costs
+constexpr std::uint32_t kMagic = 0x53545234u;  // "STR4": Result gained the SoundFont voices' cost
 RTC_NOINIT_ATTR Persist g_persist;
 
 enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
-enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, AmyBench, WaveStacks, Braids, Plaits, Vocal, Chop };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, AmyBench, WaveStacks, Braids, Plaits, Vocal, Chop, SoundFont };
 
 struct Scenario {
   std::string name;
@@ -144,6 +146,7 @@ std::string ProjectName(Variant variant)
     case Variant::Plaits: return std::string(kPrefix) + "PLAITS";
     case Variant::Vocal: return std::string(kPrefix) + "VOCAL";
     case Variant::Chop: return std::string(kPrefix) + "CHOP";
+    case Variant::SoundFont: return std::string(kPrefix) + "SF2";
     case Variant::None: break;
   }
   return std::string(kPrefix) + "NONE";
@@ -171,6 +174,23 @@ bool WriteSample(const char* name, std::size_t frames, float frequency)
     }
     return true;
   });
+}
+
+// The stress test's SoundFont (Applications/Synth/StressSoundFont.h), written once.
+bool WriteStressFont()
+{
+  const std::string path = synth::storage::SoundFontDirectory() + "/" + synth::stress::kSoundFontFileName;
+  if (std::FILE* file = std::fopen(path.c_str(), "rb"))
+  {
+    std::fclose(file);
+    return true;
+  }
+  std::FILE* file = std::fopen(path.c_str(), "wb");
+  if (file == nullptr) return false;
+  const bool written = synth::stress::WriteStressSoundFont(file);
+  const bool closed = std::fclose(file) == 0;
+  if (!written || !closed) std::remove(path.c_str());
+  return written && closed;
 }
 
 struct TrackSpec {
@@ -372,14 +392,31 @@ synth::ProjectData MakeProject(Variant variant, int bench = 0)
       // Plaits tracks (a pair of analog waves in two-note chords, a modal resonator on every step,
       // its tails ringing over each other) beside the drum machine and a Juno pad: three Plaits
       // notes held at once, which has to fit. `plaits` in the result is what a voice of the dearer
-      // track cost; a held note lost here means the budget's share for Plaits (kPlaitsFloorMicros,
-      // SynthAudioRuntimeAmy.cpp) or this scenario is to be looked at.
+      // track cost; a held note lost here means the budget's share for the measured tracks
+      // (kMeasuredFloorMicros, SynthAudioRuntimeAmy.cpp) or this scenario is to be looked at.
       tracks[0] = TrackSpec{SynthEngineKind::Drums, "drums.808", "", 3, 1, 24, 36, true};
       tracks[1] = TrackSpec{SynthEngineKind::Plaits, "plaits.analog", "", 2, 2, 48, 48};
       tracks[2] = TrackSpec{SynthEngineKind::Plaits, "plaits.modal", "", 1, 1, 12, 60};
       tracks[3] = TrackSpec{SynthEngineKind::Juno, "juno.a68", "", 4, 4, 96, 55};
       tracks[2].reverb = 80;
       tracks[1].delay = 60;
+      break;
+    }
+    case Variant::SoundFont:
+    {
+      // Four SoundFont tracks of the stress font (two regions a note, the pad's filter moving): a chord
+      // of four on every step, released before the next, so every voice of every track is busy with
+      // new notes and the tails they take over. `sf2` in the result is what a voice of the dearest
+      // track cost. Track 1 switches between the font's two patches while it plays (read in the
+      // background, the old one playing until the new one is there).
+      for (std::size_t track = 0; track < tracks.size(); ++track)
+      {
+        tracks[track] = TrackSpec{SynthEngineKind::SoundFont, track == 0 ? "sf.0.1" : "sf.0.0", synth::stress::kSoundFontFileName, 4, 1, 20,
+                                  40 + 6 * static_cast<int>(track)};
+        tracks[track].chorus = 0;
+        tracks[track].delay = 30;
+        tracks[track].reverb = 50;
+      }
       break;
     }
     case Variant::Vocal:
@@ -494,6 +531,7 @@ std::vector<Scenario> BuildScenarios()
   add("vocal", Kind::Generated, Variant::Vocal, 25);
   add("max-patterns", Kind::Generated, Variant::MaxPatterns, 25);
   add("plaits", Kind::Generated, Variant::Plaits, 30);
+  add("sf2", Kind::Generated, Variant::SoundFont, 30);
   add("live-ops", Kind::LiveOps, Variant::Dx7Chords, 45);
   add("ui-storm", Kind::UiStorm, Variant::JunoPads, 30);
   add("worst", Kind::Worst, Variant::FxMax, 40);
@@ -701,11 +739,11 @@ void PrintResult(std::size_t index)
   const Result& r = g_persist.results[index];
   static const char* const kStates[] = {"not run", "running", "done", "RESTARTED"};
   std::printf("stress: %2u %-18s %-9s %s render %u/%u us under %u | notes lost: held %u unheard %u stolen %u (tails %u) | ui max %u ms drops %u | "
-              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | voice us dx7 %u juno %u drums %u wave %u braids %u plaits %u, other %u, scale %u%% | %s\n",
+              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | voice us dx7 %u juno %u drums %u wave %u braids %u plaits %u sf2 %u, other %u, scale %u%% | %s\n",
               static_cast<unsigned>(index), index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?", kStates[r.state & 3],
               r.state == 2 ? (r.ok ? "ok  " : "FAIL") : "    ", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
               r.lostTails, r.uiMaxMs, r.uiDrops, r.seqLatestUs, r.seqLate, r.ramMinKb, r.psramMinKb, r.opMaxMs, r.opUnderruns, r.dx7Us, r.junoUs,
-              r.drumsUs, r.waveUs, r.braidsUs, r.plaitsUs, r.overheadUs, r.scalePercent, r.note);
+              r.drumsUs, r.waveUs, r.braidsUs, r.plaitsUs, r.sf2Us, r.overheadUs, r.scalePercent, r.note);
 }
 
 // One short line a scenario for the summary repeated at the end: the USB console drops long bursts.
@@ -923,10 +961,10 @@ void PrintShortResult(std::size_t index)
 {
   const Result& r = g_persist.results[index];
   static const char* const kStates[] = {"-", "running", "done", "RESTARTED"};
-  std::printf("stress: S %2u %-14s %s %s avg %u max %u under %u held %u unheard %u stolen %u ui %u late %u ram %u dx7 %u juno %u wave %u plaits %u\n",
+  std::printf("stress: S %2u %-14s %s %s avg %u max %u under %u held %u unheard %u stolen %u ui %u late %u ram %u dx7 %u juno %u wave %u plaits %u sf2 %u\n",
               static_cast<unsigned>(index), index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?", kStates[r.state & 3],
               r.state == 2 ? (r.ok ? "ok" : "FAIL") : "-", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
-              r.uiMaxMs, r.seqLatestUs, r.ramMinKb, r.dx7Us, r.junoUs, r.waveUs, r.plaitsUs);
+              r.uiMaxMs, r.seqLatestUs, r.ramMinKb, r.dx7Us, r.junoUs, r.waveUs, r.plaitsUs, r.sf2Us);
 }
 
 void FinishWindow(GrooveApp& app, std::size_t index)
@@ -953,6 +991,7 @@ void FinishWindow(GrooveApp& app, std::size_t index)
   result.waveUs = Cap16(static_cast<std::uint32_t>(model.waveMicros));
   result.braidsUs = Cap16(static_cast<std::uint32_t>(model.braidsMicros));
   result.plaitsUs = Cap16(static_cast<std::uint32_t>(model.plaitsMicros));
+  result.sf2Us = Cap16(static_cast<std::uint32_t>(model.soundFontMicros));
   result.overheadUs = Cap16(static_cast<std::uint32_t>(model.overheadMicros));
   result.scalePercent = Cap16(static_cast<std::uint32_t>(model.budgetScale * 100.0f));
   result.uiMaxMs = Cap16(window.uiMaxMs);
@@ -1024,7 +1063,7 @@ void LiveOperation(GrooveApp& app)
   // memory and every model's tables) by the audio thread while the others play.
   const SynthEngineKind cycle[] = {SynthEngineKind::Juno, SynthEngineKind::Wave, SynthEngineKind::Sampler, SynthEngineKind::Drums,
                                    SynthEngineKind::Dx7, SynthEngineKind::Braids, SynthEngineKind::Plaits, SynthEngineKind::Vocal,
-                                   SynthEngineKind::Chop};
+                                   SynthEngineKind::Chop, SynthEngineKind::SoundFont};
   constexpr std::uint32_t kCycle = sizeof(cycle) / sizeof(cycle[0]);
   switch (g_runner.op++ % 10)
   {
@@ -1111,6 +1150,12 @@ bool SetUp(GrooveApp& app, const Scenario& scenario, Result& result)
     case Kind::UiStorm:
     case Kind::Worst:
     {
+      // The font for the SoundFont tracks, and for the live operations' switch to a SoundFont track.
+      if ((scenario.variant == Variant::SoundFont || scenario.kind == Kind::LiveOps) && !WriteStressFont())
+      {
+        CopyNote(result, "font write failed");
+        return false;
+      }
       if (scenario.variant == Variant::Sampler || scenario.variant == Variant::Chop || scenario.kind == Kind::Worst)
       {
         if (!WriteSample(kShortSample, 66150, 220.0f) || !WriteSample(kLongSample, 20 * 44100, 110.0f) ||
@@ -1316,6 +1361,15 @@ void StressTestTick(GrooveApp& app)
     if ((runner.op++ & 1) == 0) Operation([&] { (void)app.SwitchEngine(2, (runner.op & 2) ? SynthEngineKind::Juno : SynthEngineKind::Dx7, message); });
     else Operation([&] { app.FlushSession(); });
     runner.nextOpMs = NowMs() + 3000;
+  }
+  if (scenario.variant == Variant::SoundFont && now >= runner.nextOpMs)
+  {
+    // Track 1 between the font's two patches: the next one read in the background while all play.
+    Operation([&] {
+      if (synth::ISynthEngine* engine = app.Engine(0))
+        (void)engine->LoadPreset((runner.op++ & 1) == 0 ? "sf.0.0" : "sf.0.1");
+    });
+    runner.nextOpMs = NowMs() + 2000;
   }
   if (scenario.variant == Variant::MaxPatterns && now >= runner.nextOpMs)
   {

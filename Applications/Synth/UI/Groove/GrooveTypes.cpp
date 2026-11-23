@@ -192,6 +192,7 @@ std::string_view EngineShortName(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Plaits: return "PLAITS";
     case synth::SynthEngineKind::Vocal: return "VOCAL";
     case synth::SynthEngineKind::Chop: return "CHOP";
+    case synth::SynthEngineKind::SoundFont: return "SFONT";
     case synth::SynthEngineKind::None:
     default: return "---";
   }
@@ -210,6 +211,7 @@ std::string_view EngineCode(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Plaits: return "PLT";
     case synth::SynthEngineKind::Vocal: return "VOC";
     case synth::SynthEngineKind::Chop: return "CHP";
+    case synth::SynthEngineKind::SoundFont: return "SF2";
     case synth::SynthEngineKind::None:
     default: return "---";
   }

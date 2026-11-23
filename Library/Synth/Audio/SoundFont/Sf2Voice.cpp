@@ -72,7 +72,9 @@ void Voice::Start(const Region& region, const std::int16_t* data, unsigned key, 
   pitchModulated_ = region.modLfoToPitch != 0 || region.vibLfoToPitch != 0 || region.modEnvToPitch != 0;
   step_ = PositionStep(baseCentsQ8_, rateRatioQ24_);
 
-  staticAttenuation_ = (region.attenuationCb + tone.attenuationCb) * 4096 + VelocityAttenuationQ12(soundingVelocity);
+  // A division a note, not per frame (the attenuation is at most 1440 cB: within 32 bits times 127).
+  const std::int32_t depth = tone.velocityDepth > 127 ? 127 : tone.velocityDepth;
+  staticAttenuation_ = (region.attenuationCb + tone.attenuationCb) * 4096 + VelocityAttenuationQ12(soundingVelocity) * depth / 127;
 
   const Envelope& vol = region.volEnv;
   stage_ = Stage::Delay;

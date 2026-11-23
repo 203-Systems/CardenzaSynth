@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,10 @@
 #include "Applications/Synth/UI/Groove/GrooveController.h"
 #include "Applications/Synth/UI/Groove/GrooveHost.h"
 #include "Applications/Synth/UI/Groove/Render/Animator.h"
+
+namespace synth::soundfont {
+class Font;
+}
 
 namespace apps {
 
@@ -72,6 +77,8 @@ public:
   std::vector<std::string> ListVoicePacks() const override;
   bool SetVoicePack(std::size_t track, const std::string& fileName, std::string& message) override;
   synth::vocal::Status VocalStatus(std::size_t track) const override;
+  std::vector<std::string> ListSoundFonts() const override;
+  bool SetSoundFont(std::size_t track, const std::string& fileName, std::string& message) override;
   void SetTrackLevel(std::size_t track, std::uint8_t level) override;
   std::uint8_t TrackLevel(std::size_t track) const override;
   void SetTrackMuted(std::size_t track, bool muted) override;
@@ -172,6 +179,7 @@ private:
   bool Quiet(std::uint32_t now) const;
   void CheckCard(std::uint32_t now);
   void ApplyPendingSamples();
+  std::shared_ptr<synth::soundfont::Font> SharedSoundFont(std::size_t track, const std::string& fileName, std::string& message);
   // Tells the sequencer which tracks' steps carry words (the vocal ones) and how many their singers
   // have, after an engine or a singer changed.
   void SyncTrackKeys();
@@ -229,6 +237,7 @@ private:
   // Each track's Plaits voices as last looked at (PlaitsVoices), to say a change in the log once.
   std::array<std::int8_t, synth::kSynthTrackCount> plaitsVoices_{};
   void CheckPlaitsVoices();
+  void CheckSoundFontLoads();
   synth::SynthRack rack_;
   synth::SamplerManager sampler_;
   synth::SynthSequencer sequencer_;

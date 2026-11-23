@@ -60,6 +60,7 @@ const char* EngineName(synth::SynthEngineKind kind)
   {
     case synth::SynthEngineKind::Drums: return "DRUMS";
     case synth::SynthEngineKind::Vocal: return "VOCAL";
+    case synth::SynthEngineKind::SoundFont: return "SFONT";
     case synth::SynthEngineKind::Juno: return "JUNO";
     case synth::SynthEngineKind::Dx7: return "DX7";
     case synth::SynthEngineKind::Sampler: return "SAMPLER";

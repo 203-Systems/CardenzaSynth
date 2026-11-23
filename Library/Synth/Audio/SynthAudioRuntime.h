@@ -13,6 +13,9 @@
 namespace synth::vocal {
 class Pack;
 }
+namespace synth::audio::sf2 {
+class Program;
+}
 
 namespace synth::audio {
 
@@ -38,6 +41,14 @@ void SetVocalPack(std::size_t engineIndex, std::shared_ptr<const vocal::Pack> pa
 // A vocal track as of the last rendered block: the word a held note sings (-1 for none) and a count of
 // the words started (its low 16 bits). None and zero for any other track.
 vocal::Status VocalStatus(std::size_t engineIndex);
+// A SoundFont track's patch (Library/Synth/Audio/SoundFont/Sf2Program.h), null for none. The notes it
+// plays fade out (a control step) and the next ones play the new patch. Queued like every other call;
+// dropped when the track is no SoundFont track by then. The caller may let go of its own references
+// at once: the render thread never frees a patch, it hands the ones it lets go of back to
+// CollectSoundFontPrograms.
+void SetSoundFontProgram(std::size_t engineIndex, std::shared_ptr<const sf2::Program> program);
+// Frees the patches the render thread let go of. The UI thread, every frame (SynthRack does).
+void CollectSoundFontPrograms();
 // Sound from outside the synth (a computer playing over USB), mixed in before the output stage at
 // unity gain: interleaved stereo int16 frames, the number given back. Null for none.
 using LineInput = std::size_t (*)(std::int16_t* stereoFrames, std::size_t frameCount);
@@ -71,6 +82,8 @@ struct RenderModel {
   float braidsMicros = 0.0f;
   // A voice of the dearest Plaits track (each track learns its own: the model decides it); 0 with none.
   float plaitsMicros = 0.0f;
+  // A voice of the dearest SoundFont track (measured per track too: its patch decides it); 0 with none.
+  float soundFontMicros = 0.0f;
   float overheadMicros = 0.0f;
   float budgetScale = 1.0f;
 };

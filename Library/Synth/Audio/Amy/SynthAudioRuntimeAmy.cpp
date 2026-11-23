@@ -7,6 +7,8 @@
 #include "Library/Synth/Core/Engines/Drums/DrumsSynthEngine.h"
 #include "Library/Synth/Core/Engines/Wave/WaveParameters.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalTrack.h"
+#include "Library/Synth/Audio/SoundFont/Sf2Track.h"
+#include "Library/Synth/Core/Engines/SoundFont/SoundFontParameters.h"
 #include "Library/Synth/Audio/Amy/FactoryParameters.h"
 #include "Library/Synth/Audio/Braids/BraidsModels.h"
 #include "Library/Synth/Audio/Braids/BraidsVoice.h"
@@ -233,6 +235,16 @@ struct BraidsAmpParams {
 };
 constexpr std::uint16_t kNoBraidsOsc = 0xffff;
 
+// A SoundFont track (Library/Synth/Audio/SoundFont): its voices, the patch they play, the patch that
+// waits for them to fall silent, and what the track adds to every note (the engine's TONE page).
+struct SoundFontState {
+  sf2::Track track;
+  std::shared_ptr<const sf2::Program> program;
+  std::shared_ptr<const sf2::Program> next;
+  bool swapPending = false;
+  soundfont::ToneValues tone;
+};
+
 struct EngineState {
   SynthEngineKind kind = SynthEngineKind::None;
   bool configured = false;
@@ -265,6 +277,9 @@ struct EngineState {
   // A vocal track's singer (its held keys and voices: about 1 KB), there only while the track is a
   // vocal one. Without memory for it the track stays silent.
   std::unique_ptr<vocal::Track> vocal;
+  // A SoundFont track's voices and patch (about 2 KB), there only while the track is one. Without
+  // memory for it the track stays silent.
+  std::unique_ptr<SoundFontState> soundFont;
 };
 static_assert(braids::kVoiceCount == 4, "EngineState::braidsOsc lists every voice");
 
@@ -274,6 +289,7 @@ enum class PendingEventType {
   SetParameter,
   SetSamplerFrames,
   SetVocalPack,
+  SetSoundFontProgram,
   NoteOn,
   NoteOff,
   AllNotesOff,
@@ -292,6 +308,7 @@ struct PendingEvent {
   std::string text;
   SharedSampleBuffer frames;
   vocal::PackRef pack;
+  std::shared_ptr<const sf2::Program> program;
   std::uint32_t sampleRate = kSampleRate;
   float gain = 1.0f;
 };
@@ -522,14 +539,14 @@ bool UsesAmy(SynthEngineKind kind)
          kind == SynthEngineKind::Braids;
 }
 
-// Tracks whose voices the runtime renders itself, in float, after AMY's block: the sampler, the chop,
-// Plaits and Vocal. They share the mixing (RenderOwnTrackNoLock), the track gain ramp and the effects
-// routing. (The Plaits, Vocal and chop branches each added this; it is one predicate since they were
-// put together.)
+// Tracks whose voices the runtime renders itself, after AMY's block: the sampler, the chop, Plaits,
+// Vocal and the SoundFont (its voices in integers, the track's sum in float like the others). They
+// share the mixing (RenderOwnTrackNoLock), the track gain ramp and the effects routing. (The Plaits,
+// Vocal and chop branches each added this; it is one predicate since they were put together.)
 bool RendersOwnVoices(SynthEngineKind kind)
 {
   return kind == SynthEngineKind::Sampler || kind == SynthEngineKind::Chop || kind == SynthEngineKind::Plaits ||
-         kind == SynthEngineKind::Vocal;
+         kind == SynthEngineKind::Vocal || kind == SynthEngineKind::SoundFont;
 }
 
 // Engines whose voices play a sample (SamplerVoice): the sampler and the chop.
@@ -1816,21 +1833,36 @@ void RenderSamplerVoiceBlock(SamplerParams& params, SamplerVoice& voice, float* 
   voice.filterBand = band;
 }
 
-// Plaits tracks. Their voices render on the audio core after AMY's block, and one costs as much as
-// several AMY voices: what a voice of each track costs a block is learnt from its renders (the model
-// the track plays decides it, so per track), for the voice budget (KeepVoicesWithinBudgetNoLock).
-// 0 until a track has rendered a whole block: not known, and not budgeted. A guess would either give
-// up a note of the first chord for nothing or mean nothing; one unbudgeted block is what the output
-// queue is for. Blocks in which a voice set its model up (PlaitsTrack::ModelSetUpInLastRender) are
-// not what a block costs and are left out.
-std::array<float, kSynthTrackCount> g_plaitsVoiceMicros{};
-// A track has four voices at most, each a steady load: the estimate follows fast (a model change
-// too), a quarter of the way a block.
-constexpr float kPlaitsCostGain = 0.25f;
-// What the Plaits tracks took of the render call in progress (RenderFrames).
-float g_plaitsPhaseMicros = 0.0f;
+// Measured tracks: Plaits and SoundFont tracks. Their voices render on the audio core after AMY's
+// block, and what a voice of each track costs a block is learnt from its renders (a Plaits voice costs
+// as much as several AMY voices and its model decides how much; a SoundFont voice's cost depends on
+// its patch: filtered or not, how far it is pitched), for the voice budget
+// (KeepVoicesWithinBudgetNoLock). 0 until a track has rendered a whole block: not known, and not
+// budgeted. A guess would either give up a note of the first chord for nothing or mean nothing; one
+// unbudgeted block is what the output queue is for. Blocks in which a Plaits voice set its model up
+// (PlaitsTrack::ModelSetUpInLastRender) are not what a block costs and are left out.
+std::array<float, kSynthTrackCount> g_measuredVoiceMicros{};
+// A track's voices are a steady load: the estimate follows fast (a model or patch change too), a
+// quarter of the way a block.
+constexpr float kMeasuredCostGain = 0.25f;
+// What the measured tracks took of the render call in progress (RenderFrames).
+float g_measuredPhaseMicros = 0.0f;
 // The voices each track's Plaits engine got, for the UI: -1 none (no memory), 0 not a Plaits track.
 std::array<std::atomic<std::int8_t>, kSynthTrackCount> g_plaitsVoiceCount{};
+// The SoundFont tracks, for the render model read from other threads (CurrentRenderModel).
+std::array<std::atomic<bool>, kSynthTrackCount> g_soundFontTrack{};
+
+// One render of a measured track's `sounding` voices that took `spentMicros`, into its estimate.
+void LearnMeasuredVoiceCostNoLock(std::size_t track, std::int64_t spentMicros, std::size_t sounding, std::size_t frames, bool settingUp)
+{
+  const float spent = static_cast<float>(spentMicros);
+  g_measuredPhaseMicros += spent;
+  if (frames != kAmyFramesPerBlock || settingUp || sounding == 0) return;
+  // One division a track and block, not per sample.
+  float& cost = g_measuredVoiceMicros[track];
+  const float measured = spent / static_cast<float>(sounding);
+  cost = cost == 0.0f ? measured : cost + kMeasuredCostGain * (measured - cost);
+}
 
 std::int64_t VoiceClockMicros();
 
@@ -2040,6 +2072,43 @@ void PublishChopPlayheadNoLock(std::size_t engineIndex, const EngineState& engin
 // A sampler, chop, Plaits or vocal track's voices for `frames` frames (at most a block), added into `out` at the
 // track's level, which moves toward `target` frame by frame.
 std::array<float, kAmyFramesPerBlock> g_samplerVoiceMix{};
+// A SoundFont track's voices add themselves here in integers; the sum goes to float once.
+std::array<std::int32_t, kAmyFramesPerBlock> g_soundFontMix{};
+
+// Patches the render thread lets go of (a newer one took over, the track became another engine, an
+// event came too late): they go back to the heap on the UI thread (CollectSoundFontPrograms), not
+// here, since a patch is a block for each of its samples. One producer at a time (whoever holds the
+// render lock), one consumer (the UI thread); the indices are 32-bit, the slots written by one side
+// only between them. When it is full, the patch is let go here after all.
+constexpr std::uint32_t kLetGoPrograms = 16;
+std::array<std::shared_ptr<const sf2::Program>, kLetGoPrograms> g_letGoPrograms;
+std::atomic<std::uint32_t> g_letGoHead{0};
+std::atomic<std::uint32_t> g_letGoTail{0};
+
+void LetGoOfProgramNoLock(std::shared_ptr<const sf2::Program>& program)
+{
+  if (!program) return;
+  const std::uint32_t head = g_letGoHead.load(std::memory_order_relaxed);
+  if (head - g_letGoTail.load(std::memory_order_acquire) >= kLetGoPrograms)
+  {
+    program.reset();
+    return;
+  }
+  g_letGoPrograms[head % kLetGoPrograms] = std::move(program);
+  g_letGoHead.store(head + 1, std::memory_order_release);
+}
+
+// The patch that waits takes over once the track's voices have faded out (sf2::Track::Silence, a
+// control step).
+void SwapSoundFontProgramNoLock(SoundFontState& state)
+{
+  if (!state.swapPending || state.track.Busy()) return;
+  state.track.SetProgram(state.next.get());
+  LetGoOfProgramNoLock(state.program);
+  state.program = std::move(state.next);
+  state.next.reset();
+  state.swapPending = false;
+}
 
 void RenderOwnTrackNoLock(EngineState& engine, TrackMixState& trackMix, float target, float* out, std::size_t frames)
 {
@@ -2052,20 +2121,29 @@ void RenderOwnTrackNoLock(EngineState& engine, TrackMixState& trackMix, float ta
     {
       const std::int64_t begin = VoiceClockMicros();
       engine.plaits->Render(voices, frames);
-      const float spent = static_cast<float>(VoiceClockMicros() - begin);
-      g_plaitsPhaseMicros += spent;
-      if (frames == kAmyFramesPerBlock && !engine.plaits->ModelSetUpInLastRender())
-      {
-        // One division a track and block, not per sample.
-        float& cost = g_plaitsVoiceMicros[static_cast<std::size_t>(&engine - g_engines.data())];
-        const float measured = spent / static_cast<float>(sounding);
-        cost = cost == 0.0f ? measured : cost + kPlaitsCostGain * (measured - cost);
-      }
+      LearnMeasuredVoiceCostNoLock(static_cast<std::size_t>(&engine - g_engines.data()), VoiceClockMicros() - begin, sounding, frames,
+                                   engine.plaits->ModelSetUpInLastRender());
     }
   }
   else if (engine.kind == SynthEngineKind::Vocal)
   {
     if (engine.vocal) engine.vocal->Render(voices, frames);
+  }
+  else if (engine.kind == SynthEngineKind::SoundFont)
+  {
+    const std::size_t sounding = engine.soundFont ? engine.soundFont->track.SoundingVoices() : 0;
+    if (sounding != 0)
+    {
+      // A voice at full level spans the int16 range: the same level as the sampler playing that
+      // sample.
+      const std::int64_t begin = VoiceClockMicros();
+      std::int32_t* sum = g_soundFontMix.data();
+      std::fill_n(sum, frames, 0);
+      engine.soundFont->track.Render(sum, frames);
+      LearnMeasuredVoiceCostNoLock(static_cast<std::size_t>(&engine - g_engines.data()), VoiceClockMicros() - begin, sounding, frames, false);
+      constexpr float kToMix = kSamplerVoiceGain / 32768.0f;
+      for (std::size_t frame = 0; frame < frames; ++frame) voices[frame] = static_cast<float>(sum[frame]) * kToMix;
+    }
   }
   else
   {
@@ -2096,23 +2174,33 @@ void ResetEngineNoLock(EngineState& engine, std::size_t engineIndex, SynthEngine
     amy_add_event(&release);
   }
 
-  // A Plaits track's voices go back to the heap here, with the old state.
+  // A SoundFont track's patches go back to the UI thread; a Plaits track's voices go back to the heap
+  // here, with the old state.
+  if (engine.soundFont)
+  {
+    LetGoOfProgramNoLock(engine.soundFont->program);
+    LetGoOfProgramNoLock(engine.soundFont->next);
+  }
   engine = EngineState{};
   engine.kind = kind;
   engine.configured = kind != SynthEngineKind::None;
   engine.synthId = static_cast<int>(engineIndex) + 1;
   engine.patchNumber = DefaultPatchFor(kind);
   UpdateSamplerFilter(engine.sampler);
-  if (kind == SynthEngineKind::Plaits)
-  {
-    engine.plaits = PlaitsTrack::Create();
-    g_plaitsVoiceMicros[engineIndex] = 0.0f;
-  }
+  // A new kind's voices cost what they cost: learnt again.
+  g_measuredVoiceMicros[engineIndex] = 0.0f;
+  if (kind == SynthEngineKind::Plaits) engine.plaits = PlaitsTrack::Create();
   const std::size_t plaitsVoices = engine.plaits ? engine.plaits->VoiceCount() : 0;
   g_plaitsVoiceCount[engineIndex].store(kind != SynthEngineKind::Plaits ? std::int8_t{0} : plaitsVoices == 0 ? std::int8_t{-1} : static_cast<std::int8_t>(plaitsVoices),
                                         std::memory_order_relaxed);
   // Its voices are read for every frame: internal RAM (a block this small stays there).
   if (kind == SynthEngineKind::Vocal) engine.vocal.reset(new (std::nothrow) vocal::Track());
+  if (kind == SynthEngineKind::SoundFont)
+  {
+    engine.soundFont.reset(new (std::nothrow) SoundFontState());
+    if (engine.soundFont) engine.soundFont->track.SetTone(soundfont::MakeTone(engine.soundFont->tone));
+  }
+  g_soundFontTrack[engineIndex].store(engine.soundFont != nullptr, std::memory_order_relaxed);
   if (kind == SynthEngineKind::Chop)
   {
     // The engine's own first preset (every value follows from it, ShouldSyncParameterOnPresetLoad).
@@ -2546,6 +2634,11 @@ void ApplyPendingEvent(const PendingEvent& event)
         case SynthEngineKind::Vocal:
           if (engine.vocal) (void)engine.vocal->SetParameter(event.text, event.value);
           break;
+        case SynthEngineKind::SoundFont:
+          // For the notes that start from now on.
+          if (engine.soundFont && soundfont::SetToneValue(engine.soundFont->tone, event.text, event.value))
+            engine.soundFont->track.SetTone(soundfont::MakeTone(engine.soundFont->tone));
+          break;
         case SynthEngineKind::Chop:
         {
           // A slice's value applies from its next start: a slice is short, and one playing keeps the
@@ -2577,6 +2670,23 @@ void ApplyPendingEvent(const PendingEvent& event)
     case PendingEventType::SetVocalPack:
       // A pack on its way to a track that is no vocal track any more is dropped.
       if (engine.kind == SynthEngineKind::Vocal && engine.vocal) engine.vocal->SetPack(event.pack);
+      break;
+    case PendingEventType::SetSoundFontProgram:
+      // A patch on its way to a track that is no SoundFont track any more is dropped. The voices
+      // fade out first (they read the old patch's samples); the new one takes over when they have.
+      // The patch the track plays, or already waits for, again (its engine synced for another
+      // reason) changes nothing: its notes go on.
+      if (engine.kind == SynthEngineKind::SoundFont && engine.soundFont &&
+          event.program != (engine.soundFont->swapPending ? engine.soundFont->next : engine.soundFont->program))
+      {
+        SoundFontState& state = *engine.soundFont;
+        // One that waited for the voices to fade is not wanted any more.
+        LetGoOfProgramNoLock(state.next);
+        state.next = event.program;
+        state.swapPending = true;
+        state.track.Silence();
+        SwapSoundFontProgramNoLock(state);
+      }
       break;
     case PendingEventType::SetSamplerFrames:
       engine.sampler.sampleFrames = event.frames;
@@ -2654,6 +2764,29 @@ void ApplyPendingEvent(const PendingEvent& event)
         BumpTrackActivityNoLock(event.engineIndex, velocity);
         return;
       }
+      if (engine.kind == SynthEngineKind::SoundFont)
+      {
+        if (!engine.soundFont) return;
+        sf2::Track& track = engine.soundFont->track;
+        if (event.velocity == 0)
+        {
+          track.NoteOff(event.note);
+          return;
+        }
+        // While the next patch waits for the voices to fade, the track's events wait in the queue
+        // (DrainPendingEvents): this is not reached. Were it, the note is not heard.
+        if (engine.soundFont->swapPending)
+        {
+          g_lostUnheard.fetch_add(1, std::memory_order_relaxed);
+          return;
+        }
+        const std::uint32_t stolen = track.StolenHeld();
+        track.NoteOn(event.note, event.velocity);
+        // Every voice of the track held a note: this one took the oldest's.
+        g_lostStolen.fetch_add(track.StolenHeld() - stolen, std::memory_order_relaxed);
+        BumpTrackActivityNoLock(event.engineIndex, std::clamp(static_cast<float>(event.velocity) / 127.0f, 0.0f, 1.0f));
+        return;
+      }
       if (engine.kind == SynthEngineKind::Vocal)
       {
         if (!engine.vocal) return;
@@ -2709,6 +2842,11 @@ void ApplyPendingEvent(const PendingEvent& event)
         if (engine.vocal) engine.vocal->NoteOff(event.note);
         return;
       }
+      if (engine.kind == SynthEngineKind::SoundFont)
+      {
+        if (engine.soundFont) engine.soundFont->track.NoteOff(event.note);
+        return;
+      }
 
       // A chop slice plays to its end: the key going up only says nobody holds it any more.
       ReleaseSamplerNoteNoLock(engine, event.note);
@@ -2725,6 +2863,7 @@ void ApplyPendingEvent(const PendingEvent& event)
         return;
       }
       if (engine.vocal) engine.vocal->AllNotesOff();
+      if (engine.soundFont) engine.soundFont->track.AllNotesOff();
 
       for (SamplerVoice& voice : engine.samplerVoices)
       {
@@ -2810,7 +2949,9 @@ bool HeavyEvent(const PendingEvent& event)
   if (event.engineIndex >= g_engines.size()) return false;
   const EngineState& engine = g_engines[event.engineIndex];
   if (event.type == PendingEventType::EnsureEngine) return !(engine.configured && engine.kind == event.kind);
-  return event.type == PendingEventType::SetPreset && engine.kind != SynthEngineKind::Braids;
+  // A Braids preset is its parameters, a SoundFont patch arrives on its own (SetSoundFontProgram,
+  // read from the card by another thread): neither builds voices here.
+  return event.type == PendingEventType::SetPreset && engine.kind != SynthEngineKind::Braids && engine.kind != SynthEngineKind::SoundFont;
 }
 
 // Those that are there now, in order, one at a time (a deque of its own would allocate, even an empty
@@ -2828,6 +2969,10 @@ bool DrainPendingEvents(std::int64_t budgetMicros = std::numeric_limits<std::int
   std::uint32_t waiting = 0;  // engines whose events wait behind a heavy one
   std::size_t index = 0;      // in the queue: those before it wait
   bool heavyWaits = false;    // a heavy event was left waiting in this pass
+  // Engines whose events wait for a SoundFont patch to take over (its voices fade first, within the
+  // next block): they are played then rather than lost. Not counted as left to do: only rendering
+  // ends the wait.
+  std::uint32_t swapWaiting = 0;
   for (; count > 0; --count)
   {
     PendingEvent event;
@@ -2836,6 +2981,13 @@ bool DrainPendingEvents(std::int64_t budgetMicros = std::numeric_limits<std::int
       if (index >= g_pendingEvents.size()) break;
       const PendingEvent& next = g_pendingEvents[index];
       const std::uint32_t engine = 1u << (next.engineIndex & 31u);
+      if ((swapWaiting & engine) != 0 ||
+          (next.engineIndex < g_engines.size() && g_engines[next.engineIndex].soundFont && g_engines[next.engineIndex].soundFont->swapPending))
+      {
+        swapWaiting |= engine;
+        ++index;
+        continue;
+      }
       if ((waiting & engine) != 0 || (!heavyAllowed && HeavyEvent(next)))
       {
         if (HeavyEvent(next))
@@ -2854,6 +3006,8 @@ bool DrainPendingEvents(std::int64_t budgetMicros = std::numeric_limits<std::int
     const bool heavy = HeavyEvent(event);
     if (heavy) g_heavyWaitingSince = 0;
     ApplyPendingEvent(event);
+    // What the event still holds of a patch (the track has its own reference, or dropped it).
+    LetGoOfProgramNoLock(event.program);
 #if defined(ESP_PLATFORM)
     // One heavy event a call: the output has to win its time back before the next. (Hosts have no
     // output to run dry, and tests count on what they queued sounding in the next block.)
@@ -2888,6 +3042,7 @@ bool HasActiveOwnVoices(const EngineState& engine)
   if (!engine.configured) return false;
   if (engine.kind == SynthEngineKind::Plaits) return engine.plaits && engine.plaits->Sounding();
   if (engine.kind == SynthEngineKind::Vocal) return engine.vocal && engine.vocal->Active();
+  if (engine.kind == SynthEngineKind::SoundFont) return engine.soundFont && engine.soundFont->track.Busy();
   return PlaysSamples(engine.kind) &&
          std::any_of(engine.samplerVoices.begin(), engine.samplerVoices.end(), [](const SamplerVoice& voice) { return voice.active; });
 }
@@ -2954,6 +3109,8 @@ bool HasHeldNotes(const EngineState& engine)
       return engine.plaits && engine.plaits->HoldsNotes();
     case SynthEngineKind::Vocal:
       return engine.vocal && engine.vocal->Held();
+    case SynthEngineKind::SoundFont:
+      return engine.soundFont && engine.soundFont->track.HoldsNotes();
     default:
       // Drum pads are one-shots: their meter follows the note-on bump only.
       return false;
@@ -3175,11 +3332,11 @@ constexpr float kHelperShareMicros = 0.45f * kBlockMicros;
 // How long after the audio core the helper starts on the voices (woken through a task notification).
 constexpr float kHelperStartMicros = 150.0f;
 constexpr std::size_t kKindCount = kSynthEngineKindCount;
-// By SynthEngineKind: None, DX7, Juno, Sampler, Drums, Braids, Plaits, Vocal, Wave, Chop. Only the kinds
-// whose voices AMY renders have a cost here (Plaits, Vocal and the chop render their own). Braids' is a guess
+// By SynthEngineKind: None, DX7, Juno, Sampler, Drums, Braids, Plaits, Vocal, Wave, Chop, SoundFont. Only the kinds
+// whose voices AMY renders have a cost here (Plaits, Vocal, the chop and the SoundFont render their own). Braids' is a guess
 // until the board has rendered a few voices (its models differ by a factor of three, and the estimate
 // follows the one playing).
-std::array<float, kKindCount> g_runCostMicros{50.0f, 700.0f, 650.0f, 200.0f, 150.0f, 500.0f, 0.0f, 0.0f, 450.0f, 0.0f};
+std::array<float, kKindCount> g_runCostMicros{50.0f, 700.0f, 650.0f, 200.0f, 150.0f, 500.0f, 0.0f, 0.0f, 450.0f, 0.0f, 0.0f};
 std::array<std::array<float, kKindCount>, AMY_MAX_CORES> g_runCostSum{};
 std::array<std::array<std::uint16_t, kKindCount>, AMY_MAX_CORES> g_runCostCount{};
 float g_overheadMicros = 1500.0f;  // the rest of a block: deltas, effects, output
@@ -3394,15 +3551,16 @@ void CountGivenUpNoLock(std::uint16_t osc)
   (voice != nullptr && VoiceReleased(voice) ? g_lostTails : g_lostHeld).fetch_add(1, std::memory_order_relaxed);
 }
 
-// The Plaits tracks in the budget. Their voices render on the audio core alone, after AMY's (the
-// helper renders AMY's voices only), so the two share that core's time for voices. Each side has what
-// the other does not need, and a part the other cannot take: the Plaits tracks kPlaitsFloorMicros,
-// AMY's the rest. So the Plaits tracks are allowed what AMY's sounding voices leave, never less than
-// the floor (KeepPlaitsWithinBudgetNoLock), and AMY's voices what the Plaits voices then take leaves
-// (KeepVoicesWithinBudgetNoLock): never less than their own need while they need less than their
-// part, and their part when they need more. Within its side a track gives way only to itself, as
-// AMY's do: the Plaits track with the most voices loses one of its own (PlaitsTrack::FadeVoice).
-constexpr float kPlaitsFloorMicros = 0.35f * kBlockMicros;
+// The measured tracks (Plaits and SoundFont) in the budget. Their voices render on the audio core
+// alone, after AMY's (the helper renders AMY's voices only), so the two share that core's time for
+// voices. Each side has what the other does not need, and a part the other cannot take: the measured
+// tracks kMeasuredFloorMicros, AMY's the rest. So the measured tracks are allowed what AMY's sounding
+// voices leave, never less than the floor (KeepMeasuredWithinBudgetNoLock), and AMY's voices what the
+// measured voices then take leaves (KeepVoicesWithinBudgetNoLock): never less than their own need while
+// they need less than their part, and their part when they need more. Within its side a track gives
+// way only to itself, as AMY's do: the measured track with the most voices loses one of its own
+// (PlaitsTrack::FadeVoice, sf2::Track::FadeVoice).
+constexpr float kMeasuredFloorMicros = 0.35f * kBlockMicros;
 
 // The time on the audio core that AMY's voices need for `total` of their modelled cost: the helper
 // takes as much as this core less its late start, never more than its share (the allowance in
@@ -3413,40 +3571,42 @@ constexpr float kPlaitsFloorMicros = 0.35f * kBlockMicros;
   return (std::max)(0.5f * (total + kHelperStartMicros), total - kHelperShareMicros);
 }
 
-// The track's Plaits voices that will still sound after this block; 0 for any other track.
-int PlaitsLastingVoicesNoLock(std::size_t track)
+// The track's measured voices that render this block (`thisBlock`: the ones fading over it too) or
+// that will still sound after it; 0 for any other track.
+int MeasuredVoicesNoLock(std::size_t track, bool thisBlock)
 {
   const EngineState& engine = g_engines[track];
-  if (engine.kind != SynthEngineKind::Plaits || !engine.plaits) return 0;
-  return static_cast<int>(engine.plaits->SoundingVoices()) - static_cast<int>(engine.plaits->FadingVoices());
+  if (engine.kind == SynthEngineKind::Plaits && engine.plaits)
+    return static_cast<int>(engine.plaits->SoundingVoices()) - (thisBlock ? 0 : static_cast<int>(engine.plaits->FadingVoices()));
+  if (engine.kind == SynthEngineKind::SoundFont && engine.soundFont)
+  {
+    const sf2::Track& voices = engine.soundFont->track;
+    return static_cast<int>(voices.SoundingVoices()) - (thisBlock ? 0 : static_cast<int>(voices.FadingVoices()));
+  }
+  return 0;
 }
 
-// What the Plaits tracks' voices cost a block by the model: those that last, or (`thisBlock`) all that
-// render this block, the ones fading over it too.
-[[maybe_unused]] float PlaitsCostMicrosNoLock(bool thisBlock)
+// What the measured tracks' voices cost a block by what was measured: those that last, or
+// (`thisBlock`) all that render this block.
+[[maybe_unused]] float MeasuredCostMicrosNoLock(bool thisBlock)
 {
   float cost = 0.0f;
   for (std::size_t track = 0; track < kSynthTrackCount; ++track)
-  {
-    const EngineState& engine = g_engines[track];
-    if (engine.kind != SynthEngineKind::Plaits || !engine.plaits) continue;
-    const int voices = thisBlock ? static_cast<int>(engine.plaits->SoundingVoices()) : PlaitsLastingVoicesNoLock(track);
-    cost += static_cast<float>(voices) * g_plaitsVoiceMicros[track];
-  }
+    cost += static_cast<float>(MeasuredVoicesNoLock(track, thisBlock)) * g_measuredVoiceMicros[track];
   return cost;
 }
 
-// The most voices a Plaits track has lasting, and (`busiest`) which: the dearer one of two with as
+// The most voices a measured track has lasting, and (`busiest`) which: the dearer one of two with as
 // many. `costKnown`: only among the tracks whose voices' cost is known (the budget counts no other).
-int BusiestPlaitsTrackNoLock(std::size_t* busiest = nullptr, bool costKnown = false)
+int BusiestMeasuredTrackNoLock(std::size_t* busiest = nullptr, bool costKnown = false)
 {
   int most = 0;
   std::size_t which = kSynthTrackCount;
   for (std::size_t track = 0; track < kSynthTrackCount; ++track)
   {
-    const int voices = PlaitsLastingVoicesNoLock(track);
-    if (voices == 0 || (costKnown && g_plaitsVoiceMicros[track] == 0.0f)) continue;
-    if (voices > most || (voices == most && g_plaitsVoiceMicros[track] > g_plaitsVoiceMicros[which]))
+    const int voices = MeasuredVoicesNoLock(track, false);
+    if (voices == 0 || (costKnown && g_measuredVoiceMicros[track] == 0.0f)) continue;
+    if (voices > most || (voices == most && g_measuredVoiceMicros[track] > g_measuredVoiceMicros[which]))
     {
       most = voices;
       which = track;
@@ -3456,37 +3616,53 @@ int BusiestPlaitsTrackNoLock(std::size_t* busiest = nullptr, bool costKnown = fa
   return most;
 }
 
-// One voice of the Plaits track with the most voices (`costKnown`: see BusiestPlaitsTrackNoLock) fades
-// out over the track's next render and stops, a let-go one before a held one. False when no Plaits
-// voice is left to fade. The caller counts it as faded or shed.
-bool FadePlaitsVoiceNoLock(bool costKnown = false)
+// One voice of the measured track with the most voices (`costKnown`: see BusiestMeasuredTrackNoLock)
+// fades out over the track's next render and stops, a let-go one before a held one. False when no
+// such voice is left to fade. The caller counts it as faded or shed.
+bool FadeMeasuredVoiceNoLock(bool costKnown = false)
 {
   std::size_t busiest = kSynthTrackCount;
-  if (BusiestPlaitsTrackNoLock(&busiest, costKnown) == 0) return false;
-  const PlaitsTrack::Faded faded = g_engines[busiest].plaits->FadeVoice();
-  if (faded == PlaitsTrack::Faded::None) return false;
-  (faded == PlaitsTrack::Faded::Tail ? g_lostTails : g_lostHeld).fetch_add(1, std::memory_order_relaxed);
+  if (BusiestMeasuredTrackNoLock(&busiest, costKnown) == 0) return false;
+  EngineState& engine = g_engines[busiest];
+  bool tail = false;
+  if (engine.kind == SynthEngineKind::Plaits && engine.plaits)
+  {
+    const PlaitsTrack::Faded faded = engine.plaits->FadeVoice();
+    if (faded == PlaitsTrack::Faded::None) return false;
+    tail = faded == PlaitsTrack::Faded::Tail;
+  }
+  else if (engine.kind == SynthEngineKind::SoundFont && engine.soundFont)
+  {
+    const sf2::Track::Faded faded = engine.soundFont->track.FadeVoice();
+    if (faded == sf2::Track::Faded::None) return false;
+    tail = faded == sf2::Track::Faded::Tail;
+  }
+  else
+  {
+    return false;
+  }
+  (tail ? g_lostTails : g_lostHeld).fetch_add(1, std::memory_order_relaxed);
   return true;
 }
 
-// The Plaits voices that would not fit next block fade out, beside AMY's voices needing
+// The measured voices that would not fit next block fade out, beside AMY's voices needing
 // `amyMainMicros` of the audio core (AmyMainMicros; 0 without AMY tracks). The last one stays, as
 // AMY's last voice does. Once a block: from KeepVoicesWithinBudgetNoLock when AMY renders, from
 // RenderFramesNoLock when no track is AMY's. The board only.
-void KeepPlaitsWithinBudgetNoLock(float amyMainMicros)
+void KeepMeasuredWithinBudgetNoLock(float amyMainMicros)
 {
 #if defined(ESP_PLATFORM)
   int lasting = 0;
-  for (std::size_t track = 0; track < kSynthTrackCount; ++track) lasting += PlaitsLastingVoicesNoLock(track);
+  for (std::size_t track = 0; track < kSynthTrackCount; ++track) lasting += MeasuredVoicesNoLock(track, false);
   if (lasting <= 1) return;
   const float share = g_heavyWaitingSince != 0 ? kHeavyWaitBudgetShare : kVoiceBudgetShare;
   // The floor is not scaled: the scale answers blocks that take longer than the model says, and a
-  // Plaits voice's cost is measured, not modelled.
+  // measured voice's cost is measured, not modelled.
   const float left = (share * kBlockMicros - g_overheadMicros - amyMainMicros) * g_budgetScale;
-  const float allowed = (std::max)(kPlaitsFloorMicros, left);
-  for (; lasting > 1 && PlaitsCostMicrosNoLock(false) > allowed; --lasting)
+  const float allowed = (std::max)(kMeasuredFloorMicros, left);
+  for (; lasting > 1 && MeasuredCostMicrosNoLock(false) > allowed; --lasting)
   {
-    if (!FadePlaitsVoiceNoLock(true)) break;
+    if (!FadeMeasuredVoiceNoLock(true)) break;
     g_fadedVoices.fetch_add(1, std::memory_order_relaxed);
   }
 #else
@@ -3514,11 +3690,12 @@ void KeepVoicesWithinBudgetNoLock()
   // the audio core less its late start, never more than its share. (Counting the helper's whole share
   // on top of the audio core's let four DX7 tracks with effects run 6.4 ms a block, the stress test
   // 2026-11-04.)
-  // The Plaits tracks' voices come after these on the audio core. They keep to what these voices do
-  // not need there, never less than their floor; what they then still take is not AMY's.
-  KeepPlaitsWithinBudgetNoLock(AmyMainMicros(total));
+  // The measured tracks' voices (Plaits, SoundFont) come after these on the audio core. They keep to
+  // what these voices do not need there, never less than their floor; what they then still take is
+  // not AMY's.
+  KeepMeasuredWithinBudgetNoLock(AmyMainMicros(total));
   const float share = g_heavyWaitingSince != 0 ? kHeavyWaitBudgetShare : kVoiceBudgetShare;
-  const float mainAllowed = (share * kBlockMicros - g_overheadMicros - PlaitsCostMicrosNoLock(false)) * g_budgetScale;
+  const float mainAllowed = (share * kBlockMicros - g_overheadMicros - MeasuredCostMicrosNoLock(false)) * g_budgetScale;
   const float helperAllowed = (std::min)(kHelperShareMicros, (std::max)(0.0f, mainAllowed - kHelperStartMicros));
   const float allowed = AMY_CORES > 1 ? mainAllowed + helperAllowed : mainAllowed;
   // As many as it takes: four tracks of eight-note pads change chords in one block, and the new
@@ -3542,7 +3719,7 @@ void KeepVoicesWithinBudgetNoLock()
   // four tracks of pads started twenty voices in one block, which took 17 ms, the stress test
   // 2026-11-04), new voices not heard yet are left out, the busiest track's: never having sounded,
   // they stop without a click, as a voice taken by a newer note of the same track would.
-  const float mainModel = kVoiceBudgetShare * kBlockMicros - g_overheadMicros - PlaitsCostMicrosNoLock(true);
+  const float mainModel = kVoiceBudgetShare * kBlockMicros - g_overheadMicros - MeasuredCostMicrosNoLock(true);
   const float blockAllowed = mainModel + (AMY_CORES > 1 ? (std::min)(kHelperShareMicros, (std::max)(0.0f, mainModel - kHelperStartMicros)) : 0.0f);
   float thisBlock = 0.0f;
   std::array<int, kSynthTrackCount> sounding{};
@@ -3980,6 +4157,10 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
     return 0;
   }
 
+  // A SoundFont track's next patch, once the notes of the old one have faded (in the block before):
+  // before the events, so the track's events that waited for it are played in this block.
+  for (EngineState& engine : g_engines)
+    if (engine.soundFont) SwapSoundFontProgramNoLock(*engine.soundFont);
   (void)DrainPendingEvents(kEventBlockMicros, HeavyEventFitsNoLock());
   // Vocal tracks count time whether they sound or not (a word key waits only so long for its note).
   for (EngineState& engine : g_engines)
@@ -3989,8 +4170,8 @@ std::size_t RenderFramesNoLock(std::int16_t* destination, std::size_t frameCount
   SettleIdleSamplerGainsNoLock();
 
   const bool hasAmyEngines = HasAmyEnginesNoLock();
-  // With AMY tracks the Plaits voices are budgeted beside AMY's, once AMY's are known for the block.
-  if (!hasAmyEngines) KeepPlaitsWithinBudgetNoLock(0.0f);
+  // With AMY tracks the measured voices are budgeted beside AMY's, once AMY's are known for the block.
+  if (!hasAmyEngines) KeepMeasuredWithinBudgetNoLock(0.0f);
   const bool hasActiveOwnVoices = HasActiveOwnVoicesNoLock();
   PublishSampleStreamsNoLock();
   // The effects path starts as soon as anything needs it and ends on an AMY block boundary once
@@ -4145,6 +4326,31 @@ void SetVocalPack(std::size_t engineIndex, vocal::PackRef pack)
   event.engineIndex = engineIndex;
   event.pack = std::move(pack);
   QueuePendingEvent(std::move(event));
+}
+
+void SetSoundFontProgram(std::size_t engineIndex, std::shared_ptr<const sf2::Program> program)
+{
+  if (engineIndex >= g_engines.size())
+  {
+    return;
+  }
+
+  PendingEvent event;
+  event.type = PendingEventType::SetSoundFontProgram;
+  event.engineIndex = engineIndex;
+  event.program = std::move(program);
+  QueuePendingEvent(std::move(event));
+}
+
+void CollectSoundFontPrograms()
+{
+  std::uint32_t tail = g_letGoTail.load(std::memory_order_relaxed);
+  const std::uint32_t head = g_letGoHead.load(std::memory_order_acquire);
+  for (; tail != head; ++tail)
+  {
+    g_letGoPrograms[tail % kLetGoPrograms].reset();
+    g_letGoTail.store(tail + 1, std::memory_order_release);
+  }
 }
 
 void NoteOn(std::size_t engineIndex, std::uint8_t note, std::uint8_t velocity)
@@ -4375,8 +4581,8 @@ std::int64_t RenderClockMicros()
 bool ShedVoiceNoLock()
 {
   // The output has lost 12 ms to the speaker (RenderLoad): a held note may go too, tails first. From
-  // the track with the most voices, an AMY track or a Plaits track (the dearer voice when they have
-  // as many).
+  // the track with the most voices, an AMY track or a measured one, Plaits or SoundFont (the measured
+  // one when they have as many).
   std::array<int, kSynthTrackCount> amySounding{};
   for (std::size_t index = 0; index < g_voiceRunCount; ++index)
   {
@@ -4384,8 +4590,8 @@ bool ShedVoiceNoLock()
     if (run.track < kSynthTrackCount && run.from < g_amyOscTrack.size() && VoiceSounding(run.from)) ++amySounding[run.track];
   }
   const int amyMost = *std::max_element(amySounding.begin(), amySounding.end());
-  const int plaitsMost = BusiestPlaitsTrackNoLock();
-  if (plaitsMost > 0 && plaitsMost >= amyMost && FadePlaitsVoiceNoLock())
+  const int measuredMost = BusiestMeasuredTrackNoLock();
+  if (measuredMost > 0 && measuredMost >= amyMost && FadeMeasuredVoiceNoLock())
   {
     g_shedVoices.fetch_add(1, std::memory_order_relaxed);
     return true;
@@ -4393,7 +4599,7 @@ bool ShedVoiceNoLock()
   const int victim = VoiceFadeVictimNoLock();
   if (victim < 0)
   {
-    if (!FadePlaitsVoiceNoLock()) return false;
+    if (!FadeMeasuredVoiceNoLock()) return false;
     g_shedVoices.fetch_add(1, std::memory_order_relaxed);
     return true;
   }
@@ -4428,6 +4634,10 @@ void PublishHeldNotesNoLock()
       else if (engine.kind == SynthEngineKind::Vocal)
       {
         if (engine.vocal) engine.vocal->AddHeldNotes(held);
+      }
+      else if (engine.kind == SynthEngineKind::SoundFont)
+      {
+        if (engine.soundFont) engine.soundFont->track.AddHeldNotes(held);
       }
       else
       {
@@ -4516,12 +4726,12 @@ std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount)
 
   const std::int64_t elapsed = RenderClockMicros() - start;
   const std::int64_t budget = static_cast<std::int64_t>(frameCount) * 1000000 / kSampleRate;
-  // Everything but the voices (AMY's and the Plaits tracks'), for the voice budget: one block per call
-  // is the case that tells.
+  // Everything but the voices (AMY's and the measured tracks'), for the voice budget: one block per
+  // call is the case that tells.
   if (g_voicePhaseMicros > 0 && frameCount == kAmyFramesPerBlock)
-    g_overheadMicros += 0.05f * (static_cast<float>(elapsed - g_voicePhaseMicros) - g_plaitsPhaseMicros - g_overheadMicros);
+    g_overheadMicros += 0.05f * (static_cast<float>(elapsed - g_voicePhaseMicros) - g_measuredPhaseMicros - g_overheadMicros);
   g_voicePhaseMicros = 0;
-  g_plaitsPhaseMicros = 0.0f;
+  g_measuredPhaseMicros = 0.0f;
   if (frameCount == kAmyFramesPerBlock)
   {
     constexpr float kTarget = kVoiceBudgetShare * kBlockMicros;
@@ -4638,7 +4848,10 @@ RenderModel CurrentRenderModel()
   model.waveMicros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Wave)];
   model.braidsMicros = g_runCostMicros[static_cast<std::size_t>(SynthEngineKind::Braids)];
   for (std::size_t track = 0; track < kSynthTrackCount; ++track)
-    if (g_plaitsVoiceCount[track].load(std::memory_order_relaxed) > 0) model.plaitsMicros = (std::max)(model.plaitsMicros, g_plaitsVoiceMicros[track]);
+  {
+    if (g_plaitsVoiceCount[track].load(std::memory_order_relaxed) > 0) model.plaitsMicros = (std::max)(model.plaitsMicros, g_measuredVoiceMicros[track]);
+    if (g_soundFontTrack[track].load(std::memory_order_relaxed)) model.soundFontMicros = (std::max)(model.soundFontMicros, g_measuredVoiceMicros[track]);
+  }
   model.overheadMicros = g_overheadMicros;
   model.budgetScale = g_budgetScale;
   return model;

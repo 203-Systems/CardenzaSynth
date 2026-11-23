@@ -1,6 +1,6 @@
 # SoundFont（SF2）引擎设计
 
-状态（2026-11-14）：第 9 节按建议执行（用户确认固件开源，并让继续）。P1 已完成，还没有接进固件，见第 11 节。
+状态（2026-11-23）：第 9 节按建议执行（用户确认固件开源，并让继续）。P1 已完成（第 11 节）；P2 写完了，包括预算、后台读音色和 VELO（第 12 节）：主机上编译通过、测试通过（11-23），没有编过固件、没有上过板子。
 
 一条轨道从卡上的 `.sf2` 文件里选一个音色来演奏。引擎自己渲染音（不经过 AMY），整数运算，按块渲染；采样先尽量放进 PSRAM，放不下的从卡上边读边播。
 
@@ -277,3 +277,57 @@ P1 没有碰共用代码，只在 `tests/CMakeLists.txt` 里加了一个测试�
 - 卡驱动的 5 个文件位在 CardenzaHAL 里，要加得改上游。
 - 载入一个 512 KB 的音色要多久：估计 0.3–1 秒，取决于卡。
 - 其它分支的细节来自阅读它们未提交的工作区，合并前可能还会变。
+
+## 12. P2 的实现
+
+分支 `claude/sf2-engine-p2`，从合并了全部引擎的 `claude/synth-integration` 分出。SoundFont 是第 10 种引擎（`SynthEngineKind::SoundFont = 10`），引擎选择里排最后（SFONT）。界面和操作写在 `AGENT.md` 的「SoundFont」一节，文件和工程写在 `docs/app-storage-protocol.md`。
+
+| 位置 | 内容 |
+|---|---|
+| `Library/Synth/Core/Engines/SoundFont/` | 引擎：文件里的音色就是它的出厂音色（`sf.<bank>.<program>`，没有音色时是 `sf.none`），参数是 TONE 页的八项（`SoundFontParameters.h`）和轨道效果。它只通过 `soundfont::Font` 接口拿音色，自己不碰卡；有后台可用时选的音色在后台读，原来的音色先继续响 |
+| `Applications/Synth/Runtime/SoundFont/` | 卡上的文件：列出 `SoundFonts/*.sf2`，打开一个文件（只在读的时候开着，经过 4 KB 的内部内存块），把一个音色读进内存，把失败的原因变成给用户看的字；后台读音色（`Device::Background`，每条轨一个请求，新的替换没开始的旧的，按票号取结果） |
+| `Library/Synth/Audio/Amy/SynthAudioRuntimeAmy.cpp` | 渲染：和采样器、Plaits、Vocal 一样是"自己渲染的轨道"，8 个音先加进一条整数总线，再走同一套增益斜坡、插入效果和发送。换音色是一条排队的事件：先让这条轨的音淡出，音停了再换，期间这条轨的事件在队列里等。预算和 Plaits 合在一起算（"实测的轨道"）。渲染线程放手的音色经一个单向环交回界面线程释放 |
+| `Applications/Synth/GrooveApp.*`、`Runtime/ProjectStorage.cpp` | 工程：TRACK 行最后一项是文件名；载入时先开文件再恢复音色（同步读）；几条轨共用一个打开的文件；自动保存恢复时文件不在，等卡回来再接上；后台读失败时弹提示 |
+| `Applications/Synth/UI/Groove/` | 引擎选择的第十格、VOICE 页的 FONT 和 LOADING、文件列表、TONE 页、FN 菜单的 FONT |
+| `Applications/Synth/StressSoundFont.h`、`StressTest.cpp` | 压力测试写到卡上的音色库（两个音色，每个音两层，滤波在动）和 `sf2` 场景 |
+
+### 预算（第 6 节）
+
+SF2 和 Plaits 一样只在音频核上渲染、开销不按模型估：每条轨实测一个声部一块要多少微秒（`g_measuredVoiceMicros`，原来的 `g_plaitsVoiceMicros` 改了名，两种轨共用），没渲染过一整块之前是 0，不算进预算。AMY 的音和这些"实测的轨道"分音频核的时间，后者至少有块长的 35%（`kMeasuredFloorMicros`）；超了，声部最多的那条实测轨收掉自己的一个音：先是最轻的已松开的尾音，再是最轻的按住的音，最后一个音留着（`sf2::Track::FadeVoice`，四个控制步、一个块内淡出）。`RenderLoad` 的保险在 AMY 轨和实测轨里挑声部最多的那条。这一套只在板上起作用（`ESP_PLATFORM`），主机上测得到的只有 `FadeVoice` 选哪个音、淡得干不干净。
+
+### 后台读音色（第 6 节"载入在哪跑"）
+
+用户选音色（VOICE 的 ADD / SUB、音色列表、换文件、新的 SoundFont 轨）时：引擎先向文件要一个后台请求（`Font::LoadLater`，拿到票号），再把状态换成新音色（名字马上变），原来的音色继续响，VOICE 写 LOADING。后台任务（优先级在界面之下，6 KB 栈）读完把结果放在这条轨的格子里；界面线程每帧（`DispatchPendingMessages`）按票号取：成功就交给音频；失败就恢复选之前的状态（这期间改的 TONE 一起回去），并通过 `TakeLoadFailure` → `GrooveApp::CheckSoundFontLoads` → 底部提示说原因。读的时候又选了别的音色，请求被替换；状态变成别的音色（选回正在响的、载入工程、恢复），没读完的作废（`OnRuntimeSynced`）。轨道换成别的引擎或引擎销毁时请求取消，已经读好的音色在后台任务或界面线程上释放。
+
+和设计不同：设计说"这条轨道在载入完之前不出声"，现在是原来的音色继续响到新的就位，换得快时（按住 ADD 连发）声音不断。载入工程、恢复自动保存时仍然同步读，`ReplaceSession` 返回时一切就位。模拟器上没有后台任务，`LoadLater` 返回 0，一律同步读；主机测试用 `DeferSoundFontLoadsForTests` 把请求留着、自己调 `RunDeferredSoundFontLoads`，走的是同一条后台路径。
+
+### 音色在哪个线程释放
+
+一个音色是一百多块堆内存（每个采样一块）。现在引擎换音色时直接放手；音频线程自己持有的引用（正在响的、等着换上的、事件里带着的）放手时进一个 16 格的单向环（`LetGoOfProgramNoLock`，生产者都在渲染锁下，消费者是界面线程），`SynthRack::DispatchPendingMessages` 每帧调 `audio::CollectSoundFontPrograms` 在界面线程上释放。环满了才在渲染线程上释放（不该发生）。之前的做法（引擎留着旧音色直到引用计数降到 1）在轨道换成别的引擎时会让最后一个引用落在渲染线程上。
+
+### 换音色时来的音
+
+原来换音色那一小段（旧音淡出一个控制步，到下一块开头才换上）里来的音被丢掉。现在这条轨的事件在队列里等（`DrainPendingEvents`），换上后照常弹：每块渲染开头先完成等着的换音色、再处理事件，所以等着的音在下一块就弹（11-23 前顺序反了，要多等一块）。等的事件不算"还有活要干"，所以 `WarmUp` / `ResumeEffects` 的循环不会因为它空转。同一个音色再发一次（引擎因为别的原因同步）什么都不变，正在响的音不被切断。
+
+### 和设计不一样的其它地方
+
+- **TONE 是八项**：CUTOFF、RESO、ATTACK、RELEASE、TUNE、FINE、LEVEL、VELO，都是加在音色自己的数值上的偏移。VELO（`amp.velocity`，0–127，默认 127）按比例缩小力度带来的衰减：127 是音色原样，0 每个音都和最重的一样响；力度落在哪个区间（选哪层采样）不变。换文件时保留，换音色时回到默认。
+- **工程里音色是预设编号，不是参数，也没有新格式**。bank 和 program 写成这条轨的预设 `sf.<bank>.<program>`，仍是格式 7；旧固件遇到种类 10 的轨道会拒绝整个工程，和别的新引擎一样。
+- **电平没有校**。现在直接用采样器的增益（`kSamplerVoiceGain`），没有按「GM 钢琴力度 100 约等于 Juno」校过，要在板上听了再定。
+- **用户音色没有测**。引擎走的是通用的音色保存（`Presets/SoundFont/user.ccpreset`），但一个用户音色只记得音色编号，不记得是哪个文件：换了文件它指向的就是另一个声音。按第 8 节这是 P4 的事，现在先不要依赖它。
+
+### 验证
+
+2026-11-16（预算、后台读、VELO 之前的版本）：全部主机测试 49 个里 48 个通过（没过的 `CardenzaVocalTests` 在合并分支上本来就不过，和 SF2 无关）；架构检查通过；改过和新加的文件用固件的真实编译参数做过语法检查；模拟器截图看过引擎选择、VOICE、文件列表、音色列表、放不下的提示、TONE、没有文件（只看了 DARK 主题，没有用新的颜色）。
+
+2026-11-23，11-17 加的预算、后台读音色、释放线程、换音色时排队、VELO、压力测试场景（macOS 主机，模拟器构建带测试）：
+- 编译通过，没有新的警告。全部主机测试 49 个里 48 个通过，没过的仍是 `CardenzaVocalTests`（`vocal_test.cpp:331`，这个分支没有改 Vocal）。架构检查通过。
+- `tests/sf2_test.cpp`（116 项全过）：VELO 0 和 64 时力度 64 的电平；`FadeVoice` 先尾音、先轻的、不碰已在淡出的、一个块内淡到无声不跳变（声部在下一个控制步才空出来）；压力测试的音色库写出来能打开、两个音色都能建、每个音两个声部、各音区都响、按住能持续。
+- `tests/groove_ui_test.cpp` 的 `TestSoundFont`：后台读时名字先变、LOADING、旧音色继续响；读完换上；选回正在响的音色时没读完的作废（不去读卡）；文件读不到时回到原来的音色并提示 `T2 FONT MISSING`；按住一个音时换音色、紧跟着来的新音在下一块用新音色弹出，不算丢音（把渲染开头的顺序改回旧的，这一项就失败）。
+- `Library/Synth/tests`：`SynthAmyControlTests` 通过。`SynthRegression` 不在主机测试里，而且在合并分支上本来就链接不了（Plaits 和 Braids 各带一份 `stmlib/utils/random.cc`，`stmlib::Random::rng_state_` 重复）；用一份去掉 Braids 那份的临时 CMake 编出来，它在 Vocal 一节（`synth_regression.cpp:2127`，没有声库时应当无声）断言失败，上一个提交 599fa22 用同样办法编出来也停在同一行，前面 470 行输出完全一样。它里面没有 SoundFont 的检查。
+
+没有做、没有核实的：
+- 没有编固件，没有上板：音的开销、载入时间、内存余量、预算会不会过早收音、后台读和采样流抢卡，全都不知道。压力测试的 `sf2` 场景写了没跑。
+- 没有流式（P3）：放不下的音色只能拒绝。
+- 鼓组（bank 128）能选，当键盘弹；没有对到鼓轨的垫子上。
+- 说明书（`wiki/`）没有动，按规则它等要求了再更新。

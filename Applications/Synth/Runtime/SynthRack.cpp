@@ -1,5 +1,7 @@
 #include "Applications/Synth/Runtime/SynthRack.h"
 
+#include "Library/Synth/Audio/SynthAudioRuntime.h"
+
 #include <sstream>
 
 namespace synth {
@@ -40,6 +42,8 @@ void SynthRack::DispatchPendingMessages() {
 
     slot.engine->DispatchPendingMessages();
   }
+  // The SoundFont patches the audio let go of go back to the heap here, not on the render thread.
+  synth::audio::CollectSoundFontPrograms();
 }
 
 uint16_t SynthRack::PortForTrack(std::size_t trackIndex) const {

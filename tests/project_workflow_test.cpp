@@ -47,6 +47,7 @@ std::string ProjectDirectory() { return (storageRoot / "Project").string(); }
 std::string PresetDirectory(std::string_view instrument) { return (storageRoot / "Preset" / std::string(instrument)).string(); }
 std::string SessionDirectory() { return (storageRoot / "Session").string(); }
 std::string VoiceDirectory() { return (storageRoot / "Voices").string(); }
+std::string SoundFontDirectory() { return (storageRoot / "SoundFonts").string(); }
 bool EnsureLayout() {
   std::error_code error;
   for (const char* directory : {"Sample", "Project", "Session", "Preset/DX7", "Preset/Juno", "Preset/Sampler", "Preset/Drums"}) {

@@ -59,6 +59,7 @@ enum class ModalKind : std::uint8_t {
   SampleOptions,
   SampleRecord,
   VoiceBrowser,  // Vocal: the singer, the built-in voice or a pack on the card
+  FontBrowser,   // SoundFont: the .sf2 files on the card
   Menu,    // a tap on FN: the menu of the screen underneath, kept open
   Record,  // SEQ: hold OK. Live recording, the note view and the captured takes
 };
@@ -301,6 +302,7 @@ enum class MenuAction : std::uint8_t {
   SampleRecord,
   SamplePreview,
   VoicePack,  // Vocal: choose the singer
+  SoundFont,  // SoundFont: choose the .sf2 file
   LyricRestart,  // Vocal: the lyric starts again at its first word
   LyricDelete,   // Vocal LYRIC: its last word taken out
   LyricClear,    // Vocal LYRIC: all of it (confirmed)
@@ -587,6 +589,8 @@ public:
   void ResumeTake(std::size_t track);
   // The autosave could not be written.
   void ReportAutosaveProblem(const std::string& text);
+  // Something a track was asked to do earlier failed (a SoundFont patch read in the background).
+  void ReportTrackProblem(std::size_t track, const std::string& text);
   // The device started without a card: nothing will be saved. A notice until ENTER or ESC closes it,
   // so it is still there to read after the boot animation.
   void ShowNoCardNotice();
@@ -850,6 +854,10 @@ private:
   void ClearLyric();
   void OpenVoiceBrowser();
   void ApplyVoicePack(const std::string& fileName);
+  // A SoundFont track: the .sf2 files on the card, and the one chosen (its patches become the
+  // track's presets).
+  void OpenFontBrowser();
+  void ApplySoundFont(const std::string& fileName);
   void ShowStepWordHud();
   void ShowCellHud();
   void StepCell(std::size_t index);

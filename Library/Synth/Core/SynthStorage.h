@@ -16,6 +16,8 @@ std::string SampleDirectory();
 std::string PresetDirectory(std::string_view group);
 // Voice packs of the Vocal engine (<name>.vocal); projects name them by file name.
 std::string VoiceDirectory();
+// SoundFont files of the SoundFont engine (<name>.sf2); projects name them by file name.
+std::string SoundFontDirectory();
 // The working state: the autosave, and sample recordings not saved yet.
 std::string SessionDirectory();
 // Creates every folder above, the preset folder of each engine included. False without a

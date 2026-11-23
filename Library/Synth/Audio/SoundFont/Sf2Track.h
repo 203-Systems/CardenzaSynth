@@ -4,6 +4,7 @@
 // SoundFont's rules between notes (an exclusive class cuts the notes of its class short; the same key
 // played again lets the earlier note go quickly). Render-thread only; nothing here allocates.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -18,6 +19,8 @@ public:
   static constexpr std::size_t kMaxLayers = 2;  // regions one key at one velocity sounds
   // How fast a note cut short goes: about 30 ms (docs/sf2-engine-design.md, decision 8).
   static constexpr unsigned kQuickFadeSteps = 21;
+  // How fast a voice the render budget gives up goes: four control steps, the runtime's block.
+  static constexpr unsigned kBudgetFadeSteps = 4;
 
   // Every voice stops at once: call it with the track silent (Silence, then wait for Busy()).
   void SetProgram(const Program* program);
@@ -35,10 +38,22 @@ public:
   void Render(std::int32_t* accumulator, std::size_t frames);
 
   bool Busy() const;
+  // Voices that render: held, ringing out or fading. FadingVoices: those of them on their way out,
+  // gone within kQuickFadeSteps control steps at most.
   std::size_t SoundingVoices() const;
+  std::size_t FadingVoices() const;
   bool Holds(unsigned key) const;
+  bool HoldsNotes() const;
+  // Sets the bit of every key it holds (one bit per MIDI note).
+  void AddHeldNotes(std::array<std::uint32_t, 4>& notes) const;
   // Held notes that had to give their voice to a newer one.
   std::uint32_t StolenHeld() const { return stolenHeld_; }
+
+  // For the render budget: one voice fades out over the next block (kBudgetFadeSteps) and stops, the
+  // quietest let-go one before the quietest held one; a voice already fading is left alone. What it
+  // was, None when no voice was left to fade.
+  enum class Faded : std::uint8_t { None, Tail, Held };
+  Faded FadeVoice();
 
 private:
   Voice& VoiceForNewNote();

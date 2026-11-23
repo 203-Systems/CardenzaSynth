@@ -18,6 +18,7 @@ enum class SlotAction : std::uint8_t {
   SampleRecord,
   SamplePreview,
   VoicePack,  // Vocal: the singer (the voice packs on the card)
+  SoundFont,  // SoundFont: the .sf2 file on the card whose patches the track plays
 };
 
 // A GRID slot on an INSTR page: an engine parameter id, a "keys.*" keyboard setting, or an action.

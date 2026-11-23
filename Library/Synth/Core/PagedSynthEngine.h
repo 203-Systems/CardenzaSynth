@@ -105,6 +105,9 @@ protected:
   virtual void OnRuntimeSynced();
   // The track this engine plays on, static_cast<std::size_t>(-1) before Init.
   std::size_t EngineIndex() const { return engineIndex_; }
+  // The factory or registered preset the state is based on (a user preset's base, else the current
+  // preset itself): what the runtime was told to load (the SoundFont engine's patch).
+  const std::string& BasePresetId() const { return basePresetId_; }
 
 private:
   static constexpr std::size_t kNoFactoryPreset = static_cast<std::size_t>(-1);

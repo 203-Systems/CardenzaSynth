@@ -1843,7 +1843,7 @@ int main() {
   auto bad = valid; bad.replace(bad.find("SEQ 120"), 7, "SEQ 999"); reject(bad);
   bad = valid; bad.replace(bad.find("factory.1"), 9, std::string(4000, 'x')); reject(bad);
   // A kind this firmware does not know is refused (so is the chop, kind 9, by firmware before it).
-  bad = valid; bad.replace(bad.find("TRACK 1 9 "), 10, "TRACK 1 10 "); reject(bad);
+  bad = valid; bad.replace(bad.find("TRACK 1 9 "), 10, "TRACK 1 11 "); reject(bad);
   assert(valid.find("CARDENZA_PROJECT 7\n") == 0);
   assert(SaveProjectFile("../escape", project, true) == ProjectResult::Invalid);
   assert(!IsProjectNameValid("CON") && !IsProjectNameValid("com1"));

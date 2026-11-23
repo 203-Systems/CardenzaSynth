@@ -16,7 +16,9 @@
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Applications/Synth/UI/Groove/Render/Widgets.h"
 #include "Library/Synth/Core/Engines/Plaits/PlaitsSynthEngine.h"
+#include "Applications/Synth/Runtime/SoundFont/SoundFonts.h"
 #include "Applications/Synth/Runtime/Vocal/VoicePacks.h"
+#include "Library/Synth/Core/Engines/SoundFont/SoundFontSynthEngine.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
 
 namespace groove::render {
@@ -288,6 +290,18 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
     // With a lyric, the keys sing it rather than the track's word.
     const std::size_t lyric = vocal->LyricLength();
     g.TextFit(x + 8, infoY, area.x + area.width - x - 8, "SINGER " + singer + (lyric > 0 ? "  LYRIC " + std::to_string(lyric) : std::string()), kDim);
+  }
+  else if (const auto* font = synth::SoundFontSynthEngine::From(engine))
+  {
+    // A SoundFont track: its file, in place of the keyboard's layout; LOADING while the patch chosen is
+    // read (the one before plays on). When the track is silent, why (no file on the card, its patch
+    // did not fit): a patch that failed to load while another plays on is said once, by the toast.
+    const bool silent = !font->Loading() && !font->Loaded() && !font->LoadMessage().empty();
+    const std::string detail = font->Loading() ? std::string("LOADING ") + synth::SoundFontLabel(font->FontFileName())
+                               : silent        ? font->LoadMessage()
+                               : font->HasFont() ? "FONT " + synth::SoundFontLabel(font->FontFileName())
+                                                 : std::string("PUT .SF2 IN SOUNDFONTS/");
+    g.TextFit(x + 8, infoY, area.x + area.width - x - 8, detail, silent ? kRec : kDim);
   }
   else if (host.EngineKind(state.track) == synth::SynthEngineKind::Chop)
   {
@@ -779,8 +793,10 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
     case PageGraphic::Filter:
     {
       const bool sampler = host.EngineKind(track) == synth::SynthEngineKind::Sampler;
-      const float cutoff = Glide(animator, track, engine, sampler ? "filter.cutoff" : "vcf.cutoff", 1.0f);
-      const float resonance = Glide(animator, track, engine, sampler ? "filter.resonance" : "vcf.resonance");
+      // The SoundFont's TONE page: how far the track closes the patch's own filter.
+      const bool font = host.EngineKind(track) == synth::SynthEngineKind::SoundFont;
+      const float cutoff = Glide(animator, track, engine, font ? "tone.cutoff" : sampler ? "filter.cutoff" : "vcf.cutoff", 1.0f);
+      const float resonance = Glide(animator, track, engine, font ? "tone.reso" : sampler ? "filter.resonance" : "vcf.resonance");
       // Resonance shimmers while the track sounds.
       const float shimmer = activity > 0.02f ? 0.04f * std::sin(static_cast<float>(now) / 45.0f) * activity : 0.0f;
       widgets::FilterCurve(g, Rect{area.x + 2, area.y + 4, area.width - 4, area.height - 6}, cutoff, std::max(0.0f, resonance + shimmer), kInk);

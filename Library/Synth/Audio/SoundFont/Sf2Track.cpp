@@ -103,11 +103,46 @@ std::size_t Track::SoundingVoices() const
   return count;
 }
 
+std::size_t Track::FadingVoices() const
+{
+  std::size_t count = 0;
+  for (const Voice& voice : voices_) count += voice.Active() && voice.Fading() ? 1 : 0;
+  return count;
+}
+
+Track::Faded Track::FadeVoice()
+{
+  Voice* chosen = nullptr;
+  for (Voice& voice : voices_)
+  {
+    if (!voice.Active() || voice.Fading()) continue;
+    // A tail before a held note; of two alike, the quieter.
+    if (chosen == nullptr || (chosen->Held() && !voice.Held()) || (chosen->Held() == voice.Held() && voice.Gain() < chosen->Gain())) chosen = &voice;
+  }
+  if (chosen == nullptr) return Faded::None;
+  const Faded faded = chosen->Held() ? Faded::Held : Faded::Tail;
+  chosen->Choke(kBudgetFadeSteps);
+  return faded;
+}
+
 bool Track::Holds(unsigned key) const
 {
   for (const Voice& voice : voices_)
     if (voice.Held() && voice.Key() == key) return true;
   return false;
+}
+
+bool Track::HoldsNotes() const
+{
+  for (const Voice& voice : voices_)
+    if (voice.Held()) return true;
+  return false;
+}
+
+void Track::AddHeldNotes(std::array<std::uint32_t, 4>& notes) const
+{
+  for (const Voice& voice : voices_)
+    if (voice.Held()) notes[voice.Key() / 32] |= 1u << (voice.Key() % 32);
 }
 
 }  // namespace synth::audio::sf2

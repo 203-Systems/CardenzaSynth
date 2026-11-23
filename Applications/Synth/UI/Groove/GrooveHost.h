@@ -75,6 +75,14 @@ public:
   // The word a held note of the track is singing, as the audio plays it.
   virtual synth::vocal::Status VocalStatus(std::size_t track) const = 0;
 
+  // SoundFont tracks. The .sf2 files on the card by file name (CardenzaSynth/SoundFonts), and a
+  // track's file: its patches become the track's presets, and the track goes on with the patch of
+  // the same bank and program, or the file's first. False with `message` when the file cannot be
+  // opened, its patch does not fit in memory (the file stays chosen) or the track is no SoundFont
+  // track.
+  virtual std::vector<std::string> ListSoundFonts() const = 0;
+  virtual bool SetSoundFont(std::size_t track, const std::string& fileName, std::string& message) = 0;
+
   // Mixer. Level is 0..100; solo silences every non-soloed track.
   virtual void SetTrackLevel(std::size_t track, std::uint8_t level) = 0;
   virtual std::uint8_t TrackLevel(std::size_t track) const = 0;

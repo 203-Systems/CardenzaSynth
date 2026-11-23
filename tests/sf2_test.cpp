@@ -17,8 +17,11 @@
 #include "Library/Synth/Audio/SoundFont/Sf2Tables.h"
 #include "Library/Synth/Audio/SoundFont/Sf2Track.h"
 #include "Library/Synth/Audio/SoundFont/Sf2Voice.h"
+#include "Applications/Synth/StressSoundFont.h"
+#include "tests/sf2_font_builder.h"
 
 namespace sf2 = synth::audio::sf2;
+using namespace sf2test;
 
 namespace {
 
@@ -41,217 +44,6 @@ int g_checks = 0;
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kKeyZeroHz = 8.1757989156;
 constexpr double kRate = 44100.0;
-
-// ---------------------------------------------------------------------------------------------------
-// Writing SoundFonts
-
-struct Bytes {
-  std::vector<std::uint8_t> data;
-  void U8(unsigned value) { data.push_back(static_cast<std::uint8_t>(value)); }
-  void U16(unsigned value)
-  {
-    U8(value & 255u);
-    U8((value >> 8) & 255u);
-  }
-  void U32(std::uint32_t value)
-  {
-    U16(value & 0xFFFFu);
-    U16(value >> 16);
-  }
-  void Tag(const char* tag)
-  {
-    for (int index = 0; index < 4; ++index) U8(static_cast<std::uint8_t>(tag[index]));
-  }
-  void Name(const std::string& name, std::size_t width = 20)
-  {
-    for (std::size_t index = 0; index < width; ++index) U8(index < name.size() ? static_cast<std::uint8_t>(name[index]) : 0);
-  }
-  void Append(const Bytes& other) { data.insert(data.end(), other.data.begin(), other.data.end()); }
-};
-
-Bytes Chunk(const char* tag, const Bytes& body)
-{
-  Bytes out;
-  out.Tag(tag);
-  out.U32(static_cast<std::uint32_t>(body.data.size()));
-  out.Append(body);
-  if ((body.data.size() & 1u) != 0) out.U8(0);
-  return out;
-}
-
-Bytes List(const char* type, const std::vector<Bytes>& chunks)
-{
-  Bytes body;
-  body.Tag(type);
-  for (const Bytes& chunk : chunks) body.Append(chunk);
-  Bytes out;
-  out.Tag("LIST");
-  out.U32(static_cast<std::uint32_t>(body.data.size()));
-  out.Append(body);
-  return out;
-}
-
-struct Gen {
-  std::uint16_t op;
-  std::uint16_t amount;
-};
-Gen G(unsigned op, int value) { return {static_cast<std::uint16_t>(op), static_cast<std::uint16_t>(static_cast<std::int16_t>(value))}; }
-Gen Range(unsigned op, unsigned low, unsigned high) { return {static_cast<std::uint16_t>(op), static_cast<std::uint16_t>(low | (high << 8))}; }
-
-struct SampleSpec {
-  std::string name;
-  std::vector<std::int16_t> frames;
-  std::uint32_t loopStart = 0;  // from the sample's first frame
-  std::uint32_t loopEnd = 0;
-  std::uint32_t rate = 44100;
-  std::uint8_t pitch = 60;
-  std::int8_t correction = 0;
-  std::uint16_t link = 0;
-  std::uint16_t type = 1;
-};
-using ZoneSpec = std::vector<Gen>;
-struct InstrumentSpec {
-  std::string name;
-  std::vector<ZoneSpec> zones;
-};
-struct PresetSpec {
-  std::string name;
-  std::uint16_t program = 0;
-  std::uint16_t bank = 0;
-  std::vector<ZoneSpec> zones;
-};
-
-struct FontSpec {
-  unsigned version = 2;
-  std::vector<SampleSpec> samples;
-  std::vector<InstrumentSpec> instruments;
-  std::vector<PresetSpec> presets;
-
-  std::vector<std::uint8_t> Build() const
-  {
-    Bytes ifil;
-    ifil.U16(version);
-    ifil.U16(4);
-    Bytes engine;
-    engine.Name("EMU8000", 8);
-    Bytes name;
-    name.Name("Test font", 10);
-
-    Bytes smpl;
-    std::vector<std::uint32_t> starts;
-    std::uint32_t frame = 0;
-    for (const SampleSpec& sample : samples)
-    {
-      starts.push_back(frame);
-      for (std::int16_t value : sample.frames) smpl.U16(static_cast<std::uint16_t>(value));
-      for (int pad = 0; pad < 46; ++pad) smpl.U16(0);  // the specification's zero frames after each sample
-      frame += static_cast<std::uint32_t>(sample.frames.size()) + 46;
-    }
-
-    Bytes phdr, pbag, pmod, pgen, inst, ibag, imod, igen, shdr;
-    unsigned bag = 0;
-    unsigned gen = 0;
-    for (const PresetSpec& preset : presets)
-    {
-      phdr.Name(preset.name);
-      phdr.U16(preset.program);
-      phdr.U16(preset.bank);
-      phdr.U16(bag);
-      phdr.U32(0);
-      phdr.U32(0);
-      phdr.U32(0);
-      for (const ZoneSpec& zone : preset.zones)
-      {
-        pbag.U16(gen);
-        pbag.U16(0);
-        ++bag;
-        for (const Gen& g : zone)
-        {
-          pgen.U16(g.op);
-          pgen.U16(g.amount);
-          ++gen;
-        }
-      }
-    }
-    phdr.Name("EOP");
-    phdr.U16(0);
-    phdr.U16(0);
-    phdr.U16(bag);
-    phdr.U32(0);
-    phdr.U32(0);
-    phdr.U32(0);
-    pbag.U16(gen);
-    pbag.U16(0);
-    for (int index = 0; index < 10; ++index) pmod.U8(0);
-    pgen.U32(0);
-
-    bag = 0;
-    gen = 0;
-    for (const InstrumentSpec& instrument : instruments)
-    {
-      inst.Name(instrument.name);
-      inst.U16(bag);
-      for (const ZoneSpec& zone : instrument.zones)
-      {
-        ibag.U16(gen);
-        ibag.U16(0);
-        ++bag;
-        for (const Gen& g : zone)
-        {
-          igen.U16(g.op);
-          igen.U16(g.amount);
-          ++gen;
-        }
-      }
-    }
-    inst.Name("EOI");
-    inst.U16(bag);
-    ibag.U16(gen);
-    ibag.U16(0);
-    for (int index = 0; index < 10; ++index) imod.U8(0);
-    igen.U32(0);
-
-    for (std::size_t index = 0; index < samples.size(); ++index)
-    {
-      const SampleSpec& sample = samples[index];
-      shdr.Name(sample.name);
-      shdr.U32(starts[index]);
-      shdr.U32(starts[index] + static_cast<std::uint32_t>(sample.frames.size()));
-      shdr.U32(starts[index] + sample.loopStart);
-      shdr.U32(starts[index] + sample.loopEnd);
-      shdr.U32(sample.rate);
-      shdr.U8(sample.pitch);
-      shdr.U8(static_cast<std::uint8_t>(sample.correction));
-      shdr.U16(sample.link);
-      shdr.U16(sample.type);
-    }
-    shdr.Name("EOS");
-    for (int index = 0; index < 5; ++index) shdr.U32(0);
-    shdr.U32(0);  // pitch, correction, link
-    shdr.U16(0);  // type
-
-    Bytes body;
-    body.Tag("sfbk");
-    body.Append(List("INFO", {Chunk("ifil", ifil), Chunk("isng", engine), Chunk("INAM", name)}));
-    body.Append(List("sdta", {Chunk("smpl", smpl)}));
-    body.Append(List("pdta", {Chunk("phdr", phdr), Chunk("pbag", pbag), Chunk("pmod", pmod), Chunk("pgen", pgen), Chunk("inst", inst),
-                              Chunk("ibag", ibag), Chunk("imod", imod), Chunk("igen", igen), Chunk("shdr", shdr)}));
-    Bytes riff;
-    riff.Tag("RIFF");
-    riff.U32(static_cast<std::uint32_t>(body.data.size()));
-    riff.Append(body);
-    return riff.data;
-  }
-};
-
-std::vector<std::int16_t> Sine(double period, std::size_t frames, double amplitude)
-{
-  std::vector<std::int16_t> out(frames);
-  for (std::size_t frame = 0; frame < frames; ++frame) out[frame] = static_cast<std::int16_t>(std::lround(amplitude * std::sin(2.0 * kPi * frame / period)));
-  return out;
-}
-
-std::vector<std::int16_t> Constant(std::int16_t value, std::size_t frames) { return std::vector<std::int16_t>(frames, value); }
 
 std::uint32_t g_random = 0x2468ACE1u;
 std::uint32_t Random()
@@ -686,6 +478,19 @@ void TestEnvelope()
   const std::vector<double> softOut = RenderVoice(soft, 61760);
   const double difference = 20.0 * std::log10(softOut[61740] / sustain);
   CHECK(std::fabs(difference - 40.0 * std::log10(64.0 / 127.0)) < 0.1, "velocity 64 is %g dB", difference);
+  // VELO: none of the velocity's attenuation, then half of it (in decibels).
+  sf2::Tone flat;
+  flat.velocityDepth = 0;
+  sf2::Voice even;
+  even.Start(program->RegionAt(0), program->SlotData(0), 60, 64, flat, 1);
+  const double evenDb = 20.0 * std::log10(RenderVoice(even, 61760)[61740] / sustain);
+  CHECK(std::fabs(evenDb) < 0.05, "VELO 0: velocity 64 is %g dB", evenDb);
+  sf2::Tone half;
+  half.velocityDepth = 64;
+  sf2::Voice halfway;
+  halfway.Start(program->RegionAt(0), program->SlotData(0), 60, 64, half, 1);
+  const double halfDb = 20.0 * std::log10(RenderVoice(halfway, 61760)[61740] / sustain);
+  CHECK(std::fabs(halfDb - difference * 64.0 / 127.0) < 0.1, "VELO 64: velocity 64 is %g dB", halfDb);
 
   // Let go during the attack: down from where it was, without a jump.
   sf2::Voice early;
@@ -893,6 +698,34 @@ void TestTrack()
   pads.NoteOff(81);
   RenderTrack(pads, 256);
   CHECK(!pads.Holds(81), "released while waiting");
+  // The render budget: a tail before a held note, the quieter tail first, and never one already fading.
+  // (The pad's release is 4 s: Silence ends the voices before the test starts.)
+  pads.Silence();
+  RenderTrack(pads, 256);
+  CHECK(!pads.Busy(), "silenced before the budget test");
+  pads.NoteOn(60, 127);
+  pads.NoteOn(62, 127);
+  pads.NoteOn(64, 40);
+  RenderTrack(pads, 1024);
+  pads.NoteOff(62);
+  pads.NoteOff(64);
+  RenderTrack(pads, 256);
+  CHECK(pads.SoundingVoices() == 3 && pads.FadingVoices() == 0, "three sounding: %zu, %zu fading", pads.SoundingVoices(), pads.FadingVoices());
+  CHECK(pads.FadeVoice() == sf2::Track::Faded::Tail && pads.FadingVoices() == 1, "a tail fades first");
+  CHECK(pads.FadeVoice() == sf2::Track::Faded::Tail && pads.FadingVoices() == 2, "then the other tail");
+  CHECK(pads.FadeVoice() == sf2::Track::Faded::Held && pads.FadingVoices() == 3, "then the held note");
+  CHECK(pads.FadeVoice() == sf2::Track::Faded::None, "nothing left to fade");
+  // Silent by the end of the block (four control steps), without a jump; the voices are free at the
+  // next control step (the one that finds them silent stops them).
+  const std::vector<double> faded = RenderTrack(pads, 256);
+  double fadeJump = 0.0;
+  for (std::size_t frame = 1; frame < faded.size(); ++frame) fadeJump = (std::max)(fadeJump, std::fabs(faded[frame] - faded[frame - 1]));
+  CHECK(!pads.Holds(60) && std::fabs(faded.back()) < 300.0, "faded out in a block: the last frame %g", faded.back());
+  CHECK(fadeJump <= 600.0, "a budget fade moves the output by %g at most", fadeJump);
+  const std::vector<double> after = RenderTrack(pads, 64);
+  CHECK(!pads.Busy() && Rms(after, 0, after.size()) == 0.0, "free and silent at the next control step");
+  pads.NoteOn(60, 127);
+  RenderTrack(pads, 256);
   pads.SetProgram(sine.get());
   CHECK(!pads.Busy(), "a new program stops the voices");
 }
@@ -945,6 +778,45 @@ void TestDamagedFiles()
   std::printf("sf2: damaged files: %zu opened, %zu presets built and played\n", opened, built);
 }
 
+// The font the on-board stress test writes to the card (Applications/Synth/StressSoundFont.h): it
+// opens, its one patch fits a track's budget with room for four, a note takes two voices, and it
+// sounds at every key.
+void TestStressFont()
+{
+  std::FILE* file = std::tmpfile();
+  CHECK(file != nullptr, "a temporary file");
+  if (file == nullptr) return;
+  const bool written = synth::stress::WriteStressSoundFont(file);
+  std::vector<std::uint8_t> bytes;
+  std::rewind(file);
+  for (int c = std::fgetc(file); c != EOF; c = std::fgetc(file)) bytes.push_back(static_cast<std::uint8_t>(c));
+  std::fclose(file);
+  CHECK(written && bytes.size() > 160000 && bytes.size() < 200000, "the stress font: %zu bytes", bytes.size());
+  auto font = Open(std::move(bytes));
+  CHECK(font->status == sf2::Status::Ok && font->file.PresetCount() == 2, "the stress font opens with two patches");
+  auto up = BuildPreset(*font, 0, 1, 512u * 1024u);
+  CHECK(up != nullptr && up->RegionCount() == 7, "its second patch builds");
+  auto program = BuildPreset(*font, 0, 0, 512u * 1024u);
+  CHECK(program != nullptr && program->Bytes() < 200u * 1024u && program->RegionCount() == 7 && program->SlotCount() == 7,
+        "its patch: %zu bytes, %zu regions", program ? program->Bytes() : 0, program ? program->RegionCount() : 0);
+  if (!program) return;
+  sf2::Track track;
+  track.SetProgram(program.get());
+  for (unsigned key : {24u, 48u, 60u, 72u, 100u})
+  {
+    track.NoteOn(key, 100);
+    const std::vector<double> out = RenderTrack(track, 4096);
+    CHECK(track.SoundingVoices() == 2 && Rms(out, 1024, 4096) > 1000.0, "key %u: %zu voices, rms %g", key, track.SoundingVoices(), Rms(out, 1024, 4096));
+    track.NoteOff(key);
+    RenderTrack(track, 44100);
+    CHECK(!track.Busy(), "key %u ends", key);
+  }
+  // A loop that holds: still sounding two seconds in.
+  track.NoteOn(60, 127);
+  const std::vector<double> held = RenderTrack(track, 88200);
+  CHECK(Rms(held, 80000, 88200) > 1000.0, "a held note sustains: rms %g", Rms(held, 80000, 88200));
+}
+
 }  // namespace
 
 int main()
@@ -959,6 +831,7 @@ int main()
   TestFilter();
   TestLoopModes();
   TestTrack();
+  TestStressFont();
   TestDamagedFiles();
   std::printf("sf2: %d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

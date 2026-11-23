@@ -4,7 +4,9 @@
 #include <cctype>
 #include <cstdio>
 
+#include "Applications/Synth/Runtime/SoundFont/SoundFonts.h"
 #include "Applications/Synth/Runtime/Vocal/VoicePacks.h"
+#include "Library/Synth/Core/Engines/SoundFont/SoundFontSynthEngine.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
 
 namespace groove {
@@ -91,8 +93,15 @@ void Controller::ApplyPreset(const std::string& presetId)
   synth::ISynthEngine* engine = ActiveEngine();
   if (engine == nullptr) return;
   ReleaseAllPads();
-  if (engine->LoadPreset(presetId)) MarkDirty();
-  else ShowToast("PRESET UNAVAILABLE", ToastKind::Error);
+  if (engine->LoadPreset(presetId))
+  {
+    MarkDirty();
+    return;
+  }
+  // A SoundFont patch says why it was not loaded (too big for the memory, the card): the track goes
+  // on with the one it had.
+  const auto* font = synth::SoundFontSynthEngine::From(engine);
+  ShowToast(font != nullptr && !font->LoadMessage().empty() ? font->LoadMessage() : std::string("PRESET UNAVAILABLE"), ToastKind::Error);
 }
 
 void Controller::ApplyEngine(synth::SynthEngineKind kind)
@@ -175,11 +184,11 @@ void Controller::OpenEnginePicker()
   // In the order the picker draws them (ModalRender: DrawEnginePicker), four to a row, each row
   // chosen by the GRID's row of the same number: the first row the engines of the first release, then
   // the ones added since.
-  const std::array<synth::SynthEngineKind, 9> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
-                                                      synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums,
-                                                      synth::SynthEngineKind::Braids, synth::SynthEngineKind::Plaits,
-                                                      synth::SynthEngineKind::Vocal, synth::SynthEngineKind::Wave,
-                                                      synth::SynthEngineKind::Chop}};
+  const std::array<synth::SynthEngineKind, 10> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
+                                                       synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums,
+                                                       synth::SynthEngineKind::Braids, synth::SynthEngineKind::Plaits,
+                                                       synth::SynthEngineKind::Vocal, synth::SynthEngineKind::Wave,
+                                                       synth::SynthEngineKind::Chop, synth::SynthEngineKind::SoundFont}};
   for (std::size_t index = 0; index < kinds.size(); ++index)
   {
     modal.items.push_back({std::to_string(static_cast<int>(kinds[index])), std::string(EngineShortName(kinds[index])), kinds[index] == current});
@@ -240,6 +249,41 @@ void Controller::ApplyVoicePack(const std::string& fileName)
   ShowToast("SINGER " + Upper(vocal != nullptr ? std::string(vocal->Pack().Name()) : fileName), ToastKind::Ok);
 }
 
+// The file of a SoundFont track: the .sf2 files on the card.
+void Controller::OpenFontBrowser()
+{
+  const synth::SoundFontSynthEngine* font = synth::SoundFontSynthEngine::From(ActiveEngine());
+  if (font == nullptr) return;
+  Modal modal;
+  modal.kind = ModalKind::FontBrowser;
+  modal.title = "FONT";
+  for (const std::string& file : host_.ListSoundFonts()) modal.items.push_back({file, synth::SoundFontLabel(file), file == font->FontFileName()});
+  if (modal.items.empty())
+  {
+    // Nothing to choose from: say where the files go instead of an empty list.
+    ShowToast("NO .SF2 IN SOUNDFONTS FOLDER", ToastKind::Error);
+    return;
+  }
+  for (std::size_t index = 0; index < modal.items.size(); ++index)
+    if (modal.items[index].marked) modal.cursor = index;
+  OpenModal(std::move(modal));
+}
+
+void Controller::ApplySoundFont(const std::string& fileName)
+{
+  ReleaseAllPads();
+  std::string message;
+  const bool loaded = host_.SetSoundFont(state_.track, fileName, message);
+  // The file is the track's from here on even when its first patch did not fit.
+  MarkDirty();
+  if (!loaded)
+  {
+    ShowToast(message.empty() ? "FONT NOT LOADED" : message, ToastKind::Error);
+    return;
+  }
+  ShowToast("FONT " + synth::SoundFontLabel(fileName), ToastKind::Ok);
+}
+
 void Controller::OpenSampleRecord()
 {
   Modal modal;
@@ -264,6 +308,7 @@ void Controller::ModalAdjust(int delta, bool coarse)
     case ModalKind::SampleBrowser:
     case ModalKind::SampleOptions:
     case ModalKind::VoiceBrowser:
+    case ModalKind::FontBrowser:
     {
       if (modal->Count() == 0) return;
       const int count = static_cast<int>(modal->Count());
@@ -366,6 +411,16 @@ void Controller::ModalEnter()
       const std::string file = modal->items[modal->cursor].id;
       CloseModal();
       ApplyVoicePack(file);
+      return;
+    }
+    case ModalKind::FontBrowser:
+    {
+      if (modal->items.empty()) return;
+      const std::string file = modal->items[modal->cursor].id;
+      CloseModal();
+      // Nothing is lost by another file (the TONE settings stay, the track goes on with the patch of
+      // the same number): no question.
+      ApplySoundFont(file);
       return;
     }
     case ModalKind::SampleRecord:

@@ -858,6 +858,11 @@ void Controller::ReportAutosaveProblem(const std::string& text)
   ShowToast(text, ToastKind::Error);
 }
 
+void Controller::ReportTrackProblem(std::size_t track, const std::string& text)
+{
+  ShowToast("T" + std::to_string(track + 1) + " " + text, ToastKind::Error);
+}
+
 void Controller::Tick(std::uint32_t nowMs)
 {
   state_.now = nowMs;
@@ -1031,6 +1036,7 @@ AdjustMeaning Controller::AdjustKeysMean() const
       case ModalKind::SampleBrowser:
       case ModalKind::SampleOptions:
       case ModalKind::VoiceBrowser:
+      case ModalKind::FontBrowser:
         return AdjustMeaning::List;
       case ModalKind::EnginePicker:
         return AdjustMeaning::Sideways;

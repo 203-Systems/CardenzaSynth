@@ -9,6 +9,7 @@
 #include "Library/Synth/Core/Engines/Wave/WaveSynthEngine.h"
 #include "Library/Synth/Core/Engines/Plaits/PlaitsSynthEngine.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
+#include "Library/Synth/Core/Engines/SoundFont/SoundFontSynthEngine.h"
 
 namespace synth {
 
@@ -34,6 +35,8 @@ std::unique_ptr<ISynthEngine> CreateSynthEngine(SynthEngineKind kind)
       return std::make_unique<VocalSynthEngine>();
     case SynthEngineKind::Chop:
       return std::make_unique<ChopSynthEngine>();
+    case SynthEngineKind::SoundFont:
+      return std::make_unique<SoundFontSynthEngine>();
     case SynthEngineKind::None:
     default:
       return nullptr;
@@ -62,6 +65,8 @@ std::string ToString(SynthEngineKind kind)
       return "Vocal";
     case SynthEngineKind::Chop:
       return "Chop";
+    case SynthEngineKind::SoundFont:
+      return "SoundFont";
     case SynthEngineKind::None:
     default:
       return "Empty";

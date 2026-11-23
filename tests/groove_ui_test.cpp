@@ -18,11 +18,14 @@
 
 #include "Applications/Synth/GrooveApp.h"
 #include "Applications/Synth/Runtime/ProjectStorage.h"
+#include "Applications/Synth/Runtime/SoundFont/SoundFonts.h"
 #include "Library/Synth/Core/SynthStorage.h"
 #include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalBuiltinPack.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
+#include "Library/Synth/Core/Engines/SoundFont/SoundFontSynthEngine.h"
+#include "tests/sf2_font_builder.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
 #include "Devices/Device.h"
@@ -131,13 +134,15 @@ void TestBraids(Harness& h)
   }
   GoToInstrumentPage(h, "VOICE");
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10);
   assert(h.Modal()->items[4].label == "BRAIDS" && h.Modal()->items[1].marked);
   h.Render();
   // The fifth engine is the first key of the GRID's second row; its light shows it can be chosen
   // (the row holds the four engines added since the first release).
   app.UpdateLeds();
-  assert(Device::LED::Brightness(1, 9) != 0 && Device::LED::Brightness(1, 12) != 0 && Device::LED::Brightness(2, 10) == 0);
+  // The third row holds the chop and the SoundFont engine; the key after them is dark.
+  assert(Device::LED::Brightness(1, 9) != 0 && Device::LED::Brightness(1, 12) != 0 && Device::LED::Brightness(2, 10) != 0 &&
+         Device::LED::Brightness(2, 11) == 0);
   h.Tap(Grid(4));
   assert(h.Modal() == nullptr && app.EngineKind(1) == Kind::Braids);
   assert(app.Engine(1)->CurrentPresetName() == "CS Saw" && !app.Engine(1)->HasEdits());
@@ -2692,7 +2697,7 @@ void TestChop(Harness& h)
   h.Chord(kTab, Grid(track));
   GoToInstrumentPage(h, "VOICE");
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10);
   h.Render();
   h.Tap(Grid(8));
   if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
@@ -3520,7 +3525,7 @@ void TestPlaits(Harness& h)
   const auto pick = [&](std::size_t cell, synth::SynthEngineKind kind) {
     GoToInstrumentPage(h, "VOICE");
     h.Tap(Grid(0));
-    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
+    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10);
     h.Render();
     h.Tap(Grid(cell));
     // A sound with edits asks before it is replaced.
@@ -3600,7 +3605,7 @@ void TestWaveEngineUi(Harness& h)
   assert(app.EngineKind(1) == Kind::Juno || app.SwitchEngine(1, Kind::Juno, error));
   while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10);
   assert(h.Modal()->items[7].label == "WAVE");
   h.Render();
   h.Tap(Grid(7));
@@ -3790,7 +3795,7 @@ void TestVocal(Harness& h)
   h.Chord(kTab, Grid(1));
   while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10);
   h.Render();
   h.Tap(Grid(6));
   if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
@@ -4168,6 +4173,312 @@ void TestVocal(Harness& h)
   h.Chord(kTab, Grid(synth::kDefaultActiveTrack));
 }
 
+// The SoundFont engine through the app: chosen in the picker, a file from the card, its patches as
+// the track's presets, the TONE page, a project that names the file, and what happens without the
+// file or with a patch too big for the memory (docs/sf2-engine-design.md).
+void TestSoundFont(Harness& h)
+{
+  using namespace sf2test;
+  namespace sf2 = synth::audio::sf2;
+  using Kind = synth::SynthEngineKind;
+  auto& app = h.App();
+  const std::size_t track = 1;
+  std::array<std::int16_t, 256> block{};
+  const auto render = [&](int blocks) {
+    int peak = 0;
+    for (int index = 0; index < blocks; ++index)
+    {
+      synth::audio::RenderFrames(block.data(), block.size());
+      for (const std::int16_t value : block) peak = (std::max)(peak, std::abs(static_cast<int>(value)));
+    }
+    return peak;
+  };
+  const auto holds = [&](unsigned note) { return (synth::audio::HeldNotes(track)[note / 32] & (1u << (note % 32))) != 0; };
+  for (std::size_t index = 0; index < groove::kTrackCount; ++index)
+  {
+    app.SetTrackSoloed(index, false);
+    app.SetTrackMuted(index, false);
+  }
+  groove::ProjectUiSettings fresh;
+  fresh.activeTrack = track;
+  app.Ui().Restore(fresh, h.State().projectName, h.State().dirty);
+  app.Sequencer().SetArpSettings(track, synth::ArpSettings{});
+  app.Sequencer().Stop();
+  std::string error;
+  std::string message;
+  const std::string folder = synth::storage::SoundFontDirectory();
+  std::filesystem::remove_all(folder);
+  std::filesystem::create_directories(folder);
+
+  // The tenth engine of the picker, on the GRID key under it. With no file on the card the track is
+  // silent and says where the files go.
+  assert(app.EngineKind(track) == Kind::Juno || app.SwitchEngine(track, Kind::Juno, error));
+  h.Chord(kTab, Grid(track));
+  GoToInstrumentPage(h, "VOICE");
+  h.Tap(Grid(0));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10 && h.Modal()->items[9].label == "SFONT");
+  h.Render();
+  h.Tap(Grid(9));
+  if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
+  assert(app.EngineKind(track) == Kind::SoundFont && h.Modal() == nullptr);
+  auto* font = synth::SoundFontSynthEngine::From(app.Engine(track));
+  assert(font != nullptr && !font->HasFont() && !font->Loaded() && font->CurrentPresetName() == "No Sound");
+  const auto& ui = app.Ui();
+  assert(ui.PageCount(Scene::Instrument) == 5 && ui.PageTab(Scene::Instrument, 3) == "TONE" && ui.PageTab(Scene::Instrument, 4) == "FX");
+  h.Render();
+  app.NoteOn(track, 60, 100);
+  h.Frames(2);
+  render(3);
+  assert(!holds(60));
+  app.NoteOff(track, 60);
+  h.Frames(2);
+  GoToInstrumentPage(h, "VOICE");
+  h.Tap(Grid(2));
+  assert(h.Modal() == nullptr && h.State().toast.text == "NO .SF2 IN SOUNDFONTS FOLDER");
+
+  // Files on the card: a font of three patches (out of order in the file), one whose only patch is
+  // larger than a track may take, a damaged one, and something that is no font.
+  {
+    FontSpec spec;
+    SampleSpec sine;
+    sine.name = "sine";
+    sine.frames = Sine(100.0, 1000, 12000.0);
+    sine.loopStart = 200;
+    sine.loopEnd = 1000;
+    sine.pitch = 69;
+    spec.samples.push_back(sine);
+    SampleSpec hit;
+    hit.name = "hit";
+    hit.frames = Constant(8000, 2000);
+    spec.samples.push_back(hit);
+    spec.instruments.push_back({"Lead", {{G(sf2::kSampleModes, 1), G(sf2::kSampleId, 0)}}});
+    spec.instruments.push_back({"Hit", {{G(sf2::kSampleId, 1)}}});
+    spec.presets.push_back({"Short", 5, 0, {{G(sf2::kInstrument, 1)}}});
+    spec.presets.push_back({"Kit", 0, 128, {{G(sf2::kInstrument, 1)}}});
+    spec.presets.push_back({"Sine Lead", 0, 0, {{G(sf2::kInstrument, 0)}}});
+    const std::vector<std::uint8_t> bytes = spec.Build();
+    std::ofstream(folder + "/Test Font.sf2", std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    std::ofstream(folder + "/Broken.sf2", std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()), 200);
+    FontSpec big;
+    SampleSpec huge;
+    huge.name = "huge";
+    huge.frames = Constant(1000, 300000);  // 600 KB
+    big.samples.push_back(huge);
+    big.instruments.push_back({"Huge", {{G(sf2::kSampleId, 0)}}});
+    big.presets.push_back({"Huge", 0, 0, {{G(sf2::kInstrument, 0)}}});
+    const std::vector<std::uint8_t> bigBytes = big.Build();
+    std::ofstream(folder + "/Zz Big.sf2", std::ios::binary).write(reinterpret_cast<const char*>(bigBytes.data()), static_cast<std::streamsize>(bigBytes.size()));
+    std::ofstream(folder + "/notes.txt") << "not a font";
+  }
+  const auto fonts = app.ListSoundFonts();
+  assert(fonts.size() == 3 && fonts[0] == "Broken.sf2" && fonts[1] == "Test Font.sf2" && fonts[2] == "Zz Big.sf2");
+
+  // FONT on VOICE lists them. A damaged file is refused and nothing changes.
+  h.Tap(Grid(2));
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::FontBrowser && h.Modal()->items.size() == 3 && h.Modal()->items[0].label == "BROKEN");
+  h.Render();
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && h.State().toast.text == "BAD FONT FILE" && !font->HasFont());
+  // A good one: the track plays its first patch (bank 0, program 0) at once.
+  h.Tap(Grid(2));
+  while (h.Modal()->items[h.Modal()->cursor].id != "Test Font.sf2") h.Tap(kSub);
+  h.Tap(kEnter);
+  assert(h.Modal() == nullptr && h.State().toast.text == "FONT TEST FONT");
+  assert(font->HasFont() && font->FontFileName() == "Test Font.sf2" && font->Loaded() && font->LoadedBytes() > 2000);
+  assert(font->CurrentPresetId() == "sf.0.0" && font->CurrentPresetName() == "Sine Lead" && h.State().dirty);
+  h.Render();
+  // Its patches are the presets, in bank and program order whatever the file's; the silent preset
+  // comes after them.
+  {
+    const synth::SynthPresetPage page = app.Engine(track)->ListPresets({0, 10});
+    assert(page.totalCount == 4 && page.items.size() == 4);
+    assert(page.items[0].name == "000:000 Sine Lead" && page.items[0].active && page.items[1].name == "000:005 Short" && page.items[2].name == "128:000 Kit");
+    assert(page.items[3].id == "sf.none" && !page.items[3].active);
+  }
+  // A key sounds, is held, and ends when it goes up.
+  app.NoteOn(track, 69, 100);
+  h.Frames(2);
+  assert(render(4) > 100 && holds(69));
+  app.NoteOff(track, 69);
+  h.Frames(2);
+  render(8);
+  assert(!holds(69));
+
+  // SUB on VOICE is the next patch. A sample that plays once ends by itself under a held key.
+  GoToInstrumentPage(h, "VOICE");
+  h.Tap(kSub);
+  assert(font->CurrentPresetId() == "sf.0.5" && font->CurrentPresetName() == "Short" && font->Loaded());
+  app.NoteOn(track, 60, 100);
+  h.Frames(2);
+  render(2);
+  assert(holds(60));
+  render(16);
+  assert(!holds(60));
+  app.NoteOff(track, 60);
+  h.Frames(2);
+
+  // TONE is what the track adds to the patch; its values are the preset's edits.
+  assert(!app.Engine(track)->HasEdits() && ParameterValue(app, track, "tone.cutoff") == 127 && app.Engine(track)->DescribeParameterValue("tone.cutoff") == "OPEN");
+  assert(app.Engine(track)->SetParameterValue("tone.cutoff", 60) && app.Engine(track)->SetParameterValue("tune.coarse", 12) && app.Engine(track)->HasEdits());
+  assert(app.Engine(track)->DescribeParameterValue("tune.coarse") == "+12");
+  GoToInstrumentPage(h, "TONE");
+  h.Render();
+  app.NoteOn(track, 60, 100);
+  h.Frames(2);
+  assert(render(2) > 20 && holds(60));
+  app.NoteOff(track, 60);
+  h.Frames(2);
+  render(16);
+
+  // A project keeps the track: its engine, its file, its patch and its TONE settings.
+  assert(app.SaveProject("FONT SONG", true, app.Ui().Settings(), message) == groove::SaveResult::Ok);
+  {
+    std::ifstream file(synth::storage::ProjectDirectory() + "/FONT SONG.ccproj");
+    const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    assert(text.find("TRACK 1 10 \"sf.0.5\" \"sf.0.5\" \"000:005 Short\" \"Test Font.sf2\"") != std::string::npos);
+    assert(text.find("\"tone.cutoff\" 60\n") != std::string::npos && text.find("\"tune.coarse\" 12\n") != std::string::npos);
+  }
+  assert(app.SwitchEngine(track, Kind::Juno, error));
+  groove::ProjectUiSettings settings;
+  assert(app.LoadProject("FONT SONG", settings, message));
+  app.Ui().Restore(settings, "FONT SONG");
+  font = synth::SoundFontSynthEngine::From(app.Engine(track));
+  assert(font != nullptr && font->FontFileName() == "Test Font.sf2" && font->CurrentPresetId() == "sf.0.5" && font->Loaded());
+  assert(ParameterValue(app, track, "tone.cutoff") == 60 && ParameterValue(app, track, "tune.coarse") == 12);
+  app.NoteOn(track, 60, 100);
+  h.Frames(2);
+  render(2);
+  assert(holds(60));
+  app.NoteOff(track, 60);
+  h.Frames(2);
+  render(16);
+  // A project whose file is not on the card does not load, and nothing changes.
+  std::filesystem::rename(folder + "/Test Font.sf2", folder + "/Away.sf2");
+  assert(app.SwitchEngine(track, Kind::Juno, error));
+  assert(!app.LoadProject("FONT SONG", settings, message) && message == "FONT MISSING" && app.EngineKind(track) == Kind::Juno);
+  std::filesystem::rename(folder + "/Away.sf2", folder + "/Test Font.sf2");
+  assert(app.LoadProject("FONT SONG", settings, message));
+  app.Ui().Restore(settings, "FONT SONG");
+  font = synth::SoundFontSynthEngine::From(app.Engine(track));
+  assert(font != nullptr && font->Loaded());
+
+  // A patch too big for a track: the file is chosen, the track is silent and says why and how much
+  // it would take; the TONE settings stay. Another file plays again.
+  assert(!app.SetSoundFont(track, "Zz Big.sf2", message) && message.rfind("PATCH TOO BIG ", 0) == 0 && message.back() == 'K');
+  assert(font->HasFont() && font->FontFileName() == "Zz Big.sf2" && !font->Loaded() && font->LoadMessage() == message);
+  assert(ParameterValue(app, track, "tone.cutoff") == 60);
+  GoToInstrumentPage(h, "VOICE");
+  h.Render();
+  app.NoteOn(track, 60, 100);
+  h.Frames(2);
+  render(3);
+  assert(!holds(60));
+  app.NoteOff(track, 60);
+  h.Frames(2);
+  assert(app.SetSoundFont(track, "Test Font.sf2", message) && font->Loaded() && font->CurrentPresetId() == "sf.0.0" && font->LoadMessage().empty());
+  // The same instrument of another file when it has one there: a track on 0:5 stays on 0:5.
+  assert(font->LoadPatch(0, 5) && app.SetSoundFont(track, "Test Font.sf2", message) && font->CurrentPresetId() == "sf.0.5");
+
+  // A state that names a patch of a file that is not there is taken all the same: the engine keeps
+  // the patch's name for when the file is back (the autosave restored without its card).
+  {
+    const synth::SynthEngineState saved = font->CaptureState();
+    synth::SoundFontSynthEngine lone;
+    assert(lone.CanRestore(saved) && lone.RestoreState(saved) && lone.PatchWaits() && lone.LoadMessage() == "FONT MISSING");
+    assert(lone.CaptureState().basePresetId == "sf.0.5" && lone.CurrentPresetName() == "Short" && lone.CurrentPresetId() == "sf.none");
+    lone.SetFont(font->SharedFont(), "Test Font.sf2");
+    (void)lone.RetryPatch();
+    assert(!lone.PatchWaits() && lone.CurrentPresetId() == "sf.0.5" && lone.CaptureState().values.at("tone.cutoff") == 60);
+  }
+
+  // Where patches are read in the background (the board's background task; here the test runs it):
+  // the preset changes at once, the patch before plays on and VOICE says LOADING until the new one
+  // is there.
+  const auto choose = [&](Key key) {
+    h.Tap(key);
+    if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
+  };
+  synth::DeferSoundFontLoadsForTests(true);
+  // The project loaded above put the UI on T1, as every project opens.
+  h.Chord(kTab, Grid(track));
+  assert(h.State().track == track);
+  GoToInstrumentPage(h, "VOICE");
+  assert(font->CurrentPresetId() == "sf.0.5" && !font->Loading());
+  choose(kAdd);
+  assert(font->CurrentPresetId() == "sf.0.0" && font->CurrentPresetName() == "Sine Lead");
+  assert(font->Loading() && font->Loaded());
+  h.Render();
+  // The one-shot of the patch before still plays, and ends under the held key.
+  app.NoteOn(track, 60, 100);
+  h.Frames(2);
+  render(18);
+  assert(!holds(60));
+  app.NoteOff(track, 60);
+  h.Frames(2);
+  synth::RunDeferredSoundFontLoads();
+  h.Frames(2);
+  assert(!font->Loading() && font->CurrentPresetId() == "sf.0.0" && font->Loaded() && font->LoadMessage().empty());
+  // Now the looped sine: still held after as long.
+  app.NoteOn(track, 69, 100);
+  h.Frames(2);
+  render(18);
+  assert(holds(69));
+  app.NoteOff(track, 69);
+  h.Frames(2);
+  render(8);
+  // Chosen and then the one that plays chosen again before it was read: the read is dropped.
+  choose(kSub);
+  assert(font->Loading() && font->CurrentPresetId() == "sf.0.5");
+  choose(kAdd);
+  assert(!font->Loading() && font->CurrentPresetId() == "sf.0.0");
+  synth::RunDeferredSoundFontLoads();
+  h.Frames(2);
+  assert(!font->Loading() && font->CurrentPresetId() == "sf.0.0" && font->Loaded());
+  // A patch that cannot be read (its file went away meanwhile): the patch before comes back, and the
+  // screen says why.
+  choose(kSub);
+  assert(font->Loading() && font->CurrentPresetId() == "sf.0.5");
+  std::filesystem::rename(folder + "/Test Font.sf2", folder + "/Away.sf2");
+  synth::RunDeferredSoundFontLoads();
+  h.Frames(2);
+  assert(!font->Loading() && font->CurrentPresetId() == "sf.0.0" && font->Loaded() && font->LoadMessage() == "FONT MISSING");
+  assert(h.State().toast.text == "T2 FONT MISSING");
+  std::filesystem::rename(folder + "/Away.sf2", folder + "/Test Font.sf2");
+  synth::DeferSoundFontLoadsForTests(false);
+
+  // A note right behind a patch change waits for the old patch's notes to fade, then plays the new
+  // one in the next block (it was lost until 2026-11-23).
+  app.NoteOn(track, 69, 100);
+  h.Frames(2);
+  render(2);
+  assert(holds(69));
+  const synth::audio::GivenUpVoices lostBefore = synth::audio::GivenUpVoiceCounts();
+  assert(app.Engine(track)->LoadPreset("sf.0.5") && font->Loaded() && !font->Loading());
+  app.NoteOn(track, 60, 100);
+  h.Frames(2);
+  render(1);
+  assert(!holds(69));
+  render(1);
+  assert(holds(60));
+  const synth::audio::GivenUpVoices lostAfter = synth::audio::GivenUpVoiceCounts();
+  assert(lostAfter.unheard == lostBefore.unheard && lostAfter.held == lostBefore.held);
+  app.NoteOff(track, 69);
+  app.NoteOff(track, 60);
+  h.Frames(2);
+  render(16);
+  assert(!holds(60));
+
+  // Back to a Juno, as the tests around this one expect; nothing is left sounding.
+  render(8);
+  assert(app.SwitchEngine(track, Kind::Juno, error));
+  render(4);
+  std::filesystem::remove(synth::storage::ProjectDirectory() + "/FONT SONG.ccproj");
+  std::filesystem::remove_all(folder);
+  std::filesystem::create_directories(folder);
+  GoToScene(h, 1);
+  h.Chord(kTab, Grid(synth::kDefaultActiveTrack));
+}
+
 int main()
 {
   // Projects and samples go to a scratch card under the test's working directory.
@@ -4231,6 +4542,7 @@ int main()
   TestWaveEngineUi(h);
   TestPlaits(h);
   TestVocal(h);
+  TestSoundFont(h);
   TestEveryParameter(h);
   TestBraids(h);
   // Last: it runs every item of the SEQ menu, which changes the pattern.

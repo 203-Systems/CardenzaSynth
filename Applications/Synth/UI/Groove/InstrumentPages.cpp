@@ -277,6 +277,24 @@ constexpr std::array<InstrumentPage, 4> kChopPages{{
     kFxPage,
 }};
 
+// The SoundFont engine (docs/sf2-engine-design.md): a patch of an .sf2 file is the track's preset, and
+// VOICE has the file beside it. TONE is what the track adds to the patch: its filter closed further,
+// its envelope slower or faster, its tuning and its level.
+constexpr std::array<InstrumentPage, 5> kSoundFontPages{{
+    InstrumentPage{"PRESET", "VOICE",
+                   {{A(SlotAction::Engine, "ENGINE"), A(SlotAction::Preset, "PATCH"), A(SlotAction::SoundFont, "FONT"), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Voice, {1, 0, 3, 4}, 0},
+    kChordPage,
+    kArpPage,
+    InstrumentPage{"TONE", "TONE",
+                   {{P("tone.cutoff", "CUTOFF"), P("tone.reso", "RESO"), P("env.attack", "ATTACK"), P("env.release", "RELEASE"),
+                     P("tune.coarse", "TUNE"), P("tune.fine", "FINE"), P("amp.level", "LEVEL"), P("amp.velocity", "VELO"),
+                     E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::Filter, {2, 0, 2, 4}, 0},
+    kFxPage,
+}};
+
 }  // namespace
 
 const InstrumentPage& SettingsPage(std::size_t page)
@@ -297,6 +315,7 @@ InstrumentPageList InstrumentPagesFor(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Braids: return {kBraidsPages.data(), kBraidsPages.size()};
     case synth::SynthEngineKind::Vocal: return {kVocalPages.data(), kVocalPages.size()};
     case synth::SynthEngineKind::Chop: return {kChopPages.data(), kChopPages.size()};
+    case synth::SynthEngineKind::SoundFont: return {kSoundFontPages.data(), kSoundFontPages.size()};
     case synth::SynthEngineKind::None:
     default: return {&kVoicePage, 1};
   }

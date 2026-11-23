@@ -27,10 +27,13 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
     Plaits/user.ccpreset
     Vocal/user.ccpreset
     Wave/user.ccpreset
+    SoundFont/user.ccpreset
   Samples/
     <name>.wav                 samples, referenced by file name; any app may use them
   Voices/
     <name>.vocal               voice packs of the Vocal engine, referenced by file name (put there by the user)
+  SoundFonts/
+    <name>.sf2                 SoundFont files of the SoundFont engine, referenced by file name (put there by the user)
   Session/
     autosave.ccproj            the working state (the autosave), in the project format
     autosave.txt               its generation, name and unsaved mark
@@ -65,6 +68,7 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 | `Presets/<engine>/user.ccpreset` | Text beginning with `CARDENZA_PRESETS 1 "<engine-id>"` | Preset format 1 |
 | `Samples/*.wav`, `Session/take-*.wav` | Mono PCM16 WAV | File names and project references stay valid |
 | `Voices/*.vocal` | Voice pack (`NPVOCAL`, at most 128 KB; `Library/Synth/Core/Engines/Vocal/VocalPack.h`) | Read only; the firmware never writes one |
+| `SoundFonts/*.sf2` | SoundFont 2 (`RIFF` / `sfbk`, version 2.x, 16-bit samples; `Library/Synth/Audio/SoundFont/Sf2File.h`) | Read only; the firmware never writes one. A file of any size: a track reads one preset of it into memory |
 | `Logs/log*.txt` | Text, one line per console line | Read by people |
 
 Storage protocol 2 describes the layout and how settings are kept; it does not version the project,
@@ -76,7 +80,13 @@ pronunciation of the pack, named by its place in the pack's list (0 for the firs
 word is the engine parameter `voice.word` on the `PARAM` lines, and the word a step sings is a note
 of that step, a word key: one of the notes 0–2 of the track, whose velocity says which word
 (word = note × 127 + velocity − 1). Firmware without the Vocal engine refuses a project with such a
-track. Version 5 was only written by
+track. A SoundFont track (engine kind 10) is written in the same format too: the `TRACK` line's last
+field names its file in `SoundFonts/` (empty: none), its preset id is the patch of that file,
+`sf.<bank>.<program>` with the numbers the file gives it (`sf.none`: no patch), and the `PARAM` lines
+carry what the track adds to the patch (`tone.cutoff`, `tone.reso`, `env.attack`, `env.release`,
+`tune.coarse`, `tune.fine`, `amp.level`, `amp.velocity`) and its effects. Nothing of the file is copied: a project
+needs its file on the card (`FONT MISSING`), and a file changed on a computer plays as it is then.
+Firmware without the SoundFont engine refuses a project with such a track. Version 5 was only written by
 unreleased development builds (its `PLAY` line is skipped). Format 8 adds HITS (a note fired 1–4
 times in its step): each `T` line gains the track's new-note hits after its new-note length, and every
 note line a seventh number, the note's hits. It is read already and written from the one format bump
@@ -200,9 +210,10 @@ wrong.
 | What | Where |
 |---|---|
 | projects `<name>.ccproj` | `Projects/` |
-| user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums,Braids,Plaits,Vocal,Wave}/` |
+| user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums,Braids,Plaits,Vocal,Wave,SoundFont}/` |
 | samples (WAV) | `Samples/` |
 | voice packs (`.vocal`) for vocal tracks | `Voices/` (created with the layout, filled by the user; read with `synth::LoadVoicePack`) |
+| SoundFont files (`.sf2`) for SoundFont tracks | `SoundFonts/` (created with the layout, filled by the user; listed and opened with `synth::ListSoundFonts`, `synth::OpenSoundFont`, the folder from `synth::storage::SoundFontDirectory`) |
 | app preferences (SELECT) | `Settings/synth.cfg` |
 | working state (autosave) | `Session/autosave.ccproj` and `autosave.txt` |
 | sample take | `Session/take-<track>.wav`: a sample recording in progress or not saved yet; removed when it is saved or discarded |

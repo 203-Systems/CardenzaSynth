@@ -152,8 +152,9 @@ void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, 
 {
   Title(g, "ENGINE  T" + std::to_string(controller.State().track + 1), kTab);
   // Four to a row, each a row under its GRID key (the title takes the first), three rows at most.
-  static constexpr std::array<const char*, 9> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT", "MACRO OSCILLATOR  47 MODELS",
-                                                        "MACRO OSCILLATOR  24 MODELS", "SINGS WORDS", "WAVETABLE SYNTH", "SLICED SAMPLE"}};
+  static constexpr std::array<const char*, 10> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT", "MACRO OSCILLATOR  47 MODELS",
+                                                         "MACRO OSCILLATOR  24 MODELS", "SINGS WORDS", "WAVETABLE SYNTH", "SLICED SAMPLE",
+                                                         "SOUNDFONT (.SF2) PLAYER"}};
   const std::size_t shown = (std::min)(modal.items.size(), std::size_t{3 * kGridColumns});
   for (std::size_t index = 0; index < shown; ++index)
   {
@@ -358,6 +359,7 @@ void ModalContent(Gfx& g, const Controller& controller, Animator& animator, cons
     case ModalKind::SampleBrowser: DrawList(g, controller, animator, modal, true); break;
     case ModalKind::SampleOptions: DrawList(g, controller, animator, modal, false); break;
     case ModalKind::VoiceBrowser: DrawList(g, controller, animator, modal, false); break;
+    case ModalKind::FontBrowser: DrawList(g, controller, animator, modal, false); break;
     case ModalKind::EnginePicker: DrawEnginePicker(g, controller, animator, modal); break;
     case ModalKind::SampleRecord: DrawSampleRecord(g, controller, animator); break;
     case ModalKind::Menu: MenuContent(g, controller, animator, 1.0f); break;
@@ -379,6 +381,7 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
     case ModalKind::SampleBrowser: return "ENTER LOAD  FN+F SEARCH  FN+ENTER EDIT";
     case ModalKind::SampleOptions: return "ENTER CHOOSE   ESC BACK";
     case ModalKind::VoiceBrowser: return "ENTER SINGS AS   ESC BACK";
+    case ModalKind::FontBrowser: return "ENTER LOAD   ESC BACK";
     case ModalKind::EnginePicker: return "GRID OR SUB ADD   ENTER SWITCH";
     case ModalKind::Menu: return "GRID RUNS   FN OR ESC CLOSES";
     case ModalKind::Record: return "+- BAR  OK NEW PATTERN  FN+OK MERGE";

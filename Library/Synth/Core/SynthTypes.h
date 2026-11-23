@@ -22,9 +22,12 @@ enum class SynthEngineKind {
   Wave = 8,    // wavetable and classic oscillators through AMY (Library/Synth/Core/Engines/Wave)
   // One sample cut into slices: a pad plays a part of the file, never a pitch (ChopSynthEngine).
   Chop = 9,
+  // One patch of a SoundFont (.sf2) file on the card (Library/Synth/Audio/SoundFont,
+  // docs/sf2-engine-design.md), rendered by the runtime itself.
+  SoundFont = 10,
 };
 // One more than the highest kind: tables indexed by kind.
-inline constexpr std::size_t kSynthEngineKindCount = 10;
+inline constexpr std::size_t kSynthEngineKindCount = 11;
 
 enum class OverlayPage {
   None,

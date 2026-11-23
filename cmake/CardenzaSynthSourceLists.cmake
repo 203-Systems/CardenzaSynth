@@ -22,6 +22,7 @@ function(cardenza_collect_synth_app_cpp_sources root_dir out_var)
         ${root_dir}/Applications/Synth/Runtime/Sequencer/SynthSequencer.cpp
         ${root_dir}/Applications/Synth/Runtime/SynthRack.cpp
         ${root_dir}/Applications/Synth/Runtime/SynthStorage.cpp
+        ${root_dir}/Applications/Synth/Runtime/SoundFont/SoundFonts.cpp
         ${root_dir}/Applications/Synth/Runtime/Vocal/VoicePacks.cpp
     )
     cardenza_groove_ui_enabled(groove_ui)
@@ -143,6 +144,11 @@ function(cardenza_collect_synth_fx_cpp_sources root_dir out_var)
     set(sources
         ${root_dir}/Library/Synth/Audio/Fx/SynthFxDsp.cpp
         ${root_dir}/Library/Synth/Audio/SampleStream.cpp
+        ${root_dir}/Library/Synth/Audio/SoundFont/Sf2File.cpp
+        ${root_dir}/Library/Synth/Audio/SoundFont/Sf2Program.cpp
+        ${root_dir}/Library/Synth/Audio/SoundFont/Sf2Tables.cpp
+        ${root_dir}/Library/Synth/Audio/SoundFont/Sf2Track.cpp
+        ${root_dir}/Library/Synth/Audio/SoundFont/Sf2Voice.cpp
         ${plaits_sources}
     )
     set(${out_var} ${sources} PARENT_SCOPE)
@@ -208,6 +214,7 @@ function(cardenza_collect_synth_core_cpp_sources root_dir out_var)
         ${root_dir}/Library/Synth/Core/Engines/Wave/WaveSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/Engines/Vocal/VocalPack.cpp
         ${root_dir}/Library/Synth/Core/Engines/Vocal/VocalSynthEngine.cpp
+        ${root_dir}/Library/Synth/Core/Engines/SoundFont/SoundFontSynthEngine.cpp
         ${root_dir}/Library/Synth/Core/SynthEngineFactory.cpp
     )
     set(${out_var} ${sources} PARENT_SCOPE)

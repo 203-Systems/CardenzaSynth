@@ -31,6 +31,11 @@ std::string VoiceDirectory()
   return AppFolder().Folder("Voices");
 }
 
+std::string SoundFontDirectory()
+{
+  return AppFolder().Folder("SoundFonts");
+}
+
 std::string SessionDirectory()
 {
   return AppFolder().Session();
@@ -39,9 +44,11 @@ std::string SessionDirectory()
 bool EnsureLayout()
 {
   // One preset folder per engine (SynthDescriptor::displayName).
-  static const std::vector<std::string> engines{"DX7", "Juno", "Sampler", "Drums", "Braids", "Plaits", "Vocal", "Wave"};
-  // Voices/ is where the user puts voice packs: there from the start, so it is found.
-  return os::storage::EnsureAppLayout(AppFolder(), engines) && os::storage::CreateDirectories(VoiceDirectory());
+  static const std::vector<std::string> engines{"DX7", "Juno", "Sampler", "Drums", "Braids", "Plaits", "Vocal", "Wave", "SoundFont"};
+  // Voices/ and SoundFonts/ are where the user puts voice packs and .sf2 files: there from the start,
+  // so they are found.
+  return os::storage::EnsureAppLayout(AppFolder(), engines) && os::storage::CreateDirectories(VoiceDirectory()) &&
+         os::storage::CreateDirectories(SoundFontDirectory());
 }
 
 }  // namespace synth::storage

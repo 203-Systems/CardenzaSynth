@@ -20,6 +20,9 @@ struct Tone {
   std::int16_t attackTimecents = 0;
   std::int16_t releaseTimecents = 0;
   std::int16_t attenuationCb = 0;
+  // How much of the velocity's attenuation applies: 127 all of it (the patch as written), 0 none
+  // (every note as loud as the hardest). Which regions a velocity picks does not change.
+  std::uint8_t velocityDepth = 127;
 };
 
 class Voice {
