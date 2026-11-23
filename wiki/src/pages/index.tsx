@@ -38,7 +38,7 @@ export default function Home(): React.ReactElement {
           <div className="g-hero-text">
             <h1>{lang === 'zh' ? <>十分钟，<br />做出第一首歌。</> : <>Ten minutes<br />to your first song.</>}</h1>
             <p>{say('先用三张图弄懂编曲，再一课一课学机器：每课几步，跟着按就会。',
-              'Three pictures explain how music is built; then the device, lesson by lesson, a few steps each.')}</p>
+              'Start with three quick visual lessons on how music is built, then learn the hardware step by step.')}</p>
             <Link className="cta" to={lessonPath(GUIDE.order[0])}>{say('从第一课开始', 'Start with lesson 1')} →</Link>
           </div>
           <AnimThumb className="hero-art" name="music-box" />
@@ -73,17 +73,17 @@ export default function Home(): React.ReactElement {
         <section className="device-card">
           <h2>{say('有一台鸣片？', 'Got a Cardenza?')}</h2>
           <p>{say('用 USB 线接上电脑，浏览器问能不能使用 MIDI 设备时点「允许」：机器会跟着课程走，该按的键会闪，做对了会告诉你「学会了」。没有机器也没关系，看图就能跟着学。',
-            'Plug it in with a USB cable and allow MIDI when the browser asks: the device follows the lessons, the keys to press blink, and the page tells you when you have got it. No device? The pictures show every step.')}</p>
+            'Connect over USB and allow MIDI access when prompted. Your Cardenza follows each lesson, blinks the keys to press, and confirms when you complete each step. No hardware? You can still follow along with the diagrams.')}</p>
           <p className="dc-small">{say('教程用一个练习工程，你自己的工程不会被改动；关掉这一页，机器就回到原来的样子。',
-            'The lessons use a practice project: your own work is left alone, and it is back as soon as you close this page.')}</p>
+            'Lessons run in a temporary practice project, leaving your own work untouched and restoring it automatically when you close this page.')}</p>
           <p className="dc-small">
-            {say('机器上的固件太旧、跟不上课程？先看', 'Firmware too old for the lessons? See')}{' '}
+            {say('机器上的固件太旧、跟不上课程？先看', 'Firmware too old for the interactive lessons? See')}{' '}
             <Link to={lessonPath('update-firmware')}>{say('更新官方固件', 'Updating the official firmware')}</Link>
-            {say('；启动器的更新和社区里的其他固件也在「更新与安装」里。', '; the Launcher and the community’s other firmware are in Update and install too.')}
+            {say('；启动器的更新和社区里的其他固件也在「更新与安装」里。', '. Launcher updates and community firmware are covered under Update and install.')}
           </p>
         </section>
         <p className="g-ref">
-          <Link to="/manual/start/">{say('要查某个键、某一页、某个设置？去说明书 →', 'Looking for one key, page or setting? The manual →')}</Link>
+          <Link to="/manual/start/">{say('要查某个键、某一页、某个设置？去说明书 →', 'Looking for a specific key, page, or setting? Open the manual →')}</Link>
         </p>
       </section>
     </GuideLayout>

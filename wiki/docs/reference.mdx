@@ -7,71 +7,71 @@ sidebar_position: 16
 <Keywords k="reference, cheat sheet, summary, overview, 速查" />
 
 <Keymap>
-  <Group keys="ESC">Scenes · back</Group>
+  <Group keys="ESC">Scenes / back</Group>
   <Group keys="TAB">Tracks</Group>
-  <Group keys="FN">FN menu · second functions</Group>
+  <Group keys="FN">FN menu / secondary shortcuts</Group>
   <Group keys="CTRL">Pages</Group>
-  <Group keys="PADS">Play the current track</Group>
+  <Group keys="PADS">Play active track</Group>
   <Group keys="GRID">Screen cells</Group>
   <Group keys="ADD SUB">Increase / decrease</Group>
-  <Group keys="OK">Confirm · record</Group>
+  <Group keys="OK">Confirm / record</Group>
   <Group keys="PLAY">Play / stop</Group>
-  <Caption>All keys at a glance</Caption>
+  <Caption>Overview of all key groups.</Caption>
 </Keymap>
 
 ## Every key at a glance {#ref-shortcuts}
 
-**Edge keys**
+**Navigation and transport keys**
 
-| Keys | Does |
+| Keys | Function |
 |---|---|
-| <Key k="ESC" /> tap | walk the scenes 1 INSTR → 2 SEQ → 3 TAPE (in SETUP: back to where you came from; in a pop-up: cancel; in SEQ with steps selected: clear the selection) |
-| <Key k="hold ESC" /> + <Key k="GRID" /> | scene map: the columns are 0 SETUP, 1 INSTR, 2 SEQ, 3 TAPE; column 1 is the way into SETUP |
-| <Key k="TAB" /> tap | next track |
-| <Key k="hold TAB" /> + <Key k="GRID" /> | track map, laid out like MIX: rows select / mute / solo / sequencer on-off, one column per track |
-| <Key k="TAB" /> + <Key k="ADD" /> / <Key k="SUB" /> | next / previous track |
-| <Key k="CTRL" /> tap | next page |
-| <Key k="hold CTRL" /> + <Key k="GRID" /> | page map: every page of the scene, press one to go there |
-| <Key k="CTRL" /> + <Key k="ADD" /> / <Key k="SUB" /> | next / previous page |
-| <Key k="FN" /> tap | open / close the menu of this screen (it stays open; a GRID key runs an item and closes it) |
-| <Key k="hold FN" /> | the same menu while held; the letters and edge keys below are its second functions |
-| <Key k="ADD" /> <Key k="SUB" /> | increase / decrease, move in a list; held they repeat and speed up; on the SEQ note page with no step selected: next / previous page of the GRID |
-| <Key k="GRID" /> on the SEQ note page | tap: select a step and keep it (tap again to let go); hold: selected while held; with pads held: their notes go into the step, or come out |
-| <Key k="OK" /> | confirm, open, switch; on the SEQ note page a tap switches ROLL / STEP, a hold opens RECORD, with steps selected it walks NOTE → LEN → VEL → TIME |
-| <Key k="PLAY" /> | play / stop |
-| HOME side key | not used by the groovebox (stop all is <Key k="FN+ESC" />) |
-| hold a parameter cell on the GRID | the pads become its values: press one to set it |
+| <Key k="ESC" /> tap | Cycle scenes (`1 INSTR → 2 SEQ → 3 TAPE`); exit SETUP; cancel a dialog; clear step selection in SEQ |
+| <Key k="hold ESC" /> + <Key k="GRID" /> | Open scene map (`0 SETUP`, `1 INSTR`, `2 SEQ`, `3 TAPE`); column 1 enters SETUP |
+| <Key k="TAB" /> tap | Next track |
+| <Key k="hold TAB" /> + <Key k="GRID" /> | Open track map (MIX layout: select, mute, solo, sequencer on/off) |
+| <Key k="TAB" /> + <Key k="ADD" /> / <Key k="SUB" /> | Next / previous track |
+| <Key k="CTRL" /> tap | Next page |
+| <Key k="hold CTRL" /> + <Key k="GRID" /> | Open page map and jump directly to any page in the current scene |
+| <Key k="CTRL" /> + <Key k="ADD" /> / <Key k="SUB" /> | Next / previous page |
+| <Key k="FN" /> tap | Latch the current screen's FN menu open or closed (tapping a GRID item runs it and closes the menu) |
+| <Key k="hold FN" /> | Display FN menu while held and activate secondary shortcuts across the keyboard |
+| <Key k="ADD" /> / <Key k="SUB" /> | Adjust value or scroll lists (hold to auto-repeat with acceleration); flip 16-step pages on SEQ note page when no steps are selected |
+| <Key k="GRID" /> on SEQ note page | Tap to latch step selection (tap again to deselect); hold to select temporarily; hold pads and tap GRID to toggle notes |
+| <Key k="OK" /> | Confirm, open, or toggle; on SEQ note page: tap to switch ROLL/STEP, hold for RECORD panel, or tap with steps selected to cycle `NOTE → LEN → VEL → TIME` |
+| <Key k="PLAY" /> | Play / stop |
+| HOME side button | Open system menu (Back to Launcher, Restart, Power off, Download mode; Cardenza Synth 0.2.1+) |
+| Hold a GRID parameter cell | Map that parameter's values across the 32 pads for direct selection |
 
-**FN + a key**
+**FN combinations**
 
-| Keys | Does |
+| Keys | Function |
 |---|---|
-| <Key k="FN+GRID" /> | run that item of the menu |
-| <Key k="FN" /> + <Key k="6" /> / <Key k="Y" /> | BPM + / − (any screen, held it repeats) |
-| <Key k="FN" /> + <Key k="7" /> / <Key k="U" /> | master volume + / − |
-| <Key k="FN" /> + <Key k="8" /> / <Key k="I" /> | octave + / − |
-| <Key k="FN+ESC" /> | stop all: the sequencer, every ARP and every sounding note |
-| <Key k="FN+TAB" /> | previous track |
-| <Key k="FN+CTRL" /> | previous page |
-| <Key k="FN+ADD" /> / <Key k="FN+SUB" /> | big steps (BPM ±10, settings ×5); on the SEQ note page with no step selected: next / previous pattern; in lists: a page at a time |
-| <Key k="FN+OK" /> | the screen's second OK: RESET (default value), SCOPE (SEQ), ADD TO SONG (SESSION), SONG / LOOP (SONG); in the sample list: rename / delete |
-| <Key k="FN+PLAY" /> | record on / off (REC) |
-| <Key k="FN+C" /> <Key k="FN+V" /> | copy / paste (steps, pattern or song row) |
-| <Key k="FN+X" /> | clear (a whole pattern asks first) / delete a song row |
-| <Key k="FN+Q" /> | quantize |
-| <Key k="FN+D" /> | duplicate the pattern / the song row |
-| <Key k="FN+T" /> | tap tempo |
-| <Key k="FN+S" /> | save the project (a new one gets the name SONG 01, SONG 02 …) |
+| <Key k="FN+GRID" /> | Run the corresponding FN menu item |
+| <Key k="FN" /> + <Key k="6" /> / <Key k="Y" /> | BPM + / − (global; hold to repeat) |
+| <Key k="FN" /> + <Key k="7" /> / <Key k="U" /> | Master volume + / − |
+| <Key k="FN" /> + <Key k="8" /> / <Key k="I" /> | Octave + / − |
+| <Key k="FN+ESC" /> | All stop: stop sequencer, all arpeggiators, and all sounding notes |
+| <Key k="FN+TAB" /> | Previous track |
+| <Key k="FN+CTRL" /> | Previous page |
+| <Key k="FN+ADD" /> / <Key k="FN+SUB" /> | Coarse adjustment (BPM ±10, SETUP settings ±5); next/previous pattern on SEQ note page with no steps selected; page up/down in browsers |
+| <Key k="FN+OK" /> | Secondary OK: RESET parameter default, chord edit SCOPE (SEQ), ADD TO SONG (SESSION), SONG/LOOP toggle (SONG), merge take (RECORD panel), rename/delete (sample browser) |
+| <Key k="FN+PLAY" /> | Arm / disarm live recording (REC) |
+| <Key k="FN+C" /> / <Key k="FN+V" /> | Copy / paste (selected steps, pattern, or SONG section) |
+| <Key k="FN+X" /> | Clear steps/pattern (prompts on full pattern) or delete SONG section |
+| <Key k="FN+Q" /> | Quantize selected steps or full pattern to whole steps |
+| <Key k="FN+D" /> | Duplicate current pattern or SONG section |
+| <Key k="FN+T" /> | Tap tempo |
+| <Key k="FN+S" /> | Save project (auto-names untitled projects as `SONG 01`, `SONG 02`, ...) |
 
-**FN in input screens** (lists, text fields, confirmations)
+**FN in input screens** (browsers, text entry, dialogs)
 
-| Keys | Does |
+| Keys | Function |
 |---|---|
-| <Key k="FN" /> + <Key k=";" /> <Key k="." /> <Key k="," /> <Key k="/" /> | up / down / left / right (in a text field: cursor to the start / end, left / right) |
-| <Key k="FN+F" /> | search in the preset / sample list |
-| <Key k="FN+ADD" /> / <Key k="FN+SUB" /> | a page at a time |
-| <Key k="ADD~del" /> / <Key k="FN" /> + <Key k="ADD~del" /> | in a text field (the top-right key): delete before / after the cursor |
-| <Key k="OK" /> / <Key k="ESC" /> | yes / no, keep / cancel |
+| <Key k="FN" /> + <Key k=";" /> <Key k="." /> <Key k="," /> <Key k="/" /> | Up / down / left / right (in text entry: jump to start/end, move cursor left/right) |
+| <Key k="FN+F" /> | Filter preset or sample browser by name |
+| <Key k="FN+ADD" /> / <Key k="FN+SUB" /> | Page up / page down |
+| <Key k="ADD~del" /> / <Key k="FN" /> + <Key k="ADD~del" /> | Backspace / forward-delete in text entry |
+| <Key k="OK" /> / <Key k="ESC" /> | Confirm / cancel |
 
 <Keywords k="shortcut list, all shortcuts, key list, cheat sheet, hotkeys, fn letters, hold map, 快捷键表" />
 
@@ -89,23 +89,23 @@ sidebar_position: 16
 
 ## Glossary {#glossary}
 
-| Term | Meaning |
+| Term | Definition |
 |---|---|
-| Track | one of four, each with one engine, its own patterns, chord and ARP; you start on T1 |
-| Engine | the synth that makes the sound: DRUMS, JUNO, DX7, SAMPLER |
-| Preset / sound | a set of an engine's parameters |
-| Step | the sequencer's smallest cell, a 1/16 note |
-| Microstep | 6 subdivisions of a step, to record timing that is not exactly on the grid |
-| Pattern | a sequence of 1 to 256 steps, shown 16 at a time; up to 16 per track |
-| Song row | a part of the SONG: which pattern each track plays, for how many bars (a column on the SONG page, ROW n in the FN menu) |
-| Scene | one of the four parts of the UI: 0 SETUP, 1 INSTR, 2 SEQ, 3 TAPE |
-| SETUP | scene 0: project, files and the settings for every track; hold ESC + GRID column 1 |
-| FN menu | what the current screen can do, on the GRID while FN is held (or kept open with a tap) |
-| Take | a phrase you played, kept by capture |
-| Autosave | the working state, kept on the SD card by itself, so the power can go at any time |
-| GRID | the 4×4 on the right, matching the 4×4 in the middle of the screen |
-| PADS | the 4×8 in the middle, always playing the current track |
-| Send | how much goes to the master delay / reverb |
-| Master bus | the effects after the four tracks are mixed |
+| Track | One of four independent channels (T1–T4), each with its own engine, patterns, chord generator, and arpeggiator |
+| Engine | Sound generator assigned to a track: DRUMS, JUNO, DX7, or SAMPLER |
+| Preset / sound | Saved set of parameters for an engine |
+| Step | Smallest sequencer grid unit (1/16 note) |
+| Microstep | One of 6 subdivisions per step, used for off-grid timing |
+| Pattern | 1 to 256-step sequence (viewed 16 steps per page); up to 16 patterns per track |
+| Song row / part | One section in SONG mode defining each track's pattern and bar length (shown as columns in SONG, labeled `ROW n` in the FN menu) |
+| Scene | One of four top-level views: 0 SETUP, 1 INSTR, 2 SEQ, 3 TAPE |
+| SETUP | Scene 0, holding project files and global keyboard/system settings (hold ESC + GRID column 1) |
+| FN menu | Context menu shown on the GRID while holding FN or after tapping FN |
+| Take | A phrase buffered automatically by retrospective capture |
+| Autosave | Background session snapshot written to the SD card so power can be removed safely |
+| GRID | 4×4 key block on the right mirroring the screen's 4×4 cell layout |
+| PADS | 4×8 key block in the center used to play the active track |
+| Send | Level routed from a track into the shared master delay or reverb bus |
+| Master bus | Global processing chain (EQ, compressor, tape saturation) applied to the summed mix |
 
 <Keywords k="glossary, terms, definitions, meaning, vocabulary, 名词" />

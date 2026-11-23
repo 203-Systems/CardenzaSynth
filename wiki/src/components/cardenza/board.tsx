@@ -57,23 +57,23 @@ function fnFor(row: number, column: number): {keys: string; label: string}[] {
 const LEFT_TEXT: Record<string, {name: Words; lines: Words[]; section: string}> = {
   ESC: {name: ['场景 / 返回', 'Scenes / back'], section: 'nav-scenes', lines: [
     ['单击：在 1 INSTR、2 SEQ、3 TAPE 之间轮换；在 SETUP 里回到原来的场景，确认框里是「否」。',
-      'Tap: the next of 1 INSTR, 2 SEQ, 3 TAPE; in SETUP back to where you were, in a confirmation "no".'],
-    ['按住：GRID 变成场景地图（第 1 列进 0 SETUP）。', 'Hold: the GRID becomes the scene map (column 1 is 0 SETUP).']]},
+      'Tap to cycle between 1 INSTR, 2 SEQ, and 3 TAPE, exit SETUP, or cancel dialogs.'],
+    ['按住：GRID 变成场景地图（第 1 列进 0 SETUP）。', 'Hold to show the scene map on the GRID (column 1 opens 0 SETUP).']]},
   TAB: {name: ['轨道', 'Tracks'], section: 'nav-tracks', lines: [
-    ['单击：换到下一条轨道。', 'Tap: the next track.'],
-    ['按住：GRID 变成轨道地图，直接选一条。', 'Hold: the GRID becomes the track map, pick one.']]},
-  FN: {name: ['这一页的菜单', "This screen's menu"], section: 'fn-menu', lines: [
-    ['单击：打开这一页的菜单，再点 GRID 执行。', "Tap: opens this screen's menu; a GRID key runs an item."],
-    ['按住：菜单显示在 GRID 上；和别的键一起按是第二功能。', 'Hold: the menu on the GRID; with another key, its second function.']]},
+    ['单击：换到下一条轨道。', 'Tap to switch to the next track.'],
+    ['按住：GRID 变成轨道地图，直接选一条。', 'Hold to open the track map on the GRID.']]},
+  FN: {name: ['这一页的菜单', 'Context menu'], section: 'fn-menu', lines: [
+    ['单击：打开这一页的菜单，再点 GRID 执行。', 'Tap to latch the current screen menu open; tap a GRID key to run an item.'],
+    ['按住：菜单显示在 GRID 上；和别的键一起按是第二功能。', 'Hold to display the menu on the GRID and activate secondary shortcuts.']]},
   CTRL: {name: ['页面', 'Pages'], section: 'nav-pages', lines: [
-    ['单击：换到下一页。', 'Tap: the next page.'],
-    ['按住：GRID 变成这个场景的页面地图。', "Hold: the GRID becomes the map of this scene's pages."]]},
+    ['单击：换到下一页。', 'Tap to move to the next page.'],
+    ['按住：GRID 变成这个场景的页面地图。', 'Hold to display the page map for the current scene.']]},
 };
 const RIGHT_TEXT: Record<string, {name: Words; lines: Words[]; section: string}> = {
-  ADD: {name: ['调大 / 往上', 'More / up'], section: 'keys-right', lines: [['调大当前的值；在列表里往上。', 'Raises the value in focus; goes up a list.']]},
-  SUB: {name: ['调小 / 往下', 'Less / down'], section: 'keys-right', lines: [['调小当前的值；在列表里往下。', 'Lowers the value in focus; goes down a list.']]},
-  OK: {name: ['确认', 'Confirm'], section: 'keys-right', lines: [['确认、进入；确认框里是「是」。', 'Confirms and opens; in a confirmation, "yes".']]},
-  PLAY: {name: ['播放 / 停止', 'Play / stop'], section: 'seq-transport', lines: [['开始或停止播放。', 'Starts or stops playback.']]},
+  ADD: {name: ['调大 / 往上', 'Increase / up'], section: 'keys-right', lines: [['调大当前的值；在列表里往上。', 'Increase the focused value or move up in lists.']]},
+  SUB: {name: ['调小 / 往下', 'Decrease / down'], section: 'keys-right', lines: [['调小当前的值；在列表里往下。', 'Decrease the focused value or move down in lists.']]},
+  OK: {name: ['确认', 'Confirm'], section: 'keys-right', lines: [['确认、进入；确认框里是「是」。', 'Confirm, open, or toggle (answers "yes" in prompts).']]},
+  PLAY: {name: ['播放 / 停止', 'Play / stop'], section: 'seq-transport', lines: [['开始或停止播放。', 'Start or stop playback.']]},
 };
 
 function spots(): Spot[] {
@@ -90,28 +90,28 @@ function spots(): Spot[] {
       } else if (column >= 9) {
         const n = row * 4 + column - 8;
         out.push({...base, cap: `G${n}`, section: 'keys-grid', name: ['GRID', 'GRID'], lines: [
-          [`屏幕中间 4×4 的第 ${row + 1} 行第 ${column - 8} 列：点一下选中这一格。`, `Row ${row + 1}, column ${column - 8} of the screen's 4×4: a tap picks that cell.`],
-          ['按住一个参数格：琴键变成它的取值。', "Hold a parameter's cell: the pads become its values."]]});
+          [`屏幕中间 4×4 的第 ${row + 1} 行第 ${column - 8} 列：点一下选中这一格。`, `Row ${row + 1}, column ${column - 8} of the on-screen 4×4 grid. Tap to select this cell.`],
+          ['按住一个参数格：琴键变成它的取值。', 'Hold a parameter cell to pick its value directly on the pads.']]});
       } else {
         out.push({...base, cap: `r${row}c${column}`, section: 'play-keyboard', name: ['琴键', 'Pads'], lines: [
-          ['弹当前轨道：两个八度，下排白键、上排黑键。', 'Plays the current track: two octaves, white keys below, black keys above.'],
-          ['鼓轨上一列是一种鼓，越往上越重。', 'On a drum track a column is a drum, harder towards the top.']]});
+          ['弹当前轨道：两个八度，下排白键、上排黑键。', 'Play the active track: two octaves with white keys below and black keys above.'],
+          ['鼓轨上一列是一种鼓，越往上越重。', 'On drum tracks, each column is one drum with higher rows playing louder.']]});
       }
     }
   }
-  out.push({id: 'home', rect: [HOME.x - 1, HOME.y - 1, HOME.w + 2, HOME.h + 2], kind: 'home', name: ['HOME 侧键', 'HOME side key'],
-    section: 'keys-home', lines: [['按一下打开系统菜单（Cardenza Synth 0.2.1 起）：返回启动器、重新启动、关机、下载模式。', 'A press opens the system menu (Cardenza Synth 0.2.1 or newer): Back to Launcher, Restart, Turn off, Download mode.'],
-      ['插线时别按住它（那是下载模式）；停下所有声音是 FN + ESC。', "Don't hold it while plugging in (download mode). To stop everything: FN + ESC."]]});
-  out.push({id: 'header', rect: screen(9, 0, 221, 11), kind: 'screen', name: ['状态行', 'Status line'], section: 'screen-layout',
-    lines: [['场景、轨道、音色和 BPM。', 'Scene, track, sound and BPM.']]});
-  out.push({id: 'content', rect: screen(9, 13, 222, 110), kind: 'screen', name: ['内容区', 'Content'], section: 'keys-grid',
-    lines: [['4×4 的格子，和右边的 GRID 一一对应。', 'A 4×4 of cells, one for each GRID key on the right.']]});
+  out.push({id: 'home', rect: [HOME.x - 1, HOME.y - 1, HOME.w + 2, HOME.h + 2], kind: 'home', name: ['HOME 侧键', 'HOME side button'],
+    section: 'keys-home', lines: [['按一下打开系统菜单（Cardenza Synth 0.2.1 起）：返回启动器、重新启动、关机、下载模式。', 'Press to open the system menu (Cardenza Synth 0.2.1+): Back to Launcher, Restart, Power off, Download mode.'],
+      ['插线时别按住它（那是下载模式）；停下所有声音是 FN + ESC。', 'Do not hold while plugging in USB (boots download mode). Use FN + ESC for All Stop.']]});
+  out.push({id: 'header', rect: screen(9, 0, 221, 11), kind: 'screen', name: ['状态行', 'Status bar'], section: 'screen-layout',
+    lines: [['场景、轨道、音色和 BPM。', 'Active scene, track, preset, and BPM.']]});
+  out.push({id: 'content', rect: screen(9, 13, 222, 110), kind: 'screen', name: ['内容区', 'Content area'], section: 'keys-grid',
+    lines: [['4×4 的格子，和右边的 GRID 一一对应。', '4×4 cell layout matching the physical GRID keys on the right.']]});
   out.push({id: 'footer', rect: screen(9, 123, 221, 12), kind: 'screen', name: ['页签', 'Page tabs'], section: 'nav-pages',
-    lines: [['这个场景的页面；CTRL 切换。', "This scene's pages; CTRL switches them."]]});
+    lines: [['这个场景的页面；CTRL 切换。', 'Pages in the current scene (switch with CTRL).']]});
   out.push({id: 'strips-left', rect: screen(0, 0, 8, 135), kind: 'screen', name: ['两侧色块', 'Edge strips'], section: 'lights-edges',
-    lines: [['对应左边的 ESC、TAB、FN、CTRL，颜色和亮度跟键灯一样。', 'The left keys ESC, TAB, FN, CTRL, in their colour and as bright as their lights.']]});
+    lines: [['对应左边的 ESC、TAB、FN、CTRL，颜色和亮度跟键灯一样。', 'Mirrors the color and LED state of ESC, TAB, FN, and CTRL.']]});
   out.push({id: 'strips-right', rect: screen(232, 0, 8, 135), kind: 'screen', name: ['两侧色块', 'Edge strips'], section: 'lights-edges',
-    lines: [['对应右边的 ↑、↓、OK、PLAY，颜色和亮度跟键灯一样。', 'The right keys ↑, ↓, OK, PLAY, in their colour and as bright as their lights.']]});
+    lines: [['对应右边的 ↑、↓、OK、PLAY，颜色和亮度跟键灯一样。', 'Mirrors the color and LED state of ADD, SUB, OK, and PLAY.']]});
   return out;
 }
 
@@ -194,8 +194,8 @@ export function DeviceMap() {
       </div>
       {spot && <Pop spot={spot} lang={lang} below={spot.kind !== 'key'} onEnter={() => show(spot.id)} onLeave={hideSoon} />}
       <figcaption>{hover
-        ? say('把鼠标移到一个键或屏幕上，看它做什么；点一下去它的说明。', 'Point at a key or at the screen to see what it does; click to go to its section.')
-        : say('点一个键或屏幕看它做什么，再点说明链接。', 'Tap a key or the screen to see what it does, then its link.')}</figcaption>
+        ? say('把鼠标移到一个键或屏幕上，看它做什么；点一下去它的说明。', 'Hover over any key or screen area to see its role; click to jump to its documentation.')
+        : say('点一个键或屏幕看它做什么，再点说明链接。', 'Tap any key or screen area to see its role, then tap the link to read more.')}</figcaption>
     </figure>
   );
 }

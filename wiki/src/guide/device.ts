@@ -150,7 +150,7 @@ class GuideDevice {
     this.state = null;
     this.reason = null;
     this.setStatus('waiting');
-    if (was) toast(['鸣片断开了：接着看图学，插回去会自动连上。', 'Your Cardenza is gone: go on with the pictures; plug it back in and it reconnects.']);
+    if (was) toast(['鸣片断开了：接着看图学，插回去会自动连上。', 'Cardenza disconnected. You can continue with the diagrams, or plug it back in to reconnect.']);
   }
 
   private onMidi(event: MIDIMessageEvent) {
@@ -162,7 +162,7 @@ class GuideDevice {
       clearTimeout(this.helloTimer);
       if (this.connected()) return;
       this.setStatus('on');
-      toast(['鸣片已连接：它会跟着课程走。', 'Your Cardenza is connected: it follows the lessons.']);
+      toast(['鸣片已连接：它会跟着课程走。', 'Cardenza connected and syncing with the lessons.']);
       if (this.want) this.beginGuide();
       return;
     }
@@ -272,22 +272,22 @@ export function useDevice(): GuideDevice | null {
 }
 
 export const REASONS: Record<string, [string, string]> = {
-  rec: ['机器正在录音：先停下录音，再点这里重试。', 'The device is recording: stop it, then click here to try again.'],
+  rec: ['机器正在录音：先停下录音，再点这里重试。', 'Recording is active on the device. Stop recording, then click here to retry.'],
   save: ['你现在的工程太长，教程没法替你暂存。先用 FN+S 存到卡上，在 SETUP 里新建一个空工程，再点这里重试。',
-    'Your project is too long to set aside. Save it with FN+S, start a new project in SETUP, then click here to try again.'],
-  mem: ['机器的内存不够：重启一下，再点这里重试。', 'The device is short of memory: restart it, then click here to try again.'],
+    'Your current project is too large to stash temporarily. Save it with FN+S, start a new project in SETUP, then click here to retry.'],
+  mem: ['机器的内存不够：重启一下，再点这里重试。', 'Device is low on memory. Restart it, then click here to retry.'],
   card: ['机器里没有 SD 卡：教程开始前要先把你的工程存到卡上。插上卡，重启机器，再点这里重试。',
-    'There is no SD card in the device: the guide first keeps your project on it. Put a card in, restart the device, then click here to try again.'],
-  other: ['机器没能开始教程：点这里重试。', 'The device could not start the guide: click here to try again.'],
+    'No SD card detected. Interactive lessons need an SD card to safely stash your current session. Insert a card, restart the device, then click here to retry.'],
+  other: ['机器没能开始教程：点这里重试。', 'Could not start guide mode on the device. Click here to retry.'],
 };
 
 export const STATUS: Record<Status | 'song', [string, string]> = {
-  nomidi: ['用电脑上的 Chrome 或 Edge 打开这一页，再接上鸣片：机器会跟着课程走。', 'Open this page in Chrome or Edge on a computer and plug in your Cardenza: it follows the lessons.'],
-  denied: ['要让鸣片跟着课程走：在地址栏左边的网站设置里允许 MIDI 设备，再刷新这一页。', 'To have your Cardenza follow the lessons, allow MIDI devices in the site settings (left of the address bar) and reload.'],
-  waiting: ['用 USB 线接上鸣片，它会跟着这一课走；没有机器也可以看图跟着学。', 'Plug in your Cardenza with a USB cable and it follows this lesson; no device, follow the pictures.'],
-  hello: ['正在连接鸣片…', 'Connecting to your Cardenza…'],
-  old: ['这台鸣片的固件还不支持教程：更新到最新固件，再接上。', "This Cardenza's firmware has no guide yet: update it, then plug it in again."],
+  nomidi: ['用电脑上的 Chrome 或 Edge 打开这一页，再接上鸣片：机器会跟着课程走。', 'Open this page in Chrome or Edge on a desktop browser and connect your Cardenza to follow along on hardware.'],
+  denied: ['要让鸣片跟着课程走：在地址栏左边的网站设置里允许 MIDI 设备，再刷新这一页。', 'To connect your Cardenza, allow MIDI devices in site settings (left of the address bar) and reload the page.'],
+  waiting: ['用 USB 线接上鸣片，它会跟着这一课走；没有机器也可以看图跟着学。', 'Connect your Cardenza over USB to follow along interactively, or continue using the diagrams below.'],
+  hello: ['正在连接鸣片…', 'Connecting to Cardenza...'],
+  old: ['这台鸣片的固件还不支持教程：更新到最新固件，再接上。', 'Your firmware does not support interactive lessons yet. Update your firmware and reconnect.'],
   // A song lesson on firmware that cannot start from the song so far (its state has no song bars).
-  song: ['这一课要新固件：机器上的固件还不能接着做这首歌，先看图跟着学。', 'This lesson needs newer firmware: the one on your Cardenza cannot pick up the song here yet. Follow the pictures.'],
-  on: ['鸣片已连接：照着机器上闪的键按，学会了再点「下一步」。', 'Your Cardenza is connected: press the keys blinking on it; when you have got it, press Next.'],
+  song: ['这一课要新固件：机器上的固件还不能接着做这首歌，先看图跟着学。', 'This lesson requires newer firmware to load the song state. Follow along using the diagrams for now.'],
+  on: ['鸣片已连接：照着机器上闪的键按，学会了再点「下一步」。', 'Cardenza connected. Press the blinking keys on the device, then click Next when done.'],
 };

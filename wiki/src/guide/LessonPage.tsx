@@ -40,13 +40,13 @@ function Footer({lesson, last, complete}: {lesson: Lesson; last: boolean; comple
   return (
     <>
       {complete && (
-        <div className="l-done"><b>{say('完成！', 'Done!')}</b><span>{say('这一课学会了。', 'You have got this one.')}</span></div>
+        <div className="l-done"><b>{say('完成！', 'Done!')}</b><span>{say('这一课学会了。', 'Lesson complete.')}</span></div>
       )}
       <nav className="l-pager">
-        {last && <button type="button" className="redo" onClick={() => learnAgain(lesson.id)}>↺ {say('重新学习', 'Learn again')}</button>}
+        {last && <button type="button" className="redo" onClick={() => learnAgain(lesson.id)}>↺ {say('重新学习', 'Restart lesson')}</button>}
       </nav>
       {lesson.more && (
-        <p className="l-more"><Link to={urls.sectionPath(lesson.more)}>{say('字典里的详细说明', 'In the reference')} →</Link></p>
+        <p className="l-more"><Link to={urls.sectionPath(lesson.more)}>{say('字典里的详细说明', 'Read more in the manual')} →</Link></p>
       )}
     </>
   );
@@ -105,7 +105,7 @@ function DeviceLesson({lesson}: {lesson: Lesson}) {
           {learned && (
             <p key={run?.learnedAt} className="anim-pass pop" role="status">
               <span className="pass-badge" aria-hidden="true" />
-              <span className="pass-text">{say(`学会了！再多按几下试试，然后点「${press}」。`, `You have got it! Try a few more keys, then press ${press}.`)}</span>
+              <span className="pass-text">{say(`学会了！再多按几下试试，然后点「${press}」。`, `Nice! Feel free to try a few more keys, then click ${press}.`)}</span>
             </p>
           )}
         </div>
@@ -138,7 +138,7 @@ function AnimLesson({lesson}: {lesson: Lesson}) {
     }
     setComplete(true);
     markDone(lesson.id);
-    toast(['完成！这一课学会了。', 'Done! You have got this one.']);
+    toast(['完成！这一课学会了。', 'Lesson complete!']);
     history.push(nextUrl);
   };
   const toggleSound = () => {

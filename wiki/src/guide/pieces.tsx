@@ -22,7 +22,7 @@ export function learnAgain(id: string) {
   const cleared = clearDone(from >= 0 ? GUIDE.order.slice(from) : [id]);
   if (cleared > 1) {
     toast([`这一课和之后的课一起重新开始：清掉了 ${cleared} 课的完成记录。`,
-      `This lesson and the ones after it start over: ${cleared} ticks cleared.`]);
+      `Resetting this lesson and the following ones (${cleared} lessons cleared).`]);
   }
   requestRestart(id);
 }
@@ -36,7 +36,7 @@ function Rail({active, open}: {active: string; open: boolean}) {
   const count = GUIDE.order.filter((id) => done[id]).length;
   const allAgain = () => {
     if (!count || !window.confirm(say(`清除全部 ${count} 课的完成记录，从第一课重新学习？`,
-      `Clear the ticks of all ${count} finished lessons and start again from lesson 1?`))) return;
+      `Reset progress for all ${count} completed lessons and start from lesson 1?`))) return;
     clearDone(GUIDE.order);
     const first = GUIDE.order[0];
     if (active === first) requestRestart(first);
@@ -91,7 +91,7 @@ export function GuideLayout({active, title, children}: {active: string; title: s
   }, []);
   useEffect(() => setOpen(false), [location.pathname]);
   return (
-    <Layout title={title} description={say('鸣片入门：一课几步，接上机器跟着按。', 'The Cardenza guide: a few steps a lesson, with your device following.')}>
+    <Layout title={title} description={say('鸣片入门：一课几步，接上机器跟着按。', 'Interactive Cardenza guide: short step-by-step lessons with live USB hardware support.')}>
       <div className="cz-guide" data-lang={lang}>
         <div className="g-layout">
           <Rail active={active} open={open} />

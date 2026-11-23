@@ -4,54 +4,54 @@ sidebar_position: 13
 
 # Projects and storage
 
-A **project** is one song: the four tracks' engines and sounds, every pattern, the arrangement, the mix, track and master effects, BPM and swing, the keyboard and every track's chord and arpeggiator. Projects live on the SD card; they are saved, loaded and created on the PROJECT and FILES pages of <Scene name="SETUP" />. Your current work is also kept by itself on the card (see [Your work is kept](#project-session)). The SD card is the only place the Cardenza keeps anything: without a card nothing is saved.
+A **project** stores an entire song: all four tracks' engines and presets, patterns, song arrangement, mixer levels/mute/solo/SEQ states, track and master effects, BPM and swing, keyboard settings, and per-track chord and arpeggiator settings. Projects are stored on the SD card and managed from <Scene name="SETUP" /> <Page name="PROJECT" /> and <Page name="FILES" />. Cardenza also autosaves your active working session to the card (see [Session autosave](#project-session)). An SD card is required to store any data; without one, nothing persists across power cycles.
 
-| Kept in the project | Not in the project |
+| Saved in a project | Not saved in a project |
 |---|---|
-| Engines, sounds, samples (by file name), patterns, song, mix (levels, mute, solo, SEQ), track and master effects, BPM, swing, keyboard (KEYS), chords and arpeggiators | SELECT (an app preference), device settings (volume, key lights, screen, log), LOOP / SONG, REC |
+| Engines, presets, sample references (by filename), patterns, song arrangement, mixer (levels, mute, solo, SEQ), track and master effects, BPM, swing, keyboard (KEYS), chords, and arpeggiators | `SELECT` (global app preference), device settings (volume, key LEDs, screen brightness, logging), LOOP/SONG mode, REC arm |
 
 <Keywords k="project, file, save, storage, song file, what is saved, 工程" />
 
 ## Save, save as, new, open {#project-save}
 
 <Strip>
-  <Step keys="FN+S" shot="save-done" at="footer"><Key k="FN+S" /> on any screen (or SAVE in the FN menu): saved at once, SAVED and the name show at the bottom. A project without a name gets the first free one: SONG 01, SONG 02…</Step>
-  <Step keys="hold ESC + G1" shot="setup-project" at="cells:1,1-1,3"><Scene name="SETUP" /> <Page name="PROJECT" />: SAVE, LOAD, NEW; SAVE AS (type your own name) is in the FN menu of this page.</Step>
-  <Step keys="CTRL" shot="setup-files" at="content"><Page name="FILES" />: the projects on the card; <Key k="ADD" /> / <Key k="SUB" /> choose, <Key k="OK" /> loads.</Step>
+  <Step keys="FN+S" shot="save-done" at="footer">Press <Key k="FN+S" /> on any screen (or choose SAVE in the FN menu) to save immediately. A banner displays `SAVED` and the filename. Untitled projects automatically use the next available name (`SONG 01`, `SONG 02`, etc.).</Step>
+  <Step keys="hold ESC + G1" shot="setup-project" at="cells:1,1-1,3">Open <Scene name="SETUP" /> <Page name="PROJECT" /> for SAVE, LOAD, and NEW. Use **SAVE AS** in the FN menu to enter a custom name.</Step>
+  <Step keys="CTRL" shot="setup-files" at="content">Open <Page name="FILES" /> to browse projects on the SD card; scroll with <Key k="ADD" /> / <Key k="SUB" /> and press <Key k="OK" /> to load.</Step>
 </Strip>
 
 <Shot name="setup-project">
   <Mark at="cell:1,1">SAVE: save now</Mark>
-  <Mark at="cell:1,2">LOAD: open the FILES list</Mark>
-  <Mark at="cell:1,3">NEW: start a new project</Mark>
-  <Mark at="8,69,224,18">Name · UNSAVED: changes not saved yet</Mark>
-  <Caption>The PROJECT page of SETUP.</Caption>
+  <Mark at="cell:1,2">LOAD: open FILES browser</Mark>
+  <Mark at="cell:1,3">NEW: start a blank project</Mark>
+  <Mark at="8,69,224,18">Project name and UNSAVED indicator</Mark>
+  <Caption>SETUP PROJECT page.</Caption>
 </Shot>
 
-- With unsaved changes the PROJECT page says UNSAVED next to the name, and SAVE in the FN menu reads UNSAVED; creating or opening another project asks first (<Key k="OK" /> = yes, <Key k="ESC" /> = no).
-- The FN menu on PROJECT and FILES has NEW, LOAD and SAVE AS. More in [PROJECT](./setup.mdx#setup-project) and [FILES](./setup.mdx#setup-files).
-- A NEW project has the default four tracks <Track n="1" /> <Track n="2" /> <Track n="3" /> <Track n="4" /> and the default play settings (C major, no chords, arpeggiators off).
-- Saving can fail with a message at the bottom: NO SD CARD (the Cardenza started without a card), SD CARD ERROR (the card cannot be written), SAVE SAMPLE FIRST (a sample recording is not saved yet), NO MEMORY. Loading: INVALID PROJECT, SAMPLE MISSING (a sample the project names is not in `Samples/`), NO MEMORY.
-- Projects are plain text files, format 7 (`.ccproj`); formats 1–6 also load (before 6 they carry no keyboard, chords or arpeggiators, so the current ones stay). Release 0.1.0 opens formats 1–6 only: a project saved by this firmware is format 7. Samples are named by file name, so renaming or deleting a sample on the card affects every project that uses it.
-- Writing is atomic: a temporary file is written first and then replaces the old one, so a power cut while saving never leaves a broken project.
+- Unsaved edits display `UNSAVED` next to the project name on PROJECT and on the SAVE tile in the FN menu. Starting a NEW project or loading another file prompts for confirmation first (<Key k="OK" /> to discard changes, <Key k="ESC" /> to cancel).
+- The FN menu on PROJECT and FILES provides **NEW**, **LOAD**, and **SAVE AS** (see [PROJECT](./setup.mdx#setup-project) and [FILES](./setup.mdx#setup-files)).
+- **NEW** initializes the four default tracks (<Track n="1" /> <Track n="2" /> <Track n="3" /> <Track n="4" />) with default keyboard settings (C major, chords off, arpeggiators off).
+- Possible save errors (shown at the bottom of the screen): `NO SD CARD` (booted without a card), `SD CARD ERROR` (write failure), `SAVE SAMPLE FIRST` (unsaved mic recording pending), or `NO MEMORY`. Possible load errors: `INVALID PROJECT`, `SAMPLE MISSING` (referenced sample not found in `Samples/`), or `NO MEMORY`.
+- Projects are plain-text `.ccproj` files using format v7. Formats v1–v6 load cleanly (files older than v6 do not include keyboard, chord, or arpeggiator data and keep your current settings). Firmware 0.1.0 only reads formats v1–v6 and cannot open v7 projects. Because projects reference samples by filename, renaming or deleting a sample affects every project using it.
+- Saves write atomically to a temporary file before replacing the target, preventing corruption if power cuts out mid-save.
 
 <Keywords k="save, save project, how to save, save as, new project, open project, load project, unsaved, save failed, sd card error, no sd card, 保存工程" />
 
-## Your work is kept {#project-session}
+## Session autosave {#project-session}
 
-With an SD card in, you can switch the Cardenza off or pull the power at any moment: the working state is saved by itself on the card and comes back as it was at the next start.
+When an SD card is installed, you can power off or unplug Cardenza at any time. Your working session is automatically saved in the background and restored on the next boot.
 
-- It holds everything a project holds, plus the project's name and whether it was UNSAVED (loading another project still asks first). It opens on T1.
-- It is written once the keys rest: 1.5 s after the last key, with no key held, playing or not. While keys keep coming (or a sample plays from the card) it waits 60 s at most. The card is written in the background, so the music and the screen never wait for it, and a key that changed nothing writes nothing. Switching to another app writes it at once.
-- It is not a project: only SAVE writes a named project. Save what you want to keep, and before you load or create another project.
-- If it cannot be written, the screen says AUTOSAVE FAILED: SD CARD ERROR (or NO SD CARD when the card was taken out) and it keeps trying; your changes are written as soon as the card answers again.
-- A sample recording you have not saved yet waits on the card (`Session/take-<track>.wav`); after a restart it comes back with UNSAVED TAKE IS BACK. A sample the work uses that is not on the card is loaded as soon as the card is back.
-- If the device fails to start three times in a row, the next start skips the working state once.
-- Not kept: the capture takes and whether it was playing. Without a card nothing is kept at all (see [No card, or a bad card](#storage-card)).
+- Session autosave preserves everything a project stores, plus the active project name and whether it has `UNSAVED` edits (so loading another project still warns you). On boot, Cardenza restores onto T1.
+- Autosave writes 1.5 seconds after you stop pressing keys (with no keys held), whether playing or stopped. During continuous input or card-streamed sample playback, it waits at most 60 seconds. Writes happen in the background without interrupting audio or display, and no-op keypresses do not trigger writes. Switching to another app flushes the session immediately.
+- Autosave is temporary session state, not a named backup. Always press <Key k="FN+S" /> to save versions you want to keep before loading or starting a new project.
+- If a write fails, the screen shows `AUTOSAVE FAILED: SD CARD ERROR` (or `NO SD CARD` if the card was removed) and keeps retrying until the card responds again.
+- Unsaved sample recordings are stored in `Session/take-<track>.wav` and reload on restart (`UNSAVED TAKE IS BACK`). Any missing sample referenced by the session loads automatically once the card is readable again.
+- If the device fails to boot three times in a row, the next startup skips session restoration once as a safety fallback.
+- Session autosave does not preserve retrospective capture takes or transport playback state. Without an SD card, nothing is preserved (see [No card or card errors](#storage-card)).
 
 :::tip
 
-Settings (SELECT, volume, key lights, screen, log) reach the SD card about a second after you change them; there is nothing to save by hand.
+Device and app settings (SELECT, volume, key LEDs, screen brightness, logging) save automatically to the SD card about one second after you change them.
 
 :::
 
@@ -59,59 +59,59 @@ Settings (SELECT, volume, key lights, screen, log) reach the SD card about a sec
 
 ## Folders on the SD card {#storage-layout}
 
-Everything is in one folder, `CardenzaSynth`, at the top of the card:
+All Cardenza Synth files live inside a single top-level `CardenzaSynth` directory on the SD card:
 
 ```text
 <SD card>/CardenzaSynth/
-  Settings/system.cfg      device settings (volume, key lights, screen, log)
-  Settings/synth.cfg       the groovebox's preferences (SELECT)
-  Projects/                projects (.ccproj)
-  Presets/<engine>/        sounds you saved
-  Samples/                 samples, shared by every app
-  Session/                 your working state, a sample recording not saved yet
-  Logs/                    the log (log.txt)
-  Apps/<Author>/<Name>/    other apps, each in its own folder
+  Settings/system.cfg      device settings (volume, key LEDs, screen, log)
+  Settings/synth.cfg       synth preferences (SELECT)
+  Projects/                saved projects (.ccproj)
+  Presets/<engine>/        user presets
+  Samples/                 WAV samples shared across all apps
+  Session/                 autosaved working state and unsaved mic takes
+  Logs/                    diagnostic logs (log.txt)
+  Apps/<Author>/<Name>/    per-app storage for other firmware apps
 ```
 
-- These are the folders of release 0.1.0: its projects, sounds and samples are used where they are.
-- Folders of other firmware (development builds' `Cardenza/` folder, and `CardenzaSynth/Project`, `Preset`, `Sample` from before 0.1.0) are neither read nor changed. To use those files, copy them into the folders above on a computer: the file formats are the same.
-- Each app writes only its own folder and the shared `Samples/`.
+- This directory layout matches release 0.1.0, so existing projects, presets, and samples work in place.
+- Legacy paths from early dev builds (`Cardenza/`, or singular `Project`/`Preset`/`Sample` folders) are ignored. To use files from those folders, copy them into the paths above on a computer (the file formats are identical).
+- Each app writes only to its own folder and the shared `Samples/` directory.
 
 <Keywords k="folder, directory, path, sd card layout, where are my files, 目录" />
 
 ## Settings files {#storage-settings}
 
-The `.cfg` files in `Settings/` are plain text, one `key=value` per line, readable and editable on a computer:
+The `.cfg` files in `Settings/` are plain-text `key=value` files that you can inspect or edit on a computer:
 
 ```text
 # Cardenza settings: Cardenza/Synth (storage protocol 2)
 keys.select=1
 ```
 
-Reading is forgiving: broken lines are skipped and unknown keys are kept as they are (newer and older firmware can share a card). When the device writes its changes it reads the file again first and changes only what was changed on the device, so an edit made on a computer stays.
+The parser ignores malformed lines and preserves unknown keys, so newer and older firmware versions can share a card safely. When saving changes, Cardenza re-reads the file first and updates only the keys changed on the device, preserving manual edits made on a computer.
 
 <Keywords k="settings file, config, cfg, text file, 设置文件" />
 
-## The log {#storage-log}
+## Diagnostic logs {#storage-log}
 
-While **LOG** on <Scene name="SETUP" /> <Page name="SYSTEM" /> is ON (the default) and there is a card, the Cardenza writes what it reports to `CardenzaSynth/Logs/log.txt`: every start with the firmware's version, loads and saves, errors, and the report of a crash. Past 512 KB the file becomes `log.1.txt` and a new one starts.
+When **LOG** is enabled on <Scene name="SETUP" /> <Page name="SYSTEM" /> (default ON) and an SD card is present, Cardenza logs startup info, firmware version, file loads/saves, errors, and crash reports to `CardenzaSynth/Logs/log.txt`. Once the file exceeds 512 KB, it rotates to `log.1.txt` and starts a new `log.txt`.
 
-When something went wrong (a crash, a sound that stopped, a save that failed), send these two files with a short description: they say what happened. With LOG OFF nothing is written.
+If you run into a crash, stuck audio, or save error, attach both log files with a short bug report. Setting **LOG** to OFF disables log writes completely.
 
 <Keywords k="log, logs, crash, bug, bug report, error report, log.txt, debug, 日志, 崩溃" />
 
-## No card, or a bad card {#storage-card}
+## No card or card errors {#storage-card}
 
 <Shot name="setup-system">
-  <Mark at="8,82,150,11">SD card: READY / NOT FOUND</Mark>
-  <Mark at="cells:1,1-1,4">VOLUME · KEY LED · SCREEN · LOG</Mark>
-  <Caption>SETUP SYSTEM: the SD card state.</Caption>
+  <Mark at="8,82,150,11">SD card status (READY / NOT FOUND)</Mark>
+  <Mark at="cells:1,1-1,4">VOLUME, KEY LED, SCREEN, LOG</Mark>
+  <Caption>SD card status readout on SETUP SYSTEM.</Caption>
 </Shot>
 
-The Cardenza looks for the card once, when it starts.
+Cardenza checks for an SD card once at startup:
 
-- **Started without a card**: after the start animation a notice says NO SD CARD, NOTHING WILL BE SAVED, INSERT A CARD AND RESTART TO SAVE (<Key k="OK" /> or <Key k="ESC" /> closes it). For the whole run the device does not touch a card, not even one put in later: you can play and change settings, but nothing is kept when the power goes, saving says NO SD CARD, FILES is empty and the guide does not start. Put a card in and restart.
-- **A card that stops answering** during a run: the failed operation says SD CARD ERROR, and the device looks for the card again; settings and your working state are written once it answers.
-- SETUP SYSTEM shows the card's state: SD CARD READY or NOT FOUND.
+- **Booted without a card**: after the boot animation, a prompt warns `NO SD CARD, NOTHING WILL BE SAVED, INSERT A CARD AND RESTART TO SAVE` (dismiss with <Key k="OK" /> or <Key k="ESC" />). You can still play and tweak settings, but Cardenza will not mount a card inserted mid-session: nothing saves on power-off, saving reports `NO SD CARD`, FILES stays empty, and interactive USB lessons cannot start. Insert an SD card and restart.
+- **Card stops responding mid-session**: failed operations display `SD CARD ERROR` while Cardenza retries detection. Settings and session autosaves flush automatically once the card responds again.
+- Check current card status anytime on <Scene name="SETUP" /> <Page name="SYSTEM" /> (`SD CARD READY` or `NOT FOUND`).
 
 <Keywords k="no sd card, card missing, storage error, cannot save, sd card not found, nothing will be saved, insert a card, 没有卡" />
