@@ -375,7 +375,9 @@ static void scenes() {
       row.icon = isFolder ? ui_icons::open : ui_icons::install;
       return row;
     };
-    std::vector<Option> files = {folder, file("CardenzaSynth", true), file(bin, false), file("downloads", true)};
+    // The card's root as every firmware leaves it (CardenzaHAL docs/SD-CARD.md): Apps/ (a folder per firmware), the
+    // Launcher's Launcher/, and the .bin the user copied there.
+    std::vector<Option> files = {folder, file("Apps", true), file(bin, false), file("Launcher", true)};
     menuFrame(files, selected, 0, true, true, 0);
     status();
   };
