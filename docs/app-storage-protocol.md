@@ -81,7 +81,7 @@ keys.select=1
 - One `key=value` per line. Lines starting with `#` after optional spaces are comments. Spaces around
   the key and the value are ignored; CRLF line ends are accepted.
 - Keys are 1–48 characters of `a–z 0–9 _ .` and start with a letter or digit. Use dotted groups such
-  as `keys.scale`, `arp.rate` and `sys.volume`.
+  as `keys.scale`, `arp.rate` and `sys.theme`.
 - Values are at most 200 printable ASCII characters, without leading or trailing spaces. Numbers are
   decimal integers. Booleans are written as `1` or `0`; reading also accepts `true/false`, `on/off`
   and `yes/no`. Enumeration indices are only ever appended to.
@@ -138,18 +138,20 @@ pending edits: for tests, not for a card coming back.
 | Key | Meaning |
 |---|---|
 | `protocol` | storage protocol version of the card: 2 |
-| `sys.volume` | output volume 0–100 by ear: 0 mutes, v is −60 (1 − v/100)^1.5 dB (about −59 dB at 1, −21 dB at 50, −10 dB at 70, 0 dB at 100; `Device::Audio::SetOutputVolume`), default 70 |
-| `sys.volume.rev` | the meaning `sys.volume` was saved under, now 3; below that the volume goes back to the default, once (2: the output got louder, the 0.1.0 release saved below it; 3: the 60 dB curve, 2026-11-06, which replaced a −20–0 dB scale) |
-| `sys.led` | key LED master brightness 0–15, default 15 |
-| `sys.screen` | screen backlight 10–255, default 180 |
+| `sys.volume`, `sys.volume.rev`, `sys.led`, `sys.screen` | no longer kept (2026-11-23): the output volume, the key lights and the screen are the board's (below). Found at start, they are carried over to the board once (each only where the board has never stored its own: `sys.volume` only at its revision 3, the board's curve) and removed |
 | `sys.log` | `1` writes the console log to `Logs/` (OS/System/Log.h), `0` stops it; default 1 |
 | `sys.theme` | the screen's colors: `dark` (light on black, the default), `light` (ink on white paper) or `retro` (a backlit green LCD), in any case; any other value reads as `dark` |
 | `boot.app` | last non-system app; started at boot when it is still registered |
 
-Volume, key LEDs, screen, the log and the theme are device settings: the OS applies them at boot
+The output volume (and its limit), the screen's brightness, the key lights' level, the microphone's gain and
+the language are not the app's: they are the board's global system settings, the same in every firmware on
+CardenzaHAL, kept by the HAL in the board's flash (its `system/settings.h`, `docs/SETTINGS.md`) and changed
+in its system menu (HOME > Settings) or with `203cli board settings`. No app writes them, and none writes
+flash: the HAL does.
+
+The log and the theme are device settings: the OS applies them at boot
 (the theme is applied by the app that draws, from `os::storage::ScreenTheme`, before each frame) and
-every app changes them only through `os::storage::SetOutputVolume / SetKeyLedBrightness /
-SetScreenBacklight / SetLogEnabled / SetScreenTheme`. Projects never carry them.
+every app changes them only through `os::storage::SetLogEnabled / SetScreenTheme`. Projects never carry them.
 
 ### The log
 
@@ -191,7 +193,7 @@ wrong.
 | app preferences (SELECT) | `Settings/synth.cfg` |
 | working state (autosave) | `Session/autosave.ccproj` and `autosave.txt` |
 | sample take | `Session/take-<track>.wav`: a sample recording in progress or not saved yet; removed when it is saved or discarded |
-| volume, key LEDs, screen | `Settings/system.cfg` (device settings) |
+| the master level (总轨) | the project (`MASTER`, format 9; the output volume after it is the board's) |
 
 App settings keys: `keys.select` (0 ONE, 1 MULTI: the ROLL selection mode), a preference restored at
 start and written a second after a change and on suspend. Older firmware also kept the keyboard
@@ -318,4 +320,6 @@ and `Device::Log` (`Take`, `Pending`, `Write`, the console ring the OS writes ou
    in `Setup()`.
 6. Check `CardMissingThisRun()`: without a card at the start nothing can be saved, and the user should
    know before working.
-7. Change volume, key LEDs and screen only through `os::storage::Set…` so every app agrees on them.
+7. Leave the output volume, the brightness, the key lights, the microphone's gain and the language to the
+   board (CardenzaHAL's system settings): read them through the device layer, never set them, never keep a
+   copy. The log and the theme only through `os::storage::Set…` so every app agrees on them.

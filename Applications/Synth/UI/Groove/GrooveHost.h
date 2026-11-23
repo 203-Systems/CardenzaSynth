@@ -37,6 +37,9 @@ struct SystemInfo {
   bool storageReady = false;
 };
 
+// The master bus level of a new project (unity; synth::kDefaultMasterLevel, the project format's).
+inline constexpr std::uint8_t kDefaultMasterLevel = 100;
+
 // Everything the UI may do to the runtime. The app implements it; UI tests can drive the real app.
 class Host {
 public:
@@ -71,6 +74,8 @@ public:
   virtual bool TrackSoloed(std::size_t track) const = 0;
   // True when the track is audible after mute and solo.
   virtual bool TrackAudible(std::size_t track) const = 0;
+  // The master bus level (总轨, TAPE MIX MASTER, SETUP SYSTEM MASTER, FN + 7 / U; kDefaultMasterLevel): 0..100, linear like the
+  // track levels, 100 the default. Project data. The board's output volume is not the app's (HOME > Settings).
   virtual void SetMasterVolume(std::uint8_t percent) = 0;
   virtual std::uint8_t MasterVolume() const = 0;
   virtual float TrackActivity(std::size_t track) const = 0;
@@ -93,11 +98,8 @@ public:
   virtual bool LoadProject(const std::string& name, ProjectUiSettings& settings, std::string& message) = 0;
   virtual bool NewProject(ProjectUiSettings& settings, std::string& message) = 0;
 
-  // System.
-  virtual void SetLedBrightness(std::uint8_t level) = 0;  // 0..15
-  virtual std::uint8_t LedBrightness() const = 0;
-  virtual void SetBacklight(std::uint8_t level) = 0;  // 0..255
-  virtual std::uint8_t Backlight() const = 0;
+  // System. The output volume, the screen's and key lights' brightness, the microphone's gain and the
+  // language are the board's (CardenzaHAL's system settings, its HOME menu), not the app's.
   // The console log on the card (a device setting, OS/System/Log.h).
   virtual void SetLogging(bool on) = 0;
   virtual bool Logging() const = 0;

@@ -2673,6 +2673,12 @@ void RenderFxSamplerTracksNoLock(float* mix, float* delaySend, float* reverbSend
 // clipping and reacting afterwards: polyphony gets a little quieter rather than distorted, for one
 // pass over the block.
 std::atomic<LineInput> g_lineInput{nullptr};
+// The master bus level (SetMasterGain): the target any thread sets, and where the render thread's ramp is.
+// 32-bit: the render thread reads it every block.
+std::atomic<float> g_masterTarget{1.0f};
+float g_masterGain = 1.0f;
+// The ramp: at most this much a frame, so a full swing takes about 10 ms (no zipper, no click).
+constexpr float kMasterSlewPerFrame = 1.0f / 441.0f;
 
 // The level rider in front of the limiter. When the limiter has to hold a dense mix well below the
 // output gain block after block, every drum hit pumps everything else down and the sustained tracks
@@ -2729,12 +2735,14 @@ SYNTH_FX_HOT void LimitOutputNoLock(const float* mix, std::int16_t* out, std::si
   g_outputGain = next;
 }
 
-// Every render path ends here: the line input joins the mix (at unity on the output: the output gain is
-// taken out first), then the output gain and the limiter. Nothing after this clips.
+// Every render path ends here: the master bus level scales the mix (SetMasterGain), the line input joins
+// it (at unity on the output: the output gain is taken out first), then the output gain and the limiter.
+// Nothing after this clips.
 void WriteOutputNoLock(const float* mix, std::int16_t* out, std::size_t frames)
 {
   const LineInput line = g_lineInput.load(std::memory_order_relaxed);
-  if (line == nullptr)
+  const float masterTarget = g_masterTarget.load(std::memory_order_relaxed);
+  if (line == nullptr && masterTarget == 1.0f && g_masterGain == 1.0f)
   {
     LimitOutputNoLock(mix, out, frames);
     return;
@@ -2743,18 +2751,22 @@ void WriteOutputNoLock(const float* mix, std::int16_t* out, std::size_t frames)
   constexpr float kLineToMix = 0.5f / 32768.0f / kOutputGain;  // both channels, then to mix units
   std::array<std::int16_t, 2 * kChunk> stereo;
   std::array<float, kChunk> joined;
+  float master = g_masterGain;
   for (std::size_t done = 0; done < frames;)
   {
     const std::size_t count = (std::min)(frames - done, kChunk);
-    const std::size_t got = (std::min)(line(stereo.data(), count), count);
+    const std::size_t got = line != nullptr ? (std::min)(line(stereo.data(), count), count) : 0;
     for (std::size_t frame = 0; frame < count; ++frame)
     {
+      const float toGo = masterTarget - master;
+      master = std::fabs(toGo) <= kMasterSlewPerFrame ? masterTarget : master + (toGo > 0.0f ? kMasterSlewPerFrame : -kMasterSlewPerFrame);
       const float input = frame < got ? (static_cast<float>(stereo[2 * frame]) + static_cast<float>(stereo[2 * frame + 1])) * kLineToMix : 0.0f;
-      joined[frame] = mix[done + frame] + input;
+      joined[frame] = mix[done + frame] * master + input;
     }
     LimitOutputNoLock(joined.data(), out + done, count);
     done += count;
   }
+  g_masterGain = master;
 }
 
 void RenderFxFramesNoLock(std::int16_t* destination, std::size_t frameCount, bool hasAmyEngines)
@@ -3066,6 +3078,17 @@ void SetTrackGain(std::size_t engineIndex, float gain)
   {
     g_pendingEvents.push_back(std::move(event));
   }
+}
+
+void SetMasterGain(float gain)
+{
+  // NaN and negative values close it.
+  g_masterTarget.store(gain > 0.0f ? (std::min)(gain, 1.0f) : 0.0f, std::memory_order_relaxed);
+}
+
+float MasterGain()
+{
+  return g_masterTarget.load(std::memory_order_relaxed);
 }
 
 float TrackGain(std::size_t engineIndex)

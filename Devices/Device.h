@@ -44,7 +44,8 @@ void Present();
 inline constexpr std::uint8_t kDefaultBacklight = 180;
 
 // Backlight PWM level, 0 (off) .. 255 (full). Takes effect immediately, or when the display
-// starts if it has not been initialized yet.
+// starts if it has not been initialized yet. On the Cardenza the screen's brightness is the board's
+// setting (Device::Settings): a level set here takes the backlight over from it, so the app does not.
 void SetBacklight(std::uint8_t level);
 std::uint8_t Backlight();
 
@@ -121,10 +122,13 @@ enum class InputStatus {
 
 inline constexpr std::uint8_t kDefaultOutputVolume = 100;
 
-// Master output volume in percent; values above 100 are clamped. The device output stage applies
-// it after the synth mix, so it never changes what the synth renders.
-void SetOutputVolume(std::uint8_t percent);
+// The output volume after the synth mix, 0..100: on the Cardenza the board's setting (CardenzaHAL's
+// system settings: the same in every firmware, HOME > Settings), which the app does not change; the
+// simulators play at kDefaultOutputVolume. The project's own master level is the synth's
+// (synth::audio::SetMasterGain).
 std::uint8_t OutputVolume();
+// The speaker silent until the next start (a handover restarts the device): the board's setting stays.
+void Silence();
 
 InputStreamInfo InputInfo();
 InputStatus StartInput();
@@ -233,6 +237,21 @@ struct Status {
 };
 Status GetStatus();
 }  // namespace Community
+
+// The board's settings (CardenzaHAL system/settings.h on the Cardenza: output volume, screen brightness,
+// key lights, microphone gain, language; the same in every firmware, kept in the board's flash and
+// changed in its system menu). The simulators have none.
+namespace Settings {
+// The values the app kept itself in Settings/system.cfg until 2026-11-23 (-1: none): sys.volume (0..100,
+// the board's curve), sys.led (0..15), sys.screen (perceived 0..255).
+struct OldValues {
+  int volume = -1;
+  int keyLights = -1;
+  int backlight = -1;
+};
+// Each to the board only where the board has never stored its own (once: the app then forgets them).
+void CarryOver(const OldValues& old);
+}  // namespace Settings
 
 // One task below the UI for slow work nobody may wait for: what goes to the card while the device plays
 // (the log, the autosave), a card taking seconds to accept a write then holds up nobody. Run registers

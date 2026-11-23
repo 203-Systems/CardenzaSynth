@@ -143,17 +143,21 @@ static void showHome(int card) {
 
 // The system menu a press of HOME opens in a firmware on CardenzaHAL (Cardenza Synth 0.2.1 and newer): its words
 // in the Launcher's language, Continue's line the running firmware's project name and version.
+// The HOME menu of firmware on CardenzaHAL (its system/menu/strings.json words; since 2026-11-23 with
+// Settings and About this device): drawn with the Launcher's menuFrame, as the HAL draws it.
 static void systemMenu(int selected) {
   const bool zh = outLang == "zh";
   std::vector<Option> rows = {
       {zh ? "继续" : "Continue", [] {}, NO_COLOR, "CardenzaSynthFirmware 0.2.1"},
+      {zh ? "设置" : "Settings", [] {}, NO_COLOR, zh ? "音量、亮度、语言" : "Volume, brightness, language"},
       {zh ? "返回启动器" : "Back to Launcher", [] {}, NO_COLOR, zh ? "打开启动器主页" : "Open its home screen"},
       {zh ? "重新启动" : "Restart", [] {}, NO_COLOR, zh ? "重新启动这个固件" : "Start this firmware again"},
       {zh ? "关机" : "Turn off", [] {}, NO_COLOR, zh ? "按 HOME 键开机" : "Press HOME to turn on"},
+      {zh ? "本机信息" : "About this device", [] {}, NO_COLOR, zh ? "固件、版本、存储" : "Firmware, versions, storage"},
       {zh ? "下载模式" : "Download mode", [] {}, NO_COLOR, zh ? "用 USB 刷写固件" : "Flash over USB"}};
   pageTitle = zh ? "系统菜单" : "System";
   depth = 1;
-  menuFrame(rows, selected, std::clamp(selected - 3, 0, 1));
+  menuFrame(rows, selected, std::clamp(selected - 3, 0, int(rows.size()) - 4));
   status();
 }
 
@@ -179,12 +183,14 @@ static void scenes() {
   shot("home-8-bound");
   homeAccount = T("Not bound");
 
-  // The system menu over Cardenza Synth: Continue chosen as it opens, then Back to Launcher.
+  // The system menu over Cardenza Synth: Continue chosen as it opens, Settings, then Back to Launcher.
   systemMenu(0);
   shot("system-menu");
   systemMenu(1);
+  shot("system-menu-settings");
+  systemMenu(2);
   shot("system-menu-launcher");
-  systemMenu(4);
+  systemMenu(6);
   shot("system-menu-download");
 
   // The Language card's list.

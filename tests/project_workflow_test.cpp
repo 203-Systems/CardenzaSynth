@@ -70,7 +70,7 @@ void SetBacklight(std::uint8_t level) { displayBacklight = level; }
 std::uint8_t Backlight() { return displayBacklight; }
 }
 namespace Audio {
-void SetOutputVolume(std::uint8_t percent) { outputVolume = std::min<std::uint8_t>(percent, 100); }
+void Silence() { outputVolume = 0; }
 std::uint8_t OutputVolume() { return outputVolume; }
 InputStreamInfo InputInfo() { return {}; }
 InputStatus StartInput() { microphoneRunning = true; microphoneCursor = 0; return InputStatus::Ready; }

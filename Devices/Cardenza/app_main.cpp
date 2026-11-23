@@ -134,7 +134,7 @@ void CardenzaRuntimeTask(void*)
         // presence service restarts the device into the Launcher (Devices/Cardenza/DevicePresence.h).
         if (device::presence::HandoverRequested())
         {
-            Device::Audio::SetOutputVolume(0);
+            Device::Audio::Silence();
             os::system::Shutdown();
             device::presence::HandoverPrepared();
             for (;;) vTaskDelay(pdMS_TO_TICKS(100));

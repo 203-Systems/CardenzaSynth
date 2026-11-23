@@ -22,6 +22,9 @@ inline constexpr int kProjectChordCount = 11;
 inline constexpr int kProjectVoicingCount = 4;
 inline constexpr int kProjectLockCount = 3;
 
+// The master bus level (总轨) of a new project, and of one from a format before 9 (ProjectStorage.cpp): unity.
+inline constexpr std::uint8_t kDefaultMasterLevel = 100;
+
 struct ProjectData {
   // Project file v6. Version 1 files load with these mixer and backlight defaults; versions 1
   // and 2 load with an empty song; versions 1 to 3 load with the default master effects.
@@ -30,13 +33,15 @@ struct ProjectData {
   // From version 6 the play settings belong to the project (hasPlay): the keyboard (the UI line's
   // octave, root, scale and layout, plus KEYS: scale lock and velocity) and each track's chord and
   // arpeggiator (PLAYFX lines). Older files have none; the groovebox then keeps the ones it has.
-  // LED brightness (UI line), MASTER and SYSTEM (backlight) are device settings
-  // (docs/app-storage-protocol.md): still written, ignored when a project loads.
+  // LED brightness (UI line) and SYSTEM (backlight) are the board's settings (CardenzaHAL's, HOME >
+  // Settings): still written, ignored when a project loads. MASTER is the project's master bus level (总轨)
+  // from format 9 on; until then it held the device's output volume, and a file of format 8 or older loads
+  // with kDefaultMasterLevel.
   struct MixerData {
     std::array<std::uint8_t, kSynthTrackCount> level{{100, 100, 100, 100}};  // 0..100
     std::array<bool, kSynthTrackCount> muted{};
     std::array<bool, kSynthTrackCount> soloed{};
-    std::uint8_t master = 80;  // 0..100
+    std::uint8_t master = kDefaultMasterLevel;  // 0..100, linear like the track levels
   };
 
   std::array<SynthEngineKind, kSynthTrackCount> kinds{};
@@ -75,8 +80,10 @@ struct ProjectData {
 
 // The project format this build writes, and the newest it reads. Format 8 adds HITS; it is written
 // since the one format bump of the first test build after it (0.2.2-beta.1, AGENT.md Storage Rules).
+// Format 9 makes MASTER the project's master level (2026-11-23): read here, written from the next test
+// build's format bump (raise kProjectWriteVersion to 9 then; its writer is here and tested).
 inline constexpr int kProjectWriteVersion = 8;
-inline constexpr int kProjectReadVersion = 8;
+inline constexpr int kProjectReadVersion = 9;
 
 enum class ProjectResult { Ok, Exists, Invalid, StorageError, NoMemory };
 
@@ -97,7 +104,7 @@ ProjectResult LoadProjectFileAt(const std::string& path, ProjectData& project);
 // change anything. Costs about what writing the file costs, without the card.
 std::uint32_t ProjectFingerprint(const ProjectData& project);
 #if defined(CARDENZA_PROJECT_TEST_HOOKS)
-// Test only: writes format `version` (7 or 8) instead of kProjectWriteVersion.
+// Test only: writes format `version` (7, 8 or 9) instead of kProjectWriteVersion.
 ProjectResult SaveProjectFileAtVersionForTest(const std::string& path, const ProjectData& project, int version);
 #endif
 

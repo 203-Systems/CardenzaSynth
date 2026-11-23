@@ -815,6 +815,31 @@ int main()
   assert(amyTrackGainIs(0.5f));
   assert(nearValue(ratio(runNote([](int) {}), junoReference, 0, kRunBuffers - 1), 0.5, 0.05));
 
+  // The master bus level (the project's 总轨, SetMasterGain) scales the output after the mix on every render
+  // path, sliding there over about 10 ms; it is clamped like a fader.
+  SetMasterGain(2.0f);
+  assert(MasterGain() == 1.0f);
+  SetMasterGain(-1.0f);
+  assert(MasterGain() == 0.0f);
+  SetMasterGain(std::nanf(""));
+  assert(MasterGain() == 0.0f);
+  SetMasterGain(1.0f);
+  resetMixTracks();
+  setupTrack(SynthEngineKind::Juno, "juno.a51", {});
+  const auto masterReference = runNote([](int) {});
+  SetMasterGain(0.5f);
+  const auto masterHalf = runNote([](int) {});
+  assert(nearValue(ratio(masterHalf, masterReference, 1, kRunBuffers - 1), 0.5, 0.06));
+  // Down and back up on a held note, without a step: the next buffers follow it.
+  SetMasterGain(1.0f);
+  const auto masterHeld = runNote([&](int buffer) {
+    if (buffer == 3) SetMasterGain(0.25f);
+    if (buffer == 7) SetMasterGain(1.0f);
+  });
+  assert(nearValue(ratio(masterHeld, masterReference, 4, 6), 0.25, 0.05));
+  assert(nearValue(ratio(masterHeld, masterReference, 8, kRunBuffers - 1), 1.0, 0.06));
+  SetMasterGain(1.0f);
+
   // Drums: one-shots scale with the gain, master.level composes with it, mute drops pads.
   resetMixTracks();
   setupTrack(SynthEngineKind::Drums, "drums.808", {});

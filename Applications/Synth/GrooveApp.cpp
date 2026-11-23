@@ -997,15 +997,19 @@ bool GrooveApp::TrackAudible(std::size_t track) const
   return !anySolo || soloed_[track];
 }
 
+static_assert(groove::kDefaultMasterLevel == synth::kDefaultMasterLevel, "A new project's master level is the format's default.");
+
 void GrooveApp::SetMasterVolume(std::uint8_t percent)
 {
-  // A device setting (Settings/system.cfg) on the system's perceptual curve.
-  os::storage::SetOutputVolume(percent);
+  // The project's master bus level (总轨), linear like the track levels; the board's output volume is after
+  // it (CardenzaHAL's system settings).
+  masterLevel_ = std::min<std::uint8_t>(percent, 100);
+  synth::audio::SetMasterGain(static_cast<float>(masterLevel_) / 100.0f);
 }
 
 std::uint8_t GrooveApp::MasterVolume() const
 {
-  return os::storage::OutputVolume();
+  return masterLevel_;
 }
 
 float GrooveApp::TrackActivity(std::size_t track) const
@@ -1099,10 +1103,9 @@ bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth:
     project.play[track].voicing = settings.chords[track].voicing;
     project.play[track].arp = sequencer_.GetArpSettings(track);
   }
-  // Volume, key LEDs and screen are device settings; their old fields are still written.
-  project.ledBrightness = os::storage::KeyLedBrightness();
-  project.backlight = os::storage::ScreenBacklight();
-  project.mixer.master = os::storage::OutputVolume();
+  // The master level is project data (read from format 9 on; ProjectStorage.h). Key LEDs and screen are
+  // the board's: their old fields are still written, with their old defaults.
+  project.mixer.master = masterLevel_;
   project.mixer.level = levels_;
   project.mixer.muted = muted_;
   project.mixer.soloed = soloed_;
@@ -1388,12 +1391,13 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
     (void)sampler_.ConsumeTrimReset(track);
   }
   sequencer_.RestoreState(*project.sequence);
-  // Mixer levels, mute, solo and the master bus belong to the project (the play settings too, applied
-  // by ApplyPlaySettings); volume, key LEDs and screen do not.
+  // Mixer levels, mute, solo, the master level and the master bus belong to the project (the play settings
+  // too, applied by ApplyPlaySettings); the output volume, key LEDs and screen are the board's.
   levels_ = project.mixer.level;
   muted_ = project.mixer.muted;
   soloed_ = project.mixer.soloed;
   ApplyMix();
+  SetMasterVolume(project.mixer.master);
   ApplyMasterFx(project.masterFx);
   pendingSamples_ = std::move(pending);
   return true;
@@ -1537,26 +1541,6 @@ bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& mes
 // System
 
 // Device settings: os::storage keeps them in Settings/system.cfg for every app.
-void GrooveApp::SetLedBrightness(std::uint8_t level)
-{
-  os::storage::SetKeyLedBrightness(level);
-}
-
-std::uint8_t GrooveApp::LedBrightness() const
-{
-  return os::storage::KeyLedBrightness();
-}
-
-void GrooveApp::SetBacklight(std::uint8_t level)
-{
-  os::storage::SetScreenBacklight(level);
-}
-
-std::uint8_t GrooveApp::Backlight() const
-{
-  return os::storage::ScreenBacklight();
-}
-
 void GrooveApp::SetLogging(bool on)
 {
   os::storage::SetLogEnabled(on);

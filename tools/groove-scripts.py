@@ -82,7 +82,7 @@ def tour():
     s.act("down ctrl"); s.wait(30); s.shot("23-map-pages"); s.act("tap 2,10", "up ctrl"); s.wait(14); s.shot("24-instr-dx7-lfo")
     s.act("tap tab"); s.wait(20); s.act("tap ctrl"); s.wait(14); s.shot("25-instr-sampler-sample")
     s.act("down tab"); s.wait(30); s.shot("26-map-tracks"); s.act("up tab")
-    # Held FN: the same panel, on the page SETUP left (SYSTEM, VOLUME focused).
+    # Held FN: the same panel, on the page SETUP left (SYSTEM, MASTER focused).
     s.act("down fn"); s.wait(30); s.shot("27-map-fn")
     s.act(f"tap {ADD}"); s.wait(8); s.shot("27b-fn-volume")
     s.act("tap 0,1"); s.wait(20); s.shot("27c-fn-scale"); s.act("tap 0,5", "up fn"); s.wait(70)

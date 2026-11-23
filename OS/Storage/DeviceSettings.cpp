@@ -13,23 +13,21 @@ namespace os::storage {
 
 namespace {
 
-constexpr const char* kVolumeKey = "sys.volume";
-// A volume saved under an earlier meaning starts again from the default, once: the output got louder
-// (limiter, 2026-11, revision 2), then the volume went from a 20 dB scale to a curve over 60 dB
-// (2026-11-06, revision 3). Raise this only when that happens again.
-constexpr const char* kVolumeRevisionKey = "sys.volume.rev";
-constexpr int kVolumeRevision = 3;
-constexpr const char* kLedKey = "sys.led";
-constexpr const char* kScreenKey = "sys.screen";
 constexpr const char* kLogKey = "sys.log";
 constexpr const char* kThemeKey = "sys.theme";
 constexpr std::array<const char*, kThemeCount> kThemeNames{{"dark", "light", "retro"}};
 
+// What the app kept itself until 2026-11-23, now the board's (Device::Settings). sys.volume counted only
+// at its revision 3 (a curve over 60 dB, 2026-11-06, the board's curve now); an older one was reset to the
+// default anyway.
+constexpr const char* kOldVolumeKey = "sys.volume";
+constexpr const char* kOldVolumeRevisionKey = "sys.volume.rev";
+constexpr int kOldVolumeRevision = 3;
+constexpr const char* kOldLedKey = "sys.led";
+constexpr const char* kOldScreenKey = "sys.screen";
+
 struct Cache {
   bool loaded = false;
-  std::uint8_t volume = kDefaultOutputVolume;
-  std::uint8_t led = kDefaultKeyLedBrightness;
-  std::uint8_t screen = kDefaultScreenBacklight;
   bool log = kDefaultLogEnabled;
   Theme theme = kDefaultTheme;
 };
@@ -53,15 +51,7 @@ Cache& Values()
   static Cache cache;
   if (!cache.loaded)
   {
-    Settings& system = SystemSettings();
-    if (system.GetInt(kVolumeRevisionKey, 0, 0, 1000) < kVolumeRevision)
-    {
-      system.SetInt(kVolumeKey, kDefaultOutputVolume);
-      system.SetInt(kVolumeRevisionKey, kVolumeRevision);
-    }
-    cache.volume = static_cast<std::uint8_t>(system.GetInt(kVolumeKey, kDefaultOutputVolume, 0, 100));
-    cache.led = static_cast<std::uint8_t>(system.GetInt(kLedKey, kDefaultKeyLedBrightness, 0, Device::LED::kBrightnessMax));
-    cache.screen = static_cast<std::uint8_t>(system.GetInt(kScreenKey, kDefaultScreenBacklight, kMinScreenBacklight, 255));
+    const Settings& system = SystemSettings();
     cache.log = system.GetBool(kLogKey, kDefaultLogEnabled);
     cache.theme = ReadTheme(system);
     cache.loaded = true;
@@ -69,10 +59,19 @@ Cache& Values()
   return cache;
 }
 
-void ApplyVolume(std::uint8_t percent)
+// The old values to the board, once: each only where the board has none of its own (the device decides),
+// then out of system.cfg, so a board reset later never brings them back.
+void CarryOverOldSettings()
 {
-  // The device puts the curve on it (Device::Audio::SetOutputVolume); 0 is mute.
-  Device::Audio::SetOutputVolume(percent);
+  Settings& system = SystemSettings();
+  if (!system.Has(kOldVolumeKey) && !system.Has(kOldLedKey) && !system.Has(kOldScreenKey) && !system.Has(kOldVolumeRevisionKey)) return;
+  Device::Settings::OldValues old;
+  if (system.Has(kOldVolumeKey) && system.GetInt(kOldVolumeRevisionKey, 0, 0, 1000) >= kOldVolumeRevision)
+    old.volume = system.GetInt(kOldVolumeKey, -1, 0, 100);
+  if (system.Has(kOldLedKey)) old.keyLights = system.GetInt(kOldLedKey, -1, 0, 15);
+  if (system.Has(kOldScreenKey)) old.backlight = system.GetInt(kOldScreenKey, -1, 0, 255);
+  Device::Settings::CarryOver(old);
+  for (const char* key : {kOldVolumeKey, kOldVolumeRevisionKey, kOldLedKey, kOldScreenKey}) (void)system.Remove(key);
 }
 
 }  // namespace
@@ -80,49 +79,8 @@ void ApplyVolume(std::uint8_t percent)
 void ApplyDeviceSettings()
 {
   Values().loaded = false;
-  const Cache& cache = Values();
-  ApplyVolume(cache.volume);
-  Device::LED::SetGlobalBrightness(cache.led);
-  Device::Display::SetBacklight(cache.screen);
-}
-
-void SetOutputVolume(std::uint8_t percent)
-{
-  Cache& cache = Values();
-  cache.volume = std::min<std::uint8_t>(percent, 100);
-  ApplyVolume(cache.volume);
-  SystemSettings().SetInt(kVolumeKey, cache.volume);
-}
-
-std::uint8_t OutputVolume()
-{
-  return Values().volume;
-}
-
-void SetKeyLedBrightness(std::uint8_t level)
-{
-  Cache& cache = Values();
-  cache.led = std::min<std::uint8_t>(level, Device::LED::kBrightnessMax);
-  Device::LED::SetGlobalBrightness(cache.led);
-  SystemSettings().SetInt(kLedKey, cache.led);
-}
-
-std::uint8_t KeyLedBrightness()
-{
-  return Values().led;
-}
-
-void SetScreenBacklight(std::uint8_t level)
-{
-  Cache& cache = Values();
-  cache.screen = std::max<std::uint8_t>(level, kMinScreenBacklight);
-  Device::Display::SetBacklight(cache.screen);
-  SystemSettings().SetInt(kScreenKey, cache.screen);
-}
-
-std::uint8_t ScreenBacklight()
-{
-  return Values().screen;
+  (void)Values();
+  CarryOverOldSettings();
 }
 
 void SetLogEnabled(bool enabled)

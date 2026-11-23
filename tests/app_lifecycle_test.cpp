@@ -162,7 +162,7 @@ void TestNoCardBoot(const fs::path& root)
   assert(os::storage::CardMissingThisRun() && !os::storage::CardPresent() && !os::storage::CardMounted());
   auto* groove = &Groove();
   // The defaults, not the card's.
-  assert(groove->MasterVolume() == os::storage::kDefaultOutputVolume && groove->LedBrightness() == os::storage::kDefaultKeyLedBrightness);
+  assert(groove->MasterVolume() == groove::kDefaultMasterLevel);
   assert(!groove->Ui().Settings().keyboard.multiSelect && groove->Ui().State().projectName.empty());
   assert(!groove->QuerySystem().storageReady);
 
@@ -200,7 +200,7 @@ void TestNoCardBoot(const fs::path& root)
 
   // Work as usual: settings and the session stay in RAM, nothing is written, no log either.
   groove->SetMasterVolume(70);
-  groove->SetLedBrightness(4);
+  groove->SetScreenTheme(os::storage::Theme::Light);
   groove->Sequencer().SetTempo(133);
   for (int beat = 0; beat < 10; ++beat)
   {
@@ -212,12 +212,15 @@ void TestNoCardBoot(const fs::path& root)
   Frames(400);
   groove->FlushSession();
   assert(os::storage::AnySettingsDirty() && !os::log::Flush());
-  assert(groove->MasterVolume() == 70 && groove->LedBrightness() == 4 && groove->Sequencer().Tempo() == 133);
+  assert(groove->MasterVolume() == 70 && groove->Sequencer().Tempo() == 133);
   // An app switch and back keeps the settings in RAM; the working state has nowhere to wait.
   SwitchTo(kBlankId);
   SwitchTo("Cardenza/Synth");
   groove = &Groove();
-  assert(groove->MasterVolume() == 70 && os::storage::AnySettingsDirty());
+  // The theme is a device setting, in RAM; the master level is the project's: its working state had
+  // nowhere to wait.
+  assert(groove->ScreenTheme() == os::storage::Theme::Light && os::storage::AnySettingsDirty());
+  assert(groove->MasterVolume() == groove::kDefaultMasterLevel);
   assert(notice());
   os::system::Shutdown();
   assert(os::system::ActiveApplication() == nullptr);
@@ -256,7 +259,8 @@ int main(int argc, char** argv)
   // A card the 0.1.0 release wrote: its files are read where they are.
   WriteText(product / "Samples" / "kick.wav", "RIFF not really a wave");
   WriteText(product / "Projects" / "OLD SONG.ccproj", "CARDENZA_PROJECT 4\n");
-  // Its volume was on another curve (no sys.volume.rev): everyone starts again from the default, once.
+  // Its volume, key lights and screen are the board's now (CardenzaHAL's system settings): carried over to
+  // the board once (Device::Settings; the simulator has none) and gone from system.cfg.
   WriteText(systemSettings, "protocol=2\nsys.volume=85\nsys.led=9\nfuture.system=keep\n");
   WriteText(synthSettings, "keys.select=1\nfuture.synth=keep\n");
   // What development builds wrote in between (protocol 1, Cardenza/): neither read nor changed.
@@ -272,8 +276,8 @@ int main(int argc, char** argv)
   assert(os::system::ActiveApplicationId() == "Cardenza/Synth");
   auto* groove = &Groove();
   assert(groove->Ui().TopModal() == nullptr);  // no notice with a card
-  assert(groove->MasterVolume() == 70 && os::storage::kDefaultOutputVolume == 70);
-  assert(groove->LedBrightness() == 9 && groove->Ui().Settings().keyboard.multiSelect);
+  assert(groove->MasterVolume() == groove::kDefaultMasterLevel && groove->Ui().Settings().keyboard.multiSelect);
+  assert(!os::storage::SystemSettings().Has("sys.volume") && !os::storage::SystemSettings().Has("sys.led"));
 
   // The release's project and sample are there; the folders in between are not read.
   const auto projects = groove->ListProjects();
@@ -321,11 +325,9 @@ int main(int argc, char** argv)
   assert(os::log::Flush() && Contains(ReadText(logFile), "after the rotation") &&
          fs::file_size(logFile) < static_cast<std::uintmax_t>(os::log::kMaxFileBytes));
 
-  // Device settings, play settings and the session.
+  // Device settings, play settings and the session. The master level is the project's (format 9 keeps it).
   groove->SetMasterVolume(60);
-  groove->SetLedBrightness(7);
-  groove->SetBacklight(150);
-  assert(Device::LED::GlobalBrightness() == 7 && Device::Display::Backlight() == 150);
+  groove->SetScreenTheme(os::storage::Theme::Retro);
   groove->Sequencer().SetTempo(133);
   const std::uint8_t note = 64;
   groove->Sequencer().PressStep(3, &note, 1);
@@ -354,8 +356,8 @@ int main(int argc, char** argv)
   // Settings are written a second after the last change.
   Frames(70);
   text = ReadText(systemSettings);
-  assert(Contains(text, "sys.volume=60\n") && Contains(text, "sys.led=7\n") && Contains(text, "sys.screen=150\n"));
-  assert(Contains(text, "sys.volume.rev=3\n") && Contains(text, "future.system=keep\n"));
+  assert(Contains(text, "sys.theme=retro\n") && Contains(text, "future.system=keep\n"));
+  assert(!Contains(text, "sys.volume") && !Contains(text, "sys.led") && !Contains(text, "sys.screen"));
   // The play settings are project data (since format 6): the keyboard and each track's chord and arp.
   text = ReadText(synthSettings);
   assert(Contains(text, "future.synth=keep\n") && !Contains(text, "arp.") && !Contains(text, "keys.octave"));
@@ -392,7 +394,9 @@ int main(int argc, char** argv)
   groove = &Groove();
   assert(groove->Sequencer().Tempo() == 133 && groove->Sequencer().BuildUiState(synth::kDefaultActiveTrack).steps[3].hasEvents);
   assert(groove->TrackLevel(1) == 42 && groove->Ui().State().projectName == "SONG 01");
-  assert(groove->MasterVolume() == 60 && groove->LedBrightness() == 7 && groove->Backlight() == 150);
+  // The master level comes back with the session from the format that keeps it (9; ProjectStorage.h).
+  assert(groove->MasterVolume() == (synth::kProjectWriteVersion >= 9 ? 60 : groove::kDefaultMasterLevel));
+  assert(groove->ScreenTheme() == os::storage::Theme::Retro);
   assert(groove->Ui().State().keyboard.octave == 1 && groove->Sequencer().GetArpSettings(synth::kDefaultActiveTrack) == arp);
   assert(groove->Sequencer().GetArpSettings(1) == synth::ArpSettings{});
   assert(!fs::exists(sessionFolder / "restoring.txt"));
@@ -679,20 +683,22 @@ int main(int argc, char** argv)
   groove->Sequencer().SetArpSettings(synth::kDefaultActiveTrack, synth::ArpSettings{});
   assert(groove->LoadProject("SONG 01", ui, message));
   assert(ui.keyboard.octave == 1 && groove->TrackLevel(1) == 100 && groove->Sequencer().Tempo() == 133);
-  assert(groove->MasterVolume() == 60 && groove->LedBrightness() == 7 && groove->Backlight() == 150);
+  assert(groove->ScreenTheme() == os::storage::Theme::Retro);
   assert(groove->Sequencer().GetArpSettings(synth::kDefaultActiveTrack) == arp);
+  groove->SetMasterVolume(40);
   assert(groove->NewProject(ui, message));
-  assert(ui.keyboard.octave == 0 && ui.activeTrack == synth::kDefaultActiveTrack && groove->MasterVolume() == 60);
+  assert(ui.keyboard.octave == 0 && ui.activeTrack == synth::kDefaultActiveTrack && groove->MasterVolume() == groove::kDefaultMasterLevel);
+  assert(groove->ScreenTheme() == os::storage::Theme::Retro);
   assert(groove->Sequencer().GetArpSettings(synth::kDefaultActiveTrack) == synth::ArpSettings{});
 
   assert(!os::system::SwitchApplication("Nobody/Here"));
 
   // Card out: edited device settings stay in RAM (nothing in internal flash) until the card is back.
   CardenzaSim::Input::SetCardInserted(false);
-  groove->SetMasterVolume(30);
+  groove->SetScreenTheme(os::storage::Theme::Light);
   Frames(70);
   assert(!groove->QuerySystem().storageReady && os::storage::AnySettingsDirty());
-  assert(!fs::exists(root / "internal") && Contains(ReadText(systemSettings), "sys.volume=60\n"));
+  assert(!fs::exists(root / "internal") && Contains(ReadText(systemSettings), "sys.theme=retro\n"));
   // A card edited on a computer meanwhile: its other settings are kept.
   WriteText(systemSettings, ReadText(systemSettings) + "future.computer=kept\n");
   CardenzaSim::Input::SetCardInserted(true);
@@ -700,7 +706,7 @@ int main(int argc, char** argv)
   Frames(70);
   assert(groove->QuerySystem().storageReady && !os::storage::AnySettingsDirty());
   text = ReadText(systemSettings);
-  assert(Contains(text, "sys.volume=30\n") && Contains(text, "future.computer=kept\n") && !fs::exists(root / "internal"));
+  assert(Contains(text, "sys.theme=light\n") && Contains(text, "future.computer=kept\n") && !fs::exists(root / "internal"));
 
   // While nothing happens nothing is written, however long the device stays on.
   {

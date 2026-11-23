@@ -513,10 +513,9 @@ Device::Audio::InputStatus ReadWaveInFrames(std::int16_t*,
 
 namespace Device::Audio {
 
-void SetOutputVolume(std::uint8_t percent)
+void Silence()
 {
-  // Linux builds have no audio output; the value is still kept for the UI and project settings.
-  g_outputVolume.store((std::min)(percent, std::uint8_t{100}), std::memory_order_relaxed);
+  g_outputVolume.store(0, std::memory_order_relaxed);
 }
 
 std::size_t ReadComputerAudio(std::int16_t*, std::size_t) { return 0; }

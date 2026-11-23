@@ -1030,24 +1030,25 @@ void TestProject(Harness& h)
   assert(std::count(h.State().projects.begin(), h.State().projects.end(), "GROOVE 2") == 0);
   assert(h.State().projects[h.State().fileCursor] == "OTHER");
 
-  // SETUP SYSTEM page (CTRL steps the pages): key lights and screen.
+  // SETUP SYSTEM page (CTRL steps the pages): MASTER, the project's master level (总轨, the same as TAPE MIX
+  // MASTER): project data, so the project is unsaved after it. The board's output volume, key lights and
+  // screen are CardenzaHAL's (its HOME menu), not on this page.
   while (h.App().Ui().CurrentPage() != groove::kSetupSystem) h.Tap(kCtrl);
   assert(std::string(h.App().Ui().SettingsPageShown()->tab) == "SYSTEM");
   h.Render();
-  h.Tap(Grid(1));
-  // KEY LED focused: the pads show the brightness ramp, dark to full.
-  std::array<std::uint8_t, groove::kKeyCount> ramp{};
-  app.Ui().ComputeLeds(ramp);
-  assert(ramp[groove::KeyIndex(2, 1)] == 0 && ramp[groove::KeyIndex(2, 3)] == 7 && ramp[groove::KeyIndex(2, 8)] == 15);
+  const auto& systemSlots = h.App().Ui().SettingsPageShown()->slots;
+  assert(std::string(systemSlots[0].id) == "proj.master" && std::string(systemSlots[0].label) == "MASTER");
+  for (const auto& slot : systemSlots)
+    assert(slot.id == nullptr || (std::string(slot.id) != "sys.led" && std::string(slot.id) != "sys.screen" && std::string(slot.id) != "sys.volume"));
+  h.Tap(Grid(0));
+  const auto master = app.MasterVolume();
   h.Tap(kSub);
-  assert(app.LedBrightness() == 14);
+  assert(app.MasterVolume() == master - 2 && h.State().dirty);
   h.Tap(kAdd);
-  h.Tap(Grid(2));
-  h.Tap(kSub);
-  assert(app.Backlight() == 175);
+  assert(app.MasterVolume() == master);
   // LOG: the console log on the card, on unless someone turns it off.
   assert(app.Logging());
-  h.Tap(Grid(3));
+  h.Tap(Grid(1));
   h.Tap(kSub);
   assert(!app.Logging());
   h.Tap(kAdd);
@@ -1062,7 +1063,7 @@ void TestProject(Harness& h)
     return std::max_element(counts.begin(), counts.end(), [](const auto& a, const auto& b) { return a.second < b.second; })->first;
   };
   assert(app.ScreenTheme() == os::storage::Theme::Dark && fieldShown() == groove::theme::kDarkPalette.field);
-  h.Tap(Grid(4));
+  h.Tap(Grid(2));
   h.Tap(kAdd);
   assert(app.ScreenTheme() == os::storage::Theme::Light && fieldShown() == groove::theme::kLightPalette.field);
   h.Tap(kAdd);
@@ -1658,8 +1659,8 @@ void TestHeldPadEdits(Harness& h)
 void TestFnQuick(Harness& h)
 {
   auto& app = h.App();
-  // FN + 6 / Y: BPM up / down, FN + 7 / U: volume, FN + 8 / I: octave, from any FN page, with a
-  // pop-up showing the value. Holding repeats.
+  // FN + 6 / Y: BPM up / down, FN + 7 / U: the master level (总轨, project data; the board's own volume is
+  // its HOME menu's), FN + 8 / I: octave, from any FN page, with a pop-up showing the value. Holding repeats.
   const auto bpm = app.Sequencer().Tempo();
   const auto volume = app.MasterVolume();
   const int octave = h.State().keyboard.octave;
@@ -1669,7 +1670,7 @@ void TestFnQuick(Harness& h)
   h.Tap(Key{1, 6});
   assert(app.Sequencer().Tempo() == bpm);
   h.Tap(Key{1, 7});
-  assert(app.MasterVolume() == std::max(0, volume - 2) && h.State().hud.label == "VOLUME");
+  assert(app.MasterVolume() == std::max(0, volume - 2) && h.State().hud.label == "MASTER");
   h.Tap(Key{0, 7});
   assert(app.MasterVolume() == volume);
   h.Tap(Key{0, 8});

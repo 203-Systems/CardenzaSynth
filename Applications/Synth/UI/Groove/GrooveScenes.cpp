@@ -157,11 +157,10 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
       choice(sequencer.RecordArmed() ? 1 : 0, 2, 0, sequencer.RecordArmed() ? "ARMED" : "OFF");
       info.kind = synth::SynthParameterKind::Toggle;
     }
+    // The master bus level (总轨, TAPE MIX MASTER): project data. The board's output volume is not ours.
+    else if (Is(id, "proj.master")) number(host_.MasterVolume(), 0, 100, kDefaultMasterLevel, std::to_string(host_.MasterVolume()));
     else return false;
   }
-  else if (Is(id, "sys.volume")) number(host_.MasterVolume(), 0, 100, os::storage::kDefaultOutputVolume, std::to_string(host_.MasterVolume()));
-  else if (Is(id, "sys.led")) number(host_.LedBrightness(), 0, 15, os::storage::kDefaultKeyLedBrightness, std::to_string(host_.LedBrightness()));
-  else if (Is(id, "sys.screen")) number(host_.Backlight(), 10, 255, os::storage::kDefaultScreenBacklight, std::to_string(host_.Backlight() * 100 / 255) + "%");
   else if (Is(id, "sys.log"))
   {
     choice(host_.Logging() ? 1 : 0, 2, os::storage::kDefaultLogEnabled ? 1 : 0, host_.Logging() ? "ON" : "OFF");
@@ -177,14 +176,13 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
   return true;
 }
 
-void Controller::AdjustSetting(const char* id, int delta)
+void Controller::AdjustSetting(const char* id, int delta, bool exact)
 {
   synth::SynthParameterInfo info;
   std::string text;
   if (delta == 0 || !SettingValue(id, info, text)) return;
-  // Wide ranges move in useful steps: the screen in 5s (of 255), the volume in 2s.
-  if (Is(id, "sys.screen")) delta *= 5;
-  else if (Is(id, "sys.volume")) delta *= 2;
+  // Wide ranges move in useful steps: the master level in 2s (not the cell picker's value: it is exact).
+  if (!exact && Is(id, "proj.master")) delta *= 2;
   const int value = Is(id, "keys.root") ? ((info.value + delta) % 12 + 12) % 12 : std::clamp(info.value + delta, info.minValue, info.maxValue);
   if (value == info.value) return;
   KeyboardSettings& keys = state_.keyboard;
@@ -214,17 +212,16 @@ void Controller::AdjustSetting(const char* id, int delta)
   else if (Is(id, "proj.mode")) sequencer.SetSongMode(value != 0 && sequencer.SongLength() > 0);
   else if (Is(id, "proj.steps")) sequencer.SetTrackStepCount(state_.track, static_cast<std::size_t>(value));
   else if (Is(id, "proj.rec")) sequencer.SetRecordArmed(value != 0);
-  else if (Is(id, "sys.volume")) host_.SetMasterVolume(static_cast<std::uint8_t>(value));
-  else if (Is(id, "sys.led")) host_.SetLedBrightness(static_cast<std::uint8_t>(value));
-  else if (Is(id, "sys.screen")) host_.SetBacklight(static_cast<std::uint8_t>(value));
+  else if (Is(id, "proj.master")) host_.SetMasterVolume(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.log")) host_.SetLogging(value != 0);
   else if (Is(id, "sys.theme")) host_.SetScreenTheme(static_cast<os::storage::Theme>(value));
   // The key range moves under held pads: let them go before they map to other notes.
   if (Is(id, "keys.layout") || Is(id, "keys.octave")) ReleaseAllPads();
   // Only project data makes the project unsaved: the keyboard, the tracks' chords and arpeggiators,
-  // tempo, swing and steps. SELECT is an app setting, the rest are performance or device settings.
+  // tempo, swing, steps and the master level. SELECT is an app setting, the rest are performance or device
+  // settings.
   if ((StartsWith(id, "keys.") && !Is(id, "keys.select")) || StartsWith(id, "chord.") || StartsWith(id, "arp.") || Is(id, "proj.bpm") ||
-      Is(id, "proj.swing") || Is(id, "proj.steps"))
+      Is(id, "proj.swing") || Is(id, "proj.steps") || Is(id, "proj.master"))
     MarkDirty();
 }
 
@@ -643,14 +640,14 @@ void Controller::SetCellParameter(std::size_t index, int value)
     const InstrumentPage* page = SettingsPageShown();
     if (page == nullptr)
     {
-      AdjustSetting(index == kProjectBpm ? "proj.bpm" : "proj.swing", value - info.value);
+      AdjustSetting(index == kProjectBpm ? "proj.bpm" : "proj.swing", value - info.value, true);
       return;
     }
     slot = &page->slots[index];
   }
   if (slot != nullptr)
   {
-    if (IsSetting(slot->id)) AdjustSetting(slot->id, value - info.value);
+    if (IsSetting(slot->id)) AdjustSetting(slot->id, value - info.value, true);
     else if (synth::ISynthEngine* engine = ActiveEngine(); engine != nullptr && engine->SetParameterValue(slot->id, value)) MarkDirty();
     return;
   }
@@ -1477,7 +1474,9 @@ void Controller::MixAdjust(int delta, bool coarse)
   const int step = delta * (coarse ? 10 : 1);
   if (state_.mixFocus >= kTrackCount)
   {
+    // The master level (总轨): the project's, like the tracks'.
     host_.SetMasterVolume(static_cast<std::uint8_t>(std::clamp(static_cast<int>(host_.MasterVolume()) + step, 0, 100)));
+    MarkDirty();
     return;
   }
   const std::size_t track = state_.mixFocus;

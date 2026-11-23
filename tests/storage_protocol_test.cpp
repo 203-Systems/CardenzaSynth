@@ -22,22 +22,19 @@
 namespace fs = std::filesystem;
 
 namespace {
-std::uint8_t ledMaster = 0;
-std::uint8_t backlight = 0;
-std::uint8_t outputVolume = 0;
+// What DeviceSettings carried over to the board (Device::Settings::CarryOver), and how often.
+Device::Settings::OldValues carried;
+int carryOvers = 0;
 }  // namespace
 
-// DeviceSettings applies values to these; the test only records them.
 namespace Device {
-namespace LED {
-void SetGlobalBrightness(std::uint8_t level) { ledMaster = level; }
+namespace Settings {
+void CarryOver(const OldValues& old)
+{
+  carried = old;
+  ++carryOvers;
 }
-namespace Display {
-void SetBacklight(std::uint8_t level) { backlight = level; }
-}
-namespace Audio {
-void SetOutputVolume(std::uint8_t percent) { outputVolume = percent; }
-}
+}  // namespace Settings
 }  // namespace Device
 
 namespace {
@@ -258,30 +255,33 @@ void TestMissingCardRamOnly()
 
 void TestDeviceSettings()
 {
+  // The output volume, key lights and screen are the board's since 2026-11-23 (CardenzaHAL's system
+  // settings): the app keeps none, and carries its old values over once, then forgets them.
   ResetCard();
+  carryOvers = 0;
   ApplyDeviceSettings();
-  assert(OutputVolume() == kDefaultOutputVolume && KeyLedBrightness() == kDefaultKeyLedBrightness &&
-         ScreenBacklight() == kDefaultScreenBacklight);
-  assert(ledMaster == kDefaultKeyLedBrightness && backlight == kDefaultScreenBacklight);
-  SetOutputVolume(140);  // clamped
-  SetKeyLedBrightness(9);
-  SetScreenBacklight(3);  // never fully dark
-  assert(OutputVolume() == 100 && outputVolume == 100 && KeyLedBrightness() == 9 && ledMaster == 9);
-  assert(ScreenBacklight() == kMinScreenBacklight && backlight == kMinScreenBacklight);
-  SetOutputVolume(50);
-  assert(outputVolume == 50);  // as it is: the device puts the curve on it (Device::Audio::SetOutputVolume)
-  SetOutputVolume(0);
-  assert(outputVolume == 0);
-  SetOutputVolume(60);
-  assert(FlushAllSettings());
-  const std::string text = ReadText(SystemSettingsPath());
-  assert(text.find("sys.volume=60\n") != std::string::npos && text.find("sys.led=9\n") != std::string::npos &&
-         text.find("sys.screen=10\n") != std::string::npos);
-  // Boot: the values come back from the card and go to the device.
-  ledMaster = backlight = outputVolume = 0;
+  assert(carryOvers == 0);  // nothing to carry
+  WriteText(SystemSettingsPath(), "protocol=2\nsys.volume=55\nsys.volume.rev=3\nsys.led=9\nsys.screen=128\nsys.log=0\n");
   ReloadAllSettings();
   ApplyDeviceSettings();
-  assert(OutputVolume() == 60 && ledMaster == 9 && backlight == kMinScreenBacklight && outputVolume == 60);
+  assert(carryOvers == 1 && carried.volume == 55 && carried.keyLights == 9 && carried.backlight == 128);
+  assert(!LogEnabled());  // what the app still keeps is read as before
+  assert(!SystemSettings().Has("sys.volume") && !SystemSettings().Has("sys.volume.rev") && !SystemSettings().Has("sys.led") &&
+         !SystemSettings().Has("sys.screen"));
+  assert(FlushAllSettings());
+  const std::string text = ReadText(SystemSettingsPath());
+  assert(text.find("sys.volume") == std::string::npos && text.find("sys.led") == std::string::npos &&
+         text.find("sys.screen") == std::string::npos && text.find("sys.log=0\n") != std::string::npos);
+  // Once: the next start carries nothing.
+  ReloadAllSettings();
+  ApplyDeviceSettings();
+  assert(carryOvers == 1);
+  // A volume of an older meaning (revision before 3) was reset to the default anyway: not carried.
+  WriteText(SystemSettingsPath(), "protocol=2\nsys.volume=20\nsys.volume.rev=2\n");
+  ReloadAllSettings();
+  ApplyDeviceSettings();
+  assert(carryOvers == 2 && carried.volume == -1 && carried.keyLights == -1 && carried.backlight == -1);
+  assert(!SystemSettings().Has("sys.volume") && !SystemSettings().Has("sys.volume.rev"));
   std::cout << "device settings passed\n";
 }
 

@@ -331,7 +331,8 @@ struct MenuItem {
 using MenuItems = std::array<MenuItem, kGridCount>;
 
 // FN quick controls: while FN is held, the 2x3 pad block beside the GRID changes the most used
-// settings at once on any screen. Upper key +, lower key - (like ADD over SUB).
+// settings at once on any screen: tempo, the master level (总轨) and the octave. Upper key +, lower key -
+// (like ADD over SUB).
 struct FnQuickControl {
   char up;
   char down;
@@ -340,7 +341,7 @@ struct FnQuickControl {
 };
 inline constexpr std::array<FnQuickControl, 3> kFnQuickControls{{
     {'6', 'Y', "proj.bpm", "BPM"},
-    {'7', 'U', "sys.volume", "VOLUME"},
+    {'7', 'U', "proj.master", "MASTER"},  // the project's master level (总轨); the board's volume is HOME > Settings
     {'8', 'I', "keys.octave", "OCTAVE"},
 }};
 
@@ -627,7 +628,7 @@ public:
   // Presentation helpers shared by renderer and LEDs. Slots are engine parameters or settings:
   // "keys.*" (layout, scale, root, octave, lock, velocity, select) for every track, "chord.*" (type,
   // voicing) and "arp.*" (mode, rate, octaves, gate, latch) of the current track, "proj.*" (bpm,
-  // swing, mode, steps, rec) and "sys.*" (volume, led, screen, log).
+  // swing, mode, steps, rec, master) and "sys.*" (log, theme).
   bool SlotHasValue(const Slot& slot) const;
   bool SlotValue(const Slot& slot, synth::SynthParameterInfo& info, std::string& text) const;
   bool SettingValue(const char* id, synth::SynthParameterInfo& info, std::string& text) const;
@@ -709,7 +710,8 @@ private:
   void SetSendValue(std::size_t track, const char* id, int value);
   void RunSlotAction(SlotAction action);
   // Global settings by id (see SettingValue). Step wraps choices and flips switches (ENTER).
-  void AdjustSetting(const char* id, int delta);
+  // `delta` in steps (a wide range moves in useful steps), or exactly when `exact` (the cell picker).
+  void AdjustSetting(const char* id, int delta, bool exact = false);
   void StepSetting(const char* id);
   void ResetSetting(const char* id);
   void ShowSettingHud(const char* id, const char* label);

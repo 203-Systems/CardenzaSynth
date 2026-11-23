@@ -85,6 +85,12 @@ std::size_t RenderFrames(std::int16_t* destination, std::size_t frameCount);
 // them.
 void SetTrackGain(std::size_t engineIndex, float gain);
 float TrackGain(std::size_t engineIndex);
+// The master bus level (the project's 总轨, TAPE MIX MASTER): linear, clamped to 0..1, 1.0 the default
+// (renders exactly as without it). It scales the whole mix before the output stage, on every render path
+// (WriteOutputNoLock), sliding to a new value over about 10 ms. The board's own output volume is the
+// device's (CardenzaHAL's system settings), after the output.
+void SetMasterGain(float gain);
+float MasterGain();
 // Muting renders the track at zero gain and drops its new note-ons. Note-offs and all-notes-off
 // still pass, so nothing hangs; unmuting restores the gain, and notes still held come back.
 void SetTrackMuted(std::size_t engineIndex, bool muted);

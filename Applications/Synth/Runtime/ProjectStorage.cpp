@@ -39,11 +39,14 @@ constexpr std::size_t kMaxProjectBytes = 4 * 1024 * 1024;
 // each pattern instead of the one length of the track.
 // Version 8 adds HITS (a note fired 1..4 times in its step): the T line gains the track's new-note
 // hits after its new-note length, and every note line a seventh number, the note's hits. Written since
-// 0.2.2-beta.1 (kProjectWriteVersion, ProjectStorage.h); older files read as one hit per note. The next
-// format change after it takes 9.
+// 0.2.2-beta.1 (kProjectWriteVersion, ProjectStorage.h); older files read as one hit per note.
+// Version 9 makes the MASTER line the project's master bus level (总轨, TAPE MIX MASTER, 2026-11-23); up to 8
+// it held the device's output volume, ignored at load (the output volume is the board's now), so a file of
+// format 8 or older loads with kDefaultMasterLevel. Read since 2026-11-23, written from the next test build's
+// format bump (kProjectWriteVersion); nothing else differs from 8. The next format change after it joins 9.
 constexpr int kMinProjectVersion = 1;
-static_assert(kProjectWriteVersion == 7 || kProjectWriteVersion == 8, "This writer knows formats 7 and 8.");
-static_assert(kProjectReadVersion == 8, "This reader knows formats 1 to 8.");
+static_assert(kProjectWriteVersion >= 7 && kProjectWriteVersion <= 9, "This writer knows formats 7 to 9.");
+static_assert(kProjectReadVersion == 9, "This reader knows formats 1 to 9.");
 constexpr unsigned kMaxMixerLevel = 100;
 
 std::string ProjectPath(const std::string& name) {
@@ -295,7 +298,8 @@ ProjectResult ReadProject(const std::string& path, ProjectData& destination) {
   if (version >= 2) {
     unsigned master = 0, backlight = 0;
     if (!ReadExpected(file, "MASTER") || !(file >> master) || master > kMaxMixerLevel) return ProjectResult::Invalid;
-    project.mixer.master = static_cast<std::uint8_t>(master);
+    // Format 9: the project's master level; before, the device's output volume of the time (not the project's).
+    project.mixer.master = version >= 9 ? static_cast<std::uint8_t>(master) : kDefaultMasterLevel;
     for (std::size_t track = 0; track < kSynthTrackCount; ++track) {
       std::size_t index = 0;
       unsigned level = 0, muted = 0, soloed = 0;

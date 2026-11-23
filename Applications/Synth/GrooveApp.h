@@ -89,10 +89,6 @@ public:
   groove::SaveResult RenameProject(const std::string& from, const std::string& to, std::string& message) override;
   bool LoadProject(const std::string& name, groove::ProjectUiSettings& settings, std::string& message) override;
   bool NewProject(groove::ProjectUiSettings& settings, std::string& message) override;
-  void SetLedBrightness(std::uint8_t level) override;
-  std::uint8_t LedBrightness() const override;
-  void SetBacklight(std::uint8_t level) override;
-  std::uint8_t Backlight() const override;
   void SetLogging(bool on) override;
   bool Logging() const override;
   void SetScreenTheme(os::storage::Theme theme) override;
@@ -220,6 +216,8 @@ private:
   groove::Controller controller_;
   groove::Animator animator_;
   std::array<std::uint8_t, synth::kSynthTrackCount> levels_{{100, 100, 100, 100}};
+  // The master bus level (总轨), 0..100: project data, synth::audio::SetMasterGain.
+  std::uint8_t masterLevel_ = synth::kDefaultMasterLevel;
   std::array<bool, synth::kSynthTrackCount> muted_{};
   std::array<bool, synth::kSynthTrackCount> soloed_{};
   // SELECT as last written to the app settings, to notice changes cheaply every tick.

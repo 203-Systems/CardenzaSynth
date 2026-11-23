@@ -511,11 +511,35 @@ void TestFormat()
   bad.replace(0, 18, "CARDENZA_PROJECT 8");
   WriteText(bad8, bad);
   CHECK(synth::LoadProjectFileAt(bad8.string(), loaded) == synth::ProjectResult::Invalid);
-  // Nothing newer than 8 is read.
+  // Nothing newer than 9 is read.
   bad = crafted;
-  bad.replace(0, 18, "CARDENZA_PROJECT 9");
+  bad.replace(0, 18, "CARDENZA_PROJECT 10");
   WriteText(bad8, bad);
   CHECK(synth::LoadProjectFileAt(bad8.string(), loaded) == synth::ProjectResult::Invalid);
+}
+
+// Format 9 (2026-11-23): the MASTER line is the project's master level (总轨). Up to 8 it held the device's
+// output volume of the time, so an older file loads with the default master level; nothing else differs.
+void TestMasterLevelFormat()
+{
+  synth::ProjectData project = HitsProject();
+  project.mixer.master = 55;
+  const auto eight = projectDirectory / "master8.ccproj";
+  const auto nine = projectDirectory / "master9.ccproj";
+  CHECK(synth::SaveProjectFileAtVersionForTest(eight.string(), project, 8) == synth::ProjectResult::Ok);
+  CHECK(synth::SaveProjectFileAtVersionForTest(nine.string(), project, 9) == synth::ProjectResult::Ok);
+  const std::string eightText = ReadText(eight), nineText = ReadText(nine);
+  CHECK(eightText.rfind("CARDENZA_PROJECT 8\n", 0) == 0 && nineText.rfind("CARDENZA_PROJECT 9\n", 0) == 0);
+  CHECK(nineText.find("\nMASTER 55\n") != std::string::npos);
+  // Apart from the version line the two are the same file.
+  CHECK(eightText.substr(eightText.find('\n')) == nineText.substr(nineText.find('\n')));
+  synth::ProjectData fromEight, fromNine;
+  CHECK(synth::LoadProjectFileAt(eight.string(), fromEight) == synth::ProjectResult::Ok);
+  CHECK(synth::LoadProjectFileAt(nine.string(), fromNine) == synth::ProjectResult::Ok);
+  CHECK(fromEight.mixer.master == synth::kDefaultMasterLevel && fromNine.mixer.master == 55);
+  CHECK(LoadedHits(fromNine, 0, 60) == LoadedHits(fromEight, 0, 60));
+  // A new project's level, and what a project that never had one gets: unity.
+  CHECK(synth::ProjectData{}.mixer.master == synth::kDefaultMasterLevel && synth::kDefaultMasterLevel == 100);
 }
 
 }  // namespace
@@ -534,6 +558,7 @@ int main()
   TestRecordingWritesOneHit();
   TestCopiesCarryHits();
   TestFormat();
+  TestMasterLevelFormat();
   std::filesystem::remove_all(projectDirectory);
   std::printf("hits_test: all checks passed\n");
   return 0;

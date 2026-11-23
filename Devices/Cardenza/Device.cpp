@@ -70,7 +70,8 @@ void PublishLedFrame(bool changed) {
     for (std::size_t index = 0; index < frame.levels.size(); ++index) duties[index] = Device::LED::KeyLevel(frame.levels[index]);
     CardenzaHAL::Keyboard::setLEDFrame(duties);
   }
-  if (!halLedsKnown || frame.master != halLeds.master) CardenzaHAL::Keyboard::setLEDGlobalBrightness(frame.master);
+  // The master level is the board's key light setting (CardenzaHAL::Settings, HOME > Settings): never set
+  // here, or the HAL would take it over from the user's setting.
   if (!halLedsKnown || frame.enabled != halLeds.enabled) (void)CardenzaHAL::Keyboard::enableLED(frame.enabled);
   halLeds = frame;
   halLedsKnown = true;
@@ -284,7 +285,8 @@ void SetGlobalBrightness(std::uint8_t brightness) {
 }
 
 std::uint8_t GlobalBrightness() {
-  return keyboardLedFrames.Current().master;
+  // The board's setting, which the HAL applies (SetGlobalBrightness only keeps the facade's frame).
+  return static_cast<std::uint8_t>(CardenzaHAL::Settings::Get(CardenzaHAL::Settings::Id::KeyBrightness));
 }
 
 void SetEnabled(bool enabled) {
@@ -453,6 +455,28 @@ bool Init() {
 }
 
 void Start() {}
+
+namespace Settings {
+
+void CarryOver(const OldValues& old) {
+  namespace S = CardenzaHAL::Settings;
+  // Once, and only what the board has never stored itself: the board's own value (set in another firmware,
+  // or the Launcher's backlight) wins. The HAL writes them to the flash a second later.
+  const auto carry = [](S::Id id, int value, const char* name) {
+    if (value < 0) return;
+    if (S::Stored(id)) {
+      std::printf("settings: %s %d stays the app's old value; the board's %d stays\n", name, value, S::Get(id));
+      return;
+    }
+    std::printf("settings: %s %d carried over to the board (HOME > Settings)\n", name, S::Set(id, value));
+  };
+  carry(S::Id::Volume, old.volume, "volume");
+  carry(S::Id::KeyBrightness, old.keyLights, "key lights");
+  // The old level was perceived brightness 0..255 at the HAL's 1 kHz; the board's is the Launcher's percent.
+  if (old.backlight >= 0) carry(S::Id::ScreenBrightness, (old.backlight * 100 + 127) / 255, "screen");
+}
+
+}  // namespace Settings
 
 }  // namespace Device
 

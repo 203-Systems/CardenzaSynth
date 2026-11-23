@@ -224,6 +224,11 @@ std::size_t Pending()
 
 }  // namespace Log
 
+// The simulators have no board settings (CardenzaHAL's system settings live on the device).
+namespace Settings {
+void CarryOver(const OldValues&) {}
+}  // namespace Settings
+
 namespace Background {
 bool Run(void (*)()) { return false; }
 }  // namespace Background

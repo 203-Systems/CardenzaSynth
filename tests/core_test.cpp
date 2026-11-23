@@ -1397,8 +1397,11 @@ void TestProjectVersion2() {
 
   ProjectData loaded;
   assert(LoadProjectFile("v2 trip", loaded) == ProjectResult::Ok);
+  // MASTER is the project's master level from format 9 on (written from the next format bump); format 8
+  // loads it as the default (it held the device's volume then).
   assert(loaded.mixer.level == project.mixer.level && loaded.mixer.muted == project.mixer.muted &&
-         loaded.mixer.soloed == project.mixer.soloed && loaded.mixer.master == 55 && loaded.backlight == 7);
+         loaded.mixer.soloed == project.mixer.soloed &&
+         loaded.mixer.master == (kProjectWriteVersion >= 9 ? 55 : kDefaultMasterLevel) && loaded.backlight == 7);
   assert(loaded.masterFx == project.masterFx);
   assert(loaded.hasPlay && loaded.lock == 2 && loaded.velocity == 90 && loaded.play[3].chord == 5 && loaded.play[3].voicing == 2 &&
          loaded.play[3].arp == project.play[3].arp && loaded.play[0].arp == ArpSettings{});
@@ -1417,7 +1420,7 @@ void TestProjectVersion2() {
     assert(LoadProjectFile("v2 trip", loaded) == ProjectResult::Invalid);
     assert(loaded.sequence.get() == old && loaded.backlight == 7);
   };
-  reject("CARDENZA_PROJECT 8", "CARDENZA_PROJECT 9");
+  reject("CARDENZA_PROJECT 8", "CARDENZA_PROJECT 10");
   reject("\nKEYS 2 90\n", "\nKEYS 3 90\n");
   reject("\nKEYS 2 90\n", "\nKEYS 2 0\n");
   reject("\nPLAYFX 3 5 2 5 5 4 100 1\n", "\nPLAYFX 3 11 2 5 5 4 100 1\n");
@@ -1528,7 +1531,8 @@ void TestProjectVersion2() {
   assert(!legacy.hasPlay);
   const ProjectData::MixerData defaults;
   assert(legacy.mixer.level == defaults.level && legacy.mixer.muted == defaults.muted && legacy.mixer.soloed == defaults.soloed);
-  assert(legacy.mixer.master == 80 && legacy.backlight == 180 && legacy.mixer.level[3] == 100);
+  // A version 1 file has no mixer: the master level is the default (unity).
+  assert(legacy.mixer.master == kDefaultMasterLevel && legacy.backlight == 180 && legacy.mixer.level[3] == 100);
   assert(legacy.activeTrack == 1 && legacy.octave == -1 && legacy.root == 2 && legacy.scale == 3 && legacy.ledBrightness == 9);
   assert(legacy.sequence->bpm == 128 && legacy.sequence->swing == 50);
   for (const auto& track : legacy.sequence->tracks) assert(track.patternSteps[0] == kSequencerStepCount);
@@ -1543,7 +1547,7 @@ void TestProjectVersion2() {
   ProjectData upgraded;
   assert(LoadProjectFile("legacy", upgraded) == ProjectResult::Ok);
   assert(upgraded.masterFx == ProjectData::DefaultMasterFx());
-  assert(upgraded.sequence->bpm == 128 && upgraded.mixer.master == 80 && upgraded.backlight == 180 &&
+  assert(upgraded.sequence->bpm == 128 && upgraded.mixer.master == kDefaultMasterLevel && upgraded.backlight == 180 &&
          upgraded.sequence->tracks[0].patterns[1].steps[4].notes[0].note == 64);
 
   std::filesystem::remove(path);
