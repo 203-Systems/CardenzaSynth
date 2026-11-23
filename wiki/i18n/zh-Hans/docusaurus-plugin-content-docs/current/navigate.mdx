@@ -4,41 +4,41 @@ sidebar_position: 3
 
 # 导航
 
-四个场景，每个场景几页；四条轨道随时切换。导航全靠左侧四个键：
+鸣片将所有功能划分为四个场景（每个场景包含若干子页面），并支持在四条轨道间随时切换。全部导航操作均由最左侧的四个功能键完成。
 
 <Keymap>
   <Group keys="ESC">场景</Group>
   <Group keys="TAB">轨道</Group>
-  <Group keys="FN">当前画面的菜单</Group>
+  <Group keys="FN">当前页面菜单</Group>
   <Group keys="CTRL">页面</Group>
-  <Caption>左侧四键负责全部导航</Caption>
+  <Caption>左侧四键负责全部导航。</Caption>
 </Keymap>
 
 <Keywords k="导航, 切换, 在哪, navigation, switch, move around" />
 
 ## 场景：ESC {#nav-scenes}
 
-四个场景，分两类，编号和屏幕上一样。0 SETUP 排在最前，管全局；1、2、3 是音乐本身：
+四个场景按 0 到 3 编号，与屏幕左上角显示一致。**0 SETUP** 用于管理工程与全局系统设置，**1 INSTR**、**2 SEQ** 和 **3 TAPE** 为三个主要音乐创作场景。
 
-| 场景 | 做什么 | 页面 |
+| 场景 | 用途 | 包含页面 |
 |---|---|---|
-| <Scene name="SETUP" /> 设置 | 全局：工程和工程文件、所有轨道共用的键盘、系统 | PROJECT、FILES、KEYS、SYSTEM |
-| <Scene name="INSTR" /> 乐器 | 当前轨的声音：音源、音色、它自己的和弦与 ARP、参数、效果 | VOICE、CHORD、ARP、音源参数页、FX（鼓：VOICE、KIT、FX） |
-| <Scene name="SEQ" /> 音序器 | 当前轨弹什么：音符、录音、Pattern | ROLL / STEP（鼓轨是 DRUMS）、PATTERN、TRACK |
-| <Scene name="TAPE" /> 走带 | 四轨合在一起：发射、编排、混音、发送、总线效果 | SESSION、SONG、MIX、SENDS、FX |
+| <Scene name="SETUP" /> 设置 | 全局工程管理、文件浏览、四轨共用键盘设置与设备系统设置 | PROJECT、FILES、KEYS、SYSTEM |
+| <Scene name="INSTR" /> 乐器 | 当前轨的音色设计：音源、预设、和弦、琶音器、合成参数与轨道效果 | VOICE、CHORD、ARP、音源参数页、FX（鼓轨为 VOICE、KIT、FX） |
+| <Scene name="SEQ" /> 音序器 | 当前轨的音符编写、编辑、录音与 Pattern 管理 | ROLL / STEP（鼓轨为 DRUMS）、PATTERN、TRACK |
+| <Scene name="TAPE" /> 走带 | 四轨汇总视图：片段发射、整曲编排、混音、效果发送与总线效果 | SESSION、SONG、MIX、SENDS、FX |
 
-**单击 <Key k="ESC" />**：三个音乐场景循环，1 → 2 → 3 → 1。开机进入 <Scene name="INSTR" /> 的 VOICE 页，当前轨是 <Track n="1" />。
+**单击 <Key k="ESC" />** 可在三个创作场景之间依次循环（`1 → 2 → 3 → 1`）。开机默认位于 <Scene name="INSTR" /> VOICE 页，当前轨道为 <Track n="1" />。
 
 <Strip>
-  <Step keys="ESC" shot="seq-notes" at="scene"><Scene name="SEQ" />：写音符。</Step>
-  <Step keys="ESC" shot="tape-session" at="8,0,41,11"><Scene name="TAPE" />：发射、编排、混音。</Step>
-  <Step keys="ESC" shot="instr-voice" at="8,0,41,11">回到 <Scene name="INSTR" />：音色和参数。</Step>
+  <Step keys="ESC" shot="seq-notes" at="scene"><Scene name="SEQ" />：编写与编辑音符。</Step>
+  <Step keys="ESC" shot="tape-session" at="8,0,41,11"><Scene name="TAPE" />：发射片段、编排歌曲与混音。</Step>
+  <Step keys="ESC" shot="instr-voice" at="8,0,41,11">返回 <Scene name="INSTR" />：挑选与调制音色。</Step>
 </Strip>
 
-**按住 <Key k="ESC" />**：场景地图，四列高卡片，一列一个场景；点那一列的任意一个键直接跳过去。单击循环永远不进 SETUP：**第 1 列就是入口**。
+**按住 <Key k="ESC" />** 展开场景地图，四列卡片分别对应四个场景，点按任意一列即可直达该场景。单击 <Key k="ESC" /> 的循环不会进入 SETUP，**按住 ESC 并按第 1 列**才是进入 SETUP 的快捷入口。
 
 <Shot name="map-esc">
-  <Mark at="cells:1,1-4,1">0 SETUP：虚线、编号暗</Mark>
+  <Mark at="cells:1,1-4,1">0 SETUP（虚线边框与暗色编号）</Mark>
   <Mark at="cells:1,2-4,2">1 INSTR</Mark>
   <Mark at="cells:1,3-4,3">2 SEQ（当前）</Mark>
   <Mark at="cells:1,4-4,4">3 TAPE</Mark>
@@ -46,18 +46,18 @@ sidebar_position: 3
   <KeyMark keys="ESC">按住</KeyMark>
   <KeyMark keys="G3 G7 G11 G15">当前场景：全亮</KeyMark>
   <KeyMark keys="G1 G5 G9 G13">SETUP：半亮</KeyMark>
-  <Caption>按住 ESC：四列 = 四个场景，每列列出它的页面，标出进去时停在哪一页。</Caption>
+  <Caption>按住 ESC 显示场景地图，每列列出对应场景的全部页面，并标出进入后停留的页面。</Caption>
 </Shot>
 
 <Strip>
-  <Step keys="hold ESC + G2" shot="instr-voice" at="8,0,41,11">点第 2 列：直接到 <Scene name="INSTR" />。松开 ESC 地图收起。</Step>
-  <Step keys="hold ESC + G1" shot="setup-project" at="8,0,41,11">点第 1 列：到 <Scene name="SETUP" />，停在上次离开时的那一页。</Step>
-  <Step keys="ESC" shot="seq-notes" at="scene">在 SETUP 里单击 <Key k="ESC" />：回到进来之前的场景。</Step>
+  <Step keys="hold ESC + G2" shot="instr-voice" at="8,0,41,11">点按第 2 列直达 <Scene name="INSTR" />，松开 ESC 后地图关闭。</Step>
+  <Step keys="hold ESC + G1" shot="setup-project" at="8,0,41,11">点按第 1 列进入 <Scene name="SETUP" />，并停在上次离开的页面。</Step>
+  <Step keys="ESC" shot="seq-notes" at="scene">在 SETUP 中单击 <Key k="ESC" /> 即可返回原场景。</Step>
 </Strip>
 
 :::note
 
-弹窗打开时 <Key k="ESC" /> 是取消；SEQ 里有选中的步时，ESC 先取消选择。FN 菜单也能进 SETUP（右下角那一项，见 [每个画面的菜单](./fn.mdx#fn-menus)）。
+在弹窗中按 <Key k="ESC" /> 为取消或关闭；在 SEQ 中若已选中步进，按 <Key k="ESC" /> 会先取消选中。此外，任意页面的 FN 菜单右下角也提供进入 SETUP 的入口（见[每个画面的菜单](./fn.mdx#fn-menus)）。
 
 :::
 
@@ -65,68 +65,68 @@ sidebar_position: 3
 
 ## 轨道：TAB {#nav-tracks}
 
-四条轨道，颜色到处一样：<Track n="1" /> 粉、<Track n="2" /> 蓝、<Track n="3" /> 黄绿、<Track n="4" /> 琥珀。
+四条轨道在全界面使用统一的配色：<Track n="1" /> 粉红、<Track n="2" /> 蓝色、<Track n="3" /> 黄绿、<Track n="4" /> 琥珀色。
 
 <Strip>
-  <Step keys="TAB" shot="tab-hint" at="strip:TAB">单击 TAB：下一条轨道。约 0.8 秒里左侧只亮对应的那一行（T1 = ESC 行 … T4 = CTRL 行），一眼看出是第几轨。</Step>
-  <Step keys="hold TAB" shot="map-tab" at="cells:1,1-4,4">按住 TAB：轨道地图，和 MIX 页同一布局。</Step>
+  <Step keys="TAB" shot="tab-hint" at="strip:TAB">单击 <Key k="TAB" /> 切换到下一条轨道。随后约 0.8 秒内，左侧仅点亮新轨道对应行的按键（T1 = ESC 行至 T4 = CTRL 行），便于快速确认当前轨道。</Step>
+  <Step keys="hold TAB" shot="map-tab" at="cells:1,1-4,4">按住 <Key k="TAB" /> 展开轨道地图，布局与 MIX 页面完全一致。</Step>
 </Strip>
 
 <Shot name="map-tab">
-  <Mark at="cells:1,1-1,4">行 1：选中这条轨</Mark>
-  <Mark at="cells:2,1-2,4">行 2：静音</Mark>
-  <Mark at="cells:3,1-3,4">行 3：独奏</Mark>
-  <Mark at="cells:4,1-4,4">行 4：音序开关</Mark>
-  <Mark at="cell:1,2">当前 T2</Mark>
+  <Mark at="cells:1,1-1,4">第 1 行：选择轨道</Mark>
+  <Mark at="cells:2,1-2,4">第 2 行：静音（MUTE）</Mark>
+  <Mark at="cells:3,1-3,4">第 3 行：独奏（SOLO）</Mark>
+  <Mark at="cells:4,1-4,4">第 4 行：音序开关（SEQ）</Mark>
+  <Mark at="cell:1,2">当前轨：T2</Mark>
   <KeyMark keys="TAB">按住</KeyMark>
   <KeyMark keys="G1-G4">选轨</KeyMark>
-  <Caption>按住 TAB：每一列一条轨道，每一行一种开关。</Caption>
+  <Caption>按住 TAB 打开轨道地图：每列对应一条轨道，每行对应一类开关。</Caption>
 </Shot>
 
-- <Key k="TAB" /> + <Key k="ADD" /> / <Key k="SUB" />：前后切轨（地图标题上也写着）。
-- 地图第 1 行显示每条轨道的音源和音色；第 2 到 4 行像 MIX 一样，按下立即切换。
-- <Key k="FN+TAB" />：上一条轨道。
+- 按住 <Key k="TAB" /> 并按 <Key k="ADD" /> / <Key k="SUB" /> 可前后切换轨道。
+- 第 1 行显示各轨道的音源和当前音色；第 2 至 4 行与 MIX 页一样，点按立即生效。
+- 按 <Key k="FN+TAB" /> 可切换到上一条轨道。
 
 <Keywords k="轨道, 切轨, 换轨, 第几轨, track, switch track, channel, 通道" />
 
 ## 页面：CTRL {#nav-pages}
 
-页签在屏幕最下面，当前页紫底（如 <Page name="ROLL" />）；页面太多时两端有 `<` `>`，右边是「当前 / 总数」。
+屏幕底部显示当前场景的所有子页签，当前页以紫色高亮（如 <Page name="ROLL" />）。当页签过多无法一屏显示时，两侧会出现 `<` `>` 箭头，右侧显示「当前页 / 总页数」。
 
 <Strip>
-  <Step keys="CTRL" shot="seq-pattern" at="footer">单击 CTRL：下一页（松开时生效）。</Step>
-  <Step keys="hold CTRL" shot="map-ctrl" at="cells:1,1-1,3">按住 CTRL：页面地图，每格写着页签和一句说明。</Step>
-  <Step keys="hold CTRL + G3" shot="seq-track" at="footer">点哪格跳哪页，松开后停在新页面。</Step>
+  <Step keys="CTRL" shot="seq-pattern" at="footer">单击 <Key k="CTRL" /> 切换到下一页（松手时触发）。</Step>
+  <Step keys="hold CTRL" shot="map-ctrl" at="cells:1,1-1,3">按住 <Key k="CTRL" /> 打开页面地图，每格显示页签名称及简要说明。</Step>
+  <Step keys="hold CTRL + G3" shot="seq-track" at="footer">点按对应格子即可直达目标页面，松开 CTRL 后保持停留。</Step>
 </Strip>
 
-- <Key k="CTRL" /> + <Key k="ADD" /> / <Key k="SUB" />：前后翻页；<Key k="FN+CTRL" />：上一页。
-- 每条轨道各自记住自己停在 INSTR 的哪一页。
-- 页面地图的标题：TAP CTRL = NEXT（单击 CTRL 下一页）。
+- 按住 <Key k="CTRL" /> 并按 <Key k="ADD" /> / <Key k="SUB" /> 可前后翻页，按 <Key k="FN+CTRL" /> 返回上一页。
+- 每条轨道会各自记住在 <Scene name="INSTR" /> 中上次停留的页面。
+- 页面地图顶部提示 `TAP CTRL = NEXT`。
 
 <Keywords k="页面, 翻页, 下一页, 子页面, page, next page, tab, pages" />
 
 ## 按住左侧键 = 地图 {#nav-maps}
 
-按住 <Key k="ESC" />、<Key k="TAB" />、<Key k="CTRL" /> 超过 250 毫秒，屏幕中间变成地图：**格子的位置就是 GRID 上对应的键**。按住 <Key k="FN" /> 则是当前画面的菜单，布局一样（见 [FN 菜单](./fn.mdx#fn-menu)）。
+按住 <Key k="ESC" />、<Key k="TAB" /> 或 <Key k="CTRL" /> 超过 250 毫秒，屏幕中央会切换为对应地图，每个选项的位置均与右侧 GRID 按键一一对应。按住 <Key k="FN" /> 同样以 4×4 形式展示当前页面的快捷菜单（见[FN 菜单](./fn.mdx#fn-menu)）。
 
 <Shot name="map-ctrl">
   <Mark at="cell:1,1">当前页</Mark>
-  <Mark at="cell:1,2">别的页</Mark>
-  <Mark at="header">地图标题 + 提示</Mark>
+  <Mark at="cell:1,2">其他页面</Mark>
+  <Mark at="header">地图标题与操作提示</Mark>
   <KeyMark keys="CTRL">按住</KeyMark>
-  <KeyMark keys="G1">全亮：当前</KeyMark>
-  <KeyMark keys="G2 G3">半亮：可选</KeyMark>
-  <KeyMark keys="PADS">全灭：这时不发声</KeyMark>
-  <Caption>按住 CTRL：页面地图。</Caption>
+  <KeyMark keys="G1">全亮：当前项</KeyMark>
+  <KeyMark keys="G2 G3">半亮：可选项</KeyMark>
+  <KeyMark keys="PADS">灭：按住期间静音</KeyMark>
+  <Caption>按住 CTRL 展开页面地图。</Caption>
 </Shot>
 
-| 灯 | 意思 |
+| 按键灯 | 含义 |
 |---|---|
-| <Led state="full">全亮</Led> | 当前项 |
-| <Led state="half">半亮</Led> | 能选 |
-| <Led state="off">灭</Led> | 没有东西；按住期间演奏区也是灭的（不发声） |
+| <Led state="full">全亮</Led> | 当前激活项 |
+| <Led state="half">半亮</Led> | 可选项目 |
+| <Led state="off">灭</Led> | 无对应项（按住地图键期间，演奏区同时熄灭并静音） |
 
-松开左侧键，地图收回去。
+松开左侧键后，地图自动关闭。
 
 <Keywords k="地图, 按住, 长按, 覆盖层, map, overlay, hold, long press" />
 
@@ -135,22 +135,22 @@ sidebar_position: 3
 <Shot name="confirm">
   <Mark at="10,70,104,26">OK 确认</Mark>
   <Mark at="125,70,104,26">ESC 取消</Mark>
-  <Mark at="8,43,172,11">后果（红字）</Mark>
-  <KeyMark keys="OK">闪烁：等你确认</KeyMark>
+  <Mark at="8,43,172,11">红色提示文字</Mark>
+  <KeyMark keys="OK">闪烁：等待确认</KeyMark>
   <KeyMark keys="ESC">取消</KeyMark>
-  <Caption>危险操作一定会问：后果用红字写出来。</Caption>
+  <Caption>不可撤销的操作会先弹出确认框，并以红字说明影响范围。</Caption>
 </Shot>
 
-- 弹窗（列表、确认框、文字输入、RECORD 面板、常驻的 FN 菜单）里，<Key k="ESC" /> 关闭或取消。
-- 在 <Scene name="SETUP" /> 里，<Key k="ESC" /> 回到进来之前的场景。
-- 确认框里 <Key k="OK" /> 确认、<Key k="ESC" /> 取消；覆盖、删除、丢弃未保存一律先确认。
-- SEQ 里有选中的步时，<Key k="ESC" /> 先取消选择。
+- 在弹窗界面（列表、确认框、文字输入、RECORD 面板、常驻 FN 菜单）中，按 <Key k="ESC" /> 关闭或取消。
+- 在 <Scene name="SETUP" /> 中，按 <Key k="ESC" /> 返回进入前的场景。
+- 在确认对话框中，按 <Key k="OK" /> 确认、按 <Key k="ESC" /> 取消。覆盖文件、删除数据或丢弃未保存改动前均会要求二次确认。
+- 在 SEQ 中若存在已选中的步进，按 <Key k="ESC" /> 会先取消选择，再按一次才切换场景。
 
 <Keywords k="返回, 取消, 退出, 关闭, back, cancel, close, exit" />
 
 ## 场景与页面地图 {#nav-scene-map}
 
-所有场景和页面一览，点缩略图跳到说明：
+以下汇总了所有场景与页面，点击任意缩略图即可跳转到对应说明：
 
 <SceneMap />
 

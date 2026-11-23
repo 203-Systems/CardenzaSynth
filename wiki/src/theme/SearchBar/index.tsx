@@ -111,7 +111,7 @@ export default function SearchBar(): React.ReactElement {
           ) : !index ? (
             <div className={styles.empty}>…</div>
           ) : !results.length ? (
-            <div className={styles.empty}>{say(lang, '没有找到。试试别的说法。', 'Nothing found. Try other words.')}</div>
+            <div className={styles.empty}>{say(lang, '未找到匹配内容，请尝试其他关键词。', 'No results found. Try different keywords.')}</div>
           ) : (
             <>
               <div className={styles.head}><span>{say(lang, '说明书', 'Manual')}</span><span>{say(lang, '↑↓ 选择 · Enter 打开', '↑↓ choose · Enter open')}</span></div>

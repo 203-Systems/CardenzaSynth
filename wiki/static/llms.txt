@@ -1,27 +1,19 @@
 # Cardenza (鸣片)
 
-> The Cardenza is 203 Systems' pocket synthesizer: an ESP32-S3 with 56 keys that light up, a 240 × 135 colour
-> screen, a speaker, a microphone, an SD card and USB. It ships with the 203 Launcher, which installs firmware from
-> the 203 community by a six-character code. This site (cardenza.203.io) is its user's guide and manual; the
-> community is at https://stage.203.io.
+> Cardenza is a pocket synthesizer from 203 Systems built around an ESP32-S3, featuring 56 backlit keys, a 240×135 color display, speaker, microphone, SD card slot, and USB. It ships with the 203 Launcher for installing community firmware using 6-character codes. This site (cardenza.203.io) hosts the guide and manual; the firmware community is at https://stage.203.io.
 
-## Making firmware for the Cardenza
+## Developing firmware for Cardenza
 
-- The firmware SDK is CardenzaHAL, an ESP-IDF component: https://github.com/203-Systems/CardenzaHAL (its README lists
-  the hardware and the header that drives each part).
-- 203-CLI (`203cli`), the community's command line and an Agent Skill, is required: it makes the project, installs a
-  build on a Cardenza over USB through the Launcher, reads its log and publishes it, and a firmware on CardenzaHAL does
-  not build without it. Install it first (Node.js 18+, any OS): `npm install -g 203cli && 203cli skill install`; cloning
-  https://github.com/203-Systems/203-CLI does not install it.
-- The rules for every step, for people and AI agents alike (one Markdown file):
-  https://stage.203.io/develop.md; the developer guide: https://stage.203.io/develop.
-- The community's API and what 203cli does: https://stage.203.io/llms.txt.
-- Never `idf.py flash` a Cardenza: it erases the 203 Launcher. Install through it (`203cli flash --bin build/<project>.bin`).
-- The official firmware, Cardenza Synth (code V6QK28), is the largest example: https://github.com/203-Systems/CardenzaSynth.
-- Schematic and PCB model: https://github.com/203-Systems/Cardenza-Hardware.
+- **SDK**: CardenzaHAL (ESP-IDF component) at https://github.com/203-Systems/CardenzaHAL (see its README for hardware specs and headers).
+- **CLI & Agent Skill**: `203cli` (from 203-CLI) is required to scaffold projects, flash firmware through the Launcher over USB, read device logs, and publish releases. CardenzaHAL projects require `203cli` to build. Install via Node.js 18+: `npm install -g 203cli && 203cli skill install` (cloning https://github.com/203-Systems/203-CLI does not install it).
+- **Developer guide & rules**: Single-file Markdown reference at https://stage.203.io/develop.md, and web guide at https://stage.203.io/develop.
+- **Community API & CLI overview**: https://stage.203.io/llms.txt.
+- **Flashing warning**: Never run `idf.py flash` on a Cardenza, as it overwrites the 203 Launcher. Always flash via `203cli flash --bin build/<project>.bin`.
+- **Reference firmware**: Cardenza Synth (community code `V6QK28`) at https://github.com/203-Systems/CardenzaSynth.
+- **Hardware files**: Schematics and PCB models at https://github.com/203-Systems/Cardenza-Hardware.
 
-## Using the Cardenza
+## Using Cardenza
 
-- Guide (short lessons): https://cardenza.203.io/
-- Manual: https://cardenza.203.io/manual/start/
+- Interactive guide: https://cardenza.203.io/
+- Reference manual: https://cardenza.203.io/manual/start/
 - Browser simulator: https://cardenza-synth.vercel.app/

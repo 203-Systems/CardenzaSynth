@@ -4,51 +4,51 @@ sidebar_position: 4
 
 # 演奏
 
-演奏区（PADS）永远在弹当前轨。键盘排列、音阶、根音、八度、力度和音阶锁定四条轨道通用，在 <Scene name="SETUP" /> 的 **KEYS** 页设置（见 [KEYS 键盘](./setup.mdx#setup-keys)）。和弦与琶音（ARP）是每条轨道自己的：每条旋律轨在 <Scene name="INSTR" /> 里都有自己的 **CHORD** 和 **ARP** 页。这些都随工程保存；NEW 的工程从 PIANO、C MAJOR、没有和弦、所有 ARP 关闭开始。
+演奏区（PADS）始终用于演奏当前激活的轨道。键盘排列、音阶、根音、八度、力度与音阶锁定为四条轨道共用，位于 <Scene name="SETUP" /> 的 **KEYS** 页（见[KEYS 键盘](./setup.mdx#setup-keys)）。和弦与琶音（ARP）按轨道独立配置，每条旋律轨在 <Scene name="INSTR" /> 中均配有专属的 **CHORD** 和 **ARP** 页。这些设置均随工程保存；新建工程（NEW）默认恢复为 PIANO 排列、C 大调、关闭和弦与琶音。
 
 <Keymap>
   <Group keys="PADS">演奏区</Group>
-  <Caption>PADS：中间 4×8，永远弹当前轨</Caption>
+  <Caption>中间 4×8 的 PADS 始终用于演奏当前轨道。</Caption>
 </Keymap>
 
 <Keywords k="演奏, 弹奏, 键盘, 怎么弹, play, perform, keyboard" />
 
 ## 键盘排列 {#play-keyboard}
 
-旋律轨有三种排列（KEYS 页的 LAYOUT），看键灯就知道哪些键能发声：
+旋律轨提供三种键盘排列模式（在 KEYS 页通过 LAYOUT 切换），按键背光会直观标出可发声的键位：
 
 <Shot name="seq-keyboard">
-  <KeyMark keys="r0c2 r0c3 r0c5 r0c6 r0c7">黑键，高一个八度</KeyMark>
-  <KeyMark keys="r1c1-r1c8">白键 C D E F G A B C，高一个八度</KeyMark>
-  <KeyMark keys="r2c2 r2c3 r2c5 r2c6 r2c7">黑键</KeyMark>
-  <KeyMark keys="r3c1-r3c8">白键 C D E F G A B C，C3 在左下角</KeyMark>
-  <KeyMark keys="r0c1 r0c4 r0c8 r2c1 r2c4 r2c8">缺口：灭</KeyMark>
-  <Caption>PIANO 钢琴排列（默认）：两个完整的八度，每两行一个，黑键在白键上面；缺口不亮也不发声。</Caption>
+  <KeyMark keys="r0c2 r0c3 r0c5 r0c6 r0c7">黑键（高八度）</KeyMark>
+  <KeyMark keys="r1c1-r1c8">白键 C–C（高八度）</KeyMark>
+  <KeyMark keys="r2c2 r2c3 r2c5 r2c6 r2c7">黑键（低八度）</KeyMark>
+  <KeyMark keys="r3c1-r3c8">白键 C–C（左下角为 C3）</KeyMark>
+  <KeyMark keys="r0c1 r0c4 r0c8 r2c1 r2c4 r2c8">无键空位：灭</KeyMark>
+  <Caption>默认 PIANO 钢琴排列：两行构成一个八度，黑键在上、白键在下，无黑键的空位熄灭且不发声。</Caption>
 </Shot>
 
-| 排列 | 怎么排 | 灯 |
+| 排列模式 | 键位映射 | 灯光状态 |
 |---|---|---|
-| **PIANO 钢琴**（默认） | 两个完整的八度：下面两行从左下角的 C3 开始，上面两行高一个八度；每两行里白键 C D E F G A B C 在下，黑键在上。缺口（C# 之前、E–F 之间、A# 之后）不发声 | 缺口 <Led state="off" /> |
-| **SCALE 音阶** | 只放音阶里的音，从根音开始从左到右按音阶走，每往上一行高一个八度。不会弹错音 | 全部 <Led state="half" /> |
-| **CHROMA 半音** | 从根音开始每个键一个半音，从左到右、从下到上 | 全部 <Led state="half" /> |
+| **PIANO 钢琴**（默认） | 两个完整八度：下方两行从左下角 C3 起，上方两行高一个八度；每组下排为白键 C D E F G A B C，上排为黑键。无黑键空位（C# 前、E–F 间、A# 后）不发声。 | 空位 <Led state="off" /> |
+| **SCALE 音阶** | 仅排布当前音阶内的音符，从根音起自左向右依次升高，每往上一行升高一个八度，任意按键均在调内。 | 全部 <Led state="half" /> |
+| **CHROMA 半音** | 从根音起按半音依次排列，自左向右、自下而上每键升高一个半音。 | 全部 <Led state="half" /> |
 
 <Strip>
-  <Step keys="G1" shot="keys-scale" at="cell:1,1">SETUP KEYS：点 LAYOUT 切换。SCALE：每个键都在音阶里。</Step>
-  <Step keys="G1" shot="keys-chroma" at="cell:1,1">再点：CHROMA，每个键一个半音。</Step>
-  <Step keys="G1" shot="setup-keys" at="cell:1,1">再点：回到 PIANO。</Step>
+  <Step keys="G1" shot="keys-scale" at="cell:1,1">在 SETUP KEYS 页点按 LAYOUT 切换排列。SCALE 模式下每个按键都在当前音阶内。</Step>
+  <Step keys="G1" shot="keys-chroma" at="cell:1,1">再次点按切换为 CHROMA，每键递增一个半音。</Step>
+  <Step keys="G1" shot="setup-keys" at="cell:1,1">再次点按切回 PIANO。</Step>
 </Strip>
 
-| 灯 | 演奏区上的意思 |
+| 按键灯 | 演奏区含义 |
 |---|---|
-| <Led state="half">半亮</Led> | 能发声 |
-| <Led state="full">全亮</Led> | 按住的键、和弦的其它组成音、ARP 正在弹的音、音序器在这一轨弹出的音 |
-| <Led state="off">灭</Led> | 发不出声 |
+| <Led state="half">半亮</Led> | 可正常发声的键 |
+| <Led state="full">全亮</Led> | 当前按下的键、和弦生成的组成音、ARP 正在触发的音，或音序器正在本轨播放的音 |
+| <Led state="off">灭</Led> | 不可发声（钢琴空位或被锁定的音阶外音） |
 
 <Keywords k="键盘排列, 钢琴, 黑键, 白键, 音阶模式, 半音, layout, piano, black keys, white keys, chromatic, scale layout, isomorphic" />
 
 ## 音阶和根音 {#play-scale}
 
-KEYS 页的 SCALE 和 ROOT 选音阶和根音（C–B）。音阶决定 SCALE 排列里放哪些音、TRIAD 和 7TH 和弦怎么叠、LOCK 管哪些键。
+通过 KEYS 页的 **SCALE** 和 **ROOT**（C–B）可设定当前调性。它同时决定 SCALE 排列包含的音符、TRIAD / 7TH 顺阶和弦的构成，以及音阶锁定（LOCK）的作用范围。
 
 <Shot name="setup-keys">
   <Mark at="cell:1,1">LAYOUT 排列</Mark>
@@ -58,11 +58,11 @@ KEYS 页的 SCALE 和 ROOT 选音阶和根音（C–B）。音阶决定 SCALE �
   <Mark at="cell:2,1">VELO 力度</Mark>
   <Mark at="cell:2,2">LOCK 锁定</Mark>
   <Mark at="cell:2,3">SELECT（SEQ 选步：单选 / 多选）</Mark>
-  <Mark at="cells:3,1-4,4">当前音阶在键盘上</Mark>
-  <Caption>SETUP 的 KEYS 页。</Caption>
+  <Mark at="cells:3,1-4,4">当前音阶键盘预览</Mark>
+  <Caption>SETUP KEYS 页面。</Caption>
 </Shot>
 
-音阶有 14 种：
+内置共 14 种音阶：
 
 <Ref kind="lists" />
 
@@ -70,99 +70,99 @@ KEYS 页的 SCALE 和 ROOT 选音阶和根音（C–B）。音阶决定 SCALE �
 
 ## 八度 {#play-octave}
 
-KEYS 页的 OCTAVE（−3 到 +3）把整个键盘上下移动。最快的方法：
+KEYS 页的 **OCTAVE**（−3 到 +3）用于整体升降键盘音域。在任意界面也可使用快捷组合键调整：
 
 <Strip>
-  <Step keys="hold FN + 8" shot="fn-octave" at="14,94,212,28">按住 <Key k="FN" />，<Key k="8" /> 升八度、<Key k="I" /> 降八度（按住连续变）。屏幕底部弹出新值。</Step>
-  <Step keys="G4" shot="setup-keys" at="cell:1,4">也可以在 SETUP KEYS：点 OCTAVE（GRID 4），用 <Key k="ADD" /> / <Key k="SUB" /> 调。</Step>
+  <Step keys="hold FN + 8" shot="fn-octave" at="14,94,212,28">按住 <Key k="FN" /> 并按 <Key k="8" /> 升八度、按 <Key k="I" /> 降八度（按住可连发），屏幕底部会弹出当前八度值。</Step>
+  <Step keys="G4" shot="setup-keys" at="cell:1,4">或在 SETUP KEYS 页点选 OCTAVE（GRID 4），使用 <Key k="ADD" /> / <Key k="SUB" /> 调节。</Step>
 </Strip>
 
 <Keywords k="八度, 移调, 升高, 降低, 高音, 低音, octave, transpose, shift, higher, lower" />
 
 ## 力度 {#play-velocity}
 
-演奏区不感应力度，旋律轨每个键用同一个力度发声：KEYS 页的 **VELO**（1–127，默认 110）。录进音序器的音也用这个力度，之后可以在音符页逐步改（VEL，见 [选中与编辑](./seq.mdx#seq-edit)）。鼓轨不用 VELO，由行决定轻重（见 [鼓](#play-drums)）。
+机身按键不支持力度感应。旋律轨所有按键均使用 KEYS 页设定的固定力度 **VELO**（1–127，默认 110）。实时录制的音符会沿用该值，后续可在音序器音符页的 VEL 编辑项中逐一修改（见[选中与编辑](./seq.mdx#seq-edit)）。鼓轨不使用 VELO，而是通过按键所在行来指定打击力度（见[鼓](#play-drums)）。
 
 <Keywords k="力度, 轻重, 音量大小, velocity, dynamics, how hard" />
 
 ## 音阶锁定 LOCK {#play-lock}
 
-PIANO 和 CHROMA 排列下，音阶外的键怎么办：
+在 PIANO 和 CHROMA 排列下，**LOCK** 决定按下音阶外琴键时的行为：
 
-| LOCK | 音阶外的键 | 灯 |
+| LOCK | 音阶外琴键行为 | 灯光 |
 |---|---|---|
-| **OFF** | 照常发声 | <Led state="half" /> |
-| **MUTE** | 不发声 | <Led state="off" /> |
-| **SNAP** | 落到下方最近的音阶音上 | <Led state="half" /> |
+| **OFF** | 正常发声 | <Led state="half" /> |
+| **MUTE** | 静音 | <Led state="off" /> |
+| **SNAP** | 自动吸附到下方最近的音阶音 | <Led state="half" /> |
 
 <Keywords k="锁定, 音阶锁定, 防错音, 吸附, lock, scale lock, snap, mute, wrong notes" />
 
 ## 和弦 {#play-chords}
 
-<Scene name="INSTR" /> 的 **CHORD** 页让一个键弹出一个和弦。每条轨道有自己的和弦，换音色或换引擎时保留。鼓轨没有 CHORD 页。
+<Scene name="INSTR" /> 中的 **CHORD** 页支持单键触发完整和弦。和弦设置归属轨道本身，切换音色或音源引擎时均会保留。鼓轨不含 CHORD 页。
 
 <Strip>
-  <Step keys="hold CTRL + G2" shot="instr-chord" at="cell:1,1">在 <Scene name="INSTR" /> 里按住 <Key k="CTRL" /> 按 G2：这条轨道的 CHORD 页。CHORD 是 OFF。</Step>
-  <Step keys="G1" shot="chord-on" at="cell:1,1 9,43,170,20">点 CHORD：TRIAD。图上写着根音上的键会弹哪几个音（C3 PLAYS C3 E3 G3）。</Step>
-  <Step keys="hold r3c1~C" shot="chord-held" at="cells:3,1-4,4">按一个键：三个音一起响，组成音在屏幕和演奏区上都亮。</Step>
+  <Step keys="hold CTRL + G2" shot="instr-chord" at="cell:1,1">在 <Scene name="INSTR" /> 中按住 <Key k="CTRL" /> 并按 G2 打开 CHORD 页（默认关闭）。</Step>
+  <Step keys="G1" shot="chord-on" at="cell:1,1 9,43,170,20">点按 CHORD 切换为 TRIAD，屏幕会显示根音按键触发的组成音（如 `C3 PLAYS C3 E3 G3`）。</Step>
+  <Step keys="hold r3c1~C" shot="chord-held" at="cells:3,1-4,4">按下琴键即可同时奏响三个和弦音，所有组成音会在屏幕与演奏区同步点亮。</Step>
 </Strip>
 
-- **CHORD**：OFF / TRIAD / 7TH / MAJ / MIN / SUS4 / MAJ7 / MIN7 / DOM7 / POWER / OCTAVE。TRIAD 和 7TH 在当前音阶里叠三度（音阶外的键借用大三和弦 / 属七），其余是固定和弦。
-- **VOICING**：ROOT 原位 / INV1 第一转位（最低音升八度）/ INV2 第二转位（最低的两个音升八度）/ SPREAD 展开（第二个音升八度）。
-- 第二行写着这个调里每一级的三和弦（字体只有大写：小三和弦写成 `D-`，减三和弦写成 `BDIM`）。
-- 实时录音时，和弦的每个音都像单独的音一样录进去，ARP 也会把它们一个个弹出来。在 SEQ 音符页上，一个键的和弦作为一组放进一步或从一步里去掉（见 [选中与编辑](./seq.mdx#seq-edit)）。
+- **CHORD**：可选 OFF、TRIAD、7TH、MAJ、MIN、SUS4、MAJ7、MIN7、DOM7、POWER、OCTAVE。其中 TRIAD 和 7TH 按当前音阶顺阶叠置三度（音阶外按键默认使用大三或属七和弦），其余模式均为固定和弦结构。
+- **VOICING**：可选 ROOT（原位）、INV1（第一转位：最低音升八度）、INV2（第二转位：最低两音升八度）和 SPREAD（展开排列：第二音升八度）。
+- 屏幕第二行会列出当前调性各音级对应的顺阶三和弦（受限于全大写字体，小三和弦记为 `D-`，减三和弦记为 `BDIM`）。
+- 实时录音时，和弦组成音会作为独立音符写入；开启 ARP 时会逐音分解演奏。在 SEQ 音符页编辑步进时，按下一个琴键会将整个和弦作为整体添加或移除（见[选中与编辑](./seq.mdx#seq-edit)）。
 
 <Shot name="chord-held">
-  <Mark at="cell:1,1">CHORD 和弦</Mark>
+  <Mark at="cell:1,1">CHORD 和弦模式</Mark>
   <Mark at="cell:1,2">VOICING 转位</Mark>
-  <Mark at="9,43,140,10">根音上的键弹出的音</Mark>
-  <Mark at="9,53,170,10">这个调的每一级</Mark>
-  <Mark at="cells:3,1-4,4">组成音（蓝）</Mark>
-  <KeyMark keys="r3c1 r3c3 r3c5">和弦音：全亮</KeyMark>
-  <Caption>按住 C：和弦 C E G 三个音全亮。</Caption>
+  <Mark at="9,43,140,10">根音触发的组成音</Mark>
+  <Mark at="9,53,170,10">当前调性各级三和弦</Mark>
+  <Mark at="cells:3,1-4,4">当前发声的和弦音（蓝色）</Mark>
+  <KeyMark keys="r3c1 r3c3 r3c5">和弦组成音：全亮</KeyMark>
+  <Caption>开启 TRIAD 并按住 C 键时，C、E、G 三个组成音同步全亮。</Caption>
 </Shot>
 
 <Keywords k="和弦, 和声, 转位, 三和弦, 七和弦, 一键和弦, 每轨, chord, chords, triad, seventh, inversion, voicing, harmony, per track, midi fx" />
 
 ## 琶音 ARP {#play-arp}
 
-<Scene name="INSTR" /> 的 **ARP** 页：按住几个键，它们按顺序轮流发声。每条旋律轨有自己的一台 ARP 和自己的设置，几台可以同时在跑（T2 的 HOLD 琶音继续，切到 T3 再弹另一组）。
+<Scene name="INSTR" /> 中的 **ARP** 页可将按住的音符按设定节拍依次分解演奏。每条旋律轨均拥有独立的琶音器，并可多轨同时运行（例如在 T2 上开启 HOLD 锁定琶音，再切到 T3 演奏其他声部）。
 
 <Strip>
-  <Step keys="hold CTRL + G3" shot="instr-arp" at="cell:1,1">在 <Scene name="INSTR" /> 里按住 <Key k="CTRL" /> 按 G3：这条轨道的 ARP 页。ARP OFF 时整幅图变暗。</Step>
-  <Step keys="G1, hold r3c1~C + r3c3~E + r3c5~G" shot="arp-running" at="cells:3,1-4,4">点 ARP：UP。按住 C E G：几个音从下往上轮流弹。</Step>
+  <Step keys="hold CTRL + G3" shot="instr-arp" at="cell:1,1">在 <Scene name="INSTR" /> 中按住 <Key k="CTRL" /> 并按 G3 打开 ARP 页。ARP 关闭时下方步进预览呈暗色。</Step>
+  <Step keys="G1, hold r3c1~C + r3c3~E + r3c5~G" shot="arp-running" at="cells:3,1-4,4">点按 ARP 切换为 UP，按住 C、E、G 即可由低到高依次循环琶音。</Step>
 </Strip>
 
 <Shot name="arp-running">
   <Mark at="cell:1,1">ARP 模式</Mark>
-  <Mark at="cell:1,2">RATE 速度</Mark>
-  <Mark at="cell:1,3">RANGE 范围</Mark>
-  <Mark at="cell:1,4">GATE</Mark>
-  <Mark at="cell:2,1">HOLD 松手继续</Mark>
-  <Mark at="cells:3,1-4,4">16 步的演奏顺序</Mark>
+  <Mark at="cell:1,2">RATE 速率</Mark>
+  <Mark at="cell:1,3">RANGE 八度范围</Mark>
+  <Mark at="cell:1,4">GATE 门限时长</Mark>
+  <Mark at="cell:2,1">HOLD 保持（松手继续）</Mark>
+  <Mark at="cells:3,1-4,4">16 步演奏顺序预览</Mark>
   <KeyMark keys="r3c1 r3c3 r3c5">按住的键</KeyMark>
-  <Caption>ARP UP：按住 C E G，三个音从下往上轮流弹。每根柱是一步，高低是音高，宽度是 GATE；白色的柱是正在发声的那一步。</Caption>
+  <Caption>ARP UP 模式下按住 C、E、G：每根竖条代表一步的音高与 GATE 时长，白色条为当前正在发声的步。</Caption>
 </Shot>
 
-| 设置 | 选项 |
+| 参数 | 选项说明 |
 |---|---|
-| ARP | OFF / UP / DOWN / UP-DN / RANDOM / ORDER（按按下的顺序） |
+| ARP | OFF、UP、DOWN、UP-DN、RANDOM、ORDER（按按键顺序） |
 | RATE | 1/4、1/8、1/8T、1/16（默认）、1/16T、1/32 |
 | RANGE | 1–4 个八度（向上扩展） |
-| GATE | 10–100 %（每个音占音符时值的多少，默认 50 %） |
-| HOLD | 松手后继续；全部松开后再按会换成新的一组。点一下这一格就切换，不用先选中 |
+| GATE | 10–100%（每个音占步长的比例，默认 50%） |
+| HOLD | 松手后继续保持琶音；全部松开后再按新键即替换为新音组。点按该格可直接开关，无需先聚焦。 |
 
-- 按住的键（和弦展开后的每个音都算）按顺序轮流发声，最多 16 个音。第一下立刻发声。
-- 停止时按 BPM 自由运行；播放时对齐节拍（1/16 跟随 Swing），按 PLAY / 停止不会断拍。
-- UP / DOWN / UP-DN 从刚弹过的音继续走，到两端不重复。
-- REC 打开且在播放时，ARP 弹出的音按 GATE 长度录进它那条轨道的 Pattern。
-- 换轨不会停下别的轨道的 ARP。关掉 HOLD 立刻停止（只留下还按着的键）。<Key k="FN+ESC" />（全部停止）和载入工程会停下所有 ARP。
+- 最多支持同时琶音 16 个音符（包含和弦生成的组成音），按下瞬间立即触发首音。
+- 停止播放时按当前 BPM 自由运行；播放时自动同步至音序器节拍（1/16 速率跟随全局 Swing），启停播放不会打断琶音相位。
+- UP、DOWN 和 UP-DN 模式在高低折返点不重复发声。
+- 播放且开启 REC 实时录音时，ARP 输出的音符会按当前 GATE 长度直接录进该轨 Pattern。
+- 切换轨道不会中断其他轨道的琶音。关闭 HOLD 会立即停止保持的音符（仅保留仍按住的键）。按 <Key k="FN+ESC" />（全部停止）或载入工程会停止所有轨道的 ARP。
 
 <Keywords k="琶音, 琶音器, 分解和弦, 自动弹, 保持, 每轨, arp, arpeggiator, arpeggio, latch, hold, gate, rate, up, down, random, per track" />
 
 ## 鼓 {#play-drums}
 
-鼓轨（默认 <Track n="1" />）的演奏区每一**列**是一个鼓，**行**决定轻重：最上面一行最重（力度 127），往下 100、70，最下面一行最轻（40）。静止时演奏键半亮；按住时这一列从下往上亮到弹的那一行，一击沿着这一列扩散，越重走得越远。屏幕上用点阵疏密表示力度，分四档，一眼分得清。鼓不走 ARP，也不受音阶、和弦和 VELO 影响。每个鼓的音量在 INSTR 的 KIT 页（见 [DRUMS 鼓机](./instr.mdx#engine-drums)）。
+在鼓轨（默认 <Track n="1" />）上，演奏区每一**列**对应一种鼓，每一**行**对应不同力度：最上方一行力度 127，往下依次为 100、70，最下方一行力度 40。待机时所有鼓垫半亮；按住某键时该列自下而上亮至当前行，触发鼓点时灯光会按力度大小向上扩散。屏幕上通过四档点阵密度区分力度。鼓轨不使用音阶、和弦、VELO 和 ARP，各鼓声部的音量可在 INSTR KIT 页单独调节（见[DRUMS 鼓机](./instr.mdx#engine-drums)）。
 
 <Keymap>
   <Group keys="r0c1-r3c1">底鼓</Group>
@@ -173,7 +173,7 @@ PIANO 和 CHROMA 排列下，音阶外的键怎么办：
   <Group keys="r0c6-r3c6">通鼓</Group>
   <Group keys="r0c7-r3c7">牛铃</Group>
   <Group keys="r0c8-r3c8">沙锤</Group>
-  <Caption>鼓轨：一列一个鼓，越往上越重</Caption>
+  <Caption>鼓轨布局：每列一种鼓，越靠上力度越大。</Caption>
 </Keymap>
 
 <Keywords k="鼓, 打鼓, 底鼓, 军鼓, 镲, 节奏, 鼓力度, 轻重, drums, kick, snare, hi hat, clap, beat, rhythm, drum velocity" />

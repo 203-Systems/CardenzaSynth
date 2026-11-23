@@ -4,60 +4,60 @@ sidebar_position: 3
 
 # Navigation
 
-Four scenes with a few pages each, and four tracks you can switch at any time. The four left keys do all the navigation:
+Cardenza is organized into four scenes (each with multiple pages) and four tracks that you can switch between at any time. All navigation is handled by the four keys in the left column.
 
 <Keymap>
   <Group keys="ESC">Scenes</Group>
   <Group keys="TAB">Tracks</Group>
-  <Group keys="FN">The menu of this screen</Group>
+  <Group keys="FN">Current screen menu</Group>
   <Group keys="CTRL">Pages</Group>
-  <Caption>The four left keys handle all the navigation</Caption>
+  <Caption>All navigation lives on the left column.</Caption>
 </Keymap>
 
 <Keywords k="navigation, switch, move around, where am i, 导航" />
 
 ## Scenes: ESC {#nav-scenes}
 
-Four scenes in two kinds, numbered as on the screen. 0 SETUP comes first and holds everything global; 1, 2 and 3 are the music itself:
+The four scenes are numbered 0 through 3, matching the top-left label on screen. **0 SETUP** holds global project and system settings, while **1 INSTR**, **2 SEQ**, and **3 TAPE** are the three music-making scenes.
 
-| Scene | For | Pages |
+| Scene | Purpose | Pages |
 |---|---|---|
-| <Scene name="SETUP" /> setup | global: the project and its files, the keyboard for every track, the system | PROJECT, FILES, KEYS, SYSTEM |
-| <Scene name="INSTR" /> instrument | what the current track sounds like: engine, sound, its chord and ARP, parameters, effects | VOICE, CHORD, ARP, engine pages, FX (drums: VOICE, KIT, FX) |
-| <Scene name="SEQ" /> sequencer | what the current track plays: notes, recording, patterns | ROLL / STEP (DRUMS on a drum track), PATTERN, TRACK |
-| <Scene name="TAPE" /> tape | all four tracks together: launching, the song, the mix, sends, master effects | SESSION, SONG, MIX, SENDS, FX |
+| <Scene name="SETUP" /> Setup | Global project management, files, shared keyboard settings, and device settings | PROJECT, FILES, KEYS, SYSTEM |
+| <Scene name="INSTR" /> Instrument | Active track's sound design: engine, preset, chord, arpeggiator, synth parameters, and effects | VOICE, CHORD, ARP, engine pages, FX (drums: VOICE, KIT, FX) |
+| <Scene name="SEQ" /> Sequencer | Active track's patterns, note entry, editing, and recording | ROLL / STEP (DRUMS on a drum track), PATTERN, TRACK |
+| <Scene name="TAPE" /> Tape | All four tracks together: clip launching, song arrangement, mixer, sends, and master effects | SESSION, SONG, MIX, SENDS, FX |
 
-**Tap <Key k="ESC" />**: the three music scenes in turn, 1 → 2 → 3 → 1. The groovebox starts in <Scene name="INSTR" /> on the VOICE page, on track <Track n="1" />.
+**Tap <Key k="ESC" />** to cycle through the three music scenes (`1 → 2 → 3 → 1`). At boot, Cardenza starts on <Scene name="INSTR" /> VOICE with track <Track n="1" /> selected.
 
 <Strip>
-  <Step keys="ESC" shot="seq-notes" at="scene"><Scene name="SEQ" />: write notes.</Step>
-  <Step keys="ESC" shot="tape-session" at="8,0,41,11"><Scene name="TAPE" />: launch, arrange and mix.</Step>
-  <Step keys="ESC" shot="instr-voice" at="8,0,41,11">Back to <Scene name="INSTR" />: sounds and parameters.</Step>
+  <Step keys="ESC" shot="seq-notes" at="scene"><Scene name="SEQ" /> for writing and editing notes.</Step>
+  <Step keys="ESC" shot="tape-session" at="8,0,41,11"><Scene name="TAPE" /> for launching patterns, arranging songs, and mixing.</Step>
+  <Step keys="ESC" shot="instr-voice" at="8,0,41,11">Back to <Scene name="INSTR" /> for choosing and tweaking sounds.</Step>
 </Strip>
 
-**Hold <Key k="ESC" />**: the scene map, four tall columns, one per scene; press any key of a column to jump straight there. The tap ring never enters SETUP: **column 1 is the way in**.
+**Hold <Key k="ESC" />** to display the scene map: four vertical columns, one per scene. Press any key in a column to jump straight to that scene. Tapping <Key k="ESC" /> never cycles into SETUP; **holding ESC and pressing column 1** is how you open it.
 
 <Shot name="map-esc">
-  <Mark at="cells:1,1-4,1">0 SETUP: dotted rule, dim number</Mark>
+  <Mark at="cells:1,1-4,1">0 SETUP (marked with a dotted border and dim number)</Mark>
   <Mark at="cells:1,2-4,2">1 INSTR</Mark>
-  <Mark at="cells:1,3-4,3">2 SEQ (current)</Mark>
+  <Mark at="cells:1,3-4,3">2 SEQ (active)</Mark>
   <Mark at="cells:1,4-4,4">3 TAPE</Mark>
   <Mark at="162,0,70,11">Tap ESC = 1 > 2 > 3</Mark>
   <KeyMark keys="ESC">Hold</KeyMark>
-  <KeyMark keys="G3 G7 G11 G15">Current scene: fully lit</KeyMark>
+  <KeyMark keys="G3 G7 G11 G15">Active scene: fully lit</KeyMark>
   <KeyMark keys="G1 G5 G9 G13">SETUP: half lit</KeyMark>
-  <Caption>Holding ESC: four columns = four scenes, each listing its pages; the page you would land on is marked.</Caption>
+  <Caption>Holding ESC opens the scene map, showing each scene's pages and highlighting the page you will land on.</Caption>
 </Shot>
 
 <Strip>
-  <Step keys="hold ESC + G2" shot="instr-voice" at="8,0,41,11">Tap column 2: straight to <Scene name="INSTR" />. Release ESC and the map folds away.</Step>
-  <Step keys="hold ESC + G1" shot="setup-project" at="8,0,41,11">Tap column 1: <Scene name="SETUP" />, on the page you were last on.</Step>
-  <Step keys="ESC" shot="seq-notes" at="scene">In SETUP a tap on <Key k="ESC" /> goes back to the scene you came from.</Step>
+  <Step keys="hold ESC + G2" shot="instr-voice" at="8,0,41,11">Tap column 2 to jump directly to <Scene name="INSTR" />. Releasing ESC closes the map.</Step>
+  <Step keys="hold ESC + G1" shot="setup-project" at="8,0,41,11">Tap column 1 to open <Scene name="SETUP" /> on whichever page you used last.</Step>
+  <Step keys="ESC" shot="seq-notes" at="scene">Inside SETUP, tapping <Key k="ESC" /> returns to the scene you came from.</Step>
 </Strip>
 
 :::note
 
-In a pop-up <Key k="ESC" /> cancels; in SEQ with steps selected, ESC clears the selection first. The FN menu also reaches SETUP (its bottom-right item, see [The menu on each screen](./fn.mdx#fn-menus)).
+Inside pop-ups and dialogs, <Key k="ESC" /> cancels or closes them. In SEQ, if steps are selected, <Key k="ESC" /> clears the selection first. You can also reach SETUP from the bottom-right tile of any FN menu (see [Menus by screen](./fn.mdx#fn-menus)).
 
 :::
 
@@ -65,68 +65,68 @@ In a pop-up <Key k="ESC" /> cancels; in SEQ with steps selected, ESC clears the 
 
 ## Tracks: TAB {#nav-tracks}
 
-Four tracks, with the same colour everywhere: <Track n="1" /> pink, <Track n="2" /> blue, <Track n="3" /> lime, <Track n="4" /> amber.
+The four tracks keep consistent color coding throughout the interface: <Track n="1" /> pink, <Track n="2" /> blue, <Track n="3" /> lime, and <Track n="4" /> amber.
 
 <Strip>
-  <Step keys="TAB" shot="tab-hint" at="strip:TAB">Tap TAB: next track. For about 0.8 s only the matching row of the left keys is lit (T1 = the ESC row … T4 = the CTRL row), so you see at a glance which track you are on.</Step>
-  <Step keys="hold TAB" shot="map-tab" at="cells:1,1-4,4">Hold TAB: the track map, laid out like the MIX page.</Step>
+  <Step keys="TAB" shot="tab-hint" at="strip:TAB">Tap <Key k="TAB" /> to move to the next track. For about 0.8 seconds, only the left-column key in that track's row lights up (T1 = ESC row through T4 = CTRL row) as a quick visual cue.</Step>
+  <Step keys="hold TAB" shot="map-tab" at="cells:1,1-4,4">Hold <Key k="TAB" /> to open the track map, which uses the same layout as the MIX page.</Step>
 </Strip>
 
 <Shot name="map-tab">
-  <Mark at="cells:1,1-1,4">Row 1: select this track</Mark>
+  <Mark at="cells:1,1-1,4">Row 1: select track</Mark>
   <Mark at="cells:2,1-2,4">Row 2: mute</Mark>
   <Mark at="cells:3,1-3,4">Row 3: solo</Mark>
-  <Mark at="cells:4,1-4,4">Row 4: sequencer on</Mark>
-  <Mark at="cell:1,2">Current: T2</Mark>
+  <Mark at="cells:4,1-4,4">Row 4: sequencer on/off</Mark>
+  <Mark at="cell:1,2">Active track: T2</Mark>
   <KeyMark keys="TAB">Hold</KeyMark>
   <KeyMark keys="G1-G4">Select track</KeyMark>
-  <Caption>Holding TAB: one column per track, one kind of switch per row.</Caption>
+  <Caption>Holding TAB shows one column per track and one switch type per row.</Caption>
 </Shot>
 
-- <Key k="TAB" /> + <Key k="ADD" /> / <Key k="SUB" />: next / previous track (the map's title says so).
-- Row 1 of the map shows each track's engine and sound; rows 2 to 4 switch at once, like on MIX.
-- <Key k="FN+TAB" />: previous track.
+- Hold <Key k="TAB" /> and press <Key k="ADD" /> / <Key k="SUB" /> to step forward or backward through tracks.
+- Row 1 shows each track's engine and preset name. Rows 2–4 toggle mute, solo, and sequencer state immediately, just like on MIX.
+- Press <Key k="FN+TAB" /> to jump to the previous track.
 
 <Keywords k="track, switch track, change track, channel, which track, 轨道" />
 
 ## Pages: CTRL {#nav-pages}
 
-The page tabs are at the bottom of the screen, the current one on violet (like <Page name="ROLL" />); when there are too many you see `<` `>` at the ends and "current / total" on the right.
+Page tabs sit along the bottom of the screen, with the current page highlighted in violet (like <Page name="ROLL" />). When a scene has more pages than fit on screen, `<` and `>` arrows appear along with a `page / total` indicator on the right.
 
 <Strip>
-  <Step keys="CTRL" shot="seq-pattern" at="footer">Tap CTRL: next page (on release).</Step>
-  <Step keys="hold CTRL" shot="map-ctrl" at="cells:1,1-1,3">Hold CTRL: the page map; each cell shows the tab and a short description.</Step>
-  <Step keys="hold CTRL + G3" shot="seq-track" at="footer">Tap a cell to jump to that page; you stay there after releasing.</Step>
+  <Step keys="CTRL" shot="seq-pattern" at="footer">Tap <Key k="CTRL" /> to advance to the next page (triggers on release).</Step>
+  <Step keys="hold CTRL" shot="map-ctrl" at="cells:1,1-1,3">Hold <Key k="CTRL" /> to open the page map, where each cell shows a tab name and short label.</Step>
+  <Step keys="hold CTRL + G3" shot="seq-track" at="footer">Tap a cell to jump straight to that page; it stays open when you release CTRL.</Step>
 </Strip>
 
-- <Key k="CTRL" /> + <Key k="ADD" /> / <Key k="SUB" />: next / previous page; <Key k="FN+CTRL" />: previous page.
-- Each track remembers which INSTR page it was on.
-- The page map's title: TAP CTRL = NEXT.
+- Hold <Key k="CTRL" /> and press <Key k="ADD" /> / <Key k="SUB" /> to move forward or backward through pages, or press <Key k="FN+CTRL" /> for the previous page.
+- Each track remembers its own active page in <Scene name="INSTR" />.
+- The page map header displays `TAP CTRL = NEXT` as a reminder.
 
 <Keywords k="page, pages, next page, sub page, tabs, 页面, 翻页" />
 
-## Hold a left key = a map {#nav-maps}
+## Hold a left key for a map {#nav-maps}
 
-Hold <Key k="ESC" />, <Key k="TAB" /> or <Key k="CTRL" /> for more than 250 ms and the middle of the screen becomes a map: **each cell sits on the GRID key that picks it**. Holding <Key k="FN" /> shows the menu of the current screen instead, laid out the same way (see [The FN menu](./fn.mdx#fn-menu)).
+Holding <Key k="ESC" />, <Key k="TAB" />, or <Key k="CTRL" /> for more than 250 ms turns the screen into an interactive map where each cell lines up with its matching GRID key. Holding <Key k="FN" /> works the same way for the current screen's context menu (see [The FN menu](./fn.mdx#fn-menu)).
 
 <Shot name="map-ctrl">
   <Mark at="cell:1,1">Current page</Mark>
-  <Mark at="cell:1,2">Another page</Mark>
-  <Mark at="header">Map title and hint</Mark>
+  <Mark at="cell:1,2">Other pages</Mark>
+  <Mark at="header">Map title and shortcut hint</Mark>
   <KeyMark keys="CTRL">Hold</KeyMark>
-  <KeyMark keys="G1">Fully lit: current</KeyMark>
-  <KeyMark keys="G2 G3">Half lit: can pick</KeyMark>
-  <KeyMark keys="PADS">Off: silent while held</KeyMark>
-  <Caption>Holding CTRL: the page map.</Caption>
+  <KeyMark keys="G1">Fully lit: active item</KeyMark>
+  <KeyMark keys="G2 G3">Half lit: selectable</KeyMark>
+  <KeyMark keys="PADS">Off: muted while held</KeyMark>
+  <Caption>Holding CTRL displays the page map.</Caption>
 </Shot>
 
-| Light | Means |
+| LED state | Meaning |
 |---|---|
-| <Led state="full">fully lit</Led> | the current item |
-| <Led state="half">half lit</Led> | can be picked |
-| <Led state="off">off</Led> | nothing there; while you hold, the pads are off too (silent) |
+| <Led state="full">fully lit</Led> | Currently active item |
+| <Led state="half">half lit</Led> | Selectable item |
+| <Led state="off">off</Led> | Unused slot (pads are also off and muted while holding a map key) |
 
-Release the left key and the map folds away.
+Releasing the left key closes the map.
 
 <Keywords k="map, overlay, hold, long press, 地图" />
 
@@ -135,22 +135,22 @@ Release the left key and the map folds away.
 <Shot name="confirm">
   <Mark at="10,70,104,26">OK confirms</Mark>
   <Mark at="125,70,104,26">ESC cancels</Mark>
-  <Mark at="8,43,172,11">Consequence (in red)</Mark>
-  <KeyMark keys="OK">Blinking: waiting for you</KeyMark>
+  <Mark at="8,43,172,11">Warning text in red</Mark>
+  <KeyMark keys="OK">Blinking: awaiting confirmation</KeyMark>
   <KeyMark keys="ESC">Cancel</KeyMark>
-  <Caption>Anything destructive always asks first, with the consequence written in red.</Caption>
+  <Caption>Destructive actions always prompt for confirmation with the consequence highlighted in red.</Caption>
 </Shot>
 
-- In a pop-up (lists, confirmations, text entry, the RECORD panel, the open FN menu) <Key k="ESC" /> closes or cancels.
-- In <Scene name="SETUP" /> <Key k="ESC" /> goes back to the scene you came from.
-- In a confirmation <Key k="OK" /> confirms and <Key k="ESC" /> cancels; overwriting, deleting and discarding unsaved work always ask first.
-- In SEQ with steps selected <Key k="ESC" /> clears the selection first.
+- In pop-ups (browsers, confirmations, text entry, the RECORD panel, or a toggled FN menu), <Key k="ESC" /> cancels or closes the overlay.
+- Inside <Scene name="SETUP" />, <Key k="ESC" /> returns to the previous scene.
+- In confirmation prompts, <Key k="OK" /> confirms and <Key k="ESC" /> cancels. Overwriting files, deleting data, and discarding unsaved edits always require confirmation.
+- In SEQ, if steps are selected, <Key k="ESC" /> clears the selection before switching scenes.
 
 <Keywords k="back, cancel, close, exit, undo selection, 返回, 取消" />
 
 ## Scene and page map {#nav-scene-map}
 
-Every scene and page at a glance; click a picture to jump to its explanation:
+Here is every scene and page in Cardenza Synth. Click any screenshot to jump to its section.
 
 <SceneMap />
 

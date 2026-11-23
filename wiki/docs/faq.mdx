@@ -8,53 +8,53 @@ sidebar_position: 15
 
 ## No sound {#faq-no-sound}
 
-Check in this order:
+Check these items in order:
 
 <Strip>
-  <Step keys="hold FN + 7" shot="fn-volume" at="14,94,212,28">Master volume: hold <Key k="FN" /> and turn it up with <Key k="7" /> (VOLUME pops up at the bottom).</Step>
-  <Step shot="tape-mix" at="cells:2,1-3,4"><Scene name="TAPE" /> <Page name="MIX" />: is this track muted (MUTE lit), another one soloed (SOLO lit), or the fader too low?</Step>
-  <Step shot="instr-juno-fx" at="cells:1,1-1,3"><Scene name="INSTR" /> <Page name="FX" />: is FILTER turned to one end, or CRUSH / DRIVE too high?</Step>
+  <Step keys="hold FN + 7" shot="fn-volume" at="14,94,212,28">Master volume: hold <Key k="FN" /> and press <Key k="7" /> to turn volume up (a `VOLUME` banner appears at the bottom).</Step>
+  <Step shot="tape-mix" at="cells:2,1-3,4">Check <Scene name="TAPE" /> <Page name="MIX" />: make sure the track is not muted (`MUTE` lit), no other track is soloed (`SOLO` lit), and the track fader is up.</Step>
+  <Step shot="instr-juno-fx" at="cells:1,1-1,3">Check <Scene name="INSTR" /> <Page name="FX" />: verify that FILTER is not swept all the way to one extreme and CRUSH/DRIVE are not choking the signal.</Step>
 </Strip>
 
-- A SAMPLER track needs a sample loaded first (see [Loading a sample](./sampler.mdx#sampler-load)).
-- While a sample is being recorded the speaker is silent (the microphone shares its clock); it comes back when the recording screen closes.
-- The web simulator needs a click on the page before it plays sound (see [Sound](./web.mdx#web-audio)).
-- Still nothing: stop all with <Key k="FN+ESC" /> and try again.
+- On a SAMPLER track, make sure a WAV sample is loaded (see [Loading a sample](./sampler.mdx#sampler-load)).
+- During microphone sampling, the speaker is muted due to a shared hardware clock and resumes once you exit the recorder.
+- In the web simulator, click anywhere on the page first to unlock browser audio (see [Sound](./web.mdx#web-audio)).
+- Still silent? Press <Key k="FN+ESC" /> (All Stop) and try again.
 
 <Keywords k="no sound, silent, too quiet, cannot hear, muted, speaker, 没声音" />
 
 ## A note keeps sounding {#faq-stuck}
 
-Hold <Key k="FN" /> and press <Key k="ESC" />: stop all stops the sequencer, every ARP (HOLD included) and every sounding note. The HOME side key does nothing in the groovebox.
+Press <Key k="FN+ESC" /> (All Stop) to halt the sequencer, turn off all latched arpeggiators, and silence every sounding note. (The side **HOME** button opens the system menu rather than stopping playback.)
 
 <Keywords k="stuck note, hanging note, won't stop, drone, panic, all notes off, latch, hold, 卡音" />
 
-## Why are the lights like this? {#faq-lights}
+## Why are the lights behaving like this? {#faq-lights}
 
-The lights have only four meanings: <Led state="off">off</Led> <Led state="half">half lit</Led> <Led state="full">fully lit</Led> <Led state="blink">blinking</Led> (see [Off, half lit, fully lit, blinking](./lights.mdx#lights-states)). While <Key k="FN" /> is held, only the keys that do something with FN are lit; the others do nothing. If every lit key looks equally bright, select KEY LED on <Scene name="SETUP" /> <Page name="SYSTEM" /> and look at the brightness ramp on the pads (see [Brightness and the light test](./lights.mdx#lights-ramp)): every column should be a different brightness.
+Key LEDs use four states: <Led state="off">off</Led>, <Led state="half">half lit</Led>, <Led state="full">fully lit</Led>, and <Led state="blink">blinking</Led> (see [Off, half lit, fully lit, blinking](./lights.mdx#lights-states)). While holding <Key k="FN" />, only keys with an active FN shortcut light up; all others stay dark and disabled. If every lit key looks equally bright, focus **KEY LED** on <Scene name="SETUP" /> <Page name="SYSTEM" /> to inspect the 8-column brightness ramp on the pads (see [Brightness and the light test](./lights.mdx#lights-ramp)): each column should step visibly brighter from left to right.
 
 <Keywords k="lights wrong, all lit, too bright, too dim, dark keys, 灯不对" />
 
 ## Where did the FN panel go? {#faq-settings}
 
-<Key k="FN" /> is now the menu of the current screen (see [The FN menu](./fn.mdx#fn-menu)); the quick controls <Key k="FN" /> + <Key k="6" /> / <Key k="7" /> / <Key k="8" /> and the letters work as before. The settings moved:
+<Key k="FN" /> now opens a context menu for the current screen (see [The FN menu](./fn.mdx#fn-menu)), while quick controls (<Key k="FN" /> + <Key k="6" /> / <Key k="7" /> / <Key k="8" />) and letter shortcuts work as usual. Settings previously in the FN panel moved to dedicated pages:
 
-- Keyboard (layout, scale, root, octave, velocity, lock, SELECT ONE / MULTI) and the device (volume, key lights, screen): scene <Scene name="SETUP" />, pages KEYS and SYSTEM. Hold <Key k="ESC" /> and press a key of GRID column 1, or use SETUP, the bottom-right item of every FN menu (see [0 SETUP](./setup.mdx)).
-- BPM, swing and PLAY LOOP / SONG: <Scene name="SETUP" /> <Page name="PROJECT" />.
-- Chord and arpeggiator: each track has its own, on the CHORD and ARP pages of <Scene name="INSTR" /> (not on a drum track; see [Chords](./play.mdx#play-chords)).
-- The length of the pattern: <Scene name="SEQ" /> <Page name="TRACK" /> (see [TRACK page](./seq.mdx#seq-track)).
+- **Keyboard and device settings** (layout, scale, root, octave, velocity, lock, SELECT ONE/MULTI, volume, key LEDs, screen brightness): <Scene name="SETUP" /> <Page name="KEYS" /> and <Page name="SYSTEM" />. Hold <Key k="ESC" /> and press column 1 on the GRID, or pick **SETUP** at the bottom right of any FN menu (see [0 SETUP](./setup.mdx)).
+- **BPM, swing, and PLAY (LOOP/SONG)**: <Scene name="SETUP" /> <Page name="PROJECT" />.
+- **Chord and arpeggiator**: per-track **CHORD** and **ARP** pages in <Scene name="INSTR" /> on melodic tracks (see [Chords](./play.mdx#play-chords)).
+- **Pattern step length**: <Scene name="SEQ" /> <Page name="TRACK" /> (see [TRACK page](./seq.mdx#seq-track)).
 
 <Keywords k="fn panel, where are the settings, settings moved, setup, preferences, fn 1, fn 5, chord, arp, swing, 设置在哪" />
 
-## Where is my work kept? Can I just pull the power? {#faq-save}
+## Where is my work saved? Can I just unplug power? {#faq-save}
 
-Yes, with an SD card in. The working state (patterns, sounds, mix, song, keyboard, chords and ARPs, tempo) is saved by itself on the card and comes back when you switch on. It is written once the keys rest for a moment (1.5 s), playing or not; while keys keep coming, at least once a minute. Not kept: capture takes and whether it was playing.
+Yes, as long as an SD card is installed. Your active session (patterns, presets, mixer, song arrangement, keyboard, chords, arpeggiators, and tempo) autosaves 1.5 seconds after you stop pressing keys (or at least once per minute during continuous use) and reloads when you power back on. Retrospective capture takes and play/stop state are not included in autosave.
 
-To keep a version as a file, save it: <Key k="FN+S" /> (a new project is named SONG 01, SONG 02 …), or SAVE AS in the FN menu of <Scene name="SETUP" /> <Page name="PROJECT" /> for a name of your own (see [Save, save as, new, open](./projects.mdx#project-save)). Projects go to `CardenzaSynth/Projects` on the SD card. Settings save themselves.
+To save a permanent project file, press <Key k="FN+S" /> (auto-names untitled projects as `SONG 01`, `SONG 02`, etc.) or use **SAVE AS** from the FN menu on <Scene name="SETUP" /> <Page name="PROJECT" /> (see [Save, save as, new, open](./projects.mdx#project-save)). Projects are saved in `CardenzaSynth/Projects` on the SD card, and device settings autosave automatically.
 
 :::warning
 
-Without an SD card nothing is kept: the Cardenza says NO SD CARD, NOTHING WILL BE SAVED after it starts, and everything is gone when the power goes. A card put in later is only used after a restart (see [No card, or a bad card](./projects.mdx#storage-card)).
+Without an SD card, nothing is saved. Cardenza displays `NO SD CARD, NOTHING WILL BE SAVED` at boot, and all work is lost on power-off. Cards inserted after boot require a restart to mount (see [No card or card errors](./projects.mdx#storage-card)).
 
 :::
 
@@ -62,55 +62,57 @@ Without an SD card nothing is kept: the Cardenza says NO SD CARD, NOTHING WILL B
 
 ## Is there undo? {#faq-undo}
 
-There is no undo. That is why clearing a whole pattern, overwriting a file or starting a new project always asks first (<Key k="OK" /> = yes, <Key k="ESC" /> = no).
+Cardenza Synth does not have undo. Destructive actions like clearing a full pattern, overwriting a file, or creating a new project always ask for confirmation first (<Key k="OK" /> to proceed, <Key k="ESC" /> to cancel).
 
 :::tip
 
-The safest way: save a good version as another project (SAVE AS in the FN menu of SETUP PROJECT) or duplicate the pattern (<Key k="FN+D" />) before changing it. A phrase you played well can also be recovered from capture (see [Capture: get back what you just played](./seq.mdx#capture)).
+Before making major changes, save a snapshot under a new name (**SAVE AS** in SETUP PROJECT's FN menu) or duplicate the current pattern (<Key k="FN+D" />). You can also recover improvised phrases from retrospective capture (see [Capture: recover what you just played](./seq.mdx#capture)).
 
 :::
 
 <Keywords k="undo, redo, revert, go back, 撤销" />
 
-## Can I use MIDI or a computer (USB)? {#faq-midi}
+## Can I use USB MIDI or USB audio with a computer? {#faq-midi}
 
-Yes, with one USB cable the device is a MIDI device and a sound card for the computer:
+Yes. Over a single USB cable, Cardenza acts as both a class-compliant USB MIDI device and a USB audio input (no drivers required):
 
-- On the computer the device is called **203 Systems Cardenza**; no driver is needed.
-- **MIDI in**: a keyboard or DAW on the computer plays the tracks: channels 1–4 are tracks 1–4, any other channel plays the current track. Controllers (CC) go to that track's engine; CC 120 / 123 (all sound off / all notes off) end the notes the computer started, and so does unplugging.
-- **MIDI out**: what the device plays (keys and sequencer) goes to the computer, track n on channel n, so you can record it.
-- **Audio**: the computer records the device's sound (before the device's volume, the same on both channels). For now it is the computer's microphone only: what the computer plays is not heard on the device.
+- Appears on your computer as **203 Systems Cardenza**.
+- **MIDI in**: external keyboards or DAWs can play tracks 1–4 on MIDI channels 1–4 (any other channel plays the active track). CC messages route to the target track's synth engine. CC 120/123 (All Sound Off / All Notes Off) and unplugging USB both release any computer-triggered notes.
+- **MIDI out**: live pad performance and sequencer playback transmit over USB MIDI on each track's corresponding channel (track 1 on channel 1, etc.).
+- **USB audio**: your computer can record Cardenza's audio output directly (pre-master-volume, identical on L/R). Audio currently runs device-to-computer only; computer playback is not routed back to Cardenza's speaker.
 
-There is no MIDI clock sync yet and no MIDI socket. The same cable lets the [guide](/) follow you on the device (see [Connect your Cardenza (USB)](./web.mdx#web-usb)).
+Hardware MIDI jacks and MIDI clock sync are not currently supported. The same USB connection also powers interactive lessons in the [guide](/) (see [Connect your Cardenza (USB)](./web.mdx#web-usb)).
 
 <Keywords k="midi, usb midi, usb audio, sound card, audio interface, computer, daw, external keyboard, sync, clock, 外接键盘, 电脑" />
 
 ## How do long patterns work? {#faq-long}
 
-A pattern has 1 to 256 steps; the GRID shows 16 at a time, the page number is at the bottom right (like `2/4`).
+Patterns support 1 to 256 steps, shown 16 steps at a time on the GRID with a page counter at the bottom right (such as `2/4`):
 
-- Length: STEPS on <Scene name="SEQ" /> <Page name="TRACK" />, or LEN − / LEN + in the FN menu of the SEQ pages (a whole page at a time).
-- Pages: <Key k="ADD" /> / <Key k="SUB" /> on the note page with no step selected, or PAGE − / PAGE + in the FN menu. While playing, the GRID follows the playhead.
-- Patterns: <Key k="FN+ADD" /> / <Key k="FN+SUB" /> on the note page go to the next / previous pattern.
+- **Set length**: adjust **STEPS** on <Scene name="SEQ" /> <Page name="TRACK" />, or use **LEN − / LEN +** in the SEQ FN menu to step by full pages.
+- **Flip pages**: press <Key k="ADD" /> / <Key k="SUB" /> on the note page with no steps selected, or use **PAGE − / PAGE +** in the FN menu. During playback, the GRID follows the playhead automatically.
+- **Switch patterns**: press <Key k="FN+ADD" /> / <Key k="FN+SUB" /> on the note page to step to the next or previous pattern.
 
-Every pattern keeps its own length (see [TRACK page](./seq.mdx#seq-track)).
+Every pattern stores its own independent step length (see [TRACK page](./seq.mdx#seq-track)).
 
 <Keywords k="long pattern, more than 16 steps, 32 steps, 64 steps, pattern length, page, steps, 长 pattern" />
 
-## How do I find a sound by name? {#faq-search}
+## How do I search for a preset by name? {#faq-search}
 
-Open the preset list (<Key k="OK" /> on <Scene name="INSTR" /> <Page name="VOICE" />, or PRESETS in the FN menu) and press <Key k="FN+F" />: type a part of the name and confirm with <Key k="OK" />. The pads do not type in the list, so a stray key never starts a search. The sample list works the same way (see [Browsing and saving sounds](./instr.mdx#instr-presets)).
+Open the preset browser (<Key k="OK" /> on <Scene name="INSTR" /> <Page name="VOICE" />, or **PRESETS** in the FN menu), press <Key k="FN+F" />, type part of the name, and press <Key k="OK" />. Pads are muted inside lists so accidental taps won't trigger a filter. The sample browser works the same way (see [Browsing and saving sounds](./instr.mdx#instr-presets)).
 
 <Keywords k="search, find preset, find sample, filter, by name, 搜索" />
 
 ## How do I switch to another app? {#faq-apps}
 
-The groovebox is one firmware on the device; the device's Launcher installs and starts the others. To get there from Cardenza Synth 0.2.1 or newer, press <Key k="HOME" /> and choose Back to Launcher in the system menu (older versions: hold <Key k="FN" /> while you plug the USB cable in), then My Apps, pick one, <Key k="OK" />. New firmware comes from the [203 community](https://stage.203.io/): Install over USB on its page (Chrome or Edge on a computer, no account), or the Launcher's Store. With an SD card in, the working state is written to it when you leave and restored when you come back.
+Cardenza Synth is one firmware app managed by the 203 Launcher. Press the side <Key k="HOME" /> button and choose **Back to Launcher** (on firmware older than 0.2.1, hold <Key k="FN" /> while plugging in USB), then open **My Apps** and select another firmware with <Key k="OK" />.
+
+You can browse and install additional firmware from the [203 Community](https://stage.203.io/) using **Install over USB** (Chrome or Edge, no account needed) or directly over Wi-Fi through the Launcher's **Store**. With an SD card installed, your working session saves automatically before switching apps and restores when you return.
 
 <Keywords k="app, launcher, switch app, other firmware, install firmware, update firmware, community, 应用, 启动器, 安装固件" />
 
 ## Crackles while playing {#faq-crackle}
 
-The audio budget is tight: very dense chords with many effects can exceed it. Play fewer notes at once, turn off an effect or two (especially several choruses and reverb sends), or slow the ARP down. See [Memory and CPU](./effects.mdx#fx-cpu).
+Audio DSP headroom is tight; dense chords combined with multiple effects can exceed the per-block CPU budget. Play fewer simultaneous notes, turn off one or two effects (especially multiple choruses or heavy reverb sends), or lower the arpeggiator rate. See [Memory and CPU](./effects.mdx#fx-cpu).
 
 <Keywords k="crackle, glitch, pops, distortion, audio dropout, 爆音" />

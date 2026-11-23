@@ -1,44 +1,29 @@
 # Cardenza Learn
 
-The Learn site on [Docusaurus](https://docusaurus.io/), set up like 203 Systems'
-[Matrix wiki](https://github.com/203-Systems/Matrix-Wiki): the guide (short lessons a Cardenza on
-USB follows) and the manual (one page per chapter with a sidebar), English with a zh-Hans
-translation, the 203 navbar and footer. `make learn` builds it into `build/web/site/learn`;
-`make web-deploy` puts it at `/learn` next to the web simulator.
+The Learn site for Cardenza Synth, built on [Docusaurus](https://docusaurus.io/) following the layout of 203 Systems' [Matrix wiki](https://github.com/203-Systems/Matrix-Wiki). It combines an interactive USB-connected guide with a multi-chapter reference manual in English and Simplified Chinese (`zh-Hans`). Running `make learn` outputs the site to `build/web/site/learn`, and `make web-deploy` places it at `/learn` alongside the web simulator.
 
-| | |
+| Path | Description |
 |---|---|
-| `docs/*.mdx` | the manual's chapters in English (their order: `sidebar_position`) |
-| `i18n/zh-Hans/docusaurus-plugin-content-docs/current/*.mdx` | the same chapters in Chinese, the same section ids |
-| `src/components/cardenza/` | key caps, chips, screenshots with key lights, step strips, key maps, reference tables, device and scene maps |
-| `static/img/device/cardenza-pcb.svg` | the board as drawn: the device map (`board.tsx`, a card for every key and screen area) and every key picture (`pcb.tsx`: lights, frames, pressed keys) are drawn on it |
-| `src/theme/MDXComponents.tsx` | makes them usable on every page without an import |
-| `src/pages/index.tsx`, `src/guide/` | the guide: its home and a page per lesson (`plugins/guide-routes.js`, `/guide/<lesson>/`) |
-| `src/guide/device.ts`, `run.ts` | the Cardenza on USB (Web MIDI, one connection for the whole site) and a device lesson as it runs |
-| `src/theme/SearchBar/`, `src/search/` | the navbar search: its core, the synonyms of `docs/learn/synonyms.json` |
-| `plugins/search-index.js` | the search index, built from the pages (both languages) |
-| `generated/` | not in git: what `tools/wiki/generate.py` draws from the firmware |
+| `docs/*.mdx` | English manual chapters (ordered by `sidebar_position`) |
+| `i18n/zh-Hans/docusaurus-plugin-content-docs/current/*.mdx` | Simplified Chinese chapters (must match English section IDs) |
+| `src/components/cardenza/` | UI components: keycaps, badges, annotated screenshots with LEDs, step strips, key maps, parameter tables, and interactive device/scene maps |
+| `static/img/device/cardenza-pcb.svg` | Base PCB artwork used by the interactive device map (`board.tsx`) and LED overlays (`pcb.tsx`) |
+| `src/theme/MDXComponents.tsx` | Registers custom MDX components globally so chapters do not need imports |
+| `src/pages/index.tsx`, `src/guide/` | Interactive guide landing page and lesson pages (`plugins/guide-routes.js`, routed at `/guide/<lesson>/`) |
+| `src/guide/device.ts`, `run.ts` | Persistent Web MIDI connection to a USB-attached Cardenza and lesson step runner |
+| `src/theme/SearchBar/`, `src/search/` | Navbar search UI and engine, backed by synonyms in `docs/learn/synonyms.json` |
+| `plugins/search-index.js` | Post-build plugin generating the bilingual search index |
+| `generated/` | Build artifacts generated from firmware by `tools/wiki/generate.py` (gitignored) |
 
-The guide's lessons are `docs/learn/guide.json` (see `tools/wiki/lessons.py` for its fields); the
-manual's version is `docs/learn/manual.json`.
+Lesson definitions live in `docs/learn/guide.json` (see `tools/wiki/lessons.py` for the schema), and the manual version is stored in `docs/learn/manual.json`.
 
 ## Production deployment
 
-The `cardenza-learn` project in Vercel's `203nulls-projects` team is connected directly to the public
-`203-Systems/CardenzaSynth` repository. Every push to `main` builds and deploys to
-https://cardenza.203.io; other branches and pull requests get preview deployments. No fork, deploy
-hook or GitHub deployment token is required.
+The `cardenza-learn` Vercel project (under `203nulls-projects`) connects directly to the public `203-Systems/CardenzaSynth` repository. Pushes to `main` deploy to https://cardenza.203.io, and branches/PRs receive preview deployments. No fork, deploy hook, or GitHub token is needed.
 
-Vercel uses the repository-root `vercel.json` and `tools/learn-build.sh`. It installs the website
-dependencies, builds `CardenzaSimShot` and `CardenzaLearnDump` from the pinned public submodules,
-and generates the lesson data and screenshots. It then builds both Docusaurus languages and runs
-the search regression tests. A failed lesson, build or search test leaves the previous production
-site live. The firmware CI remains independent.
+Vercel uses the root `vercel.json` and `tools/learn-build.sh` to install dependencies, compile `CardenzaSimShot` and `CardenzaLearnDump` from pinned public submodules, generate lesson data and screenshots, build both locales in Docusaurus, and run search regression tests. If any step fails, the previous production deployment stays live. Firmware CI runs independently.
 
-`/deployment.json` identifies the deployed Git commit; the search index records it too. To rerun a
-deployment, use **Redeploy** in Vercel. The project root must be the repository root, the output is
-`wiki/build`, and the build command is `bash tools/learn-build.sh`. Do not commit credentials or
-`wiki/.env.local`.
+`/deployment.json` and the search index both record the deployed Git commit. Use **Redeploy** in Vercel to re-trigger a build. Keep the Vercel project root set to the repository root, output directory set to `wiki/build`, and build command set to `bash tools/learn-build.sh`. Never commit credentials or `wiki/.env.local`.
 
 ## Local build
 
@@ -46,7 +31,7 @@ deployment, use **Redeploy** in Vercel. The project root must be the repository 
 make learn
 ```
 
-or by hand, with a host build that has `CardenzaSimShot` and `CardenzaLearnDump`:
+Or run manually using an existing host build containing `CardenzaSimShot` and `CardenzaLearnDump`:
 
 ```bash
 python3 tools/wiki/generate.py --host-build build/linux-groove
@@ -56,42 +41,27 @@ python3 tools/wiki/generate.py --host-build build/linux-groove
 cd wiki && npm ci && npm run build && npm run test:search
 ```
 
-`npm run serve` then shows it on http://localhost:3000/learn/ (the guide; the manual is under
-`/learn/manual/`, in Chinese under `/learn/zh-Hans/`).
+Run `npm run serve` to preview locally at http://localhost:3000/learn/ (manual at `/learn/manual/`, Chinese at `/learn/zh-Hans/`).
 
-`generate.py` runs the screenshot script (`tools/wiki/shots.py`) and every device lesson's demos on
-the firmware (a step that does not complete fails it) and puts the results in `generated/`:
-screenshots and key lights, the firmware's reference dump (`tools/wiki/learn_dump.cpp`), the lessons
-as data, the section ids of both languages (which must match), and `reference.html`, which sends links
-of the one-page manual of before (`reference.html#section`) to that section.
+`generate.py` captures screenshots (`tools/wiki/shots.py`), runs every interactive lesson demo against the firmware (failing if any step cannot complete), and writes outputs to `generated/`: PNG screenshots and LED states, firmware parameter dumps (`tools/wiki/learn_dump.cpp`), processed lesson JSON, validated cross-locale section IDs, and `reference.html` (which redirects legacy `#section` links from the old single-page manual).
 
-## Writing
+## Writing documentation
 
-The chapters are MDX. Every `##` and `###` has its id (`{#id}`), the same in both languages; the
-components are written in place, for example `<Key k="FN+6" />`, `<Scene name="SEQ" />`,
-`<Led state="half" />`, `<Keywords k="volume, louder, 音量" />` and
+Manual chapters are written in MDX. Every `##` and `###` heading must have an explicit `{#id}` anchor matching between English and Chinese. Custom components are available globally without imports, such as `<Key k="FN+6" />`, `<Scene name="SEQ" />`, `<Led state="half" />`, `<Keywords k="volume, louder, 音量" />`, and:
 
 ```mdx
 <Shot name="seq-notes">
   <Mark at="footer">ROLL view</Mark>
-  <KeyMark keys="G1">Has notes: half lit</KeyMark>
-  <Caption>ROLL: a few notes on T2.</Caption>
+  <KeyMark keys="G1">Step with notes: half lit</KeyMark>
+  <Caption>ROLL view with a few notes on T2.</Caption>
 </Shot>
 ```
 
-A new screenshot is a `shot(...)` in `tools/wiki/shots.py`. A screenshot, icon, key or section that
-does not exist fails the build. In Chinese the product is 鸣片. The lessons' words in
-`docs/learn/guide.json` keep the inline markup the pages render (`{{key:..}}`, `[[#section]]`,
-`src/guide/text.tsx`).
+Add new screenshots via `shot(...)` in `tools/wiki/shots.py`. Missing screenshots, icons, keys, or section links fail the build. In Chinese docs, the product name is 鸣片. Lesson copy in `docs/learn/guide.json` supports inline tokens (`{{key:..}}`, `[[#section]]`, parsed by `src/guide/text.tsx`).
 
-## Notes
+## Implementation notes
 
-- React 19, not the Matrix wiki's React 18: React 18's streaming server render breaks multibyte
-  characters at chunk boundaries into NULs (facebook/react#31134), dozens of them on the Chinese
-  pages. `plugins/search-index.js` fails the build if one comes back.
-- `trailingSlash: true` (pages are `manual/seq/index.html`): the Vercel project serves files as
-  they are, without `cleanUrls`.
-- Locally `npm run serve` turns `/learn/reference.html` into `/reference` (it drops the base URL);
-  open `/learn/reference#section` there. Vercel serves the file as it is.
-- On a host build older than the guide's lessons, `generate.py --lenient-lessons` warns instead of
-  failing; `make learn` keeps failing on them.
+- **React 19**: Used instead of React 18 because React 18's streaming SSR can corrupt multibyte UTF-8 characters into NUL bytes at chunk boundaries (facebook/react#31134), affecting Chinese pages. `plugins/search-index.js` fails the build if any NUL bytes appear.
+- **`trailingSlash: true`**: Outputs `manual/seq/index.html` so Vercel serves routes statically without `cleanUrls`.
+- **Local `reference.html`**: `npm run serve` strips the base URL when serving `/learn/reference.html` (turning it into `/reference`), so open `/learn/reference#section` locally. Production on Vercel serves `/learn/reference.html` directly.
+- **Older host builds**: Pass `--lenient-lessons` to `generate.py` to warn instead of fail on outdated firmware; `make learn` enforces strict checking.

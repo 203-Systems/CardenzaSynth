@@ -8,53 +8,53 @@ sidebar_position: 15
 
 ## 没有声音 {#faq-no-sound}
 
-按顺序检查：
+请按以下顺序排查：
 
 <Strip>
-  <Step keys="hold FN + 7" shot="fn-volume" at="14,94,212,28">主音量：按住 <Key k="FN" />，用 <Key k="7" /> 调大（底部弹出 VOLUME）。</Step>
-  <Step shot="tape-mix" at="cells:2,1-3,4"><Scene name="TAPE" /> <Page name="MIX" />：这一轨是不是被静音（MUTE 亮）、别的轨是不是独奏（SOLO 亮）、推子是不是太低。</Step>
-  <Step shot="instr-juno-fx" at="cells:1,1-1,3"><Scene name="INSTR" /> <Page name="FX" />：FILTER 是不是拧到了一头，CRUSH / DRIVE 是不是太大。</Step>
+  <Step keys="hold FN + 7" shot="fn-volume" at="14,94,212,28">主音量：按住 <Key k="FN" /> 并按 <Key k="7" /> 调大音量（底部弹出 `VOLUME` 提示）。</Step>
+  <Step shot="tape-mix" at="cells:2,1-3,4">检查 <Scene name="TAPE" /> <Page name="MIX" />：确认当前轨未被静音（`MUTE` 亮）、没有其他轨处于独奏（`SOLO` 亮），且轨道推子未拉到最低。</Step>
+  <Step shot="instr-juno-fx" at="cells:1,1-1,3">检查 <Scene name="INSTR" /> <Page name="FX" />：确认 FILTER 没有拧到两端极限，且 CRUSH / DRIVE 未导致信号异常衰减。</Step>
 </Strip>
 
-- SAMPLER 轨要先载入采样（见 [载入采样](./sampler.mdx#sampler-load)）。
-- 录采样的时候喇叭不出声（麦克风和它共用时钟），关掉录音画面就恢复。
-- 网页模拟器要先点一下页面才能出声（见 [声音](./web.mdx#web-audio)）。
-- 还不行就用 <Key k="FN+ESC" /> 全部停止，再试。
+- 若当前为 SAMPLER 轨，请确认已载入 WAV 采样（见[载入采样](./sampler.mdx#sampler-load)）。
+- 麦克风录采样期间因共享硬件时钟，扬声器会自动静音，退出录音界面后即恢复。
+- 使用网页模拟器时，需先点击页面任意位置解锁浏览器音频（见[声音](./web.mdx#web-audio)）。
+- 如仍无声音，按 <Key k="FN+ESC" />（全部停止）重置状态后再试。
 
 <Keywords k="没声音, 声音太小, 听不到, 静音了, 喇叭, no sound, silent, too quiet, cannot hear, mute" />
 
 ## 有一个音一直响着停不下来 {#faq-stuck}
 
-按住 <Key k="FN" /> 再按 <Key k="ESC" />：全部停止会停下音序器、所有 ARP（包括 HOLD）和所有正在响的音。HOME 侧键在 Groovebox 里不起作用。
+按 <Key k="FN+ESC" />（全部停止）即可停止音序器、关闭所有锁定中的琶音器（含 HOLD）并切断全部正在发声的音符。（侧面的 **HOME** 键用于打开系统菜单，不用于停止发声。）
 
 <Keywords k="卡音, 一直响, 停不下来, 长音, 全部停止, stuck note, hanging note, won't stop, drone, panic, latch, hold" />
 
 ## 灯为什么这样亮 {#faq-lights}
 
-灯只有 <Led state="off">灭</Led> <Led state="half">半亮</Led> <Led state="full">全亮</Led> <Led state="blink">闪烁</Led> 四种意思（见 [灭、半亮、全亮、闪烁](./lights.mdx#lights-states)）。按住 <Key k="FN" /> 时，只有配合 FN 有功能的键亮，其他键什么也不做。如果你觉得所有亮着的键都一样亮，在 <Scene name="SETUP" /> <Page name="SYSTEM" /> 选中 KEY LED，看演奏区的亮度梯（见 [亮度设置与灯光测试](./lights.mdx#lights-ramp)）：每一列都应该不一样亮。
+按键背光共有四种状态：<Led state="off">灭</Led>、<Led state="half">半亮</Led>、<Led state="full">全亮</Led>与<Led state="blink">闪烁</Led>（见[灭、半亮、全亮、闪烁](./lights.mdx#lights-states)）。按住 <Key k="FN" /> 时，仅亮起当前页具备 FN 功能的按键，其余按键保持熄灭且不响应。若发现所有亮起的按键亮度毫无区别，请在 <Scene name="SETUP" /> <Page name="SYSTEM" /> 中聚焦 **KEY LED** 查看演奏区的 8 列亮度测试梯（见[亮度设置与灯光测试](./lights.mdx#lights-ramp)），正常情况下从左到右每列应逐级变亮。
 
 <Keywords k="灯不对, 全亮, 灯太亮, 灯太暗, 键不亮, lights wrong, all lit, too bright, too dim" />
 
 ## FN 面板去哪了 {#faq-settings}
 
-<Key k="FN" /> 现在是当前画面的菜单（见 [FN 菜单](./fn.mdx#fn-menu)）；快捷调节 <Key k="FN" /> + <Key k="6" /> / <Key k="7" /> / <Key k="8" /> 和字母键照旧。设置搬到了这些地方：
+<Key k="FN" /> 现已改为当前页面的快捷菜单（见[FN 菜单](./fn.mdx#fn-menu)），快捷调节（<Key k="FN" /> + <Key k="6" /> / <Key k="7" /> / <Key k="8" />）与字母快捷键照常保留。原 FN 面板中的设置已归类至以下页面：
 
-- 键盘（布局、音阶、根音、八度、力度、锁定、SELECT ONE / MULTI）和设备（音量、按键灯、屏幕）：场景 <Scene name="SETUP" /> 的 KEYS 和 SYSTEM 页。按住 <Key k="ESC" /> 再按 GRID 第 1 列的任意一个键，或用每个 FN 菜单右下角的 SETUP（见 [0 SETUP 设置](./setup.mdx)）。
-- BPM、Swing 和 PLAY LOOP / SONG：<Scene name="SETUP" /> <Page name="PROJECT" />。
-- 和弦与琶音器：每条轨道有自己的一套，在 <Scene name="INSTR" /> 的 CHORD 和 ARP 页（鼓轨没有；见 [和弦](./play.mdx#play-chords)）。
-- Pattern 的长度：<Scene name="SEQ" /> <Page name="TRACK" />（见 [TRACK 页](./seq.mdx#seq-track)）。
+- **键盘与设备设置**（键盘排列、音阶、根音、八度、力度、锁定、SELECT 单选/多选，以及音量、按键灯与屏幕亮度）：位于 <Scene name="SETUP" /> 的 <Page name="KEYS" /> 与 <Page name="SYSTEM" /> 页。按住 <Key k="ESC" /> 并按 GRID 第 1 列，或点击任意 FN 菜单右下角的 **SETUP** 即可进入（见[0 SETUP 设置](./setup.mdx)）。
+- **BPM、Swing 与 PLAY（LOOP / SONG）**：位于 <Scene name="SETUP" /> <Page name="PROJECT" />。
+- **和弦与琶音器**：改为分轨设置，位于各旋律轨 <Scene name="INSTR" /> 中的 **CHORD** 与 **ARP** 页（见[和弦](./play.mdx#play-chords)）。
+- **Pattern 步数长度**：位于 <Scene name="SEQ" /> <Page name="TRACK" />（见[TRACK 页](./seq.mdx#seq-track)）。
 
 <Keywords k="fn 面板, 设置在哪, 设置去哪了, 找不到设置, 设置, 和弦, 琶音, setup, fn panel, where are the settings, swing" />
 
 ## 我的东西存在哪？能直接拔电吗 {#faq-save}
 
-能，只要插着 SD 卡。工作状态（Pattern、音色、混音、编排、键盘、和弦与 ARP、速度）会自己存到卡上，开机时回来。按键停下一会儿（1.5 秒）就写入，播放中也一样；一直在按键时，至少每分钟写一次。不保留的：无感录制的 take，以及是否在播放。
+可以，只要已插入 SD 卡。当前工作会话（Pattern、音色、混音、编排、键盘、和弦与琶音、速度）会在停止按键 1.5 秒后自动写入 SD 卡（持续操作时至少每分钟保存一次），下次开机自动恢复。无感录制的 take 缓存和播放状态不包含在自动保存内。
 
-想把一个版本存成文件就保存：<Key k="FN+S" />（新工程自动起名 SONG 01、SONG 02……），或者用 <Scene name="SETUP" /> <Page name="PROJECT" /> 的 FN 菜单里的 SAVE AS 自己起名（见 [保存、另存、新建、打开](./projects.mdx#project-save)）。工程存在 SD 卡的 `CardenzaSynth/Projects`。设置会自动保存。
+如需保存为固定工程文件，请按 <Key k="FN+S" />（未命名工程自动保存为 `SONG 01`、`SONG 02`……），或在 <Scene name="SETUP" /> <Page name="PROJECT" /> 的 FN 菜单中选择 **SAVE AS** 自定义名称（见[保存、另存、新建、打开](./projects.mdx#project-save)）。工程文件存放在 SD 卡的 `CardenzaSynth/Projects`，设备设置则自动实时保存。
 
 :::warning
 
-没有 SD 卡就什么都不保留：开机后鸣片提示 NO SD CARD、NOTHING WILL BE SAVED，断电后一切都没了。之后再插的卡要重新开机才会用（见 [没插卡或卡坏了](./projects.mdx#storage-card)）。
+未插 SD 卡时无法保存任何内容：开机后会提示 `NO SD CARD, NOTHING WILL BE SAVED`，断电后所有进度都将清空。开机后中途插入的卡需要重启设备才能识别（见[没插卡或卡坏了](./projects.mdx#storage-card)）。
 
 :::
 
@@ -62,11 +62,11 @@ sidebar_position: 15
 
 ## 有撤销吗 {#faq-undo}
 
-没有撤销。所以清除整个 Pattern、覆盖文件、新建工程这类操作一定会先确认（<Key k="OK" /> = 是，<Key k="ESC" /> = 否）。
+暂不支持撤销操作，因此清空整个 Pattern、覆盖已有文件或新建工程等不可逆操作前均会要求二次确认（<Key k="OK" /> 确认，<Key k="ESC" /> 取消）。
 
 :::tip
 
-把好的版本存成另一个工程（SETUP PROJECT 的 FN 菜单里的 SAVE AS）或复制一份 Pattern（<Key k="FN+D" />）再改，是最稳的做法。弹得好的段落还能从无感录制里找回来（见 [无感录制：把刚才弹的找回来](./seq.mdx#capture)）。
+进行大幅修改前，建议通过 SETUP PROJECT 的 FN 菜单 **SAVE AS** 另存一份备份，或按 <Key k="FN+D" /> 复制当前 Pattern。即兴弹奏的乐句也可通过无感录制找回（见[无感录制：把刚才弹的找回来](./seq.mdx#capture)）。
 
 :::
 
@@ -74,43 +74,45 @@ sidebar_position: 15
 
 ## 能接 MIDI 或电脑（USB）吗 {#faq-midi}
 
-能。一根 USB 线，设备对电脑来说就是 MIDI 设备和声卡：
+可以。仅需一根 USB 数据线，鸣片即可同时作为免驱 USB MIDI 设备与 USB 音频输入设备连接电脑：
 
-- 设备在电脑上叫 **203 Systems Cardenza**，不用装驱动。
-- **MIDI 输入**：电脑上的键盘或 DAW 弹各轨：通道 1–4 是轨道 1–4，其他通道弹当前轨。控制器（CC）交给那一轨的音源；CC 120 / 123（全部静音 / 全部音符关）会结束电脑弹出的音，拔掉线也一样。
-- **MIDI 输出**：设备弹出的音（按键和音序器）发给电脑，轨道 n 走通道 n，可以录下来。
-- **音频**：电脑能录到设备的声音（在设备音量之前，两个声道一样）。目前它只当电脑的麦克风：电脑播放的声音不会从设备出来。
+- 在电脑端识别为 **203 Systems Cardenza**，无需安装驱动。
+- **MIDI 输入**：外部键盘或 DAW 可通过通道 1–4 分别演奏轨道 1–4，其他通道默认演奏当前选中轨；CC 控制信息同步路由至对应轨道的音源引擎。发送 CC 120 / 123（All Sound Off / All Notes Off）或拔掉 USB 线均可结束电脑触发的音符。
+- **MIDI 输出**：机身演奏与音序器回放的音符会按轨道号对应通道 1–4 发送至电脑，方便在 DAW 中录制。
+- **USB 音频**：电脑可直接录制鸣片的音频输出（位于主音量之前，左右声道相同）。目前仅支持设备向电脑录音，电脑端播放的音频不会回传到鸣片扬声器。
 
-还没有 MIDI 时钟同步，也没有 MIDI 插口。同一根线还能让 [教程](/) 在设备上带着你走（见 [连接真机（USB）](./web.mdx#web-usb)）。
+目前暂不支持 MIDI 时钟同步，机身也不配备独立 MIDI 接口。同一根 USB 线也用于[入门教程](/)的真机联动（见[连接真机（USB）](./web.mdx#web-usb)）。
 
 <Keywords k="midi, usb midi, usb 音频, 声卡, 电脑, daw, 外接键盘, 同步, usb audio, external keyboard, sync, clock" />
 
 ## 长 Pattern 怎么用 {#faq-long}
 
-一个 Pattern 有 1 到 256 步；GRID 一次显示 16 步，页码在右下角（如 `2/4`）。
+单个 Pattern 支持 1 到 256 步，GRID 每次显示其中 16 步，当前页码显示在底栏右侧（如 `2/4`）：
 
-- 长度：<Scene name="SEQ" /> <Page name="TRACK" /> 的 STEPS，或 SEQ 各页 FN 菜单里的 LEN − / LEN +（一次一整页）。
-- 翻页：音符页上没有选中的步时按 <Key k="ADD" /> / <Key k="SUB" />，或 FN 菜单里的 PAGE − / PAGE +。播放时 GRID 跟着播放头走。
-- 换 Pattern：音符页上 <Key k="FN+ADD" /> / <Key k="FN+SUB" /> 换到下一个 / 上一个 Pattern。
+- **调整长度**：在 <Scene name="SEQ" /> <Page name="TRACK" /> 调节 **STEPS**，或在 SEQ 的 FN 菜单使用 **LEN − / LEN +** 按整页增减。
+- **翻步进页**：在音符页未选步时按 <Key k="ADD" /> / <Key k="SUB" />，或使用 FN 菜单的 **PAGE − / PAGE +**。播放时 GRID 会自动跟随播放头翻页。
+- **切换 Pattern**：在音符页按 <Key k="FN+ADD" /> / <Key k="FN+SUB" /> 切换上/下一个 Pattern。
 
-每个 Pattern 记住自己的长度（见 [TRACK 页](./seq.mdx#seq-track)）。
+每个 Pattern 独立记录自身长度（见[TRACK 页](./seq.mdx#seq-track)）。
 
 <Keywords k="长 pattern, 超过 16 步, 32 步, 64 步, pattern 长度, 翻页, 步数, long pattern, pattern length" />
 
 ## 怎么按名字找音色 {#faq-search}
 
-打开音色列表（<Scene name="INSTR" /> <Page name="VOICE" /> 上按 <Key k="OK" />，或 FN 菜单的 PRESETS），按 <Key k="FN+F" />：输入名字的一部分，按 <Key k="OK" /> 确认。列表里演奏区不打字，所以误按不会开始搜索。采样列表也一样（见 [音色浏览与保存](./instr.mdx#instr-presets)）。
+打开音色浏览器（在 <Scene name="INSTR" /> <Page name="VOICE" /> 按 <Key k="OK" />，或在 FN 菜单选 **PRESETS**），按 <Key k="FN+F" /> 输入名称片段，再按 <Key k="OK" /> 筛选。列表内演奏区不触发打字，防止误触。采样浏览器操作完全相同（见[音色浏览与保存](./instr.mdx#instr-presets)）。
 
 <Keywords k="搜索, 找音色, 找采样, 过滤, 按名字, search, find preset, filter" />
 
 ## 怎么切到别的应用 {#faq-apps}
 
-Groovebox 是设备上的一个固件，别的固件由设备的启动器安装和打开。回到启动器：Cardenza Synth 0.2.1 起按一下 <Key k="HOME" />，在系统菜单里选「返回启动器」（更早的版本：按住 <Key k="FN" /> 插上 USB 线），然后在「本地应用」里选一个，按 <Key k="OK" />。新的固件在 [203 社区](https://stage.203.io/)：在固件页点「用 USB 线安装」（电脑上的 Chrome 或 Edge，不用登录），或者在启动器的「应用商店」里装。插着 SD 卡时，切走前工作状态会写到卡上，回来时恢复。
+Cardenza Synth 是设备上的官方固件应用，其余固件由 203 启动器统一安装与管理。在 Cardenza Synth 0.2.1 及以上版本中，按一下侧面 <Key k="HOME" /> 键并在系统菜单选择「返回启动器」（旧版本需按住 <Key k="FN" /> 插上 USB 线），然后打开「本地应用」并按 <Key k="OK" /> 启动其他固件。
+
+可在[203 社区](https://stage.203.io/)浏览更多固件，使用 Chrome / Edge 点击「用 USB 线安装」（无需登录），或在启动器「应用商店」中通过 Wi-Fi 直接下载。插有 SD 卡时，切换应用前会自动保存工作会话，切回时原样恢复。
 
 <Keywords k="应用, 启动器, 切换应用, 其它固件, 安装固件, 更新固件, 社区, app, launcher, switch app, install firmware" />
 
 ## 弹的时候有爆音 {#faq-crackle}
 
-音频预算很紧：很密的和弦加上很多效果时可能超出。少按几个音、关掉一两个效果（尤其是多个合唱和混响发送），或者降低 ARP 的速度。见 [内存和 CPU](./effects.mdx#fx-cpu)。
+实时音频 DSP 算力预算较紧，密集和弦叠加多个效果器时可能超出单块渲染时间。可减少同时发声数、关闭一两个效果器（尤其是多轨合唱和混响发送）或降低 ARP 速率。详见[内存和 CPU](./effects.mdx#fx-cpu)。
 
 <Keywords k="爆音, 破音, 卡顿, 杂音, crackle, glitch, pops, distortion, audio dropout" />

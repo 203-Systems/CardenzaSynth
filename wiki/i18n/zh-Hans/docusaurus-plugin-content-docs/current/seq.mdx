@@ -4,259 +4,261 @@ sidebar_position: 8
 
 # 2 SEQ 音序器
 
-每条轨道最多 16 个 Pattern。每个 Pattern 有自己的长度，1–256 步（开始是 16 步），GRID 一次显示其中一页 16 步。每步最多 8 个音（和弦），每个音有自己的长度、力度和微小的时间偏移（每步 6 个微步）。SEQ 有三页：
+每条轨道最多可存储 16 个 Pattern。每个 Pattern 拥有独立长度（1–256 步，默认 16 步），在 GRID 上按每页 16 步分页显示。单步最多容纳 8 个同时发声的音符，每个音符均具备独立的时值、力度与微时间偏移（每步细分 6 个微步）。
 
-| 页 | 做什么 |
+**SEQ** 包含三个子页面：
+
+| 页面 | 用途 |
 |---|---|
-| <Page name="ROLL" /> / <Page name="STEP" /> 音符页 | 写音符、改音符、录音。两种视图：ROLL 钢琴卷帘，和画成鼓机样子的 STEP；鼓轨的 STEP 视图就是 <Page name="DRUMS" /> 鼓机 |
-| <Page name="PATTERN" /> | 选择、新建、排队切换这一轨的 Pattern |
-| <Page name="TRACK" /> | 这一轨的音序开关、当前 Pattern 的长度，全局 Swing 和 BPM |
+| <Page name="ROLL" /> / <Page name="STEP" />（音符页） | 编写、编辑与录制音符，提供钢琴卷帘（ROLL）与步进网格（STEP）两种视图；鼓轨的 STEP 视图为 <Page name="DRUMS" /> 鼓机 |
+| <Page name="PATTERN" /> | 切换、新建与排队切换当前轨道的 Pattern |
+| <Page name="TRACK" /> | 控制当前轨音序开关、Pattern 长度，以及全局 Swing 与 BPM |
 
 <Keywords k="音序器, 编曲, 节奏, 循环, pattern, sequencer, sequence, steps, loop, beat" />
 
 ## 音符页的两种视图 {#seq-notes}
 
-<Key k="OK" /> 是这一页的 <Icon name="rec" /> **录音键**：单击在两种视图之间切换，按住打开 RECORD 面板。有选中的步时，单击 <Key k="OK" /> 是换编辑项（见 [选中与编辑](#seq-edit)）。
+在音符页中，<Key k="OK" /> 兼作 <Icon name="rec" /> **视图与录音键**：单击可在 ROLL 与 STEP 视图间切换，长按则打开 RECORD 面板。当已选中步进时，单击 <Key k="OK" /> 会改为循环切换步进编辑项（见[选中与编辑](#seq-edit)）。
 
 <Strip>
-  <Step shot="seq-notes" at="footer"><Icon name="roll" /> **ROLL 钢琴卷帘**：时间 × 音高，音符画成条。旋律轨从这里开始。</Step>
-  <Step keys="OK" shot="seq-step-view" at="footer 116,14,113,108"><Icon name="step" /> 单击 <Key k="OK" />：**STEP**，每个音一行排在各步上面，右边是演奏区选中的那个音在 GRID 上的样子。鼓轨从这里开始：它就是鼓机。</Step>
-  <Step keys="OK" shot="seq-notes" at="footer">再单击：回到 ROLL。屏幕上的 OK 色块 ROLL 时 <Led state="half" />、STEP 时 <Led state="full" />。</Step>
+  <Step shot="seq-notes" at="footer"><Icon name="roll" /> **ROLL（钢琴卷帘）**：横向为时间、纵向为音高，音符以横条显示。旋律轨默认打开此视图。</Step>
+  <Step keys="OK" shot="seq-step-view" at="footer 116,14,113,108"><Icon name="step" /> 单击 <Key k="OK" /> 切换至 **STEP 视图**：左侧按音高分行总览整页，右侧以 4×4 排布显示演奏区最后按下音符的步进。鼓轨默认打开此视图（页签为 DRUMS）。</Step>
+  <Step keys="OK" shot="seq-notes" at="footer">再次单击 <Key k="OK" /> 切回 ROLL。屏幕上的 OK 边条在 ROLL 下呈 <Led state="half">半亮</Led>，在 STEP 下呈 <Led state="full">全亮</Led>。</Step>
 </Strip>
 
-两种视图显示同一个 Pattern，**按键完全一样**，只是画法不同。鼓轨和旋律轨各自记住自己的视图。GRID 的 16 个键就是屏幕上这一页的 16 步（第 1 行是第 1–4 步，第 2 行是 5–8 步……）：
+两种视图编辑的是同一个 Pattern，按键操作完全一致，仅画面呈现方式不同。鼓轨与旋律轨会各自记住偏好的视图。GRID 的 16 颗按键对应当前页的 16 步（第 1 行对应第 1–4 步，第 2 行对应第 5–8 步，以此类推）：
 
-| 键 | 作用 |
+| 操作 | 行为 |
 |---|---|
-| 单击 GRID | 选中这一步并保持，手可以离开 GRID 去弹 PADS；再点一次放开，点别的步就换到那一步（SELECT MULTI 时单击是加选） |
-| 按住 GRID | 按住期间选中这一步，松开就放开；同时按住几步就一起编辑。停止时按住能听到这一步 |
-| 按住 PADS + GRID | 按住的音写进这一步；这一步已经有其中任何一个音，就把它们全部去掉 |
-| 有选中的步时弹 PADS | 对选中的步做同样的事：这个键的音（连同它的整个和弦）放进去，或者去掉 |
-| 没有选中的步时弹 PADS | 就是弹奏（REC 打开时实时录音） |
-| <Key k="ADD" /> / <Key k="SUB" /> | 有选中：调整选中的步；没有选中：长 Pattern 翻到下一页 / 上一页 |
-| <Key k="FN+ADD" /> / <Key k="FN+SUB" /> | 有选中：大步调整；没有选中：下一个 / 上一个 Pattern |
-| <Key k="OK" /> | 单击：切换视图（有选中时换编辑项）；按住：RECORD 面板 |
+| 单击 GRID | 选中并保持该步，以便腾出双手弹奏 PADS。再次点按同一步取消选中，点按其他步则转移选区（在 `SELECT MULTI` 模式下每次单击用于增减选步）。 |
+| 按住 GRID | 仅在按住期间临时选中该步，同时按住多个 GRID 键可批量编辑。停止播放时按住步进键可试听该步内容。 |
+| 按住 PADS + 点按 GRID | 将按住的音符写入该步；若该步已包含其中任意音符，则将其移除。 |
+| 选步状态下按 PADS | 在所有已选中步进上添加或移除该键对应的音符（若开启和弦则整组操作）。 |
+| 未选步状态下按 PADS | 实时演奏当前轨道（开启 REC 时同步叠录）。 |
+| <Key k="ADD" /> / <Key k="SUB" /> | 已选步时调整当前编辑项；未选步时在长 Pattern 中切换上/下一 16 步页。 |
+| <Key k="FN+ADD" /> / <Key k="FN+SUB" /> | 已选步时大步调整参数；未选步时切换上/下一个 Pattern。 |
+| <Key k="OK" /> | 单击切换 ROLL / STEP（已选步时循环编辑项）；长按 0.45 秒打开 RECORD 面板。 |
 
-不会自己往前走：没有写入光标，没动过的步就是休止。
+音序器不设自动步进光标，未写入音符的步即作为休止符。
 
 <Keywords k="视图, 模式切换, 钢琴卷帘, 步进, 卷帘窗, 步进键, view, piano roll, step view, mode, step keys, matrixos" />
 
 ## ROLL 钢琴卷帘 {#seq-roll}
 
 <Shot name="seq-notes">
-  <Mark at="28,78,15,10">一个音符：长度 = 时值</Mark>
-  <Mark at="8,77,15,11">每个 C 有标记</Mark>
-  <Mark at="28,110,195,11">16 步 = GRID</Mark>
+  <Mark at="28,78,15,10">音符条（长度表示时值）</Mark>
+  <Mark at="8,77,15,11">八度 C 标记</Mark>
+  <Mark at="28,110,195,11">底部 16 步预览条（对应 GRID）</Mark>
   <Mark at="footer">ROLL 视图</Mark>
-  <KeyMark keys="G1">有音符：半亮</KeyMark>
+  <KeyMark keys="G1">有音符的步：半亮</KeyMark>
   <KeyMark keys="G2">空步：灭</KeyMark>
-  <Caption>ROLL：T2 上的几个音。底部一排小格就是 GRID 的 16 步。</Caption>
+  <Caption>T2 上的 ROLL 视图，底部小格对应当前页的 16 步。</Caption>
 </Shot>
 
-横向是这一页的各步（不到 16 步的 Pattern 也铺满宽度），纵向是音高。旋律轨上，每一行是演奏区在当前八度能弹到的一个音，不管用没用到都在，黑键行带底纹；超出这个范围的音会把它撑大（最多 41 行）。鼓轨上每一行是用到的一种鼓，写着鼓名。音符越实力度越大；绿色竖线是播放头。底部小格：有音符的步带点阵，选中的步白色，播放头所在的步绿色。
+横向为当前页的步进（不足 16 步的 Pattern 会自动铺满宽度），纵向由下至上为音高。旋律轨默认覆盖当前八度演奏区可弹奏的所有音（黑键行带底纹），若存在超出该音域的音符则自动扩展显示范围（最多 41 行）；鼓轨按名称列出使用到的鼓声部。音符填充越实代表力度越大，绿色竖线为当前播放头。底部预览格中，点阵表示含音符、白色表示已选中、绿色表示播放头位置。
 
-按住 PADS 时，这些音（和弦音也算）所在的行整行亮起，一眼看出点一步会写到哪里。空的 Pattern 上写着 HOLD A PAD + TAP STEPS。
+按住演奏区琴键时，对应音高行（含和弦组成音）会整行高亮，直观标出写入位置。空 Pattern 居中提示 `HOLD A PAD + TAP STEPS`。
 
-**写音符：按住一个或几个 PADS，再点 GRID 上的步。**
+**写入音符：按住一个或多个演奏区按键，再点按 GRID 上的步进键：**
 
 <Strip>
-  <Step keys="hold r3c1~C" shot="seq-hold-pad">按住一个音（左下角的 C3）：它那一行亮起。</Step>
-  <Step keys="hold r3c1~C + G1" shot="seq-hold-tap" at="28,57,15,10">不松手，点 GRID 1：第 1 步写进 C。</Step>
-  <Step keys="hold r3c1~C + G5, G9" shot="seq-notes" at="28,110,195,11">继续点 5、9……换个音再点几步。点一下已经有这个音的步，它就被去掉。</Step>
+  <Step keys="hold r3c1~C" shot="seq-hold-pad">按住左下角 C3，对应音高行随即高亮。</Step>
+  <Step keys="hold r3c1~C + G1" shot="seq-hold-tap" at="28,57,15,10">保持按住并点按 GRID 1，即可将 C3 写入第 1 步。</Step>
+  <Step keys="hold r3c1~C + G5, G9" shot="seq-notes" at="28,110,195,11">继续点按第 5、9 步等，再换其他音符补全乐句。再次点按已有该音的步即可将其移除。</Step>
 </Strip>
 
-- **看一步**：单击它的 GRID 键，这一步的音在演奏区全亮，一眼就知道里面有什么；再点同一步放开。见 [选中与编辑](#seq-edit)。
-- **实时录音**：打开 REC（<Key k="FN+PLAY" /> 或 RECORD 面板），播放，然后弹，见 [播放与实时录音](#seq-transport)。
-- 这一轨的音序关掉时（TRACK 页），这一页上写着 SEQUENCE OFF - SEQ > TRACK。
+- **查看单步音符**：单击某步的 GRID 键，该步包含的所有音符会在演奏区全亮显示；再次点按同一步取消选中（见[选中与编辑](#seq-edit)）。
+- **实时录音**：开启 REC（<Key k="FN+PLAY" /> 或通过 RECORD 面板），按下 <Key k="PLAY" /> 后直接弹奏演奏区即可叠录（见[播放与实时录音](#seq-transport)）。
+- 若该轨音序开关在 TRACK 页被关闭，画面会提示 `SEQUENCE OFF - SEQ > TRACK`。
 
 <Keywords k="钢琴卷帘, 卷帘窗, 音高, 时值, 音符长度, piano roll, roll, pitch, note length, duration" />
 
 ## STEP 视图 {#seq-step-rec}
 
-STEP 视图把每条轨道都画成鼓机的样子：左边一眼看完整页，右边是 GRID 在手指下的样子。
+STEP 视图将旋律轨以类似鼓机的分栏界面呈现：左侧总览当前页全部音高与步进，右侧以 4×4 排布对应手指下的物理 GRID。
 
 <Shot name="seq-step">
-  <Mark at="10,14,100,108">每个音一行 × 这一页的 16 步</Mark>
-  <Mark at="116,14,40,11">E3：演奏区上次按的音</Mark>
-  <Mark at="144,25,26,22">第 2 步：选中</Mark>
-  <Mark at="footer">编辑项 · 这一步的音</Mark>
-  <KeyMark keys="G2">选中：全亮</KeyMark>
-  <KeyMark keys="r3c2 r3c3">它的音 D3 E3：全亮</KeyMark>
-  <KeyMark keys="G1 G3 G5">有音符：半亮</KeyMark>
-  <Caption>T2 的 STEP：选中第 2 步，再按演奏区的 D 和 E 把它们放进去。</Caption>
+  <Mark at="10,14,100,108">全部音高 × 当前页 16 步</Mark>
+  <Mark at="116,14,40,11">E3：演奏区最近选中的音符</Mark>
+  <Mark at="144,25,26,22">第 2 步（已选中）</Mark>
+  <Mark at="footer">编辑项与当前步音符</Mark>
+  <KeyMark keys="G2">选中步：全亮</KeyMark>
+  <KeyMark keys="r3c2 r3c3">第 2 步音符（D3、E3）：全亮</KeyMark>
+  <KeyMark keys="G1 G3 G5">含音符的步：半亮</KeyMark>
+  <Caption>T2 的 STEP 视图：选中第 2 步并通过演奏区写入 D3 与 E3。</Caption>
 </Shot>
 
-- **左边**：每个音一行（旋律轨是演奏区在这个八度能弹到的每个音，最高的在最上面，黑键行带底纹；有超出的音时往外扩，最多 41 行），排在这一页的 16 步上。按着的音那一行亮起，选中的步那一列亮起。
-- **右边**：演奏区上次按的那个音（名字在上方）在 4×4 GRID 上的 16 步，力度用点阵疏密表示，选中的步反显。
-- 按键和所有音符页一样（见 [音符页的两种视图](#seq-notes) 里的表）。不跟节拍、一步一步地写：
+- **左侧栏**：按音高分行展示当前 16 步页（音域规则与黑键底纹同 ROLL，最多 41 行）。按住的音符高亮对应行，选中的步高亮对应列。
+- **右侧栏**：对应演奏区最近按下音符（名称显示于上方）的 4×4 步进网格，点阵密度表示力度，选中步反显。
+- 按键逻辑与 ROLL 完全一致（见[音符页的两种视图](#seq-notes)）。不跟节拍逐步行进录入的步骤如下：
 
 <Strip>
-  <Step keys="OK" shot="seq-step-view" at="116,14,113,108">单击 <Key k="OK" /> 进入 STEP 视图。</Step>
-  <Step keys="G2, r3c2~D, r3c3~E" shot="seq-step" at="144,25,26,22">单击 GRID 2：第 2 步选中并保持。按 D，再按 E：两个音都放进第 2 步。再按一次 E，它就被去掉。</Step>
-  <Step keys="G2">再点一次 GRID 2 放开它，或者直接点下一个要写的步。</Step>
+  <Step keys="OK" shot="seq-step-view" at="116,14,113,108">单击 <Key k="OK" /> 切换至 STEP 视图。</Step>
+  <Step keys="G2, r3c2~D, r3c3~E" shot="seq-step" at="144,25,26,22">单击 GRID 2 锁定选中第 2 步，依次按 D 和 E 将两个音符写入该步；再按一次 E 则将其移除。</Step>
+  <Step keys="G2">再次点按 GRID 2 取消选中，或直接点按下一个需要编辑的步。</Step>
 </Strip>
 
-- 从演奏区写进去的音用 SETUP KEYS 的力度（VELO），长度一步；鼓按它那个键所在行的力度。之后用编辑项修改（见 [选中与编辑](#seq-edit)）。
-- 播放时，播放头走进的那一步绿色闪一下，然后保持绿框直到下一步；走过的步不留拖尾。
-- FN 菜单和 RECORD 面板里的 VIEW 也能切换视图。
+- 从演奏区录入的旋律音默认长度为 1 步、力度采用 SETUP KEYS 的 `VELO`；鼓点则采用按下鼓垫所在行的力度。录入后可通过编辑项继续细调（见[选中与编辑](#seq-edit)）。
+- 播放时，播放头进入的步会闪绿并保持绿框直至下一步。
+- 也可通过 FN 菜单或 RECORD 面板中的 **VIEW** 切换视图。
 
 <Keywords k="步进录制, 步进视图, 一步一步, 逐步输入, 输入音符, 休止, step view, step record, step input, step entry, rest, step machine" />
 
 ## 选中与编辑 {#seq-edit}
 
-GRID 键**选中**它那一步。两种视图、鼓轨都一样，和 MatrixOS 的音序器相同：
+无论处于 ROLL、STEP 还是鼓机视图，GRID 均支持两种选步方式：
 
-- **短按**（0.25 秒内松开，期间没按别的键）：这一步保持选中，手可以腾出来。**SELECT** 是 ONE（默认）时，短按别的步就换到那一步，短按唯一选中的那一步就放开它。**SELECT** 是 MULTI 时（在 <Scene name="SETUP" /> 的 KEYS 页，见 [KEYS 键盘](./setup.mdx#setup-keys)），短按是加选，短按已选中的步是把它移出。
-- **按住**（更久，或者按住时按了别的键）：只在按住期间选中。同时按住几步就一起编辑。
-- <Key k="ESC" /> 取消选择；SELECT 是 ONE 时翻页也会取消。
+- **短按**（0.25 秒内松开且期间未按其他键）：锁定选中该步以便腾出双手。在默认 **SELECT ONE** 模式下，短按其他步会切换选区，短按当前唯一选中步则取消选中；在 **SELECT MULTI** 模式（于 <Scene name="SETUP" /> <Page name="KEYS" /> 设置，见[KEYS 键盘](./setup.mdx#setup-keys)）下，每次短按可自由增减多个选中步。
+- **长按**（按住超过 0.25 秒或期间配合其他按键）：仅在按住期间生效，同时按住多步即可一起编辑。
+- 按 <Key k="ESC" /> 清除选区；在 SELECT ONE 模式下翻步进页也会自动清除选区。
 
 <Shot name="seq-selected">
-  <Mark at="76,15,14,96">选中的这一步</Mark>
-  <KeyMark keys="G5">选中：全亮</KeyMark>
-  <KeyMark keys="r3c1">这一步的音：全亮</KeyMark>
-  <KeyMark keys="PADS">别的键：半亮</KeyMark>
-  <Caption>选中第 5 步：这一列高亮，这一步的音在演奏区全亮。</Caption>
+  <Mark at="76,15,14,96">已选中的步进列</Mark>
+  <KeyMark keys="G5">选中步：全亮</KeyMark>
+  <KeyMark keys="r3c1">该步包含的音符：全亮</KeyMark>
+  <KeyMark keys="PADS">其他可发声按键：半亮</KeyMark>
+  <Caption>选中第 5 步后，其所在列高亮，该步音符在演奏区全亮显示。</Caption>
 </Shot>
 
-选中的步，它们的音在演奏区全亮；播放时没有选中的步，播放头所在那一步的音亮起。选中一步之后：
+选中步进时，其包含的所有音符会在演奏区全亮；播放中未选步时，演奏区会实时同步亮起播放头所在步的音符。
 
 <Strip>
-  <Step keys="G5" shot="seq-selected" at="76,15,14,96">单击 GRID 5：第 5 步选中，这一列高亮。</Step>
-  <Step keys="OK, OK" shot="seq-lane" at="footer"><Key k="OK" /> 循环编辑项 **NOTE → LEN → VEL → TIME**，底行是正在改的项和数值。</Step>
-  <Step keys="ADD" shot="seq-lane" at="footer"><Key k="ADD" /> / <Key k="SUB" /> 调整，按住连发。<Key k="ESC" /> 取消选择。</Step>
+  <Step keys="G5" shot="seq-selected" at="76,15,14,96">单击 GRID 5 选中第 5 步并高亮该列。</Step>
+  <Step keys="OK, OK" shot="seq-lane" at="footer">单击 <Key k="OK" /> 循环切换编辑项：**NOTE → LEN → VEL → TIME**，底栏显示当前编辑项与数值。</Step>
+  <Step keys="ADD" shot="seq-lane" at="footer">使用 <Key k="ADD" /> / <Key k="SUB" /> 调整数值（支持长按连发），完成后按 <Key k="ESC" /> 取消选中。</Step>
 </Strip>
 
-| 键 | 作用 |
+| 按键 | 选步状态下的功能 |
 |---|---|
-| PADS | 把这个键的音放进选中的步，或者去掉：和弦作为一组进出（这一步只要有其中任何一个音，就全部去掉、一个也不加）；播放中只编辑，不发声 |
-| <Key k="OK" /> | 编辑项 NOTE（音高）→ LEN（长度）→ VEL（力度）→ TIME（微小的时间偏移） |
-| <Key k="ADD" /> / <Key k="SUB" /> | 调整，按住连发；加 <Key k="FN" /> 是大步 |
-| <Key k="FN+OK" /> | 「和弦里所有的音」（ALL）和「其中一个音」（底行显示音名）之间切换编辑对象 |
-| <Key k="ESC" /> | 取消选择（再按 ESC 才换场景） |
+| PADS | 在选中步上添加或移除该键音符（若开启和弦则整组操作：该步只要已含任一和弦音即整体移除）。播放期间编辑不触发实时发声。 |
+| <Key k="OK" /> | 循环切换编辑项：**NOTE**（音高）→ **LEN**（时值）→ **VEL**（力度）→ **TIME**（微时间偏移） |
+| <Key k="ADD" /> / <Key k="SUB" /> | 调整当前编辑项数值（支持长按连发，按住 <Key k="FN" /> 为大步调整） |
+| <Key k="FN+OK" /> | 切换和弦编辑范围：全部音符（`ALL`）或单个指定音符（底栏显示音名） |
+| <Key k="ESC" /> | 取消选步（再次按 ESC 才切换场景） |
 
-鼓轨上由演奏区选鼓，所以 NOTE 这一项不会挪动鼓（ADD / SUB 提示 PADS PICK DRUMS）；LEN、VEL、TIME 和别的轨一样。
+在鼓轨上，演奏区用于选择不同鼓声部，因此 NOTE 编辑项无法移调（按 ADD / SUB 会提示 `PADS PICK DRUMS`）；LEN、VEL 和 TIME 用法与其他轨道相同。
 
 <Keywords k="编辑音符, 改音高, 改长度, 改力度, 时间偏移, 微调, 选中, 按住, 短按, edit notes, note length, velocity, timing, nudge, microtiming, select steps" />
 
 ## DRUMS 鼓机 {#seq-drums}
 
-鼓轨（默认 <Track n="1" />）的 STEP 视图就是鼓机，页签写着 <Page name="DRUMS" />，鼓轨一进来就是它。<Key k="OK" /> 切到 ROLL，和别的轨一样，是用到的鼓的钢琴卷帘。
+鼓轨（默认 <Track n="1" />）的 STEP 视图即为鼓机，页签显示为 <Page name="DRUMS" />，且默认以此视图打开。随时可单击 <Key k="OK" /> 切至 ROLL 视图按水平时间轴查看所有激活鼓声部。
 
 <Shot name="seq-drums">
-  <Mark at="10,14,96,108">八种鼓 × 16 步</Mark>
-  <Mark at="110,14,119,108">选中的鼓（CH）在 GRID 上</Mark>
-  <Mark at="footer">DRUMS</Mark>
-  <KeyMark keys="G1 G3 G5">有击打：半亮</KeyMark>
-  <KeyMark keys="G2">这一步什么都没有：灭</KeyMark>
-  <Caption>T1 的鼓机：左边是每种鼓的节奏，右边是选中的鼓的 16 步。</Caption>
+  <Mark at="10,14,96,108">8 种鼓 × 16 步总览</Mark>
+  <Mark at="110,14,119,108">当前选中鼓（CH）的 4×4 GRID</Mark>
+  <Mark at="footer">DRUMS 页签</Mark>
+  <KeyMark keys="G1 G3 G5">有鼓点的步：半亮</KeyMark>
+  <KeyMark keys="G2">空步：灭</KeyMark>
+  <Caption>T1 鼓机视图：左侧总览全部八种鼓的节奏，右侧显示当前选中鼓的 16 步。</Caption>
 </Shot>
 
-- **PADS** 是鼓和力度：每一列是一种鼓，每一行是力度（最上面一行 127，往下 100、70，最下面一行 40）。按下会发声，并选定右边 GRID 显示哪种鼓。
-- **按住鼓再点步**：这种鼓按这一行的力度放进这些步（已经有的就去掉）。也可以先点一步，再按鼓。
-- **改一击**：选中它那一步（按住或单击），<Key k="OK" /> 选到 VEL 或 TIME，再用 <Key k="ADD" /> / <Key k="SUB" />。
-- 一击有多重用点阵疏密表示，分四档，一眼分得清（实心、一半、1/4、1/8）；不在正拍上的一击画成细条，位置就是它在这一步里的位置。
-- 按住鼓键时，这种鼓那一行整行亮起，亮的密度跟按下的力度走，鼓名反显。
+- **PADS**：每列对应一种鼓，每行对应打击力度（顶行 127，往下依次 100、70，底行 40）。按下鼓垫即可发声并切换右侧 GRID 显示的鼓声部。
+- **按住鼓垫点步进**：按所按行的力度将该鼓写入对应步（已有则移除）；也可先选步再按鼓垫录入。
+- **编辑单个鼓点**：选中对应步（短按或按住），按 <Key k="OK" /> 切至 VEL 或 TIME，再用 <Key k="ADD" /> / <Key k="SUB" /> 调整。
+- 鼓点力度以四档点阵密度清晰区分（实心、1/2、1/4、1/8）；带微时间偏移的鼓点以细竖条标出在步内的实际位置。
+- 按住鼓垫时，对应鼓行会按该力度密度整行高亮，鼓名反显。
 
 <Strip>
-  <Step keys="hold r3c3~CH + G1, G3, G5" shot="seq-drums" at="110,14,119,108">按住闭镲（CH，最下面一行），隔一步点一下：CH 按最轻的力度放进去。</Step>
-  <Step keys="hold G1 + OK, OK, ADD" shot="seq-drum-edit" at="footer">按住第 1 步，单击两下 <Key k="OK" /> 选到 VEL，再按 <Key k="ADD" />：这一步的击打变重。松手后第 1 步不再选中。</Step>
+  <Step keys="hold r3c3~CH + G1, G3, G5" shot="seq-drums" at="110,14,119,108">按住最下一行的闭镲（CH）并隔步点按 GRID，即可写入轻力度的踩镲。</Step>
+  <Step keys="hold G1 + OK, OK, ADD" shot="seq-drum-edit" at="footer">按住第 1 步，连按两次 <Key k="OK" /> 切至 VEL，再按 <Key k="ADD" /> 提高该步力度；松开 G1 即可退出选步。</Step>
 </Strip>
 
-- GRID 灯和所有音符页一样：有击打的步半亮，选中的步全亮，空步灭；按住鼓键时，含有这些鼓的步全亮。
-- 实时录音和 RECORD 面板和别的轨一样用。
+- GRID 背光规则与其他音符页一致：有鼓点半亮、选中步全亮、空步灭；按住鼓垫时，包含该鼓的步会全亮。
+- 实时录音与 RECORD 面板的用法与其他轨道完全一致。
 
 <Keywords k="鼓机, 打鼓, 节奏, 底鼓, 军鼓, 踩镲, drums, drum machine, beat, kick, snare, hi hat, drum sequencer" />
 
 ## 播放与实时录音 {#seq-transport}
 
 <Strip>
-  <Step keys="PLAY" shot="seq-playing" at="strip:PLAY 77,15,4,96"><Key k="PLAY" />：播放，绿线是播放头。再按停止，播放头倒带回第 1 步。</Step>
-  <Step keys="FN+PLAY" shot="seq-recording" at="strip:PLAY footer"><Key k="FN+PLAY" />：录音待命（REC）。PLAY 键灯闪烁，状态行里 REC 闪烁，播放时四周有红框。</Step>
-  <Step keys="r3c1~C" shot="seq-recording" at="0,13,240,110">播放中弹 PADS：音符按弹的位置写进 Pattern（叠录）。</Step>
+  <Step keys="PLAY" shot="seq-playing" at="strip:PLAY 77,15,4,96">按 <Key k="PLAY" /> 开始播放（绿色竖线为播放头）；再按一次停止并回到第 1 步。</Step>
+  <Step keys="FN+PLAY" shot="seq-recording" at="strip:PLAY footer">按 <Key k="FN+PLAY" /> 开启录音待命（`REC`）：PLAY 键与状态栏 REC 闪烁，播放时屏幕四周出现红框。</Step>
+  <Step keys="r3c1~C" shot="seq-recording" at="0,13,240,110">在播放过程中弹奏 PADS，音符会直接叠录进当前 Pattern。</Step>
 </Strip>
 
-- REC 也可以在 RECORD 面板里点开，或用 FN 菜单的 REC。录音待命时屏幕上的 PLAY 色块是红色。
-- 录音是叠录，不会删掉已有的音，对齐到微步。ARP 打开时录的是 ARP 弹出的音。
-- 没有选中的步时，PADS 就是实时录音，两种视图和鼓机都一样；有选中的步时，PADS 是编辑这些步。
-- 弹错了可以选中那一步用 <Key k="FN+X" /> 清除，或用 <Key k="FN+Q" /> 量化。
+- 也可在 RECORD 面板或 FN 菜单中开关 REC。录音待命期间，屏幕右侧的 PLAY 边条变为红色。
+- 实时录音采用叠录模式，保留已有音符并将新弹奏的音符对齐到最近微步。若开启了 ARP，则录制琶音器生成的音符。
+- 未选步时，PADS 在 ROLL、STEP 与鼓机视图下均用于实时录音；若存在选中步，PADS 会转为步进编辑。
+- 录错的音符可选中对应步按 <Key k="FN+X" /> 清除，或按 <Key k="FN+Q" /> 量化对齐至整步。
 
 <Shot name="seq-recording">
-  <Mark at="167,0,21,11">REC：闪烁</Mark>
+  <Mark at="167,0,21,11">闪烁的 REC 指示</Mark>
   <Mark at="77,15,4,96">播放头</Mark>
-  <Mark at="strip:PLAY">PLAY：闪烁</Mark>
+  <Mark at="strip:PLAY">闪烁的 PLAY 边条</Mark>
   <Mark at="footer">REC ARMED</Mark>
-  <KeyMark keys="PLAY">闪烁：录音中</KeyMark>
-  <Caption>播放中录音：四周红框，状态行里 REC 闪烁。</Caption>
+  <KeyMark keys="PLAY">闪烁：录音待命</KeyMark>
+  <Caption>播放中实时录音：屏幕四周带红框，状态栏 REC 闪烁。</Caption>
 </Shot>
 
 <Keywords k="播放, 停止, 录音, 实时录音, 录制, 叠录, play, stop, record, recording, live record, overdub, transport" />
 
 ## RECORD 面板 {#record-panel}
 
-在音符页 **按住 <Key k="OK" />**（约半秒）打开 RECORD 面板，也可以在 FN 菜单里选 RECORD；<Key k="ESC" /> 关闭。
+在音符页**长按 <Key k="OK" />**（约 0.45 秒）或在 FN 菜单中选择 **RECORD** 即可打开 RECORD 面板，按 <Key k="ESC" /> 关闭。
 
 <Shot name="record">
-  <Mark at="cells:1,1-1,3">设置：REC · SNAP · VIEW</Mark>
-  <Mark at="cells:2,1-3,4">最近 8 段 take，最新在前</Mark>
+  <Mark at="cells:1,1-1,3">设置：REC、SNAP、VIEW</Mark>
+  <Mark at="cells:2,1-3,4">最近 8 段无感录制 take（最新在前）</Mark>
   <Mark at="cell:2,2">选中的 take</Mark>
-  <Mark at="cells:4,1-4,4">这一小节放进去的样子</Mark>
+  <Mark at="cells:4,1-4,4">选中一小节的导入预览</Mark>
   <Mark at="footer">±小节 · OK 新 Pattern · FN+OK 合并</Mark>
-  <KeyMark keys="G1-G3">设置</KeyMark>
-  <KeyMark keys="G5-G12">take</KeyMark>
-  <Caption>RECORD 面板：上面设置，中间 take，下面是要放进去的那一小节。</Caption>
+  <KeyMark keys="G1-G3">录音设置</KeyMark>
+  <KeyMark keys="G5-G12">已缓存的 take</KeyMark>
+  <Caption>RECORD 面板：顶部为录音设置，中间为回溯缓存的 take，底部预览待导入的小节。</Caption>
 </Shot>
 
-| GRID | 内容 |
+| GRID 行 | 内容 |
 |---|---|
-| 第 1 行 | **REC** 实时录音开关 · **SNAP** take 放进 Pattern 时对齐整步（STEPS）还是保留原来的时间（FREE）· **VIEW** ROLL / STEP；第四格空着 |
-| 第 2–3 行 | 最近 8 段 take（无感录制），最新的在最前 |
-| 第 4 行 | 选中的 take 那一小节放进 Pattern 后的样子 |
+| 第 1 行 | **REC**（实时录音开关）、**SNAP**（导入 take 时对齐整步 `STEPS` 或保留微时间 `FREE`）、**VIEW**（ROLL / STEP 视图切换）；第 4 格留空 |
+| 第 2–3 行 | 最近 8 段无感录制缓存（take），按时间倒序排列 |
+| 第 4 行 | 预览选中 take 当前小节写入 Pattern 后的排布 |
 
-- 设置格：点一下切换，<Key k="ADD" /> / <Key k="SUB" /> 也可以调。
-- take 格：点一下选中；<Key k="ADD" /> / <Key k="SUB" /> 选第几小节；<Key k="OK" /> 放进新 Pattern；<Key k="FN+OK" /> 合并进当前 Pattern。
-- GRID 灯：设置半亮，REC、SNAP 打开时全亮，焦点格全亮，take 半亮。
+- 点按第 1 行设置格（或按 <Key k="ADD" /> / <Key k="SUB" />）即可切换状态。
+- 点按某段 take 将其选中，用 <Key k="ADD" /> / <Key k="SUB" /> 挑选要导入的小节，然后按 <Key k="OK" /> 写入新 Pattern，或按 <Key k="FN+OK" /> 合并到当前 Pattern。
+- GRID 背光：设置与 take 默认半亮，当前焦点以及开启状态的 REC / SNAP 全亮。
 
 <Keywords k="录音设置, 录制设置, 录音面板, 量化, 对齐, record settings, recording settings, record panel, snap, quantize" />
 
 ## 无感录制：把刚才弹的找回来 {#capture}
 
-<Icon name="capture" /> 不用开 REC：你在演奏区弹的每一个音都会在后台记下来（Capture）。弹得好的那一段，事后放进音序器：
+<Icon name="capture" /> 即使未开启 REC，你在演奏区弹奏的所有音符都会自动缓存在后台（Capture）。即兴弹到满意的乐句时，可随时将其导入音序器：
 
 <Strip>
-  <Step keys="r3c1~C, r3c3~E, r3c5~G" shot="seq-keyboard">随便弹。停顿超过 2.5 秒、换轨或超过 60 秒，就开始新的一段（take）。</Step>
-  <Step keys="hold OK" shot="record" at="cells:2,1-3,4">按住 <Key k="OK" />：中间两行是最近 8 段 take，编号、轨道、音符数。</Step>
-  <Step keys="G6" shot="record" at="cell:2,2 cells:4,1-4,4">点一个 take：第 4 行是它这一小节放进去的样子。<Key k="ADD" /> / <Key k="SUB" /> 换小节。</Step>
-  <Step keys="OK" shot="record-placed" at="14,94,212,28"><Key k="OK" />：放进这一轨的**新 Pattern**，原有的一个音都不动。</Step>
+  <Step keys="r3c1~C, r3c3~E, r3c5~G" shot="seq-keyboard">自由演奏即可。停顿超过 2.5 秒、切换轨道或连续弹奏满 60 秒会自动切分为新的一段 take。</Step>
+  <Step keys="hold OK" shot="record" at="cells:2,1-3,4">长按 <Key k="OK" /> 打开 RECORD 面板，第 2–3 行列出最近 8 段 take 的编号、所属轨道与音符数量。</Step>
+  <Step keys="G6" shot="record" at="cell:2,2 cells:4,1-4,4">点选某段 take 在第 4 行预览其小节，跨多小节时可用 <Key k="ADD" /> / <Key k="SUB" /> 选择目标小节。</Step>
+  <Step keys="OK" shot="record-placed" at="14,94,212,28">按 <Key k="OK" /> 将该小节导入当前轨道的**新 Pattern**，不会改动任何已有 Pattern。</Step>
 </Strip>
 
-- 8 段 take 一共能记 400 个音；记满时最旧的一段让出位置。
-- 没有空 Pattern 时会提示，用 <Key k="FN+OK" /> 合并进当前 Pattern。
-- 播放中弹的 take 按小节线对齐；停止时弹的 take 从第一个音开始，按当时的 BPM 计时。
-- SNAP 打开时（默认）每个音对齐到最近的整步，长度也取整步；关掉则保留弹的细微时间。
+- 全部 8 段 take 共用 400 个音符的环形缓存，写满后自动覆盖最早的一段。
+- 若 16 个 Pattern 槽位已满，系统会弹出提示，此时可按 <Key k="FN+OK" /> 合并到当前 Pattern。
+- 播放期间弹奏的 take 会保留原小节对齐关系；停止状态下弹奏的 take 从第一个音符起按当前 BPM 计时对齐第 1 步。
+- 开启 **SNAP**（默认）时，导入的音符会自动量化到最近整步并取整步时值；关闭则完整保留微时间演奏细节。
 
 <Keywords k="无感录制, 回溯录音, 找回, 刚才弹的, 随便弹, 捕捉, capture, retrospective record, take, takes, what i just played, recall, no record button" />
 
 ## 长 Pattern 与翻页 {#seq-long}
 
-一个 Pattern 最长 256 步；GRID 和屏幕永远显示其中一页 16 步。页码在底行右端（例如 `2/4`，自己翻过页时是黄色）。
+单个 Pattern 最长可达 256 步，GRID 与屏幕每次显示其中一页 16 步。页码显示在底栏右侧（如 `2/4`，手动翻页后会变为黄色）。
 
 <Shot name="fn-held">
-  <Mark at="cells:3,1-3,2">PAGE − / PAGE +：第几页 / 共几页</Mark>
-  <Mark at="cells:3,3-3,4">LEN − / LEN +：长度</Mark>
-  <Caption>SEQ 菜单（按住 FN）：第 3 行翻页、设长度。</Caption>
+  <Mark at="cells:3,1-3,2">PAGE − / PAGE +：切换步进页</Mark>
+  <Mark at="cells:3,3-3,4">LEN − / LEN +：调整长度</Mark>
+  <Caption>在 SEQ 的 FN 菜单中，第 3 行用于翻步进页和调整 Pattern 长度。</Caption>
 </Shot>
 
-- **设长度**：TRACK 页的 STEPS（<Key k="ADD" /> / <Key k="SUB" /> 一步，<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 跳到下一个整页），或 FN 菜单的 LEN − / LEN +：1、2、4、8、16、32、48 … 256。
-- **翻页**：音符页上没有选中的步时按 <Key k="ADD" /> / <Key k="SUB" />（它们的图标是 → ←，屏幕弹出 PAGE n/m），或 FN 菜单的 PAGE − / PAGE +。
-- **换 Pattern**：音符页上没有选中的步时，<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 换到下一个 / 上一个 Pattern（弹出 PATTERN n/m 和它的名字）；播放中等这一圈播完再换（NEXT PATTERN）。
-- 播放时 GRID 跟着播放头一页一页翻；自己翻过页后就停在那一页，直到下一次 PLAY。有选中的步时不翻页。
-- 新建的 Pattern 沿用当前 Pattern 的长度；复制的 Pattern 保留自己的长度。超出长度的步在 GRID 上是灭的。
-- 只有写了音符的页才占内存。内存不够时这个音不写入，屏幕提示 MEMORY FULL - NOTE NOT WRITTEN。
+- **调整长度**：在 TRACK 页调节 **STEPS**（<Key k="ADD" /> / <Key k="SUB" /> 逐增减，<Key k="FN+ADD" /> / <Key k="FN+SUB" /> 按整页边界跳变），或在 FN 菜单中使用 **LEN − / LEN +**（依次为 1、2、4、8、16、32、48……直至 256）。
+- **翻步进页**：在音符页未选步时按 <Key k="ADD" /> / <Key k="SUB" />（右侧边条显示 → ←，屏幕弹出 `PAGE n/m`），或在 FN 菜单中使用 **PAGE − / PAGE +**。
+- **切换 Pattern**：在音符页未选步时按 <Key k="FN+ADD" /> / <Key k="FN+SUB" /> 切换上/下一个 Pattern（播放期间排队等待本圈结束并提示 `NEXT PATTERN`）。
+- 播放期间 GRID 会自动跟随播放头翻页；手动翻页后会锁定在当前页，直到下一次按 PLAY 恢复跟随（选步期间不自动翻页）。
+- 新建 Pattern 沿用当前 Pattern 的长度，复制 Pattern 保留原长度。超出长度的步在 GRID 上熄灭。
+- 系统仅对包含音符的分页分配内存；若音符内存耗尽，写入将被拒绝并提示 `MEMORY FULL - NOTE NOT WRITTEN`。
 
 <Shot name="seq-long">
   <Mark at="footer">页码 2/3</Mark>
   <Mark at="12,96,213,25">PAGE 2/3</Mark>
-  <Caption>48 步的 Pattern 按了 <Key k="ADD" /> 之后：GRID 现在是第 17–32 步。</Caption>
+  <Caption>48 步 Pattern 按 <Key k="ADD" /> 翻页后，GRID 显示第 17–32 步。</Caption>
 </Shot>
 
 <Keywords k="长 Pattern, 翻页, 步数, 长度, 32 步, 64 步, 小节, 超过 16 步, 下一个 pattern, long pattern, pattern length, page, step page, bars, next pattern" />
@@ -264,49 +266,49 @@ GRID 键**选中**它那一步。两种视图、鼓轨都一样，和 MatrixOS �
 ## PATTERN 页 {#seq-patterns}
 
 <Shot name="seq-pattern">
-  <Mark at="cell:1,1">已有的 Pattern：半亮</Mark>
-  <Mark at="cell:1,2">正在用的：全亮</Mark>
-  <Mark at="cell:1,3">NEW：新建</Mark>
+  <Mark at="cell:1,1">已有 Pattern：半亮</Mark>
+  <Mark at="cell:1,2">当前激活：全亮</Mark>
+  <Mark at="cell:1,3">NEW：新建空 Pattern</Mark>
   <Mark at="footer">PATTERN 页</Mark>
   <KeyMark keys="G1">已有</KeyMark>
   <KeyMark keys="G2">当前</KeyMark>
-  <KeyMark keys="G3">NEW：灭</KeyMark>
-  <Caption>PATTERN 页：这一轨的 Pattern 槽。</Caption>
+  <KeyMark keys="G3">NEW 槽：灭</KeyMark>
+  <Caption>PATTERN 页展示当前轨道的全部 Pattern 槽位。</Caption>
 </Shot>
 
-- 单击一个槽：切到这个 Pattern。停止时立即切换；播放中会**排队**，等这一轨这一圈播完再切（格子显示 NEXT 和倒计时条，键灯 <Led state="blink">闪烁</Led>）。
-- 单击「NEW」槽：新建一个空 Pattern（每轨最多 16 个）。
-- 正在用的 Pattern 上写着有几步写了音符。
-- <Key k="ADD" /> / <Key k="SUB" />（按不按 <Key k="FN" /> 都行）：前后切换（播放中排队）；<Key k="OK" /> 回到音符页。
-- <Key k="FN+D" />：把当前 Pattern 复制到下一个空槽。<Key k="FN+C" /> / <Key k="FN+V" /> 复制粘贴整个 Pattern，<Key k="FN+X" /> 清空（要确认）。
+- 点按任意已有槽位切换 Pattern：停止状态下立即切换，播放中则进入**排队**状态，待当前循环结束时无缝切换（格子显示 `NEXT` 与倒计时条，按键灯 <Led state="blink">闪烁</Led>）。
+- 点按 **NEW** 新建空白 Pattern（每轨最多 16 个）。
+- 当前激活的 Pattern 格子会标注包含音符的步数。
+- 按 <Key k="ADD" /> / <Key k="SUB" />（是否配合 <Key k="FN" /> 均可）可前后切换 Pattern，按 <Key k="OK" /> 快速返回音符页。
+- 按 <Key k="FN+D" /> 复制当前 Pattern 到下一空槽，<Key k="FN+C" /> / <Key k="FN+V" /> 复制粘贴整个 Pattern，<Key k="FN+X" /> 清空当前 Pattern（需二次确认）。
 
 <Keywords k="pattern, 段落, 切换 pattern, 新建 pattern, 复制 pattern, 排队, new pattern, switch pattern, duplicate pattern, queue" />
 
 ## TRACK 页 {#seq-track}
 
 <Shot name="seq-track">
-  <Mark at="cell:1,1">SEQ 开关</Mark>
-  <Mark at="cell:1,2">STEPS 步数</Mark>
-  <Mark at="cell:1,3">SWING</Mark>
-  <Mark at="cell:1,4">BPM</Mark>
-  <Mark at="9,40,222,80">四轨：音源 · Pattern · 步数标尺</Mark>
-  <Caption>TRACK 页：上面四个设置，下面是四轨总览。</Caption>
+  <Mark at="cell:1,1">SEQ 音序开关</Mark>
+  <Mark at="cell:1,2">STEPS 步数长度</Mark>
+  <Mark at="cell:1,3">SWING 摇摆</Mark>
+  <Mark at="cell:1,4">BPM 速度</Mark>
+  <Mark at="9,40,222,80">四轨总览（音源、当前 Pattern、步数标尺）</Mark>
+  <Caption>TRACK 页：上方为轨道与速度设置，下方为四轨总览。</Caption>
 </Shot>
 
 | 设置 | 范围 | 说明 |
 |---|---|---|
-| SEQ | 开 / 关 | 这一轨的音序是否播放（单击或 <Key k="OK" /> 切换） |
-| STEPS | 1–256 | 当前 Pattern 的长度；每个 Pattern 各有各的（例如 12 步对 16 步的复节奏） |
-| SWING | 50–75 % | 全局摇摆 |
-| BPM | 30–300 | 全局速度；也可以 <Key k="FN+T" /> 敲出来，或按住 FN 用 <Key k="6" /> / <Key k="Y" /> |
+| SEQ | 开 / 关 | 启用或静音当前轨道的音序器回放（点按或按 <Key k="OK" /> 切换） |
+| STEPS | 1–256 | 当前 Pattern 的步数长度，各 Pattern 独立（如设为 12 步配合 16 步可制作复节奏） |
+| SWING | 50–75% | 全局摇摆量 |
+| BPM | 30–300 | 全局速度（亦可用 <Key k="FN+T" /> 敲击定速或 <Key k="FN" /> + <Key k="6" /> / <Key k="Y" /> 快捷调节） |
 
-单击一格选中它，<Key k="ADD" /> / <Key k="SUB" /> 调整（加 <Key k="FN" /> 是大步）。总览里长 Pattern 压缩成 16 格。
+点按选中目标格子后用 <Key k="ADD" /> / <Key k="SUB" /> 调节（按住 <Key k="FN" /> 大步调节）。下方总览会将长 Pattern 压缩显示为 16 格。
 
 <Keywords k="步数, 循环长度, 摇摆, 速度, 节拍, 复节奏, steps, length, loop length, swing, shuffle, tempo, bpm, polyrhythm" />
 
 ## 复制、粘贴、清除、量化 {#seq-tools}
 
-按住 <Key k="FN" /> 用字母键，或在 FN 菜单里选（COPY、PASTE、CLEAR、QUANT、DUP，第二行写着 STEPS 还是 PATTERN）。音符页里作用于选中的步；没有选中时，以及在 PATTERN、TRACK 页，作用于整个 Pattern：
+按住 <Key k="FN" /> 配合字母键，或在 FN 菜单中选择 **COPY**、**PASTE**、**CLEAR**、**QUANT**、**DUP**（每项第二行会标明当前作用对象为 `STEPS` 还是 `PATTERN`）。在音符页有选中步时仅作用于选中步；未选步或位于 PATTERN / TRACK 页时则作用于整个 Pattern。
 
 <Keymap>
   <Group keys="FN">按住</Group>
@@ -315,32 +317,32 @@ GRID 键**选中**它那一步。两种视图、鼓轨都一样，和 MatrixOS �
   <Group keys="X">清除</Group>
   <Group keys="Q">量化</Group>
   <Group keys="D">复制 Pattern</Group>
-  <Group keys="T">敲速度</Group>
-  <Caption>按住 FN 的编辑键</Caption>
+  <Group keys="T">敲击定速</Group>
+  <Caption>按住 FN 时的编辑快捷键。</Caption>
 </Keymap>
 
-| 键 | 作用 |
+| 快捷键 | 功能 |
 |---|---|
-| <Key k="FN+C" /> / <Key k="FN+V" /> | 复制 / 粘贴（复制过才能粘贴） |
-| <Key k="FN+X" /> | 清除（整个 Pattern 时会先确认） |
-| <Key k="FN+Q" /> | 量化到整步 |
-| <Key k="FN+D" /> | 复制 Pattern 到下一个空槽 |
-| <Key k="FN+T" /> | 敲击设定速度 |
+| <Key k="FN+C" /> / <Key k="FN+V" /> | 复制 / 粘贴（剪贴板为空时 PASTE 不可用） |
+| <Key k="FN+X" /> | 清除（清空整个 Pattern 前会要求确认） |
+| <Key k="FN+Q" /> | 将音符量化对齐至整步 |
+| <Key k="FN+D" /> | 将当前 Pattern 复制到下一个空槽 |
+| <Key k="FN+T" /> | 敲击定速（Tap tempo） |
 
-GRID 上的 SEQ 菜单，三页都一样：
+SEQ 三个子页共用同一套 FN 菜单：
 
-| 行 | 项 |
+| 行 | 菜单项 |
 |---|---|
 | 1 | COPY · PASTE · CLEAR · QUANT |
-| 2 | DUP · VIEW（ROLL / STEP）· RECORD（RECORD 面板）· SCOPE（<Key k="FN+OK" />，有选中的步时） |
-| 3 | PAGE − · PAGE +（音符页，长 Pattern）· LEN − · LEN + |
-| 4 | SAVE · TAP · REC · SETUP，每个画面都一样 |
+| 2 | DUP · VIEW（ROLL / STEP）· RECORD（RECORD 面板）· SCOPE（<Key k="FN+OK" />，选步时可用） |
+| 3 | PAGE − · PAGE +（音符页，长于 16 步时可用）· LEN − · LEN + |
+| 4 | SAVE · TAP · REC · SETUP（全界面通用） |
 
-菜单的更多说明见 [每个画面的菜单](./fn.mdx#fn-menus)。
+完整菜单说明见[每个画面的菜单](./fn.mdx#fn-menus)。
 
 :::warning
 
-没有撤销，所以清除整个 Pattern 前一定会确认。
+系统不支持撤销操作，因此清空整个 Pattern 前均会弹出确认提示。
 
 :::
 

@@ -95,8 +95,8 @@ export function FirmwareTutorials() {
     <section className="cards-part g-tutorials" aria-labelledby="g-tutorials-h">
       <h2 id="g-tutorials-h">{say('固件教程', 'Firmware tutorials')}</h2>
       <p className="tf-lead">
-        {say('鸣片上的其他固件也有自己的教程，写法和这里的课一样：在 203 社区每个固件页面的「教程」里。',
-          'Other firmware for the Cardenza have tutorials of their own, written like these lessons: on the Tutorials tab of each firmware on the 203 community.')}
+        {say('203 社区里的其他鸣片固件同样提供交互式教程，可在对应固件页面的「教程」标签下查看。',
+          'Other Cardenza firmware projects also include interactive guides on their Tutorials tab in the 203 Community.')}
       </p>
       {shown.length > 0 && (
         <div className="g-cards tf-cards">

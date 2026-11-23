@@ -15,7 +15,7 @@ const communityUrl = 'https://stage.203.io';
 
 const config: Config = {
   title: 'Cardenza',
-  tagline: 'Cardenza Groovebox',
+  tagline: 'Cardenza Synth',
   favicon: 'img/favicon.png',
 
   // Served next to the web simulator, where the Learn site is today (tools/web-deploy.sh).
