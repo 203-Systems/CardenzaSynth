@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstdio>
 
 #include <esp_heap_caps.h>
 #include <esp_heap_caps_init.h>
@@ -15,6 +16,7 @@
 #include "Devices/Cardenza/DevicePresence.h"
 #include "Devices/Device.h"
 #include "OS/System/System.h"
+#include "display/presenter.h"
 
 #if CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
 // ESP-IDF's .bss in PSRAM (Wi-Fi's and lwIP's, the screen's frame) is at the PSRAM's start.
@@ -25,10 +27,13 @@ extern "C" std::uint8_t _ext_ram_bss_end;
 namespace {
 
 constexpr char kLogTag[] = "Cardenza";
-// A frame every 10 ms (keys, LEDs, the app's tick); the screen is drawn every other one, 50 fps.
-// pdMS_TO_TICKS rounds down: 16 ms was one 10 ms tick at 100 Hz.
-constexpr TickType_t kFrameTick = pdMS_TO_TICKS(10);
-static_assert(kFrameTick >= 1, "the frame tick needs a tick rate of 100 Hz or more (the screen wants 1000 Hz, sdkconfig.defaults)");
+// A frame every 10 ms (keys, LEDs, the app's tick); the screen is drawn every other one, 50 fps. Ticks are
+// whole RTOS ticks: pdMS_TO_TICKS rounds down (16 ms was one 10 ms tick at 100 Hz).
+constexpr std::uint32_t kFrameTickMs = 10;
+static_assert(pdMS_TO_TICKS(kFrameTickMs) >= 1, "the frame tick needs a tick rate of 100 Hz or more (sdkconfig.defaults: 1000 Hz)");
+// What the screen cost goes to the log a minute after the start, then every 5 minutes (in frame ticks).
+constexpr std::uint32_t kScreenReportFirstTicks = 60 * 1000 / kFrameTickMs;
+constexpr std::uint32_t kScreenReportTicks = 5 * 60 * 1000 / kFrameTickMs;
 // ESP-IDF's task creation APIs take bytes, unlike upstream FreeRTOS.
 constexpr uint32_t kRuntimeTaskStackBytes = 16384;
 constexpr UBaseType_t kRuntimeTaskPriority = 5;
@@ -96,6 +101,21 @@ void AddPsramToHeap()
 #endif
 }
 
+// The presenter's numbers since the last report (CardenzaHAL::Display::Totals), and the loop's late ticks.
+void ReportScreen(const CardenzaHAL::Display::FramePacer& pacer)
+{
+    const CardenzaHAL::Display::PresentTotals totals = CardenzaHAL::Display::Totals();
+    CardenzaHAL::Display::ResetTotals();
+    if (totals.frames == 0) return;
+    std::printf("screen: %u frames, present avg %u us max %u, find avg %u us, %u bytes a frame, whole %u held %u failed %u, "
+                "late ticks %u yields %u since the start\n",
+                static_cast<unsigned>(totals.frames), static_cast<unsigned>(totals.presentUs / totals.frames),
+                static_cast<unsigned>(totals.maxPresentUs), static_cast<unsigned>(totals.findUs / totals.frames),
+                static_cast<unsigned>(totals.bytes / totals.frames), static_cast<unsigned>(totals.wholeFrames),
+                static_cast<unsigned>(totals.heldFrames), static_cast<unsigned>(totals.failures),
+                static_cast<unsigned>(pacer.LateTicks()), static_cast<unsigned>(pacer.Yields()));
+}
+
 void LogFailedAllocation(size_t size, uint32_t caps, const char* functionName)
 {
     ESP_EARLY_LOGE(kLogTag, "alloc failed: %u bytes caps=0x%x in %s", static_cast<unsigned>(size),
@@ -121,14 +141,18 @@ void CardenzaRuntimeTask(void*)
              Device::Display::kHeight);
     LogInternalHeap("after boot");
 
-    // A frame every 10 ms, drawn every other one (50 fps). xTaskDelayUntil does not
-    // block after a frame longer than that, and the tasks below this one on core 0 (the card's log and
-    // autosave writer, the idle task) then never ran while the frames stayed long: a restored project
-    // with 10 ms frames kept core 0 at 93% with nothing left to them, and the stress build's watchdog
-    // restarted the board every 10 s (2026-11-04). After three late frames in a row they get one tick.
-    TickType_t lastWakeTime = xTaskGetTickCount();
-    int lateFrames = 0;
-    for (std::uint32_t frame = 0;; ++frame)
+    // A frame every 10 ms, drawn every other one (50 fps): CardenzaHAL's FramePacer (display/presenter.h).
+    // xTaskDelayUntil does not block after a frame longer than that, and the tasks below this one on core 0
+    // (the card's log and autosave writer, the idle task) then never ran while the frames stayed long: a
+    // restored project with 10 ms frames kept core 0 at 93% with nothing left to them, and the stress build's
+    // watchdog restarted the board every 10 s (2026-11-04). After three late frames in a row they get one tick.
+    CardenzaHAL::Display::PacerOptions pacing;
+    pacing.tickMs = kFrameTickMs;
+    pacing.ticksPerFrame = 2;
+    pacing.yieldAfterLate = 3;
+    CardenzaHAL::Display::FramePacer pacer(pacing);
+    std::uint32_t nextScreenReport = kScreenReportFirstTicks;
+    for (;;)
     {
         // Firmware sent from the community: the app shuts down as at an orderly power-off, then the
         // presence service restarts the device into the Launcher (Devices/Cardenza/DevicePresence.h).
@@ -140,17 +164,13 @@ void CardenzaRuntimeTask(void*)
             for (;;) vTaskDelay(pdMS_TO_TICKS(100));
         }
         device::presence::Frame();
-        os::system::RunFrame(frame % 2 == 0);
-        if (xTaskDelayUntil(&lastWakeTime, kFrameTick) == pdTRUE)
+        os::system::RunFrame(pacer.DrawTick());
+        if (pacer.Tick() == nextScreenReport)
         {
-            lateFrames = 0;
+            ReportScreen(pacer);
+            nextScreenReport += kScreenReportTicks;
         }
-        else if (++lateFrames >= 3)
-        {
-            lateFrames = 0;
-            vTaskDelay(1);
-            lastWakeTime = xTaskGetTickCount();
-        }
+        pacer.Wait();
     }
 }
 
