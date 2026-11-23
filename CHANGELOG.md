@@ -11,6 +11,8 @@ stable 渠道（社区的版本页和 GitHub Release 显示的就是它）；没
 - 合成器里的 SETUP › SYSTEM 只剩 MASTER（总轨音量）、LOG 和 THEME：KEY LED、SCREEN 和原来的 VOLUME（输出音量）都到了 HOME 菜单的「设置」里。第一次启动时，卡上原来的音量、按键灯和屏幕亮度交给板子（板子自己还没有存过才用）。
 - FN + 7 / U 改调总轨音量（MASTER，弹出 MASTER），和 TAPE MIX 的 MASTER、SETUP › SYSTEM 的 MASTER 是同一个，属于工程；新工程是 100（不衰减）。注意：工程格式要等下一次测试版才升到 9，在那之前总轨音量不随工程保存，重新载入或重启后回到 100。
 - 录音用板子的麦克风增益（HOME > 设置 > 麦克风增益）。
+- SD 卡上的文件搬到 `Apps/CardenzaSynth/`：每个固件在卡上的 `Apps/` 里各有一个自己的文件夹，Launcher 的在 `Launcher/`，卡的根目录不再放东西（CardenzaHAL 更新，所有固件通用）。第一次开机时，鸣片把卡根目录下原来的 `CardenzaSynth/` 整个搬过去（只是改名，不复制，一瞬间），工程、音色、采样、设置和自动保存都在，接着上次的工程。搬的时候拔电也不会丢东西，下次开机接着搬完。电脑上找文件，改到 `Apps/CardenzaSynth/` 里找。
+- 注意，装回旧版本：旧版本只认卡根目录的 `CardenzaSynth/`，会像用一张新卡那样开始（看不到之前的工程和音色，但它们都还在 `Apps/CardenzaSynth/` 里，旧版本不会碰）。之后再装回新版本时，旧版本期间存的工程、录音会自动搬进来；两边都有的文件（设置、自动保存、同名的工程）留在 `CardenzaSynth/` 里，不会覆盖新的，需要的话在电脑上手动拷过去。
 
 ## 0.2.2-beta.1
 

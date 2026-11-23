@@ -87,7 +87,7 @@ Cardenza Synth is installed and updated from the 203 Launcher, which every Carde
 
 Without Wi-Fi, open its [community page](https://stage.203.io/V6QK28) in Chrome or Edge, connect the Cardenza with a USB cable and press **Install over USB**. Newer versions come from the Store's Updates tool or the same page. To get back to the Launcher, press HOME and choose Back to Launcher.
 
-Projects, presets, samples and settings are on the SD card, below `CardenzaSynth/`, so a new version opens on your last project. Your working state is saved to the card by itself, shortly after the keys come to rest, and comes back at the next start: the power can be pulled at any time. A run started without a card saves nothing: put one in and restart. The layout is the [storage protocol](docs/app-storage-protocol.md).
+Projects, presets, samples and settings are on the SD card, below `Apps/CardenzaSynth/` (every firmware has its folder in `Apps/`; versions before this one used `CardenzaSynth/` at the card's root and the first start moves it), so a new version opens on your last project. Your working state is saved to the card by itself, shortly after the keys come to rest, and comes back at the next start: the power can be pulled at any time. A run started without a card saves nothing: put one in and restart. The layout is the [storage protocol](docs/app-storage-protocol.md).
 
 ## More
 

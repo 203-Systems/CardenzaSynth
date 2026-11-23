@@ -1,10 +1,14 @@
-# App storage protocol (version 2)
+# App storage protocol (version 3)
 
-Date: 2026-11-05. CardenzaSynth keeps everything it stores on the SD card, under `/CardenzaSynth`, in
-the layout the 0.1.0 release wrote: settings, projects, presets, samples, the working state and the
-log. The SD card is the only persistent store: nothing is kept in internal flash (NVS is neither
-read, written nor erased). Without a card at the start the device runs, says so, and saves nothing
-until it restarts with one (section 3).
+Date: 2026-11-23. CardenzaSynth keeps everything it stores on the SD card, in its own folder
+`/Apps/CardenzaSynth`, in the layout the 0.1.0 release wrote: settings, projects, presets, samples, the
+working state and the log. The folder is where every firmware on CardenzaHAL keeps its files (the user's
+decision 2026-11-23: the 203 Launcher's data in `/Launcher`, each firmware's in `/Apps/<name>`, nothing at
+the card's root; CardenzaHAL's [docs/SD-CARD.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/SD-CARD.md)).
+Protocol 2 (2026-11-05 until this one, and the 0.1.0 release) had the same folder at `/CardenzaSynth`:
+the first start with a card moves it (section 8). The SD card is the only persistent store: nothing is
+kept in internal flash (NVS is neither read, written nor erased). Without a card at the start the device
+runs, says so, and saves nothing until it restarts with one (section 3).
 
 This reference defines paths, formats, ownership and compatibility. Code: `OS/Storage/` (API),
 `OS/System/` (lifecycle, the log), `Devices/Device.h` (`Device::Storage`, the low-level card).
@@ -12,7 +16,8 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 ## 1. Layout on the SD card
 
 ```text
-<card>/CardenzaSynth/
+<card>/Launcher/               the 203 Launcher's (its downloads, settings, backups): never touched
+<card>/Apps/CardenzaSynth/     this firmware's (CardenzaHAL Storage::AppDir, CONFIG_CARDENZA_HAL_APP_NAME)
   Settings/
     system.cfg                 device settings and the storage protocol version (the OS's)
     synth.cfg                  the groovebox's settings (SELECT)
@@ -39,6 +44,11 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 
 - `<card>` is `/sdcard` on the device, `<working directory>/sdcard` in the simulator (the desktop
   simulator starts in its executable's folder) and `/sdcard` (IndexedDB) in the browser simulator.
+- The product root `<card>/Apps/CardenzaSynth` is CardenzaHAL's folder for this firmware
+  (`Device::Storage::AppRoot()`; on the device `CardenzaHAL::Storage::AppDir()`, named by
+  `CONFIG_CARDENZA_HAL_APP_NAME="CardenzaSynth"` in `Devices/Cardenza/sdkconfig.defaults`, not after the CMake
+  project `CardenzaSynthFirmware`). Other firmware have their own folders beside it; this firmware writes
+  nothing outside it.
 - The built-in groovebox's app id is `Cardenza/Synth`, the primary app: its `AppFolder` is the product
   root itself, with `Settings/synth.cfg` as its settings file. The id is not a disk path.
 - Other apps use `Apps/<Author>/<Name>/`; both id parts are 1–24 characters of `A–Z a–z 0–9 _ -`. A
@@ -60,7 +70,7 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 | `Samples/*.wav`, `Session/take-*.wav` | Mono PCM16 WAV | File names and project references stay valid |
 | `Logs/log*.txt` | Text, one line per console line | Read by people |
 
-Storage protocol 2 describes the layout and how settings are kept; it does not version the project,
+Storage protocol 3 describes the layout and how settings are kept; it does not version the project,
 preset or WAV formats. Project format 6 added the keyboard and each track's chord and arpeggiator;
 format 7 gives every pattern its own length (up to 256 steps). Version 5 was only written by
 unreleased development builds (its `PLAY` line is skipped). Format 8 adds HITS (a note fired 1–4
@@ -73,7 +83,7 @@ formats 1–6, 0.2.x formats 1–7: a project saved by this firmware is format 8
 ### Settings syntax
 
 ```text
-# Cardenza settings: Cardenza/Synth (storage protocol 2)
+# Cardenza settings: Cardenza/Synth (storage protocol 3)
 # key=value per line; unknown keys are kept
 keys.select=1
 ```
@@ -88,7 +98,7 @@ keys.select=1
 - Malformed lines are skipped. A repeated key keeps its first position and its last value. A value
   that is not a number or is out of range reads as the caller's default. Unknown keys are written back
   unchanged, so a newer and an older firmware can share a card.
-- A settings file is at most 16 KB. `Settings/system.cfg` holds `protocol=2`.
+- A settings file is at most 16 KB. `Settings/system.cfg` holds `protocol=3`.
 
 ### File replacement
 
@@ -101,7 +111,8 @@ cut short in place; it cannot save a failing card or a write cut off inside the 
 ## 3. The card, and a start without one
 
 The system looks for the card once, as it starts (`os::system::Begin` calls
-`os::storage::DecideCardAtStart` before any app is set up).
+`os::storage::DecideCardAtStart` before any app is set up). With a card it first moves protocol 2's folder
+(section 8), before anything reads the card.
 
 - **No card at the start**: the whole run makes no card operation, until the device restarts.
   Nothing probes for a card (no `Device::Storage::Mount`), `CardPresent()` and `CardMounted()` are
@@ -137,7 +148,7 @@ pending edits: for tests, not for a card coming back.
 
 | Key | Meaning |
 |---|---|
-| `protocol` | storage protocol version of the card: 2 |
+| `protocol` | storage protocol version of the card: 3 (an older firmware writes its own, 2) |
 | `sys.volume`, `sys.volume.rev`, `sys.led`, `sys.screen` | no longer kept (2026-11-23): the output volume, the key lights and the screen are the board's (below). Found at start, they are carried over to the board once (each only where the board has never stored its own: `sys.volume` only at its revision 3, the board's curve) and removed |
 | `sys.log` | `1` writes the console log to `Logs/` (OS/System/Log.h), `0` stops it; default 1 |
 | `sys.theme` | the screen's colors: `dark` (light on black, the default), `light` (ink on white paper) or `retro` (a backlit green LCD), in any case; any other value reads as `dark` |
@@ -243,16 +254,48 @@ project under the name of the one before.
 The 0.1.0 release wrote `Session/session.ccproj` and `session.cfg` on suspend instead. They are
 neither read nor removed.
 
-## 8. Older layouts and formats
+## 8. Older layouts: the move to Apps/
 
-The runtime uses only the paths of section 1, which are the 0.1.0 release's: its settings, projects,
-preset banks and samples are read and written in place. Development builds between 0.1.0 and this
-firmware used `<card>/Cardenza/{System,Shared/Samples,Apps/Cardenza/Synth}` (protocol 1) and internal
-flash (NVS); the firmware before 0.1.0 used `<card>/CardenzaSynth/{Project,Preset,Sample}`. None of
-those folders or records is read, moved, changed or deleted, and nothing is imported from them
-automatically: a migration is discussed with the user before it is written. Format compatibility is
-separate from the folders: project formats 1–7, preset format 1 and compatible WAV files are read
-wherever this firmware looks.
+**Protocol 2's folder** (`<card>/CardenzaSynth/`, what the 0.1.0 release and the versions up to protocol 3
+wrote) moves to `<card>/Apps/CardenzaSynth/` at the first start with a card: `DecideCardAtStart` calls
+`Device::Storage::MoveToAppRoot(LegacyRoot())`, which is CardenzaHAL's `Storage::MigrateAppDir` on the device
+(the simulators run the same code, the HAL's `storage/app_dir_logic.cpp`), before any setting, project or
+log is read. Nothing in a file changes; the folder only changes place.
+
+| On the card at the start | What happens |
+|---|---|
+| no `CardenzaSynth/` at the root | nothing (a `stat`): every later start |
+| only `CardenzaSynth/` | `/sdcard/Apps` is made, then one rename: `CardenzaSynth/` becomes `Apps/CardenzaSynth/` with everything in it, nothing copied (milliseconds, whatever it holds) |
+| both (after a downgrade, below) | merged: what `Apps/CardenzaSynth/` lacks moves in (a whole folder in one rename where it can), folders both have are merged the same way, and a file both have stays in `CardenzaSynth/`, never overwritten and never deleted; a folder emptied that way is removed |
+| a file where `Apps/CardenzaSynth` goes, or the card refuses a step | the move stops there (what moved stays moved); the run goes on with what is in `Apps/CardenzaSynth/` and the next start tries again |
+| no card | nothing at all (section 3): the folder moves at the next start with the card |
+
+- A power cut at any moment loses nothing: each step is one rename, one folder made or one empty folder
+  removed, so every file is in the old place or the new one, and the next start finishes the move. (FAT's
+  rename writes the new name before it clears the old one: cut between the two, both names show the same
+  files and the next start leaves them; a computer's disk check tidies that up.)
+- The log says what happened, one line from the HAL (tag `CardenzaStorage`): `moved /sdcard/CardenzaSynth
+  to /sdcard/Apps/CardenzaSynth`, or `merged …: N moved, M left in the old folder (already there: …)`, then
+  on every start while something is left. What is left stays in `CardenzaSynth/` until the user removes it
+  or moves it by hand.
+- Inside it, the firmware before 0.1.0's `Project/`, `Preset/` and `Sample/` and 0.1.0's
+  `Session/session.*` move with the folder (they are in it), unchanged; they are still neither read nor
+  changed, and nothing is imported from them.
+- Development builds between 0.1.0 and protocol 2 used `<card>/Cardenza/{System,Shared/Samples,
+  Apps/Cardenza/Synth}` (protocol 1) and internal flash (NVS): not read, moved, changed or deleted. A
+  migration of their contents is discussed with the user before it is written.
+- Format compatibility is separate from the folders: project formats 1–8, preset format 1 and compatible
+  WAV files are read wherever this firmware looks.
+
+**Going back to an older version.** A version with protocol 2 (0.1.0 up to the one before the move) looks
+for `<card>/CardenzaSynth/` only. After the move it finds none: it starts as on a new card (its default
+settings, an empty project list, no autosave to restore, the samples gone from its lists) and makes the
+folder again for what it saves; it never sees or touches `Apps/`. Nothing is lost: the user's files are all
+in `Apps/CardenzaSynth/`. When this version (or a later one) starts again, the merge above brings in what the
+older one saved that `Apps/CardenzaSynth/` lacks (new projects, recordings, preset banks); its
+`Settings/system.cfg` and `synth.cfg`, its `Session/autosave.*` and a project saved under a name both have
+stay in `CardenzaSynth/` (the newer copies win, the older ones are kept beside): copy one over by hand to
+keep that version of it.
 
 ## 9. API
 
@@ -260,13 +303,14 @@ wherever this firmware looks.
 
 | API | Responsibility |
 |---|---|
-| `kProtocolVersion` (2), `kPrimaryAppId` | the protocol and the app that owns the product root |
-| `Root()` | `<card>/CardenzaSynth` |
+| `kProtocolVersion` (3), `kPrimaryAppId` | the protocol and the app that owns the product root |
+| `Root()` | `<card>/Apps/CardenzaSynth` (`Device::Storage::AppRoot()`) |
+| `LegacyRoot()` | `<card>/CardenzaSynth`, protocol 2's place, moved at the start (section 8) |
 | `SystemDirectory()`, `SystemSettingsPath()` | `Settings/`, `Settings/system.cfg` |
 | `SharedDirectory()`, `SharedSamplesDirectory()` | the root and `Samples/` |
 | `AppsDirectory()`, `LogDirectory()` | `Apps/`, `Logs/` |
 | `AppFolder(id)` | `Root()`, `SettingsPath()`, `Projects()`, `Presets(group)`, `Session()`, `Folder(name)` of an app; empty for an invalid id |
-| `DecideCardAtStart()`, `CardMissingThisRun()` | the start's decision (the system's) and whether this run has no card |
+| `DecideCardAtStart()`, `CardMissingThisRun()` | the start's decision (the system's; with a card it moves `LegacyRoot()` first) and whether this run has no card |
 | `CardPresent()`, `CardMounted()` | the card, mounting it on demand / not |
 | `ReportCardIoError()` | after a failed file operation: the device looks at the card |
 | `SetCardStreaming()`, `CardStreaming()` | a reader in real time; record writers wait |
@@ -289,7 +333,8 @@ wherever this firmware looks.
 next to `Setup`, `Tick`, `UpdateLeds`, `RenderFrame` and the key handlers; register an app with
 `app::RegisterApplication({id, name, author, isSystem, factory})`.
 
-`Devices/Device.h`, the device layer only: `Device::Storage` (`RootPath()`, `Mount()`,
+`Devices/Device.h`, the device layer only: `Device::Storage` (`RootPath()`, `AppRoot()`,
+`MoveToAppRoot(old)` (CardenzaHAL's `AppDir` and `MigrateAppDir` on the device), `Mount()`,
 `IsMounted()`, `CheckAfterIoError()`, `CapacityBytes()`, `FreeBytes()`; nothing in internal flash)
 and `Device::Log` (`Take`, `Pending`, `Write`, the console ring the OS writes out). Apps never call
 `Device::Storage` (ValidateArchitecture refuses it, and any internal-flash API).
@@ -299,11 +344,14 @@ and `Device::Log` (`Take`, `Pending`, `Write`, the console ring the OS writes ou
 - FAT long file names are enabled (`CONFIG_FATFS_LFN_HEAP`).
 - The device does not initialise, read, write or erase NVS; the partition table is unchanged, so it
   stays compatible with the Launcher (whose own settings live there).
-- The desktop simulator's card is `sdcard/` beside its executable; `CardenzaSim::Input::SetCardInserted(false)`
+- The desktop simulator's card is `sdcard/` beside its executable (this firmware's folder
+  `sdcard/Apps/CardenzaSynth/`, an old `sdcard/CardenzaSynth/` moved there at the start as on the device);
+  `CardenzaSim::Input::SetCardInserted(false)`
   takes it out (out when the system starts: a run without a card). `CardenzaSimShot --no-card` starts
   without it.
 - The browser simulator mounts `/sdcard` as IDBFS with `autoPersist`, so every write reaches
-  IndexedDB; the page also flushes settings and the autosave when it is hidden. Its card is always
+  IndexedDB (what a visitor saved under `/sdcard/CardenzaSynth` moves to `/sdcard/Apps/CardenzaSynth` at the
+  page's next start, as on the device); the page also flushes settings and the autosave when it is hidden. Its card is always
   present; without IndexedDB the page says "memory only" and nothing survives a reload.
 
 ## 11. Writing an app
