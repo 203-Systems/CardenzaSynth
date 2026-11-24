@@ -7,10 +7,11 @@
 #include <vector>
 
 // The storage protocol, version 2 (docs/app-storage-protocol.md): the layout the 0.1.0 release
-// wrote, on the SD card only. Nothing is kept in internal flash. Apps reach the card only through
-// this API:
+// wrote, on the SD card only, in this firmware's folder of CardenzaHAL's card layout (since
+// 2026-11-23; firmware up to 0.2.2 kept it at <card>/CardenzaSynth, which moves there at the start).
+// Nothing of ours is kept in internal flash. Apps reach the card only through this API:
 //
-//   <card>/CardenzaSynth/
+//   <card>/Apps/CardenzaSynth/   (Device::Storage::AppPath)
 //     Settings/system.cfg     device settings (os::storage::SystemSettings)
 //     Settings/synth.cfg      the groovebox's settings (os::storage::AppSettings("Cardenza/Synth"))
 //     Projects/ Presets/<engine>/ Session/   the groovebox's documents and working state
@@ -19,7 +20,8 @@
 //     Apps/<Author>/<Name>/   any other app, created when it needs it
 //
 // The primary app (Cardenza/Synth) uses the product root itself. FAT long names are required. The
-// device layer (Device::Storage) only provides the card root, mounting and capacity.
+// device layer (Device::Storage) only provides the card root, this firmware's folder (the HAL's
+// convention), moving a folder there, mounting and capacity.
 namespace os::storage {
 
 inline constexpr int kProtocolVersion = 2;
@@ -89,7 +91,8 @@ void ReportCardIoError();
 std::uint64_t CardCapacityBytes();
 std::uint64_t CardFreeBytes();
 
-// Creates CardenzaSynth/, Settings/ and Samples/. False without a writable card.
+// Moves <card>/CardenzaSynth in when an older firmware left it (once; then a stat), then creates the
+// product root, Settings/ and Samples/. False without a writable card.
 bool EnsureSystemLayout();
 // The system layout plus the app's root, its Settings/, Projects/, Presets/, Session/ and one
 // Presets/<group>/ per entry of `presetGroups`.

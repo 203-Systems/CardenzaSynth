@@ -16,6 +16,7 @@
 #include "Devices/Cardenza/DevicePresence.h"
 #include "Devices/Cardenza/DeviceUsbStats.h"
 #include "mic/mic.h"
+#include "system/settings.h"
 
 #include <esp_log.h>
 #include <esp_attr.h>
@@ -459,7 +460,8 @@ void AudioInputTask(void*)
   }
 }
 
-std::atomic<std::uint8_t> g_outputVolume{Device::Audio::kDefaultOutputVolume};
+// The microphone's gain in dB (Device::Audio::SetInputGain): the firmware's, applied as samples are read.
+std::atomic<int> g_inputGainDb{0};
 
 }  // namespace
 
@@ -467,19 +469,10 @@ namespace Device::Audio {
 
 void SetOutputVolume(std::uint8_t percent)
 {
-  // By ear: volume v is -60 (1 - v / 100)^1.5 dB, about -59 dB at 1, -39 at 25, -21 at 50, -10 at 70
-  // and 0 at 100, so the quiet end is wide and the top keeps fine steps. (Until 2026-11-06 it spanned
-  // only -20..0 dB: 1 was still loud.) The HAL's percent runs the codec linearly in dB over its
-  // -95.5..0 dB, 0.5 dB a register step: a level of d dB is its percent 100 + d * 200 / 191.
-  const std::uint8_t volume = (std::min)(percent, std::uint8_t{100});
-  g_outputVolume.store(volume, std::memory_order_relaxed);
-  long hal = 0;
-  if (volume > 0)
-  {
-    const float db = -60.0f * std::pow(1.0f - static_cast<float>(volume) / 100.0f, 1.5f);
-    hal = std::clamp(std::lround(100.0f + db * 200.0f / 191.0f), 1L, 100L);
-  }
-  (void)CardenzaHAL::Audio::SetVolume(static_cast<std::uint8_t>(hal));
+  // The board's volume (CardenzaHAL's settings, the HOME menu's): its curve is the one this firmware had,
+  // -60 (1 - v / 100)^1.5 dB at the codec, and it holds the value under the board's volume limit. The HAL
+  // writes it to the flash a second after the last change, the speaker faded out around the write.
+  (void)CardenzaHAL::Settings::Set(CardenzaHAL::Settings::Id::Volume, (std::min)(percent, std::uint8_t{100}));
 }
 
 ComputerAudioStats ComputerStats()
@@ -520,7 +513,17 @@ RenderTiming Timing()
 
 std::uint8_t OutputVolume()
 {
-  return g_outputVolume.load(std::memory_order_relaxed);
+  return static_cast<std::uint8_t>(CardenzaHAL::Settings::Get(CardenzaHAL::Settings::Id::Volume));
+}
+
+void SetInputGain(int gainDb)
+{
+  g_inputGainDb.store(std::clamp(gainDb, CardenzaHAL::Mic::kMinGainDb, CardenzaHAL::Mic::kMaxGainDb), std::memory_order_relaxed);
+}
+
+int InputGain()
+{
+  return g_inputGainDb.load(std::memory_order_relaxed);
 }
 
 InputStreamInfo InputInfo()
@@ -639,6 +642,8 @@ InputStatus ReadInputFrames(std::int16_t* destination,
       g_audioInputHead = (g_audioInputHead + framesRead) % g_audioInputRingFrames;
       g_audioInputCount -= framesRead;
     }
+    // The firmware's gain (the PDM receiver has none of its own), outside the ring's lock.
+    if (framesRead != 0) CardenzaHAL::Mic::ApplyGain(destination, framesRead, g_inputGainDb.load(std::memory_order_relaxed));
     if (framesRead != 0 || timeoutMs == 0 || esp_timer_get_time() >= deadline)
     {
       return InputStatus::Ready;

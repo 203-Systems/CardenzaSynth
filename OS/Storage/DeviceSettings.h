@@ -3,16 +3,19 @@
 #include <cstddef>
 #include <cstdint>
 
-// Device-wide settings: kept in Settings/system.cfg (sys.volume, sys.led, sys.screen, sys.log,
-// sys.theme), applied to the device at boot and shared by every app. Apps change them only through
-// these functions; projects never carry them.
+// Device-wide settings of this firmware: kept in Settings/system.cfg (sys.log, sys.theme), applied at
+// boot and shared by every app. Apps change them only through these functions; projects never carry
+// them.
+//
+// The output volume, the key lights' master level and the screen's backlight are the board's, not ours
+// (since 2026-11-23, the user: "从 SETUP 里去掉"): CardenzaHAL's settings, one value in every firmware,
+// changed in the HOME menu and over USB and kept by the HAL; the device facade reads and sets them
+// (Device::Audio::SetOutputVolume, Device::LED::SetGlobalBrightness). The sys.volume, sys.led and
+// sys.screen an older firmware wrote in system.cfg are left there unread.
 namespace os::storage {
 
-// About -10 dB on the volume's curve (SetOutputVolume): as loud as 50 was on the old 20 dB scale.
+// The board's default volume: about -10 dB on its curve (Device::Audio::SetOutputVolume).
 inline constexpr std::uint8_t kDefaultOutputVolume = 70;
-inline constexpr std::uint8_t kDefaultKeyLedBrightness = 15;
-inline constexpr std::uint8_t kDefaultScreenBacklight = 180;
-inline constexpr std::uint8_t kMinScreenBacklight = 10;
 // The log on the card (OS/System/Log.h) is on unless someone turns it off.
 inline constexpr bool kDefaultLogEnabled = true;
 
@@ -27,20 +30,14 @@ enum class Theme : std::uint8_t {
 inline constexpr std::size_t kThemeCount = 3;
 inline constexpr Theme kDefaultTheme = Theme::Dark;
 
-// Reads the system settings and applies volume, key LEDs and backlight to the device (boot).
+// Reads the system settings again (boot, a card that came back).
 void ApplyDeviceSettings();
 
-// Output volume 0..100 by ear: 0 mutes, 1..100 follow -60 (1 - v / 100)^1.5 dB (Device::Audio::
-// SetOutputVolume): about -59 dB at 1, -21 dB at 50, 0 dB at 100, the quiet end wide, the top fine.
+// The board's output volume, 0..100 by ear (Device::Audio::SetOutputVolume): the groovebox's volume keys
+// and its MIX master change the same value as the HOME menu.
 void SetOutputVolume(std::uint8_t percent);
 std::uint8_t OutputVolume();
-// Master brightness of the key LEDs, 0..15.
-void SetKeyLedBrightness(std::uint8_t level);
-std::uint8_t KeyLedBrightness();
-// Screen backlight, kMinScreenBacklight..255.
-void SetScreenBacklight(std::uint8_t level);
-std::uint8_t ScreenBacklight();
-// The console log written to the card (CardenzaSynth/Logs).
+// The console log written to the card (Apps/CardenzaSynth/Logs).
 void SetLogEnabled(bool enabled);
 bool LogEnabled();
 // The screen theme. The app that draws applies it (only it knows its colors).

@@ -23,6 +23,8 @@ public:
   static constexpr std::uint32_t kMaxRecordSeconds = 60;
   // Without a card the take has to fit in RAM (less when RAM is short).
   static constexpr std::uint32_t kMaxRamRecordSeconds = 5;
+  // The microphone's gain for recordings (the device applies it, Device::Audio::SetInputGain): the
+  // firmware's, kept in synth.cfg as rec.gain (GrooveApp).
   static constexpr int kDefaultRecordGainDb = 12;
   static constexpr int kMaxRecordGainDb = 24;
 
@@ -108,8 +110,7 @@ private:
   void RemoveTakeFile(std::size_t trackIndex);
 
   std::array<TrackState, kSynthTrackCount> tracks_{};
-  int recordGainDb_ = 0;
-  float recordGainLinear_ = 1.0f;
+  int recordGainDb_ = kDefaultRecordGainDb;
   int activeRecordingTrack_ = -1;
   std::FILE* takeFile_ = nullptr;
   bool keepTakes_ = false;

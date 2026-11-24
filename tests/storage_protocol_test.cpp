@@ -22,21 +22,14 @@
 namespace fs = std::filesystem;
 
 namespace {
-std::uint8_t ledMaster = 0;
-std::uint8_t backlight = 0;
-std::uint8_t outputVolume = 0;
+std::uint8_t outputVolume = 70;
 }  // namespace
 
-// DeviceSettings applies values to these; the test only records them.
+// The board's volume (CardenzaHAL's settings on a Cardenza): DeviceSettings passes it through.
 namespace Device {
-namespace LED {
-void SetGlobalBrightness(std::uint8_t level) { ledMaster = level; }
-}
-namespace Display {
-void SetBacklight(std::uint8_t level) { backlight = level; }
-}
 namespace Audio {
 void SetOutputVolume(std::uint8_t percent) { outputVolume = percent; }
+std::uint8_t OutputVolume() { return outputVolume; }
 }
 }  // namespace Device
 
@@ -70,7 +63,8 @@ void ResetCard()
 
 void TestAppPaths()
 {
-  const std::string root = Card().generic_string() + "/CardenzaSynth";
+  // This firmware's folder in CardenzaHAL's layout for every firmware (Device::Storage::AppPath).
+  const std::string root = Card().generic_string() + "/Apps/CardenzaSynth";
   assert(Root() == root);
   assert(kProtocolVersion == 2);
   assert(SystemDirectory() == root + "/Settings");
@@ -258,30 +252,27 @@ void TestMissingCardRamOnly()
 
 void TestDeviceSettings()
 {
+  // The volume, the key lights and the screen are the board's (the HOME menu's): the volume goes to the
+  // device as it is, and nothing of them is read from or written to system.cfg. What an older firmware
+  // wrote there stays, unread.
   ResetCard();
+  WriteText(SystemSettingsPath(), "protocol=2\nsys.volume=33\nsys.volume.rev=3\nsys.led=4\nsys.screen=90\n");
+  ReloadAllSettings();
+  outputVolume = 70;
   ApplyDeviceSettings();
-  assert(OutputVolume() == kDefaultOutputVolume && KeyLedBrightness() == kDefaultKeyLedBrightness &&
-         ScreenBacklight() == kDefaultScreenBacklight);
-  assert(ledMaster == kDefaultKeyLedBrightness && backlight == kDefaultScreenBacklight);
+  assert(OutputVolume() == 70 && outputVolume == 70);  // the board's, not the card's 33
   SetOutputVolume(140);  // clamped
-  SetKeyLedBrightness(9);
-  SetScreenBacklight(3);  // never fully dark
-  assert(OutputVolume() == 100 && outputVolume == 100 && KeyLedBrightness() == 9 && ledMaster == 9);
-  assert(ScreenBacklight() == kMinScreenBacklight && backlight == kMinScreenBacklight);
-  SetOutputVolume(50);
-  assert(outputVolume == 50);  // as it is: the device puts the curve on it (Device::Audio::SetOutputVolume)
+  assert(OutputVolume() == 100 && outputVolume == 100);
   SetOutputVolume(0);
   assert(outputVolume == 0);
   SetOutputVolume(60);
+  SetLogEnabled(false);
   assert(FlushAllSettings());
   const std::string text = ReadText(SystemSettingsPath());
-  assert(text.find("sys.volume=60\n") != std::string::npos && text.find("sys.led=9\n") != std::string::npos &&
-         text.find("sys.screen=10\n") != std::string::npos);
-  // Boot: the values come back from the card and go to the device.
-  ledMaster = backlight = outputVolume = 0;
-  ReloadAllSettings();
-  ApplyDeviceSettings();
-  assert(OutputVolume() == 60 && ledMaster == 9 && backlight == kMinScreenBacklight && outputVolume == 60);
+  assert(text.find("sys.volume=33\n") != std::string::npos && text.find("sys.led=4\n") != std::string::npos &&
+         text.find("sys.screen=90\n") != std::string::npos && text.find("sys.volume=60") == std::string::npos);
+  assert(text.find("sys.log=0\n") != std::string::npos);
+  SetLogEnabled(true);
   std::cout << "device settings passed\n";
 }
 
@@ -353,10 +344,48 @@ void TestLegacyLayoutsRemainUntouched()
   assert(ListDirectory(synth.Projects()).empty() && ListDirectory(SharedSamplesDirectory()).empty());
   assert(ListDirectory(synth.Presets("DX7")).empty() && ListDirectory(synth.Presets("Juno")).empty());
   assert(ListDirectory(synth.Session()).empty());
-  for (const auto& file : legacyFiles) assert(ReadText(file.first) == file.second && fs::is_regular_file(file.first));
+  // The layout before 0.1.0 was in the same folder as protocol 2 (<card>/CardenzaSynth): it moved along
+  // with it into Root(), unread and byte for byte. The development builds' Cardenza/ stays where it is.
+  for (const auto& file : legacyFiles)
+  {
+    const auto relative = file.first.lexically_relative(original);
+    const bool moved = !relative.empty() && *relative.begin() != "..";
+    const fs::path now = moved ? fs::path(Root()) / relative : file.first;
+    assert(ReadText(now) == file.second && fs::is_regular_file(now) && (!moved || !fs::exists(file.first)));
+  }
+  assert(!fs::exists(original));
   assert(!fs::exists(Internal()));
   ReleaseAppSettings(synth.Id());
   std::cout << "legacy layouts and file bytes remain untouched\n";
+}
+
+// Firmware up to 0.2.2 kept everything at <card>/CardenzaSynth: at the start it moves into Root()
+// (<card>/Apps/CardenzaSynth, CardenzaHAL's layout), one rename, before anything is read. A card that has
+// both (back to an older firmware, which made the old folder again, and forward) gets what the new folder
+// lacks, and nothing in it is overwritten; what it has already stays in the old folder.
+void TestMovesTheOldFolder()
+{
+  ResetCard();
+  const fs::path old = Card() / "CardenzaSynth";
+  const fs::path now = fs::path(Root());
+  WriteText(old / "Settings" / "system.cfg", "protocol=2\nsys.log=0\n");
+  WriteText(old / "Projects" / "SONG 01.ccproj", "song one");
+  assert(DecideCardAtStart() && !CardMissingThisRun());
+  assert(!fs::exists(old) && ReadText(now / "Projects" / "SONG 01.ccproj") == "song one");
+  ReloadAllSettings();
+  ApplyDeviceSettings();
+  assert(!LogEnabled());  // read where it is now
+  WriteText(old / "Projects" / "SONG 01.ccproj", "the older firmware's song one");
+  WriteText(old / "Projects" / "SONG 02.ccproj", "song two");
+  assert(EnsureSystemLayout());
+  assert(ReadText(now / "Projects" / "SONG 01.ccproj") == "song one");
+  assert(ReadText(now / "Projects" / "SONG 02.ccproj") == "song two" && !fs::exists(old / "Projects" / "SONG 02.ccproj"));
+  assert(ReadText(old / "Projects" / "SONG 01.ccproj") == "the older firmware's song one");
+  // Nothing left to move: the next start costs a stat and changes nothing.
+  assert(DecideCardAtStart() && ReadText(old / "Projects" / "SONG 01.ccproj") == "the older firmware's song one");
+  SetLogEnabled(true);
+  ReloadAllSettings();
+  std::cout << "the old folder moved\n";
 }
 
 // A run that starts without a card makes no card operation until the next start, a card put in
@@ -416,6 +445,7 @@ int main()
   TestDeviceSettings();
   TestScreenTheme();
   TestLegacyLayoutsRemainUntouched();
+  TestMovesTheOldFolder();
   TestRunWithoutCard();
   assert(!fs::exists(Internal()));
 

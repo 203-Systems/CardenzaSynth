@@ -23,8 +23,10 @@ constexpr std::array<InstrumentPage, kSettingsPageCount> kSettingsPages{{
                      E(), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::Keys, {2, 0, 2, 4}, 0},
     InstrumentPage{"DEVICE", "SYSTEM",
-                   {{P("sys.volume", "VOLUME"), P("sys.led", "KEY LED"), P("sys.screen", "SCREEN"), P("sys.log", "LOG"),
-                     P("sys.theme", "THEME"), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                   // The volume, the key lights and the screen are the board's (the HOME menu's, every
+                   // firmware's): not here. The volume keys (FN + 7 / U) and MIX change the board's volume.
+                   {{P("sys.log", "LOG"), P("sys.theme", "THEME"), E(), E(),
+                     E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
                    PageGraphic::System, {2, 0, 2, 4}, 0},
 }};
 

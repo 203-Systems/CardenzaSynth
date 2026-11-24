@@ -1,6 +1,8 @@
 #include "Devices/CardenzaSim/SimulatorInput.h"
 #include "Devices/Device.h"
 #include "Devices/DeviceAudio.h"
+// CardenzaHAL's gain, pure (no ESP-IDF): the same multiply and clamp as on the board.
+#include "Devices/Cardenza/CardenzaHAL/mic/gain.h"
 
 #include <algorithm>
 #include <atomic>
@@ -528,6 +530,20 @@ std::uint8_t OutputVolume()
   return g_outputVolume.load(std::memory_order_relaxed);
 }
 
+namespace {
+std::atomic<int> g_inputGainDb{0};
+}  // namespace
+
+void SetInputGain(int gainDb)
+{
+  g_inputGainDb.store(std::clamp(gainDb, CardenzaHAL::Mic::kMinGainDb, CardenzaHAL::Mic::kMaxGainDb), std::memory_order_relaxed);
+}
+
+int InputGain()
+{
+  return g_inputGainDb.load(std::memory_order_relaxed);
+}
+
 InputStreamInfo InputInfo()
 {
   if (g_microphone == Microphone::Simulated) return InputStreamInfo{kDefaultInputSampleRate, kInputChannels, kInputBitsPerSample};
@@ -574,16 +590,19 @@ InputStatus ReadInputFrames(std::int16_t* destination,
     return InputStatus::Ready;
   }
 
+  InputStatus status = InputStatus::Ready;
   if (g_microphone == Microphone::Simulated)
   {
     framesRead = std::min(frameCount, g_simulatedMicrophoneFrames);
     g_simulatedMicrophoneFrames -= framesRead;
     for (std::size_t frame = 0; frame < framesRead; ++frame)
       destination[frame] = static_cast<std::int16_t>(static_cast<int>((g_simulatedMicrophonePhase++ % 100) * 300) - 15000);
-    return InputStatus::Ready;
   }
-
-  return ReadWaveInFrames(destination, frameCount, framesRead, timeoutMs);
+  else status = ReadWaveInFrames(destination, frameCount, framesRead, timeoutMs);
+  // The firmware's gain, as the device applies it (CardenzaHAL::Mic::ApplyGain).
+  if (framesRead != 0)
+    CardenzaHAL::Mic::ApplyGainQ12(destination, framesRead, CardenzaHAL::Mic::GainQ12(g_inputGainDb.load(std::memory_order_relaxed)));
+  return status;
 }
 
 }  // namespace Device::Audio

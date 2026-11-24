@@ -1702,16 +1702,6 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
       {
         for (std::size_t index = 0; index < kGridCount; ++index)
           if (settings->slots[index].IsParameter()) setGrid(index, choice(index == SettingsFocus()));
-        // KEY LED focused: the pads show every brightness the keys can give, dark to full left to
-        // right, to judge the setting (and the LEDs) by eye. Perceived levels: after the gamma they are
-        // the HAL duties 0, 1, 2, 3, 4, 7, 10, 15 (Devices/LedLight.h).
-        const char* focusId = settings->slots[SettingsFocus()].id;
-        if (focusId != nullptr && std::string_view(focusId) == "sys.led")
-        {
-          static constexpr std::array<std::uint8_t, kPadColumns> kRamp{{0, 6, 7, 8, 9, 11, 13, 15}};
-          for (std::size_t row = 0; row < kRows; ++row)
-            for (std::size_t column = 0; column < kPadColumns; ++column) set(KeyIndex(row, kPadFirstColumn + column), kRamp[column]);
-        }
       }
       break;
   }

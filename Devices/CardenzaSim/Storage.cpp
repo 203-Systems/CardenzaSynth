@@ -4,10 +4,13 @@
 // can compile it unchanged.
 #include "Devices/Device.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
+// CardenzaHAL's card layout and folder migration, pure (no ESP-IDF; storage/app_dir_logic.cpp is built in).
+#include "Devices/Cardenza/CardenzaHAL/storage/app_dir_logic.h"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -55,6 +58,49 @@ namespace Device::Storage {
 
 std::string RootPath() {
   return CardDirectory().generic_string();
+}
+
+std::string AppPath() {
+  // CardenzaHAL's layout, as on the device: Apps/<AppName>, the firmware's AppName is CardenzaSynth.
+  return (CardDirectory() / "Apps" / "CardenzaSynth").generic_string();
+}
+
+bool MoveIntoAppPath(const std::string& oldPath) {
+  if (!IsMounted()) return false;
+  // The HAL's own migration (pure), over std::filesystem instead of ESP-IDF's VFS.
+  struct HostFileSystem final : CardenzaHAL::Storage::AppDirLogic::FileSystem {
+    Kind Stat(const std::string& path) override {
+      std::error_code error;
+      const fs::file_status status = fs::status(path, error);
+      if (error || !fs::exists(status)) return Kind::None;
+      return fs::is_directory(status) ? Kind::Directory : Kind::File;
+    }
+    bool List(const std::string& path, std::vector<std::string>& names) override {
+      std::error_code error;
+      for (fs::directory_iterator entry(path, error), end; !error && entry != end; entry.increment(error))
+        names.push_back(entry->path().filename().generic_string());
+      return !error;
+    }
+    bool Rename(const std::string& from, const std::string& to) override {
+      std::error_code error;
+      if (fs::exists(to, error)) return false;
+      fs::rename(from, to, error);
+      return !error;
+    }
+    bool MakeDirectory(const std::string& path) override {
+      std::error_code error;
+      return fs::create_directory(path, error) && !error;
+    }
+    bool RemoveDirectory(const std::string& path) override {
+      std::error_code error;
+      return fs::is_empty(path, error) && !error && fs::remove(path, error) && !error;
+    }
+  } card;
+  const std::string to = AppPath();
+  const auto report = CardenzaHAL::Storage::AppDirLogic::Migrate(card, RootPath(), oldPath, to);
+  const std::string line = CardenzaHAL::Storage::AppDirLogic::Describe(report, oldPath, to);
+  if (!line.empty()) std::printf("CardenzaStorage: %s\n", line.c_str());
+  return report.outcome != CardenzaHAL::Storage::MigrateReport::Outcome::Failed;
 }
 
 bool Mount() {

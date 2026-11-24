@@ -44,7 +44,9 @@ void Present();
 inline constexpr std::uint8_t kDefaultBacklight = 180;
 
 // Backlight PWM level, 0 (off) .. 255 (full). Takes effect immediately, or when the display
-// starts if it has not been initialized yet.
+// starts if it has not been initialized yet. On a Cardenza the backlight is the board's setting
+// (CardenzaHAL's ScreenBrightness, the 203 Launcher's own): this takes it over until that setting
+// changes again, and the groovebox does not call it.
 void SetBacklight(std::uint8_t level);
 std::uint8_t Backlight();
 
@@ -76,7 +78,9 @@ inline constexpr int kLedCount = kRows * kColumns;
 inline constexpr std::uint8_t kBrightnessOff = 0;
 inline constexpr std::uint8_t kBrightnessMax = 15;
 // Key levels are perceived brightness (0 off, 15 full); the device gamma-corrects them
-// (Devices/LedLight.h). The global level is the KEY LED setting.
+// (Devices/LedLight.h). The global level is the board's key-light setting: on a Cardenza
+// CardenzaHAL's KeyBrightness (the HOME menu's, the same in every firmware, kept by the HAL);
+// simulators keep it for the run.
 
 // Stage a complete update without blanking the currently displayed LED frame.
 void BeginFrame();
@@ -119,16 +123,25 @@ enum class InputStatus {
   Overflow,
 };
 
-inline constexpr std::uint8_t kDefaultOutputVolume = 100;
+// The board's default volume (CardenzaHAL's settings): about -10 dB.
+inline constexpr std::uint8_t kDefaultOutputVolume = 70;
 
-// Master output volume in percent; values above 100 are clamped. The device output stage applies
-// it after the synth mix, so it never changes what the synth renders.
+// The output volume, 0 (silent) to 100 by ear: -60 (1 - v / 100)^1.5 dB, about -59 dB at 1, -21 dB at
+// 50, 0 dB at 100. On a Cardenza it is the board's setting (CardenzaHAL's Volume: the HOME menu's, the
+// same in every firmware, kept in the board's flash by the HAL a second after the last change, held
+// under the board's volume limit); simulators keep it for the run. The device output stage applies it
+// after the synth mix, so it never changes what the synth renders.
 void SetOutputVolume(std::uint8_t percent);
 std::uint8_t OutputVolume();
 
 InputStreamInfo InputInfo();
 InputStatus StartInput();
 void StopInput();
+// The microphone's gain in dB, held at -12..+36 (CardenzaHAL's mic/gain.h): ReadInputFrames returns the
+// samples times it, held at the int16 range (saturating, never wrapping). The firmware keeps it with its
+// own settings (the board does not); 0 dB until set.
+void SetInputGain(int gainDb);
+int InputGain();
 InputStatus ReadInputFrames(std::int16_t* destination,
                             std::size_t frameCount,
                             std::size_t& framesRead,
@@ -187,6 +200,14 @@ struct FileHandleView {
 // Root of the removable card: "/sdcard" on the device, "<working directory>/sdcard" in the
 // simulator (beside the executable on Windows).
 std::string RootPath();
+// This firmware's folder on the card in CardenzaHAL's layout for every firmware (its docs/SD-CARD.md):
+// "<RootPath()>/Apps/CardenzaSynth". The OS keeps its storage protocol below it.
+std::string AppPath();
+// Moves `oldPath`, a folder on the card this firmware kept its files in before, to AppPath(): one rename
+// when only the old folder is there; when both are, what AppPath() lacks moves in and nothing there is
+// overwritten (CardenzaHAL's MigrateAppDir). Each step is one rename, so a power cut loses nothing and the
+// next call finishes; with nothing to move it costs a stat. False when a step failed or there is no card.
+bool MoveIntoAppPath(const std::string& oldPath);
 // Mounts the card when it is not mounted. False when it is missing or cannot be mounted; the device
 // may limit how often a missing card is probed.
 bool Mount();

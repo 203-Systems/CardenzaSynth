@@ -227,6 +227,9 @@ void GrooveApp::RestorePlaySettings()
   // only start a session that has no project of its own (the session file overrides them).
   controller_.Restore(ui, "");
   storedMultiSelect_ = keys.multiSelect;
+  // The microphone's gain for recordings: this firmware's (the board keeps none), for every start.
+  sampler_.SetRecordGainDb(settings.GetInt("rec.gain", synth::SamplerManager::kDefaultRecordGainDb, 0, synth::SamplerManager::kMaxRecordGainDb));
+  storedRecordGain_ = sampler_.RecordGainDb();
 }
 
 void GrooveApp::StorePlaySettings()
@@ -234,9 +237,17 @@ void GrooveApp::StorePlaySettings()
   // Polled every tick. The system writes the file a second after the last change, and when the app
   // is suspended.
   const bool multiSelect = controller_.Settings().keyboard.multiSelect;
-  if (multiSelect == storedMultiSelect_) return;
-  AppSettings().SetInt("keys.select", multiSelect ? 1 : 0);
-  storedMultiSelect_ = multiSelect;
+  if (multiSelect != storedMultiSelect_)
+  {
+    AppSettings().SetInt("keys.select", multiSelect ? 1 : 0);
+    storedMultiSelect_ = multiSelect;
+  }
+  const int gain = sampler_.RecordGainDb();
+  if (gain != storedRecordGain_)
+  {
+    AppSettings().SetInt("rec.gain", gain);
+    storedRecordGain_ = gain;
+  }
 }
 
 void GrooveApp::ApplyPlaySettings(const synth::ProjectData& project, groove::ProjectUiSettings& settings)
@@ -999,7 +1010,7 @@ bool GrooveApp::TrackAudible(std::size_t track) const
 
 void GrooveApp::SetMasterVolume(std::uint8_t percent)
 {
-  // A device setting (Settings/system.cfg) on the system's perceptual curve.
+  // The board's volume (the HOME menu's, every firmware's), on its curve by ear.
   os::storage::SetOutputVolume(percent);
 }
 
@@ -1099,9 +1110,9 @@ bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth:
     project.play[track].voicing = settings.chords[track].voicing;
     project.play[track].arp = sequencer_.GetArpSettings(track);
   }
-  // Volume, key LEDs and screen are device settings; their old fields are still written.
-  project.ledBrightness = os::storage::KeyLedBrightness();
-  project.backlight = os::storage::ScreenBacklight();
+  // Volume, key lights and screen are the board's settings; their old fields are still written.
+  project.ledBrightness = Device::LED::GlobalBrightness();
+  project.backlight = Device::Display::Backlight();
   project.mixer.master = os::storage::OutputVolume();
   project.mixer.level = levels_;
   project.mixer.muted = muted_;
@@ -1537,26 +1548,6 @@ bool GrooveApp::NewProject(groove::ProjectUiSettings& settings, std::string& mes
 // System
 
 // Device settings: os::storage keeps them in Settings/system.cfg for every app.
-void GrooveApp::SetLedBrightness(std::uint8_t level)
-{
-  os::storage::SetKeyLedBrightness(level);
-}
-
-std::uint8_t GrooveApp::LedBrightness() const
-{
-  return os::storage::KeyLedBrightness();
-}
-
-void GrooveApp::SetBacklight(std::uint8_t level)
-{
-  os::storage::SetScreenBacklight(level);
-}
-
-std::uint8_t GrooveApp::Backlight() const
-{
-  return os::storage::ScreenBacklight();
-}
-
 void GrooveApp::SetLogging(bool on)
 {
   os::storage::SetLogEnabled(on);

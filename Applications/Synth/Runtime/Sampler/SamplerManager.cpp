@@ -369,10 +369,10 @@ void SamplerManager::Tick()
 
 void SamplerManager::SetRecordGainDb(int gainDb)
 {
-  const int clamped = std::clamp(gainDb, 0, kMaxRecordGainDb);
-  if (clamped == recordGainDb_) return;
-  recordGainDb_ = clamped;
-  recordGainLinear_ = std::pow(10.0f, static_cast<float>(clamped) / 20.0f);
+  // The device applies it as the microphone is read (CardenzaHAL::Mic::ApplyGain): the meter, a RAM
+  // take and the WAV on the card all get the same samples.
+  recordGainDb_ = std::clamp(gainDb, 0, kMaxRecordGainDb);
+  Device::Audio::SetInputGain(recordGainDb_);
 }
 
 bool SamplerManager::BeginRecord(std::size_t trackIndex, bool replaceDraft)
@@ -991,18 +991,6 @@ void SamplerManager::PumpInput(TrackState& state)
     if (status != Device::Audio::InputStatus::Ready || framesRead == 0)
     {
       break;
-    }
-    // The meter, RAM take and WAV all use the gain-adjusted PCM.
-    const float gain = recordGainLinear_;
-    if (gain != 1.0f)
-    {
-      constexpr float kPcmMin = static_cast<float>(std::numeric_limits<std::int16_t>::min());
-      constexpr float kPcmMax = static_cast<float>(std::numeric_limits<std::int16_t>::max());
-      for (std::size_t frame = 0; frame < framesRead; ++frame)
-      {
-        const float amplified = static_cast<float>(destination[frame]) * gain;
-        destination[frame] = static_cast<std::int16_t>(std::clamp(amplified, kPcmMin, kPcmMax));
-      }
     }
     if (takeFile_ != nullptr && std::fwrite(destination, sizeof(std::int16_t), framesRead, takeFile_) != framesRead)
     {

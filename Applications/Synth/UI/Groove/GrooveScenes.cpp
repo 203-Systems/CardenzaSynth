@@ -160,8 +160,6 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
     else return false;
   }
   else if (Is(id, "sys.volume")) number(host_.MasterVolume(), 0, 100, os::storage::kDefaultOutputVolume, std::to_string(host_.MasterVolume()) + "%");
-  else if (Is(id, "sys.led")) number(host_.LedBrightness(), 0, 15, os::storage::kDefaultKeyLedBrightness, std::to_string(host_.LedBrightness()));
-  else if (Is(id, "sys.screen")) number(host_.Backlight(), 10, 255, os::storage::kDefaultScreenBacklight, std::to_string(host_.Backlight() * 100 / 255) + "%");
   else if (Is(id, "sys.log"))
   {
     choice(host_.Logging() ? 1 : 0, 2, os::storage::kDefaultLogEnabled ? 1 : 0, host_.Logging() ? "ON" : "OFF");
@@ -182,9 +180,8 @@ void Controller::AdjustSetting(const char* id, int delta)
   synth::SynthParameterInfo info;
   std::string text;
   if (delta == 0 || !SettingValue(id, info, text)) return;
-  // Wide ranges move in useful steps: the screen in 5s (of 255), the volume in 2s.
-  if (Is(id, "sys.screen")) delta *= 5;
-  else if (Is(id, "sys.volume")) delta *= 2;
+  // Wide ranges move in useful steps: the volume in 2s.
+  if (Is(id, "sys.volume")) delta *= 2;
   const int value = Is(id, "keys.root") ? ((info.value + delta) % 12 + 12) % 12 : std::clamp(info.value + delta, info.minValue, info.maxValue);
   if (value == info.value) return;
   KeyboardSettings& keys = state_.keyboard;
@@ -215,8 +212,6 @@ void Controller::AdjustSetting(const char* id, int delta)
   else if (Is(id, "proj.steps")) sequencer.SetTrackStepCount(state_.track, static_cast<std::size_t>(value));
   else if (Is(id, "proj.rec")) sequencer.SetRecordArmed(value != 0);
   else if (Is(id, "sys.volume")) host_.SetMasterVolume(static_cast<std::uint8_t>(value));
-  else if (Is(id, "sys.led")) host_.SetLedBrightness(static_cast<std::uint8_t>(value));
-  else if (Is(id, "sys.screen")) host_.SetBacklight(static_cast<std::uint8_t>(value));
   else if (Is(id, "sys.log")) host_.SetLogging(value != 0);
   else if (Is(id, "sys.theme")) host_.SetScreenTheme(static_cast<os::storage::Theme>(value));
   // The key range moves under held pads: let them go before they map to other notes.

@@ -1,3 +1,4 @@
+#include "Devices/Cardenza/CardenzaHAL/mic/gain.h"
 #include "Applications/Synth/SynthApp.h"
 #include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
@@ -75,10 +76,15 @@ std::uint8_t OutputVolume() { return outputVolume; }
 InputStreamInfo InputInfo() { return {}; }
 InputStatus StartInput() { microphoneRunning = true; microphoneCursor = 0; return InputStatus::Ready; }
 void StopInput() { microphoneRunning = false; }
+int inputGainDb = 0;
+void SetInputGain(int gainDb) { inputGainDb = std::clamp(gainDb, CardenzaHAL::Mic::kMinGainDb, CardenzaHAL::Mic::kMaxGainDb); }
+int InputGain() { return inputGainDb; }
 InputStatus ReadInputFrames(std::int16_t* destination, std::size_t count, std::size_t& read, std::uint32_t) {
   read = std::min(count, microphone.size() - microphoneCursor);
   if (read != 0) std::copy_n(microphone.data() + microphoneCursor, read, destination);
   microphoneCursor += read;
+  // As the device does (CardenzaHAL::Mic::ApplyGain).
+  if (read != 0) CardenzaHAL::Mic::ApplyGainQ12(destination, read, CardenzaHAL::Mic::GainQ12(inputGainDb));
   return InputStatus::Ready;
 }
 }

@@ -2,6 +2,7 @@
 #include "Library/Synth/Core/SynthStorage.h"
 #include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
 #include "Devices/Device.h"
+#include "Devices/Cardenza/CardenzaHAL/mic/gain.h"
 #include <cassert>
 #include <chrono>
 #include <filesystem>
@@ -43,12 +44,17 @@ namespace Device::Audio {
 InputStreamInfo InputInfo() { return {}; }
 InputStatus StartInput() { inputCursor = 0; inputRunning = true; return InputStatus::Ready; }
 void StopInput() { inputRunning = false; }
+int inputGainDb = 0;
+void SetInputGain(int gainDb) { inputGainDb = std::clamp(gainDb, CardenzaHAL::Mic::kMinGainDb, CardenzaHAL::Mic::kMaxGainDb); }
+int InputGain() { return inputGainDb; }
 InputStatus ReadInputFrames(std::int16_t* destination, std::size_t count, std::size_t& read, std::uint32_t) {
   read = 0;
   if (overflow) { overflow = false; return InputStatus::Overflow; }
   read = std::min(count, input.size() - inputCursor);
   std::copy_n(input.data() + inputCursor, read, destination);
   inputCursor += read;
+  // The gain as the device applies it (CardenzaHAL::Mic::ApplyGain).
+  CardenzaHAL::Mic::ApplyGainQ12(destination, read, CardenzaHAL::Mic::GainQ12(inputGainDb));
   return InputStatus::Ready;
 }
 }

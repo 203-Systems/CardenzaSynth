@@ -16,7 +16,8 @@ add_executable(CardenzaDemo render_demo.cpp ${synth_sources} ${midi_sources} ${f
   ${CARDENZA_ROOT}/Applications/Synth/Runtime/SynthStorage.cpp
   ${CARDENZA_ROOT}/OS/Storage/Storage.cpp
   ${CARDENZA_ROOT}/Devices/CardenzaSim/Device.cpp
-  ${CARDENZA_ROOT}/Devices/CardenzaSim/Storage.cpp)
+  ${CARDENZA_ROOT}/Devices/CardenzaSim/Storage.cpp
+  ${CARDENZA_ROOT}/Devices/Cardenza/CardenzaHAL/storage/app_dir_logic.cpp)
 target_compile_features(CardenzaDemo PRIVATE cxx_std_17)
 target_link_libraries(CardenzaDemo PRIVATE DemoAmy)
 if(MSVC)

@@ -1,10 +1,13 @@
 # App storage protocol (version 2)
 
-Date: 2026-11-05. CardenzaSynth keeps everything it stores on the SD card, under `/CardenzaSynth`, in
-the layout the 0.1.0 release wrote: settings, projects, presets, samples, the working state and the
-log. The SD card is the only persistent store: nothing is kept in internal flash (NVS is neither
-read, written nor erased). Without a card at the start the device runs, says so, and saves nothing
-until it restarts with one (section 3).
+Date: 2026-11-05, the folder moved 2026-11-23. CardenzaSynth keeps everything it stores on the SD
+card, under `/Apps/CardenzaSynth` (its folder in CardenzaHAL's card layout, the same for every
+firmware), in the layout the 0.1.0 release wrote: settings, projects, presets, samples, the working
+state and the log. The SD card is the only persistent store of ours: nothing of ours is kept in
+internal flash (the board's own settings, volume, key lights and screen, are CardenzaHAL's: section 5).
+Without a card at the start the device runs, says so, and saves nothing until it restarts with one
+(section 3). Firmware up to 0.2.2 kept the same files at `/CardenzaSynth`: they move at the start
+(section 8).
 
 This reference defines paths, formats, ownership and compatibility. Code: `OS/Storage/` (API),
 `OS/System/` (lifecycle, the log), `Devices/Device.h` (`Device::Storage`, the low-level card).
@@ -12,10 +15,10 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 ## 1. Layout on the SD card
 
 ```text
-<card>/CardenzaSynth/
+<card>/Apps/CardenzaSynth/
   Settings/
     system.cfg                 device settings and the storage protocol version (the OS's)
-    synth.cfg                  the groovebox's settings (SELECT)
+    synth.cfg                  the groovebox's settings (SELECT, rec.gain)
   Projects/
     <name>.ccproj              projects
   Presets/
@@ -39,6 +42,10 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 
 - `<card>` is `/sdcard` on the device, `<working directory>/sdcard` in the simulator (the desktop
   simulator starts in its executable's folder) and `/sdcard` (IndexedDB) in the browser simulator.
+- `Apps/CardenzaSynth` is this firmware's folder in CardenzaHAL's card layout (its `docs/SD-CARD.md`,
+  `storage/app_dir.h`): every firmware on the HAL keeps its files in `<card>/Apps/<AppName>/`, the 203
+  Launcher its own in `<card>/Launcher/`. The name is `CONFIG_CARDENZA_HAL_APP_NAME`
+  (`sdkconfig.defaults`); the device facade gives it as `Device::Storage::AppPath()`.
 - The built-in groovebox's app id is `Cardenza/Synth`, the primary app: its `AppFolder` is the product
   root itself, with `Settings/synth.cfg` as its settings file. The id is not a disk path.
 - Other apps use `Apps/<Author>/<Name>/`; both id parts are 1–24 characters of `A–Z a–z 0–9 _ -`. A
@@ -47,6 +54,7 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
   folders, and `Samples/`, which every app shares: renaming or deleting a sample affects every project
   that names it.
 - FAT long file names are required (`CardenzaSynth`, `.ccproj`, `.ccpreset`, `.bak` / `.tmp` files).
+- Nothing else of ours goes at the card's root.
   File names the user sees stay ASCII.
 
 ## 2. File formats
@@ -138,18 +146,23 @@ pending edits: for tests, not for a card coming back.
 | Key | Meaning |
 |---|---|
 | `protocol` | storage protocol version of the card: 2 |
-| `sys.volume` | output volume 0–100 by ear: 0 mutes, v is −60 (1 − v/100)^1.5 dB (about −59 dB at 1, −21 dB at 50, −10 dB at 70, 0 dB at 100; `Device::Audio::SetOutputVolume`), default 70 |
-| `sys.volume.rev` | the meaning `sys.volume` was saved under, now 3; below that the volume goes back to the default, once (2: the output got louder, the 0.1.0 release saved below it; 3: the 60 dB curve, 2026-11-06, which replaced a −20–0 dB scale) |
-| `sys.led` | key LED master brightness 0–15, default 15 |
-| `sys.screen` | screen backlight 10–255, default 180 |
 | `sys.log` | `1` writes the console log to `Logs/` (OS/System/Log.h), `0` stops it; default 1 |
 | `sys.theme` | the screen's colors: `dark` (light on black, the default), `light` (ink on white paper) or `retro` (a backlit green LCD), in any case; any other value reads as `dark` |
 | `boot.app` | last non-system app; started at boot when it is still registered |
 
-Volume, key LEDs, screen, the log and the theme are device settings: the OS applies them at boot
-(the theme is applied by the app that draws, from `os::storage::ScreenTheme`, before each frame) and
-every app changes them only through `os::storage::SetOutputVolume / SetKeyLedBrightness /
-SetScreenBacklight / SetLogEnabled / SetScreenTheme`. Projects never carry them.
+The log and the theme are device settings: the OS reads them at boot (the theme is applied by the
+app that draws, from `os::storage::ScreenTheme`, before each frame) and every app changes them only
+through `os::storage::SetLogEnabled / SetScreenTheme`. Projects never carry them.
+
+The output volume, the key lights' master level and the screen's backlight are not here: they are
+the board's settings (since 2026-11-23), CardenzaHAL's, one value for every firmware on the board,
+changed in its HOME menu and over USB (`203cli board settings`) and kept in the board's flash by the
+HAL. The volume follows the same curve as before, 0–100 by ear: 0 mutes, v is −60 (1 − v/100)^1.5 dB
+(about −59 dB at 1, −21 dB at 50, −10 dB at 70, the default, 0 dB at 100). The groovebox's volume
+keys and its MIX master change that value (`os::storage::SetOutputVolume` →
+`Device::Audio::SetOutputVolume`). The `sys.volume`, `sys.volume.rev`, `sys.led` and `sys.screen`
+that firmware up to 0.2.2 wrote here are left in the file, unread (an older firmware on the same card
+still reads them).
 
 ### The log
 
@@ -188,7 +201,7 @@ wrong.
 | projects `<name>.ccproj` | `Projects/` |
 | user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums}/` |
 | samples (WAV) | `Samples/` |
-| app preferences (SELECT) | `Settings/synth.cfg` |
+| app preferences (SELECT, the recording gain `rec.gain`: 0-24 dB, default 12, applied by the device as the microphone is read) | `Settings/synth.cfg` |
 | working state (autosave) | `Session/autosave.ccproj` and `autosave.txt` |
 | sample take | `Session/take-<track>.wav`: a sample recording in progress or not saved yet; removed when it is saved or discarded |
 | volume, key LEDs, screen | `Settings/system.cfg` (device settings) |
@@ -243,12 +256,23 @@ neither read nor removed.
 
 ## 8. Older layouts and formats
 
-The runtime uses only the paths of section 1, which are the 0.1.0 release's: its settings, projects,
-preset banks and samples are read and written in place. Development builds between 0.1.0 and this
-firmware used `<card>/Cardenza/{System,Shared/Samples,Apps/Cardenza/Synth}` (protocol 1) and internal
-flash (NVS); the firmware before 0.1.0 used `<card>/CardenzaSynth/{Project,Preset,Sample}`. None of
-those folders or records is read, moved, changed or deleted, and nothing is imported from them
-automatically: a migration is discussed with the user before it is written. Format compatibility is
+The runtime uses only the paths of section 1, which are the 0.1.0 release's moved into
+`<card>/Apps/CardenzaSynth`. Firmware up to 0.2.2 (the 0.1.0 release among them) kept them at
+`<card>/CardenzaSynth`: at the start, before anything is read (`os::storage::DecideCardAtStart`, and
+`EnsureSystemLayout` for a card put in later), that folder moves into the new one
+(`Device::Storage::MoveIntoAppPath`, CardenzaHAL's `MigrateAppDir`; the user's decision 2026-11-23):
+one rename when only the old folder is there, nothing copied. When both are there (back to an older
+firmware, which makes the old folder again, and forward), what the new folder lacks moves in, a folder
+both have is merged the same way, and an entry the new folder has already stays in the old one: nothing
+is overwritten or deleted. Each step is one rename, so a power cut at any moment loses nothing and the
+next start finishes; once moved it costs a stat. An older firmware put back on the device sees a card
+without its files (they are in the new folder).
+
+Development builds between 0.1.0 and 0.2.0 used `<card>/Cardenza/{System,Shared/Samples,Apps/Cardenza/Synth}`
+(protocol 1) and internal flash (NVS): none of it is read, moved, changed or deleted. The firmware
+before 0.1.0 used `<card>/CardenzaSynth/{Project,Preset,Sample}`: those folders move along with the
+rest (they are in the same folder) and are not read. Nothing is imported from either automatically: a
+migration is discussed with the user before it is written. Format compatibility is
 separate from the folders: project formats 1–7, preset format 1 and compatible WAV files are read
 wherever this firmware looks.
 
@@ -259,7 +283,7 @@ wherever this firmware looks.
 | API | Responsibility |
 |---|---|
 | `kProtocolVersion` (2), `kPrimaryAppId` | the protocol and the app that owns the product root |
-| `Root()` | `<card>/CardenzaSynth` |
+| `Root()` | `<card>/Apps/CardenzaSynth` (`Device::Storage::AppPath()`) |
 | `SystemDirectory()`, `SystemSettingsPath()` | `Settings/`, `Settings/system.cfg` |
 | `SharedDirectory()`, `SharedSamplesDirectory()` | the root and `Samples/` |
 | `AppsDirectory()`, `LogDirectory()` | `Apps/`, `Logs/` |

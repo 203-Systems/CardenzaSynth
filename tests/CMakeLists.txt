@@ -46,6 +46,7 @@ add_executable(CardenzaStorageTests
   storage_protocol_test.cpp
   ${storage_test_sources}
   ${PROJECT_SOURCE_DIR}/Devices/CardenzaSim/Storage.cpp
+  ${PROJECT_SOURCE_DIR}/Devices/Cardenza/CardenzaHAL/storage/app_dir_logic.cpp
 )
 target_include_directories(CardenzaStorageTests PRIVATE ${PROJECT_SOURCE_DIR})
 add_test(NAME CardenzaStorageTests COMMAND CardenzaStorageTests)

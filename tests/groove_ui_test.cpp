@@ -1033,24 +1033,16 @@ void TestProject(Harness& h)
   assert(std::count(h.State().projects.begin(), h.State().projects.end(), "GROOVE 2") == 0);
   assert(h.State().projects[h.State().fileCursor] == "OTHER");
 
-  // SETUP SYSTEM page (CTRL steps the pages): key lights and screen.
+  // SETUP SYSTEM page (CTRL steps the pages): the log and the theme. The volume, the key lights and the
+  // screen are the board's (the HOME menu's): not here.
   while (h.App().Ui().CurrentPage() != groove::kSetupSystem) h.Tap(kCtrl);
   assert(std::string(h.App().Ui().SettingsPageShown()->tab) == "SYSTEM");
+  for (const auto& slot : h.App().Ui().SettingsPageShown()->slots)
+    assert(!slot.IsParameter() || (std::string(slot.id) != "sys.volume" && std::string(slot.id) != "sys.led" && std::string(slot.id) != "sys.screen"));
   h.Render();
-  h.Tap(Grid(1));
-  // KEY LED focused: the pads show the brightness ramp, dark to full.
-  std::array<std::uint8_t, groove::kKeyCount> ramp{};
-  app.Ui().ComputeLeds(ramp);
-  assert(ramp[groove::KeyIndex(2, 1)] == 0 && ramp[groove::KeyIndex(2, 3)] == 7 && ramp[groove::KeyIndex(2, 8)] == 15);
-  h.Tap(kSub);
-  assert(app.LedBrightness() == 14);
-  h.Tap(kAdd);
-  h.Tap(Grid(2));
-  h.Tap(kSub);
-  assert(app.Backlight() == 175);
   // LOG: the console log on the card, on unless someone turns it off.
   assert(app.Logging());
-  h.Tap(Grid(3));
+  h.Tap(Grid(0));
   h.Tap(kSub);
   assert(!app.Logging());
   h.Tap(kAdd);
@@ -1065,7 +1057,7 @@ void TestProject(Harness& h)
     return std::max_element(counts.begin(), counts.end(), [](const auto& a, const auto& b) { return a.second < b.second; })->first;
   };
   assert(app.ScreenTheme() == os::storage::Theme::Dark && fieldShown() == groove::theme::kDarkPalette.field);
-  h.Tap(Grid(4));
+  h.Tap(Grid(1));
   h.Tap(kAdd);
   assert(app.ScreenTheme() == os::storage::Theme::Light && fieldShown() == groove::theme::kLightPalette.field);
   h.Tap(kAdd);
@@ -3392,14 +3384,14 @@ R 2 3 0 0 2
 END
 )FIXTURE";
 
-// The 0.1.0 release kept its projects and samples where they are now, <card>/CardenzaSynth/{Projects,
-// Samples} (storage protocol 2): they are listed and load as they are. Its session handover file is not
-// read or changed.
+// The 0.1.0 release kept its projects and samples in <card>/CardenzaSynth/{Projects,Samples} (storage
+// protocol 2), which moves as it is into <card>/Apps/CardenzaSynth at the start (os::storage): they are
+// listed and load as they are. Its session handover file is not read or changed.
 void TestReleaseProjects(Harness& h)
 {
   namespace fs = std::filesystem;
   auto& app = h.App();
-  const fs::path release = fs::path(Device::Storage::RootPath()) / "CardenzaSynth";
+  const fs::path release = fs::path(Device::Storage::AppPath());
   const fs::path ours = fs::path(synth::storage::ProjectDirectory());
   assert(fs::equivalent(ours, release / "Projects"));
   const auto write = [](const fs::path& path, const std::string& text) {

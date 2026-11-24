@@ -46,6 +46,11 @@ CONFIG_WL_SECTOR_SIZE_512=y
 # linked; the Wi-Fi and TLS settings below only matter when it is on again.
 CONFIG_CARDENZA_HAL_PRESENCE=n
 
+# This firmware's folder on the SD card in CardenzaHAL's layout: /sdcard/Apps/CardenzaSynth (not the CMake
+# project's CardenzaSynthFirmware). Firmware up to 0.2.2 kept it at /sdcard/CardenzaSynth: OS/Storage moves it
+# at the start (Device::Storage::MoveIntoAppPath). Never change it without moving the users' files again.
+CONFIG_CARDENZA_HAL_APP_NAME="CardenzaSynth"
+
 # The 203 community while the synth runs (CardenzaHAL's presence service, on by default; the device layer
 # tells it what the synth does: Devices/Cardenza/DevicePresence.h). Off in 0.2.1: Wi-Fi took 38.6 KB of
 # internal RAM and the synth kept 32 KB for itself, more than the 63-69 KB it left. On again (2026-11-18)

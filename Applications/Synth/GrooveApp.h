@@ -20,9 +20,10 @@ namespace apps {
 // The Cardenza groovebox: four engine tracks, the step sequencer, sampler, mixer and project
 // storage behind the terminal / dither UI in Applications/Synth/UI/Groove.
 //
-// Storage (docs/app-storage-protocol.md), on the SD card only, below CardenzaSynth/: projects in
-// Projects/, preset banks in Presets/<engine>/, samples in Samples/. SELECT is an app setting in
-// Settings/synth.cfg; volume, key LEDs and screen are device settings in Settings/system.cfg
+// Storage (docs/app-storage-protocol.md), on the SD card only, below Apps/CardenzaSynth/: projects in
+// Projects/, preset banks in Presets/<engine>/, samples in Samples/. SELECT and the recording gain are
+// app settings in Settings/synth.cfg; the log and the theme are device settings in Settings/system.cfg
+// (volume, key lights and screen are the board's: CardenzaHAL's settings, the HOME menu's)
 // (os::storage). Neither changes when a project is loaded or created. The working state is the
 // autosave in Session/ (SessionStore): written once changes settle and on Suspend, restored by Setup.
 // A run that starts without a card says so and saves nothing (os::storage::CardMissingThisRun).
@@ -89,10 +90,6 @@ public:
   groove::SaveResult RenameProject(const std::string& from, const std::string& to, std::string& message) override;
   bool LoadProject(const std::string& name, groove::ProjectUiSettings& settings, std::string& message) override;
   bool NewProject(groove::ProjectUiSettings& settings, std::string& message) override;
-  void SetLedBrightness(std::uint8_t level) override;
-  std::uint8_t LedBrightness() const override;
-  void SetBacklight(std::uint8_t level) override;
-  std::uint8_t Backlight() const override;
   void SetLogging(bool on) override;
   bool Logging() const override;
   void SetScreenTheme(os::storage::Theme theme) override;
@@ -224,6 +221,7 @@ private:
   std::array<bool, synth::kSynthTrackCount> soloed_{};
   // SELECT as last written to the app settings, to notice changes cheaply every tick.
   bool storedMultiSelect_ = false;
+  int storedRecordGain_ = synth::SamplerManager::kDefaultRecordGainDb;
   // Tempo last sent to the synced delay.
   std::uint16_t fxTempo_ = 0;
   // The app's folders are on the card (made at boot, when the card is back and after a failed write);

@@ -93,11 +93,7 @@ public:
   virtual bool LoadProject(const std::string& name, ProjectUiSettings& settings, std::string& message) = 0;
   virtual bool NewProject(ProjectUiSettings& settings, std::string& message) = 0;
 
-  // System.
-  virtual void SetLedBrightness(std::uint8_t level) = 0;  // 0..15
-  virtual std::uint8_t LedBrightness() const = 0;
-  virtual void SetBacklight(std::uint8_t level) = 0;  // 0..255
-  virtual std::uint8_t Backlight() const = 0;
+  // System. (The key lights and the screen are the board's settings, the HOME menu's: not the app's.)
   // The console log on the card (a device setting, OS/System/Log.h).
   virtual void SetLogging(bool on) = 0;
   virtual bool Logging() const = 0;

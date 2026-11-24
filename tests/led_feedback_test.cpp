@@ -49,7 +49,7 @@ void Run()
     Settle settle;
     std::int64_t now = 0;
     bool shown = false;
-    for (std::int64_t elapsed = 0; elapsed < Settle::kLongestHoldUs + kFrame * 4; elapsed += kFrame) shown = settle.Update(3, true, now += kFrame);
+    for (std::int64_t elapsed = 0; elapsed < Settle::kDefaultLongestHoldUs + kFrame * 4; elapsed += kFrame) shown = settle.Update(3, true, now += kFrame);
     assert(!shown && settle.Stuck() == 1);
     for (int frame = 0; frame < 100; ++frame) assert(!settle.Update(3, true, now += kFrame));
     assert(!settle.Update(3, false, now += kFrame));

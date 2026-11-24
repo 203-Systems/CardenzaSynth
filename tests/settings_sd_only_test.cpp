@@ -63,7 +63,7 @@ struct ScratchCard {
 
 std::string Path(const char* name)
 {
-  return (cardRoot / "CardenzaSynth" / "Settings" / name).generic_string();
+  return (cardRoot / "Apps" / "CardenzaSynth" / "Settings" / name).generic_string();
 }
 
 void MissingCardAndLateInsertion()
@@ -241,7 +241,7 @@ void RunWithoutCard()
           "settings without a card are not kept in RAM");
   os::storage::ReportCardIoError();
   Require(mountCalls == mounts && writeFailureChecks == checks, "a run without a card asked the device about the card");
-  Require(Read(path) == "sys.volume=80\n" && !fs::exists(cardRoot / "CardenzaSynth" / "New") && !fs::exists(path + ".tmp"),
+  Require(Read(path) == "sys.volume=80\n" && !fs::exists(cardRoot / "Apps" / "CardenzaSynth" / "New") && !fs::exists(path + ".tmp"),
           "the card changed in a run without one");
   // The next start finds it.
   Require(os::storage::DecideCardAtStart() && !os::storage::CardMissingThisRun() && os::storage::Exists(path),
@@ -255,6 +255,9 @@ namespace Device::Storage {
 void CheckAfterIoError() { ++writeFailureChecks; }
 
 std::string RootPath() { return cardRoot.generic_string(); }
+std::string AppPath() { return (cardRoot / "Apps" / "CardenzaSynth").generic_string(); }
+// No card here was written by an older firmware: nothing to move.
+bool MoveIntoAppPath(const std::string&) { return IsMounted(); }
 bool Mount()
 {
   ++mountCalls;

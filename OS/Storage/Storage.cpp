@@ -20,7 +20,10 @@ namespace os::storage {
 
 namespace {
 
-constexpr std::string_view kRootFolder = "CardenzaSynth";
+// Where firmware up to 0.2.2 kept everything, at the card's root (storage protocol 2 as the 0.1.0 release
+// laid it out). Since 2026-11-23 (the user: moved at the start, by itself) it is this firmware's folder in
+// CardenzaHAL's layout, Device::Storage::AppPath(): <card>/Apps/CardenzaSynth.
+constexpr std::string_view kLegacyRootFolder = "CardenzaSynth";
 constexpr std::string_view kSettingsFolder = "Settings";
 constexpr std::string_view kSamplesFolder = "Samples";
 constexpr std::string_view kAppsFolder = "Apps";
@@ -74,7 +77,7 @@ std::string JoinPath(std::string_view directory, std::string_view name)
 
 std::string Root()
 {
-  return JoinPath(Device::Storage::RootPath(), kRootFolder);
+  return Device::Storage::AppPath();
 }
 
 std::string SystemDirectory()
@@ -161,12 +164,26 @@ std::string AppFolder::Folder(std::string_view name) const
   return Valid() && IsValidFolderName(name) ? JoinPath(Root(), name) : std::string();
 }
 
+namespace {
+
+// The old folder moves into Root() before anything is read or made there (a folder made first would
+// turn the one rename into a merge). Once moved it costs a stat; a move that failed is finished by the
+// next call, at the next start at the latest, and nothing is ever overwritten.
+void MoveLegacyRoot()
+{
+  const std::string legacy = JoinPath(Device::Storage::RootPath(), kLegacyRootFolder);
+  if (!Device::Storage::MoveIntoAppPath(legacy)) std::printf("storage: %s not moved into %s yet\n", legacy.c_str(), Root().c_str());
+}
+
+}  // namespace
+
 bool DecideCardAtStart()
 {
   // The device tried to mount the card as it started; this asks once more at most (the device limits
   // how often a missing card is probed).
   const bool present = Device::Storage::Mount();
   g_cardRun.store(present ? kCardThere : kCardMissing, std::memory_order_relaxed);
+  if (present) MoveLegacyRoot();
   return present;
 }
 
@@ -217,6 +234,8 @@ std::uint64_t CardFreeBytes()
 bool EnsureSystemLayout()
 {
   if (!CardPresent()) return false;
+  // A card put in during the run may be one an older firmware wrote.
+  MoveLegacyRoot();
   // Apps/ and Logs/ come when something is put there.
   for (const std::string& path : {Root(), SystemDirectory(), SharedSamplesDirectory()})
     if (!CreateDirectories(path)) return false;

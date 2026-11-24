@@ -11,6 +11,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include "audio/audio.h"
+#include "display/presenter.h"
 #include "Devices/Cardenza/DeviceLog.h"
 #include "Devices/Cardenza/DevicePresence.h"
 #include "Devices/Device.h"
@@ -25,10 +27,8 @@ extern "C" std::uint8_t _ext_ram_bss_end;
 namespace {
 
 constexpr char kLogTag[] = "Cardenza";
-// A frame every 10 ms (keys, LEDs, the app's tick); the screen is drawn every other one, 50 fps.
-// pdMS_TO_TICKS rounds down: 16 ms was one 10 ms tick at 100 Hz.
-constexpr TickType_t kFrameTick = pdMS_TO_TICKS(10);
-static_assert(kFrameTick >= 1, "the frame tick needs a tick rate of 100 Hz or more (the screen wants 1000 Hz, sdkconfig.defaults)");
+// A tick every 10 ms (keys, LEDs, the app's tick); the screen is drawn every other one, 50 fps.
+static_assert(pdMS_TO_TICKS(10) >= 1, "the frame tick needs a tick rate of 100 Hz or more (the screen wants 1000 Hz, sdkconfig.defaults)");
 // ESP-IDF's task creation APIs take bytes, unlike upstream FreeRTOS.
 constexpr uint32_t kRuntimeTaskStackBytes = 16384;
 constexpr UBaseType_t kRuntimeTaskPriority = 5;
@@ -121,36 +121,27 @@ void CardenzaRuntimeTask(void*)
              Device::Display::kHeight);
     LogInternalHeap("after boot");
 
-    // A frame every 10 ms, drawn every other one (50 fps). xTaskDelayUntil does not
-    // block after a frame longer than that, and the tasks below this one on core 0 (the card's log and
-    // autosave writer, the idle task) then never ran while the frames stayed long: a restored project
-    // with 10 ms frames kept core 0 at 93% with nothing left to them, and the stress build's watchdog
-    // restarted the board every 10 s (2026-11-04). After three late frames in a row they get one tick.
-    TickType_t lastWakeTime = xTaskGetTickCount();
-    int lateFrames = 0;
-    for (std::uint32_t frame = 0;; ++frame)
+    // A tick every 10 ms, drawn every other one (50 fps): CardenzaHAL's FramePacer. A late tick does not
+    // sleep, and the tasks below this one on core 0 (the card's log and autosave writer, the idle task)
+    // then never ran while the frames stayed long: a restored project with 10 ms frames kept core 0 at 93%
+    // with nothing left to them, and the stress build's watchdog restarted the board every 10 s
+    // (2026-11-04). After three late ticks in a row the pacer sleeps one RTOS tick anyway.
+    CardenzaHAL::Display::FramePacer pacer({10, 2, 3});
+    for (;;)
     {
         // Firmware sent from the community: the app shuts down as at an orderly power-off, then the
         // presence service restarts the device into the Launcher (Devices/Cardenza/DevicePresence.h).
         if (device::presence::HandoverRequested())
         {
-            Device::Audio::SetOutputVolume(0);
+            // Silent for the restart: the codec's level only, not the board's volume setting.
+            (void)CardenzaHAL::Audio::SetVolume(0);
             os::system::Shutdown();
             device::presence::HandoverPrepared();
             for (;;) vTaskDelay(pdMS_TO_TICKS(100));
         }
         device::presence::Frame();
-        os::system::RunFrame(frame % 2 == 0);
-        if (xTaskDelayUntil(&lastWakeTime, kFrameTick) == pdTRUE)
-        {
-            lateFrames = 0;
-        }
-        else if (++lateFrames >= 3)
-        {
-            lateFrames = 0;
-            vTaskDelay(1);
-            lastWakeTime = xTaskGetTickCount();
-        }
+        os::system::RunFrame(pacer.DrawTick());
+        (void)pacer.Wait();
     }
 }
 

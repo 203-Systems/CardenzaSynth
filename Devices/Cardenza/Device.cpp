@@ -22,6 +22,8 @@
 #include <sdkconfig.h>
 
 #include "cardenzaHAL.h"
+#include "storage/app_dir.h"
+#include "system/settings.h"
 #include "usb/usb.h"
 #include "Devices/Cardenza/DevicePresence.h"
 #include "Devices/Cardenza/DeviceUsbStats.h"
@@ -58,7 +60,8 @@ constexpr std::size_t MatrixIndex(std::size_t row, std::size_t column) {
 }
 
 // What the HAL holds now. Key levels are perceived brightness, gamma-mapped to the HAL's linear duty
-// (Devices/LedLight.h) and sent as one frame; the master level goes as it is, the HAL corrects it.
+// (Devices/LedLight.h) and sent as one frame. The master level is not the frame's: it is the board's
+// key-light setting (CardenzaHAL's KeyBrightness, Device::LED::SetGlobalBrightness), which the HAL applies.
 Device::LED::detail::LedFrame halLeds{};
 bool halLedsKnown = false;
 
@@ -70,7 +73,6 @@ void PublishLedFrame(bool changed) {
     for (std::size_t index = 0; index < frame.levels.size(); ++index) duties[index] = Device::LED::KeyLevel(frame.levels[index]);
     CardenzaHAL::Keyboard::setLEDFrame(duties);
   }
-  if (!halLedsKnown || frame.master != halLeds.master) CardenzaHAL::Keyboard::setLEDGlobalBrightness(frame.master);
   if (!halLedsKnown || frame.enabled != halLeds.enabled) (void)CardenzaHAL::Keyboard::enableLED(frame.enabled);
   halLeds = frame;
   halLedsKnown = true;
@@ -94,99 +96,15 @@ void Clear(Pixel color) {
   frameBuffer.fill(color);
 }
 
-namespace {
-
-// A whole frame takes the panel 17 ms (SPI at 40 MHz, the HAL sending eight rows at a time and waiting
-// for each), most of a frame at 50 fps, and with the audio busy the UI task waited behind the
-// render for every band: 25-30 ms (the stress test, 2026-11-04). So only what changed is sent. Every
-// row is hashed in segments of 30 pixels and compared with the last frame's; each band of eight rows
-// sends its changed rows across the span of its changed segments.
-constexpr int kSegmentPixels = 30;
-constexpr int kSegments = kWidth / kSegmentPixels;
-constexpr int kBandRows = 8;
-constexpr int kBands = (kHeight + kBandRows - 1) / kBandRows;
-static_assert(kSegments * kSegmentPixels == kWidth && kSegments <= 32 && kSegmentPixels % 2 == 0);
-// Every segment starts on a word boundary (the buffer is alignas(4)), so it is hashed a word at a time.
-static_assert((kWidth * sizeof(Pixel)) % 4 == 0 && (kSegmentPixels * sizeof(Pixel)) % 4 == 0);
-// kHeight * kSegments hashes, read once a frame: PSRAM. Null: whole frames.
-std::uint32_t* segmentHashes = nullptr;
-bool segmentHashesTried = false;
-// One band is sent whole every frame, whether it changed or not, a different one each time: the whole
-// screen comes again every kBands frames (about 0.34 s at 50 fps) for about 1 ms of SPI a frame, so
-// nothing the panel lost or a hash missed stays on screen. A whole frame at once would take 17 ms.
-int refreshBand = 0;
-
-// ESP-IDF builds with -fno-builtin-memcpy: std::memcpy is a call to the ROM even for one word, and
-// hashing a frame that way took 3.6 ms of the UI's 20 (5.5 ms with the audio busy). __builtin_memcpy
-// of an aligned word is one load: 0.4 ms (2026-11-05).
-std::uint32_t HashSegment(const Pixel* pixels)
-{
-  std::uint32_t hash = 2166136261u;
-  const auto* bytes = static_cast<const unsigned char*>(__builtin_assume_aligned(pixels, 4));
-  for (int index = 0; index < kSegmentPixels; index += 2)
-  {
-    std::uint32_t word;
-    __builtin_memcpy(&word, __builtin_assume_aligned(bytes + 2 * index, 4), sizeof(word));
-    hash = (hash ^ word) * 16777619u;
-  }
-  return hash ^ (hash >> 15);
-}
-
-}  // namespace
-
 void Present() {
-  // The HAL waits for what it sends. Its first frame, and the one after a failed send, is always the
-  // whole screen; it also turns the backlight on and applies its level when nothing changed.
-  if (!segmentHashesTried)
-  {
-    segmentHashesTried = true;
-    segmentHashes = new (memory::slow) std::uint32_t[static_cast<std::size_t>(kHeight) * kSegments]();
-  }
-  if (segmentHashes == nullptr)
-  {
-    (void)CardenzaHAL::Display::Present(frameBuffer.data());
-    return;
-  }
-  std::array<CardenzaHAL::Display::Region, kBands> regions{};
-  std::size_t count = 0;
-  for (int band = 0; band < kHeight; band += kBandRows)
-  {
-    std::uint32_t changed = 0;
-    int first = -1, last = -1;
-    for (int y = band; y < std::min(band + kBandRows, kHeight); ++y)
-    {
-      std::uint32_t row = 0;
-      for (int segment = 0; segment < kSegments; ++segment)
-      {
-        const std::uint32_t hash = HashSegment(frameBuffer.data() + y * kWidth + segment * kSegmentPixels);
-        std::uint32_t& previous = segmentHashes[y * kSegments + segment];
-        if (hash == previous) continue;
-        previous = hash;
-        row |= 1u << segment;
-      }
-      if (row == 0) continue;
-      if (first < 0) first = y;
-      last = y;
-      changed |= row;
-    }
-    if (band / kBandRows == refreshBand)
-    {
-      changed = (1u << kSegments) - 1;
-      first = band;
-      last = std::min(band + kBandRows, kHeight) - 1;
-    }
-    if (changed == 0) continue;
-    const int left = __builtin_ctz(changed);
-    const int right = 31 - __builtin_clz(changed);
-    const CardenzaHAL::Display::Region region{left * kSegmentPixels, first, (right - left + 1) * kSegmentPixels, last - first + 1};
-    CardenzaHAL::Display::Region* above = count > 0 ? &regions[count - 1] : nullptr;
-    if (above != nullptr && above->x == region.x && above->width == region.width && above->y + above->height == region.y)
-      above->height += region.height;
-    else
-      regions[count++] = region;
-  }
-  refreshBand = (refreshBand + 1) % kBands;
-  (void)CardenzaHAL::Display::Present(frameBuffer.data(), regions.data(), count);
+  // Only what changed goes to the panel: CardenzaHAL's PresentChanged (display/presenter.h, the path this
+  // firmware had, moved into the HAL): every row hashed in segments of 30 pixels against the last frame
+  // (the table in PSRAM), the changed regions sent in the panel's scan order, one band of eight rows sent
+  // whole every frame (the whole screen every 0.34 s at 50 fps, so nothing a hash missed stays). A whole
+  // frame took 17 ms of SPI at 40 MHz, and with the audio busy the UI waited behind the render for every
+  // band (25-30 ms, the stress test, 2026-11-04). Its first frame, the one after a failed send and the one
+  // after the system menu go whole; it turns the backlight on with the first.
+  (void)CardenzaHAL::Display::PresentChanged(frameBuffer.data());
 }
 
 void SetBacklight(std::uint8_t level) {
@@ -280,11 +198,12 @@ void Fill(std::uint8_t brightness) {
 }
 
 void SetGlobalBrightness(std::uint8_t brightness) {
-  PublishLedFrame(keyboardLedFrames.SetMaster(brightness));
+  // The board's key-light setting: the HAL applies it and keeps it (the HOME menu shows the same value).
+  (void)CardenzaHAL::Settings::Set(CardenzaHAL::Settings::Id::KeyBrightness, (std::min)(brightness, Device::LED::kBrightnessMax));
 }
 
 std::uint8_t GlobalBrightness() {
-  return keyboardLedFrames.Current().master;
+  return static_cast<std::uint8_t>(CardenzaHAL::Settings::Get(CardenzaHAL::Settings::Id::KeyBrightness));
 }
 
 void SetEnabled(bool enabled) {
@@ -380,6 +299,18 @@ namespace Storage {
 
 std::string RootPath() {
   return kCardRoot;
+}
+
+std::string AppPath() {
+  // CONFIG_CARDENZA_HAL_APP_NAME (sdkconfig.defaults): CardenzaSynth.
+  return CardenzaHAL::Storage::AppDir();
+}
+
+bool MoveIntoAppPath(const std::string& oldPath) {
+  // The HAL logs a line when it moved or left something (CardenzaStorage).
+  using Outcome = CardenzaHAL::Storage::MigrateReport::Outcome;
+  const Outcome outcome = CardenzaHAL::Storage::MigrateAppDir(oldPath).outcome;
+  return outcome != Outcome::Failed && outcome != Outcome::NoCard;
 }
 
 bool Mount() {
