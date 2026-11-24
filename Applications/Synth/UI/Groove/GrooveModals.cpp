@@ -335,6 +335,8 @@ void Controller::ModalAdjust(int delta, bool coarse)
     }
     case ModalKind::SampleRecord:
     {
+      // A chop keeps its take whole: there is no trim to move.
+      if (ChopTrack()) return;
       const auto sampler = host_.Sampler().BuildUiState(state_.track);
       synth::ISynthEngine* engine = ActiveEngine();
       if (!sampler.hasDraft || engine == nullptr) return;
@@ -676,6 +678,12 @@ void Controller::SampleRecordEnter()
   }
   if (state.hasDraft)
   {
+    // A sampler's take: ENTER picks the trim's START or END. A chop's has no trim: ENTER keeps it.
+    if (ChopTrack())
+    {
+      sampler.EnterDraftNaming(state_.track);
+      return;
+    }
     Modal* modal = Top();
     if (modal != nullptr) modal->trimMarker = modal->trimMarker == 0 ? 1 : 0;
     return;
@@ -696,8 +704,11 @@ void Controller::SampleRecordGrid(std::size_t index)
   }
   switch (index)
   {
-    case 0: modal->trimMarker = 0; break;
-    case 1: modal->trimMarker = 1; break;
+    case 0:
+    case 1:
+      // START and END of a sampler's take; a chop's has none.
+      if (!ChopTrack()) modal->trimMarker = static_cast<std::uint8_t>(index);
+      break;
     case 2: host_.PreviewSample(state_.track); break;
     case 3: sampler.EnterDraftNaming(state_.track); break;
     default: break;

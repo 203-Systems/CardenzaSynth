@@ -2669,6 +2669,52 @@ void TestChop(Harness& h)
   assert(app.LoadProject("CHOP TEST", settings, message));
   assert(app.EngineKind(track) == Kind::Chop && app.Sampler().BuildUiState(track).sampleFileName == "CHOPTEST.wav");
   assert(ParameterValue(app, track, "slice.01.start") == 2000 && ParameterValue(app, track, synth::kChopSlicesId) == 0);
+
+  // REC on SAMPLE (P90's design, #17): a take recorded on the chop track. Its screen has no START and
+  // END (the take is kept whole: ADD / SUB do nothing, ENTER keeps it), and it becomes the file the
+  // slices cut; VOICE draws it.
+  {
+    namespace sim = CardenzaSim::Input;
+    sim::SetMicrophonePresent(true);
+    h.Chord(kTab, Grid(track));  // the project opened on T1
+    GoToInstrumentPage(h, "SAMPLE");
+    h.Render();
+    h.Tap(Grid(1));
+    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::SampleRecord);
+    h.Tap(kEnter);
+    assert(app.Sampler().BuildUiState(track).recording);
+    for (int frame = 0; frame < 20; ++frame)
+    {
+      sim::FeedMicrophone(735);
+      h.Frames();
+    }
+    h.Tap(kEnter);
+    auto take = app.Sampler().BuildUiState(track);
+    assert(!take.recording && take.hasDraft && take.frameCount == 20 * 735);
+    h.Render();
+    assert(ui.AdjustKeysMean() == groove::AdjustMeaning::None);
+    const int startBefore = ParameterValue(app, track, "slice.01.start");
+    h.Tap(kAdd);
+    assert(ParameterValue(app, track, "slice.01.start") == startBefore && h.Modal() != nullptr);
+    ui.ComputeLeds(levels);
+    assert(levels[groove::KeyIndex(0, 9)] == groove::kLedOff && levels[groove::KeyIndex(0, 10)] == groove::kLedOff &&
+           levels[groove::KeyIndex(0, 11)] == groove::kLedHalf && levels[groove::KeyIndex(0, 12)] == groove::kLedHalf &&
+           levels[groove::KeyIndex(0, 13)] == groove::kLedOff && levels[groove::KeyIndex(1, 13)] == groove::kLedOff);
+    h.Tap(kEnter);
+    h.Frames(3);
+    take = app.Sampler().BuildUiState(track);
+    assert(h.Modal() == nullptr && take.hasSample && !take.hasDraft && take.frameCount == 20 * 735 && take.sampleFileName != "CHOPTEST.wav");
+    assert(ParameterValue(app, track, "slice.01.start") == 2000);
+    // The pages draw the take now, not the file before it (CHOPTEST's slices peak at 93 and fade, the
+    // microphone's sawtooth at 116 throughout; a take longer than the host's RAM limit plays from the
+    // card, drawn from its overview).
+    std::array<std::uint8_t, 64> peaks{};
+    assert(app.Sampler().WaveformPeaks(track, 0, take.frameCount, peaks.data(), peaks.size()));
+    assert(std::all_of(peaks.begin(), peaks.end(), [](std::uint8_t peak) { return peak >= 100; }));
+    GoToInstrumentPage(h, "VOICE");
+    h.Render();
+    sim::SetMicrophonePresent(false);
+  }
   assert(app.SwitchEngine(track, Kind::Juno, error));
   h.Chord(kTab, Grid(synth::kDefaultActiveTrack));
 }

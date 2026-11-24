@@ -239,10 +239,20 @@ void DrawSampleRecord(Gfx& g, const Controller& controller, Animator& animator)
     const bool hasEnd = engine != nullptr && engine->GetParameterInfo("sample.end", end);
     const Modal* modal = controller.TopModal();
     const std::uint8_t marker = modal != nullptr ? modal->trimMarker : 0;
-    widgets::ParamCell(g, Cell(0, 0), "START", hasStart ? std::to_string(start.value) : "--", hasStart ? start.value / 127.0f : -1.0f,
-                       marker == 0 ? CellStyle::Focused : CellStyle::Normal);
-    widgets::ParamCell(g, Cell(0, 1), "END", hasEnd ? std::to_string(end.value) : "--", hasEnd ? end.value / 127.0f : -1.0f,
-                       marker == 1 ? CellStyle::Focused : CellStyle::Normal);
+    if (controller.ChopTrack())
+    {
+      // A chop keeps its take whole and slices it like any file (EVEN cuts a part of it out later).
+      const Rect note = CellSpan(0, 0, 1, 2);
+      g.TextFit(note.x + 2, note.y + 9, note.width - 4, "WHOLE TAKE", kInk);
+      g.TextFit(note.x + 2, note.y + 17, note.width - 4, "SLICED AFTER SAVE", kDim);
+    }
+    else
+    {
+      widgets::ParamCell(g, Cell(0, 0), "START", hasStart ? std::to_string(start.value) : "--", hasStart ? start.value / 127.0f : -1.0f,
+                         marker == 0 ? CellStyle::Focused : CellStyle::Normal);
+      widgets::ParamCell(g, Cell(0, 1), "END", hasEnd ? std::to_string(end.value) : "--", hasEnd ? end.value / 127.0f : -1.0f,
+                         marker == 1 ? CellStyle::Focused : CellStyle::Normal);
+    }
     widgets::ActionCell(g, Cell(0, 2), "PLAY", state.gridDown[2], kPlay);
     widgets::ActionCell(g, Cell(0, 3), "SAVE", state.gridDown[3], kTab);
     const Rect wave = CellSpan(1, 0, 3, 4);
@@ -414,7 +424,8 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
     {
       const auto sampler = controller.HostView().Sampler().BuildUiState(controller.State().track);
       if (sampler.recording) return "ENTER STOP   ESC CANCEL";
-      if (sampler.hasDraft) return "SUB ADD TRIM   ENTER START/END   ESC DISCARD";
+      // A chop keeps its take whole: no trim to move, ENTER keeps it.
+      if (sampler.hasDraft) return controller.ChopTrack() ? "ENTER SAVE   ESC DISCARD" : "SUB ADD TRIM   ENTER START/END   ESC DISCARD";
       return "ENTER RECORD   ESC CLOSE";
     }
     case ModalKind::None:

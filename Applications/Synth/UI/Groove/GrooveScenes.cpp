@@ -2215,6 +2215,7 @@ MenuItems Controller::Menu() const
       {
         put(8, MenuAction::SampleFiles, "SAMPLES", "FILES");
         put(9, MenuAction::ChopEven, "EVEN", "INTO " + std::to_string(ChopSliceCount()));
+        put(10, MenuAction::SampleRecord, "RECORD", "SAMPLE");
       }
       break;
     }

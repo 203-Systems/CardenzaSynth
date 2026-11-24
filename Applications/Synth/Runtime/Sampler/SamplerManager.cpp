@@ -278,10 +278,12 @@ void SamplerManager::OnTrackEngineChanged(std::size_t trackIndex, SynthEngineKin
   }
 
   TrackState& state = tracks_[trackIndex];
-  // The chop plays a file as the sampler does (loaded, streamed and kept the same way); only the
-  // sampler records into its track.
+  // The chop plays a file as the sampler does (loaded, streamed and kept the same way), and records into
+  // its track as the sampler does (P90's design, #17): its take is kept whole (no trim: the chop has no
+  // start and end of its own, EVEN cuts a part out), then sliced like any file.
   state.isSampler = kind == SynthEngineKind::Sampler || kind == SynthEngineKind::Chop;
-  state.records = kind == SynthEngineKind::Sampler;
+  state.records = state.isSampler;
+  state.chop = kind == SynthEngineKind::Chop;
   if (!state.isSampler)
   {
     if (activeRecordingTrack_ == static_cast<int>(trackIndex))
@@ -763,7 +765,7 @@ void SamplerManager::BuildOverview(TrackState& state)
 {
   state.overview.reset();
   const auto& frames = state.currentFrames;
-  if (state.records || !frames || !frames->stream || frames->frameCount == 0) return;
+  if (!state.chop || !frames || !frames->stream || frames->frameCount == 0) return;
   std::unique_ptr<std::uint8_t[]> overview(new (memory::slow) std::uint8_t[kOverviewBins]);
   // Into internal RAM: the card's DMA cannot reach PSRAM.
   std::unique_ptr<std::int16_t[]> probe(new (std::nothrow) std::int16_t[kOverviewProbeFrames]);
@@ -870,6 +872,7 @@ bool SamplerManager::DeleteBrowserSample(std::size_t trackIndex, std::string_vie
   {
     StopPreview(trackIndex, state);
     state.currentFrames.reset();
+    state.overview.reset();
     state.currentSampleRate = audio::kSampleRate;
     state.ui = SamplerTrackUiState{};
     state.trimResetPending = true;
@@ -1269,6 +1272,8 @@ bool SamplerManager::SaveDraftAs(TrackState& state, std::string_view name, bool 
   state.ui.trimEndFrame = state.ui.frameCount;
   state.ui.previewCursorFrame = state.ui.trimStartFrame;
   BuildWaveform(state.ui.waveform, state.currentFrames);
+  // A chop's pages draw the saved take from now on (a long one from the card: its overview).
+  BuildOverview(state);
   state.ui.previewing = false;
   state.trimResetPending = true;
   SyncAudioSample(trackIndex, state);

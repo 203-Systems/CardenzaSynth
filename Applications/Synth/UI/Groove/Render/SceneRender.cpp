@@ -160,37 +160,8 @@ void DrawPads(Gfx& g, const Controller& controller, Animator& animator, const Re
   }
 }
 
-// A chop's slices as its pads lie (ChopPadSlice): eight in a row, sixteen in a 4 x 4 block under the
-// pads' middle columns. The one the pads chose (what SLICE edits) is outlined, a held one is filled in
-// the track's colour, a hit glows and fades.
-void DrawChopPads(Gfx& g, const Controller& controller, Animator& animator, const Rect& area)
-{
-  const std::size_t slices = controller.ChopSliceCount();
-  const bool inRow = ChopRowVelocity(slices);
-  const int rows = inRow ? 1 : static_cast<int>(kRows);
-  constexpr int kGap = 2;
-  const int padWidth = (area.width - kGap * static_cast<int>(kPadColumns - 1)) / static_cast<int>(kPadColumns);
-  const int padHeight = (area.height - kGap * (rows - 1)) / rows;
-  const int left = area.x + (area.width - (padWidth * static_cast<int>(kPadColumns) + kGap * static_cast<int>(kPadColumns - 1))) / 2 +
-                   (inRow ? 0 : static_cast<int>(kChopBlockFirstColumn - kPadFirstColumn) * (padWidth + kGap));
-  const std::uint32_t now = animator.Now();
-  const Color color = TrackColor(controller.State().track);
-  for (std::size_t slice = 0; slice < slices; ++slice)
-  {
-    const int column = static_cast<int>(inRow ? slice : slice % kChopBlockColumns);
-    const int row = static_cast<int>(inRow ? 0 : slice / kChopBlockColumns);
-    const Rect rect{left + column * (padWidth + kGap), area.y + row * (padHeight + kGap), padWidth, padHeight};
-    const int note = synth::ChopSliceNote(slice);
-    const bool held = controller.IsNoteHeld(note);
-    const bool picked = slice == controller.ChopSlice();
-    const float hit = fx::Decay(now, animator.NoteHitAt(note), kAfterglowMs);
-    if (held) g.Fill(rect, color);
-    else if (hit > 0.0f) g.Dither(rect, color, static_cast<int>(hit * 12.0f));
-    g.Stroke(rect, picked || held ? kInk : kFaint);
-    const std::string number = std::to_string(slice + 1);
-    g.TextAligned(Rect{rect.x, rect.y + (rect.height - 7) / 2, rect.width, 8}, number, held ? kBlack : picked ? kInk : kDim, Font::Micro, Align::Center);
-  }
-}
+// The chop's file (below, with the page graphics): VOICE draws it too.
+void DrawChopFile(Gfx& g, const Controller& controller, Animator& animator, bool magnified, const Rect& area, bool title);
 
 // A waveform: `peaks` (0..255) one a column across `rect`, mirrored about its middle.
 void DrawPeaks(Gfx& g, const Rect& rect, const std::uint8_t* peaks, std::size_t count, Color color)
@@ -304,8 +275,15 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
   }
   else if (host.EngineKind(state.track) == synth::SynthEngineKind::Chop)
   {
+    // A chop track: its file and how long it is, in place of the keyboard's layout. Without one the
+    // waveform's line below says so (DrawChopFile).
     const auto sampler = host.Sampler().BuildUiState(state.track);
-    g.TextFit(x + 8, infoY, area.x + area.width - x - 8, sampler.hasSample ? sampler.sampleName : std::string("NO SAMPLE - SAMPLE > FILE"), kDim);
+    if (sampler.hasSample)
+    {
+      char length[24];
+      std::snprintf(length, sizeof(length), "  %.2fS", static_cast<double>(sampler.frameCount) / static_cast<double>(std::max<std::uint32_t>(1, sampler.sampleRate)));
+      g.TextFit(x + 8, infoY, area.x + area.width - x - 8, sampler.sampleName + length, kDim);
+    }
   }
   else if (host.EngineKind(state.track) != synth::SynthEngineKind::Drums)
   {
@@ -325,7 +303,10 @@ void DrawVoice(Gfx& g, const Controller& controller, Animator& animator, const R
   }
   if (host.EngineKind(state.track) == synth::SynthEngineKind::Chop)
   {
-    DrawChopPads(g, controller, animator, lower);
+    // The file itself where the keys would be (P90's design, #17): the same picture as the SAMPLE
+    // page, the slices on it and the playhead of the one sounding. The pads show the slices already
+    // (their lights), the screen shows what they cut.
+    DrawChopFile(g, controller, animator, false, lower, false);
     return;
   }
   const int base = synth::kHomePerformanceBaseMidiNote + state.keyboard.octave * 12;
@@ -446,14 +427,13 @@ void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, co
 // track's colour. SLICE: that slice magnified (the window the controller keeps, ChopView), its start
 // and end drawn across, the focused one solid, the neighbours' points dotted. A slice playing draws its
 // playhead.
-void DrawChopFile(Gfx& g, const Controller& controller, Animator& animator, const InstrumentPage& page, const Rect& area)
+void DrawChopFile(Gfx& g, const Controller& controller, Animator& animator, bool magnified, const Rect& area, bool title)
 {
   const Host& host = controller.HostView();
   const std::size_t track = controller.State().track;
   const auto* engine = host.Engine(track);
   const auto sampler = host.Sampler().BuildUiState(track);
   const std::uint32_t now = animator.Now();
-  const bool magnified = page.graphic == PageGraphic::ChopSlice;
   const std::size_t picked = controller.ChopSlice();
   // Every point once a frame (a lookup by name each).
   std::array<int, synth::kChopPointCount> points{};
@@ -468,15 +448,15 @@ void DrawChopFile(Gfx& g, const Controller& controller, Animator& animator, cons
   };
   const int start = point(picked, synth::ChopField::Start);
   const int end = point(picked, synth::ChopField::End);
-  // The title: the file (SAMPLE), or the slice and where it is in the file (SLICE).
-  if (!sampler.hasSample)
-    g.TextFit(area.x + 2, area.y, area.width - 4, magnified ? "NO SAMPLE - SAMPLE > FILE" : "NO SAMPLE - FILE TO LOAD ONE", (now / 600) % 2 ? kFaint : kDim);
-  else if (magnified)
+  // The title: the file (SAMPLE), or the slice and where it is in the file (SLICE). VOICE has the file
+  // on its line above already, and draws none; without a file there is no title (the waveform's line
+  // says so).
+  if (title && sampler.hasSample && magnified)
   {
     const int x = g.Text(area.x + 2, area.y, "S" + std::to_string(picked + 1), TrackColor(track));
     g.TextFit(x + 6, area.y, area.x + area.width - x - 8, seconds(start) + "-" + seconds(end) + "S  " + seconds(end - start) + "S", kDim);
   }
-  else
+  else if (title && sampler.hasSample)
   {
     char length[24];
     std::snprintf(length, sizeof(length), "  %.2fS", static_cast<double>(sampler.frameCount) / static_cast<double>(std::max<std::uint32_t>(1, sampler.sampleRate)));
@@ -484,9 +464,9 @@ void DrawChopFile(Gfx& g, const Controller& controller, Animator& animator, cons
   }
   // Under the title a strip for the slices' numbers (SAMPLE) or the START and END tags (SLICE), so the
   // waveform below covers none of them.
-  constexpr int kStripTop = 9;
-  constexpr int kGraphTop = 18;
-  const Rect graph{area.x + 2, area.y + kGraphTop, magnified ? kChopWaveformWidth : area.width - 4, area.height - kGraphTop};
+  const int stripTop = title ? 9 : 0;
+  const int graphTop = stripTop + 9;
+  const Rect graph{area.x + 2, area.y + graphTop, magnified ? kChopWaveformWidth : area.width - 4, area.height - graphTop};
   const ChopWindow& window = controller.ChopView();
   const int first = magnified && window.last > window.first ? window.first : 0;
   const int last = magnified && window.last > window.first ? window.last : synth::kChopPositionMax;
@@ -495,7 +475,17 @@ void DrawChopFile(Gfx& g, const Controller& controller, Animator& animator, cons
   };
   const auto visible = [&](int x) { return x >= graph.x && x < graph.x + graph.width; };
   g.HLine(graph.x, graph.y + graph.height / 2, graph.width, kShade);
-  if (!sampler.hasSample) return;
+  if (!sampler.hasSample)
+  {
+    // No file: NO SAMPLE on the waveform's line, large and blinking, the line broken behind it.
+    constexpr const char* kNoSample = "NO SAMPLE";
+    const int width = Gfx::Measure(kNoSample, Font::Large);
+    const int x = graph.x + (graph.width - width) / 2;
+    const int y = graph.y + graph.height / 2 - 7;
+    g.Fill(Rect{x - 4, y - 1, width + 8, 16}, kBlack);
+    g.Text(x, y, kNoSample, (now / 600) % 2 ? kFaint : kDim, Font::Large);
+    return;
+  }
   // The slices behind the waveform: on SAMPLE every one in play, bands alternating, the chosen one in
   // the track's colour; on SLICE the chosen one, and the others' points dotted.
   const std::size_t slices = controller.ChopSliceCount();
@@ -530,13 +520,13 @@ void DrawChopFile(Gfx& g, const Controller& controller, Animator& animator, cons
       const int x = xOf(isEnd ? end : start);
       if (!visible(x)) continue;
       const bool focused = focus == (isEnd ? 1 : 0);
-      if (focused) g.VLine(x, area.y + kStripTop, area.y + area.height - (area.y + kStripTop), kInk);
+      if (focused) g.VLine(x, area.y + stripTop, area.y + area.height - (area.y + stripTop), kInk);
       else g.DottedVLine(x, graph.y, graph.height, kDim);
       // The tag on the slice's side of its line.
       const char* tag = isEnd ? "END" : "START";
       const int tagX = isEnd ? x - Gfx::Measure(tag) - 2 : x + 2;
-      if (focused) g.Fill(Rect{tagX - 1, area.y + kStripTop, Gfx::Measure(tag) + 2, 8}, kInk);
-      g.Text(tagX, area.y + kStripTop + 1, tag, focused ? kBlack : kDim);
+      if (focused) g.Fill(Rect{tagX - 1, area.y + stripTop, Gfx::Measure(tag) + 2, 8}, kInk);
+      g.Text(tagX, area.y + stripTop + 1, tag, focused ? kBlack : kDim);
     }
   }
   else
@@ -549,8 +539,8 @@ void DrawChopFile(Gfx& g, const Controller& controller, Animator& animator, cons
       const std::string number = std::to_string(slice + 1);
       if (to - from >= Gfx::Measure(number) + 2 || slice == picked)
       {
-        if (slice == picked) g.Fill(Rect{from, area.y + kStripTop, Gfx::Measure(number) + 2, 8}, TrackColor(track));
-        g.Text(from + 1, area.y + kStripTop + 1, number, slice == picked ? kBlack : kDim);
+        if (slice == picked) g.Fill(Rect{from, area.y + stripTop, Gfx::Measure(number) + 2, 8}, TrackColor(track));
+        g.Text(from + 1, area.y + stripTop + 1, number, slice == picked ? kBlack : kDim);
       }
       if (visible(from) && from > graph.x) g.VLine(from, graph.y, graph.height, slice == picked ? kInk : kFaint);
     }
@@ -1073,7 +1063,7 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
     }
     case PageGraphic::ChopFile:
     case PageGraphic::ChopSlice:
-      DrawChopFile(g, controller, animator, page, area);
+      DrawChopFile(g, controller, animator, page.graphic == PageGraphic::ChopSlice, area, true);
       break;
     case PageGraphic::Lyric:
       DrawLyric(g, controller, area);

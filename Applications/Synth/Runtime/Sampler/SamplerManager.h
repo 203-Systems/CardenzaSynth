@@ -91,7 +91,8 @@ private:
     std::unique_ptr<std::uint8_t[]> overview;
     bool trimResetPending = false;
     bool isSampler = false;  // the engine plays a sample file: the sampler or the chop
-    bool records = false;    // the sampler: its track records
+    bool records = false;    // its track records takes: the sampler and the chop
+    bool chop = false;       // the chop: a file on the card gets an overview for its pages (BuildOverview)
     std::uint8_t previewNote = 60;
     std::chrono::steady_clock::time_point previewTickAt{};
   };

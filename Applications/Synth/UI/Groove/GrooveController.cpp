@@ -897,7 +897,9 @@ void Controller::Tick(std::uint32_t nowMs)
   if (modal != nullptr && modal->kind == ModalKind::SampleRecord)
   {
     const auto sampler = host_.Sampler().BuildUiState(state_.track);
-    if (host_.EngineKind(state_.track) != synth::SynthEngineKind::Sampler) CloseModal();
+    // The tracks that record: the sampler and the chop (its take kept whole).
+    const synth::SynthEngineKind kind = host_.EngineKind(state_.track);
+    if (kind != synth::SynthEngineKind::Sampler && kind != synth::SynthEngineKind::Chop) CloseModal();
     else if (sampler.needsName && !sampler.overwritePending && sampler.phase == synth::SamplerTrackPhase::Naming)
     {
       // A new recording takes the next free name and no field opens: renaming is in the sample list.
@@ -1043,8 +1045,10 @@ AdjustMeaning Controller::AdjustKeysMean() const
       case ModalKind::TextEntry:
         return AdjustMeaning::Erase;
       case ModalKind::Record:
-      case ModalKind::SampleRecord:
         return AdjustMeaning::Value;
+      case ModalKind::SampleRecord:
+        // A sampler's take is trimmed with them; a chop's is kept whole.
+        return ChopTrack() ? AdjustMeaning::None : AdjustMeaning::Value;
       default:
         return AdjustMeaning::None;
     }
@@ -1326,6 +1330,8 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
       enterAction = enterAction || page != kSetupFiles || !state_.projects.empty();
       break;
   }
+  // A chop's take has no trim: ADD / SUB do nothing there (AdjustKeysMean).
+  if (modal != nullptr && modal->kind == ModalKind::SampleRecord && ChopTrack()) adjustable = false;
   set(addKey, adjustable ? kLedHalf : kLedOff);
   set(subKey, adjustable ? kLedHalf : kLedOff);
   if (modal != nullptr && modal->kind == ModalKind::Confirm) set(enterKey, kLedFull, LedEffect::Blink);
@@ -1543,7 +1549,8 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
   if (modal != nullptr)
   {
     if (modal->kind == ModalKind::SampleRecord)
-      for (std::size_t index = 0; index < 4; ++index) setGrid(index, choice(index < 2 && modal->trimMarker == index));
+      // A chop's take has no START and END (it is kept whole): only PLAY and SAVE are there.
+      for (std::size_t index = ChopTrack() ? 2 : 0; index < 4; ++index) setGrid(index, choice(index < 2 && modal->trimMarker == index));
     if (modal->kind == ModalKind::EnginePicker)
       for (std::size_t index = 0; index < modal->items.size() && index < kGridCount; ++index) setGrid(index, choice(index == modal->cursor));
     if (modal->kind == ModalKind::Record)

@@ -233,15 +233,16 @@ constexpr std::array<InstrumentPage, 3> kDrumPages{{
     kFxPage,
 }};
 
-// The chop: its pads are slices, so no chord and no arpeggiator. SAMPLE is the file and how the pads
-// play it; SLICE the slice the pads picked last ("slice.*" without a number stands for that slice's
-// parameter, Controller::EngineParameterId).
+// The chop: its pads are slices, so no chord and no arpeggiator. VOICE shows the file with its slices
+// (P90's design, #17). SAMPLE is the file, recording one (a take, kept whole) and how the pads play it,
+// laid out like the sampler's SAMPLE page; SLICE the slice the pads picked last ("slice.*" without a
+// number stands for that slice's parameter, Controller::EngineParameterId).
 constexpr std::array<InstrumentPage, 4> kChopPages{{
     kVoicePage,
     InstrumentPage{"FILE", "SAMPLE",
-                   {{A(SlotAction::SampleFile, "FILE"), P("chop.slices", "SLICES"), P("chop.voices", "VOICES"), P("sample.gain", "GAIN"),
-                     E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
-                   PageGraphic::ChopFile, {1, 0, 3, 4}, 0},
+                   {{A(SlotAction::SampleFile, "FILE"), A(SlotAction::SampleRecord, "REC"), P("chop.slices", "SLICES"), P("chop.voices", "VOICES"),
+                     P("sample.gain", "GAIN"), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
+                   PageGraphic::ChopFile, {2, 0, 2, 4}, 0},
     InstrumentPage{"CUT", "SLICE",
                    {{P("slice.start", "START"), P("slice.end", "END"), P("slice.fade", "FADE"), P("slice.cutoff", "CUTOFF"),
                      P("slice.mute", "MUTE"), E(), E(), E(), E(), E(), E(), E(), E(), E(), E(), E()}},
