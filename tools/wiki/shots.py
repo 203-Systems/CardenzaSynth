@@ -113,9 +113,9 @@ def shot_script():
     s.act("down fn").shot("fn-menu-instr", 30).act("up fn").wait(40)
     s.act(f"tap {grid_key(0)}").shot("engine-picker").act("tap esc").wait(30)
     s.act(f"tap {grid_key(1)}").shot("preset-browser")
-    # The pads do not type in a browser: FN + F opens the search field.
-    s.act("down fn", "tap f", "up fn").wait(10).act("tap b", "tap a", "tap s", "tap s").shot("preset-search", 30)
-    s.act("tap enter").shot("preset-filtered", 30).act("tap esc").wait(10).act("tap esc").wait(30)
+    # Typing in the preset browser filters at once; ESC clears the search, then closes.
+    s.act("tap b", "tap a").shot("preset-search", 30)
+    s.act("tap s", "tap s").shot("preset-filtered", 30).act("tap esc").wait(10).act("tap esc").wait(30)
     # CHORD and ARP: the track's own MIDI effects.
     s.page(1).shot("instr-chord")
     s.act(f"tap {grid_key(0)}").shot("chord-on")

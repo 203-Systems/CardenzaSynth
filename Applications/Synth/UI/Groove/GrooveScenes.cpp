@@ -159,7 +159,7 @@ bool Controller::SettingValue(const char* id, synth::SynthParameterInfo& info, s
     }
     else return false;
   }
-  else if (Is(id, "sys.volume")) number(host_.MasterVolume(), 0, 100, os::storage::kDefaultOutputVolume, std::to_string(host_.MasterVolume()));
+  else if (Is(id, "sys.volume")) number(host_.MasterVolume(), 0, 100, os::storage::kDefaultOutputVolume, std::to_string(host_.MasterVolume()) + "%");
   else if (Is(id, "sys.led")) number(host_.LedBrightness(), 0, 15, os::storage::kDefaultKeyLedBrightness, std::to_string(host_.LedBrightness()));
   else if (Is(id, "sys.screen")) number(host_.Backlight(), 10, 255, os::storage::kDefaultScreenBacklight, std::to_string(host_.Backlight() * 100 / 255) + "%");
   else if (Is(id, "sys.log"))
@@ -418,7 +418,7 @@ void Controller::SaveProject(bool saveAs)
 {
   if (saveAs)
   {
-    OpenTextEntry(TextPurpose::ProjectSaveAs, "SAVE PROJECT AS", state_.projectName.empty() ? "SONG" : state_.projectName, 24);
+    OpenTextEntry(TextPurpose::ProjectSaveAs, state_.projectName.empty() ? "SONG" : state_.projectName, 24);
     return;
   }
   if (state_.projectName.empty())
@@ -468,10 +468,10 @@ void Controller::RenameProject()
   if (name.empty())
   {
     // Never saved: renaming it is naming it, which saves it.
-    OpenTextEntry(TextPurpose::ProjectSaveAs, "NAME PROJECT", "SONG", 24);
+    OpenTextEntry(TextPurpose::ProjectSaveAs, "SONG", 24);
     return;
   }
-  OpenTextEntry(TextPurpose::ProjectRename, "RENAME PROJECT", name, 24);
+  OpenTextEntry(TextPurpose::ProjectRename, name, 24);
   Top()->payload = name;
 }
 
@@ -624,7 +624,7 @@ bool Controller::CellParameter(std::size_t index, std::string& label, synth::Syn
     info.minValue = 0;
     info.maxValue = 100;
     info.value = host_.TrackLevel(track);
-    text = std::to_string(info.value);
+    text = std::to_string(info.value) + "%";
     label = "T" + std::to_string(track + 1) + " LEVEL";
     return true;
   }
@@ -820,7 +820,7 @@ void Controller::RunSlotAction(SlotAction action)
       break;
     }
     case SlotAction::SavePresetAs:
-      if (engine != nullptr) OpenTextEntry(TextPurpose::PresetSaveAs, "SAVE PRESET AS", engine->CurrentPresetName(), 18);
+      if (engine != nullptr) OpenTextEntry(TextPurpose::PresetSaveAs, engine->CurrentPresetName(), 18);
       break;
     case SlotAction::SampleFile: OpenSampleBrowser(); break;
     case SlotAction::SampleRecord:

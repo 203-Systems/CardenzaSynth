@@ -1520,7 +1520,7 @@ void MixScene(Gfx& g, const Controller& controller, Animator& animator)
     }
     else g.Text(x, top.y + 2, label, TrackColor(track));
     g.TextFit(x + 15, top.y + 2, width - 15, EngineCode(host.EngineKind(track)), focused ? kBlack : kDim);
-    g.Text(x, top.y + 13, std::to_string(host.TrackLevel(track)), audible ? kInk : kDim, Font::Small);
+    g.Text(x, top.y + 13, std::to_string(host.TrackLevel(track)) + "%", audible ? kInk : kDim, Font::Small);
 
     const auto badge = [&](std::size_t row) { const Rect cell = Cell(row, track); return Rect{x - 2, cell.y + 4, width + 2, 13}; };
     const std::array<bool, 3> states{{host.TrackMuted(track), host.TrackSoloed(track), seq.tracks[track].enabled}};

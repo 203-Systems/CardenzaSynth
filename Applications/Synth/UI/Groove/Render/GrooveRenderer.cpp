@@ -99,11 +99,14 @@ void DrawGlyphColumn(Gfx& g, const Controller& controller, Animator& animator)
     case AdjustMeaning::List: add = Glyph::Up; sub = Glyph::Down; break;
     case AdjustMeaning::Sideways: add = Glyph::Right; sub = Glyph::Left; break;
     case AdjustMeaning::Erase: add = Glyph::Delete; sub = Glyph::None; break;
+    case AdjustMeaning::Search: add = Glyph::Delete; sub = Glyph::Down; break;
     case AdjustMeaning::None: add = Glyph::None; sub = Glyph::None; break;
     case AdjustMeaning::Value:
     default: break;
   }
-  const std::array<Glyph, 4> glyphs{{add, sub, Glyph::Enter, Glyph::Play}};
+  const auto* modal = controller.TopModal();
+  const bool presetBrowser = modal != nullptr && modal->kind == ModalKind::PresetBrowser;
+  const std::array<Glyph, 4> glyphs{{add, sub, Glyph::Enter, presetBrowser ? Glyph::None : Glyph::Play}};
   for (std::size_t row = 0; row < 4; ++row)
   {
     const Rect strip = StripRect(row);
@@ -111,7 +114,7 @@ void DrawGlyphColumn(Gfx& g, const Controller& controller, Animator& animator)
     const float led = animator.LedShown(KeyIndex(row, kColumns - 1));
     Color body = kDim;
     Glyph glyph = glyphs[row];
-    if (row == 3)
+    if (row == 3 && !presetBrowser)
     {
       if (recArmed) body = kRec;
       else if (playing) body = kPlay;
@@ -428,7 +431,7 @@ void DrawFooter(Gfx& g, const Controller& controller, Animator& animator)
     if (focused) fx::MarchingAnts(g, Rect{kFooterX - 2, kFooterY - 2, Gfx::Measure("MASTER") + 4, 11}, kInk, now);
     const float master = animator.Smooth(Animator::Key("master"), static_cast<float>(host.MasterVolume()) / 100.0f);
     widgets::LevelBar(g, Rect{kFooterX + 44, kFooterY + 1, 88, 5}, master, focused ? kInk : kDim, kFaint);
-    g.Text(kFooterX + 136, kFooterY, std::to_string(host.MasterVolume()), focused ? kInk : kDim);
+    g.Text(kFooterX + 134, kFooterY, std::to_string(host.MasterVolume()) + "%", focused ? kInk : kDim);
     g.Text(kFooterX + 160, kFooterY, "OUT", kFaint);
     const float peak = animator.OutputPeakHold();
     const Rect meter{kFooterX + 180, kFooterY + 1, kFooterRight - kFooterX - 180, 5};

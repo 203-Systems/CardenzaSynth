@@ -509,26 +509,33 @@ void TestInstrument(Harness& h)
   h.Tap(kEnter);
   assert(app.EngineKind(1) == synth::SynthEngineKind::Dx7);
   assert(h.Modal() == nullptr);
-  // The preset browser: the pads do not type (they play: TestPresetPreview); FN + F opens the search
-  // field, ENTER filters. ADD (the upper key) moves up, SUB down; ENTER loads.
+  // The preset browser types its search in place (scrolling plays: TestPresetPreview); with an empty
+  // search ADD / SUB browse the list.
   h.Tap(Grid(1));
   assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::PresetBrowser);
   const std::size_t all = h.Modal()->Count();
-  h.Tap(Key{2, 2});  // A: no search
-  assert(h.Modal()->kind == ModalKind::PresetBrowser && h.Modal()->search.empty() && h.Modal()->Count() == all);
   const std::size_t start = h.Modal()->cursor;
   h.Tap(kSub);
   assert(h.Modal()->cursor == start + 1);
   h.Tap(kAdd);
   assert(h.Modal()->cursor == start);
-  h.Chord(kFn, Key{2, 5});  // F
-  assert(h.Modal()->kind == ModalKind::TextEntry);
-  h.Tap(Key{2, 2});  // A
-  h.Tap(kEnter);
+  // FN + . / ; (the yellow arrows) go down and up like SUB and ADD.
+  h.Chord(kFn, Key{3, 11});
+  assert(h.Modal()->cursor == start + 1);
+  h.Chord(kFn, Key{2, 11});
+  assert(h.Modal()->cursor == start);
+  h.Tap(Key{2, 2});  // A on a pad.
   assert(h.Modal()->kind == ModalKind::PresetBrowser && h.Modal()->search == "A" && h.Modal()->Count() < all);
+  h.Tap(Key{1, 10});  // P on the GRID.
+  assert(h.Modal()->search == "AP");
+  h.Tap(kAdd);  // DEL erases P.
+  assert(h.Modal()->search == "A" && h.App().Ui().AdjustKeysMean() == groove::AdjustMeaning::Search);
+  const bool playing = app.Sequencer().Playing();
+  h.Tap(kPlay);  // Space is text in this browser.
+  assert(h.Modal()->search == "A " && app.Sequencer().Playing() == playing);
   h.Render();
   h.Tap(kEsc);
-  assert(h.Modal() != nullptr && h.Modal()->search.empty());
+  assert(h.Modal() != nullptr && h.Modal()->search.empty() && h.Modal()->Count() == all);
   h.Tap(kSub);
   h.Tap(kEnter);
   assert(h.Modal() == nullptr);
@@ -594,6 +601,19 @@ void TestPresetPreview(Harness& h)
   auto& app = h.App();
   std::array<std::int16_t, 256> block{};
   const auto settle = [&]() { for (int frame = 0; frame < 6; ++frame) { h.Frames(1); synth::audio::RenderFrames(block.data(), block.size()); } };
+  // Time passing as on the board: the audio renders while the UI runs (the audition's note-off comes from a
+  // tick, not a key, and the orphan net would see a note the audio side has not let go yet).
+  const auto pass = [&](std::uint32_t ms) {
+    for (std::uint32_t at = 0; at < ms; at += 16)
+    {
+      h.Frames(1);
+      synth::audio::RenderFrames(block.data(), block.size());
+    }
+    settle();
+  };
+  // The cursor rests: the audition starts. Its note is over after kPresetAuditionNoteMs.
+  const auto rest = [&]() { pass(groove::kPresetAuditionRestMs + 40); };
+  const auto quiet = [&]() { pass(groove::kPresetAuditionNoteMs + 40); };
   const auto sounding = [&]() {
     const synth::audio::NoteSet held = synth::audio::HeldNotes(1);
     return std::any_of(held.begin(), held.end(), [](std::uint32_t word) { return word != 0; });
@@ -621,36 +641,32 @@ void TestPresetPreview(Harness& h)
   const int edited = delay < 100 ? delay + 9 : delay - 9;
   assert(engine->SetParameterValue("fx.delay", edited) && engine->HasEdits());
   const bool dirty = h.State().dirty;
-  const Key pad{3, 1};  // C3, a white key on PIANO
+  const std::size_t auditionPad = groove::KeyIndex(3, 1);  // the bottom-left pad: its note is the audition's
 
   h.Tap(Grid(1));
   assert(browsing() && cursorId() == own && marked(own));
   const std::string state = app.Ui().GuideState();
-  // On the track's own preset a pad plays the track as it is, edits and all.
-  h.Down(pad);
-  settle();
-  assert(sounding() && engine->CurrentPresetId() == own && engine->HasEdits() && app.Ui().PresetHeard() == own);
-  h.Up(pad);
-  settle();
-  assert(!sounding() && app.Ui().PresetHeard().empty());
-  // Moving the cursor loads nothing.
+  // Opening plays nothing.
+  rest();
+  assert(!sounding() && engine->CurrentPresetId() == own && app.Ui().PresetHeard().empty());
+  // Scrolling: nothing loads while the cursor moves; once it rests, the preset under it goes on the track
+  // and plays the bottom-left pad's note for a moment. The track's own preset keeps the mark, the lesson
+  // page still sees it, the keys that type are half and the bottom-left pad is full while it sounds.
   h.Tap(kSub);
   const std::string next = cursorId();
   assert(next != own && engine->CurrentPresetId() == own);
-  // A pad: the preset under the cursor sounds on the track while the pad is held. The track's own
-  // preset keeps the mark, the lesson page still sees it, and the pads light as the keyboard they are.
-  h.Down(pad);
-  settle();
+  rest();
   assert(sounding() && engine->CurrentPresetId() == next && !engine->HasEdits() && app.Ui().PresetHeard() == next);
   assert(browsing() && marked(own) && !marked(next));
   std::array<std::uint8_t, groove::kKeyCount> leds{};
   app.Ui().ComputeLeds(leds);
-  assert(leds[groove::KeyIndex(3, 1)] == groove::kLedFull && leds[groove::KeyIndex(3, 2)] == groove::kLedHalf);
-  assert(leds[groove::KeyIndex(2, 1)] == groove::kLedOff && leds[groove::KeyIndex(2, 2)] == groove::kLedHalf);
+  assert(leds[auditionPad] == groove::kLedFull && leds[groove::KeyIndex(2, 2)] == groove::kLedHalf);  // A types
+  assert(leds[groove::KeyIndex(2, 1)] == groove::kLedOff);  // types nothing
   h.Render();
-  h.Up(pad);
-  settle();
-  assert(!sounding() && engine->CurrentPresetId() == next);
+  quiet();
+  assert(!sounding() && engine->CurrentPresetId() == next && app.Ui().PresetHeard().empty());
+  app.Ui().ComputeLeds(leds);
+  assert(leds[auditionPad] == groove::kLedOff);
   assert(app.Ui().GuideState() == state);
   // The autosave keeps the track's own sound, not the one on trial.
   app.FlushSession();
@@ -658,29 +674,29 @@ void TestPresetPreview(Harness& h)
   synth::ProjectData saved;
   assert(synth::SessionStore::ReadInfo(info) && synth::SessionStore::Load(info, saved));
   assert(saved.engines[1].presetId == own && saved.engines[1].values.count("fx.delay") == 1 && saved.engines[1].values.at("fx.delay") == edited);
-  // Back on the track's own row, a pad plays its own sound again; down the list, the next preset.
+  // Back on the track's own row: its own sound again, edits and all.
   h.Tap(kAdd);
-  h.Tap(pad);
-  settle();
-  assert(engine->CurrentPresetId() == own && engine->HasEdits() && ParameterValue(app, 1, "fx.delay") == edited);
+  rest();
+  assert(sounding() && engine->CurrentPresetId() == own && engine->HasEdits() && ParameterValue(app, 1, "fx.delay") == edited);
+  quiet();
+  // Two quick steps: only where the cursor rests is played.
   h.Tap(kSub);
   h.Tap(kSub);
   const std::string third = cursorId();
-  h.Tap(pad);
-  settle();
-  assert(third != next && engine->CurrentPresetId() == third);
-  // ESC: the track's own sound is back with its edit, and the project has not changed.
+  rest();
+  assert(third != next && engine->CurrentPresetId() == third && sounding());
+  // ESC: the note ends, the track's own sound is back with its edit, and the project has not changed.
   h.Tap(kEsc);
-  assert(h.Modal() == nullptr && engine->CurrentPresetId() == own && engine->HasEdits());
+  settle();
+  assert(h.Modal() == nullptr && !sounding() && engine->CurrentPresetId() == own && engine->HasEdits());
   assert(ParameterValue(app, 1, "fx.delay") == edited && h.State().dirty == dirty);
 
   // ENTER on a preset tried: the edits at stake are the track's own, so it asks; ESC goes back to the
-  // list with the trial still sounding, ENTER ENTER keeps it.
+  // list with the trial still on, ENTER ENTER keeps it.
   h.Tap(Grid(1));
   h.Tap(kSub);
   const std::string chosen = cursorId();
-  h.Tap(pad);
-  settle();
+  rest();
   assert(engine->CurrentPresetId() == chosen);
   h.Tap(kEnter);
   assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm && h.Modal()->confirmPurpose == groove::ConfirmPurpose::ChangePreset);
@@ -689,47 +705,36 @@ void TestPresetPreview(Harness& h)
   assert(browsing() && engine->CurrentPresetId() == chosen);
   h.Tap(kEnter);
   h.Tap(kEnter);
-  assert(h.Modal() == nullptr && engine->CurrentPresetId() == chosen && !engine->HasEdits() && h.State().dirty);
+  settle();
+  assert(h.Modal() == nullptr && engine->CurrentPresetId() == chosen && !engine->HasEdits() && h.State().dirty && !sounding());
   // Without edits ENTER takes the preset on trial at once; ESC after it changes nothing.
   h.Tap(Grid(1));
   h.Tap(kSub);
   const std::string taken = cursorId();
-  h.Tap(pad);
+  rest();
   h.Tap(kEnter);
   assert(h.Modal() == nullptr && engine->CurrentPresetId() == taken && !engine->HasEdits());
   h.Tap(kEsc);
   assert(engine->CurrentPresetId() == taken);
   while (h.State().scene != Scene::Instrument) h.Tap(kEsc);
-
-  // Closing while a pad is held ends the trial and its note: nothing keeps sounding.
-  h.Tap(Grid(1));
-  h.Tap(kSub);
-  h.Down(pad);
-  settle();
-  assert(sounding() && engine->CurrentPresetId() != taken);
-  h.Tap(kEsc);
-  settle();
-  assert(h.Modal() == nullptr && engine->CurrentPresetId() == taken);
-  h.Up(pad);
   settle();
   assert(!sounding());
-  // A scene change closes the browser too: the track gets its own sound back.
+
+  // A scene change closes the browser too: the note ends and the track gets its own sound back.
   h.Tap(Grid(1));
   h.Tap(kSub);
-  h.Down(pad);
-  settle();
-  assert(engine->CurrentPresetId() != taken);
+  rest();
+  assert(sounding() && engine->CurrentPresetId() != taken);
   h.Chord(kEsc, Grid(2));
   settle();
-  assert(h.State().scene == Scene::Sequence && h.Modal() == nullptr && engine->CurrentPresetId() == taken);
-  h.Up(pad);
+  assert(h.State().scene == Scene::Sequence && h.Modal() == nullptr && engine->CurrentPresetId() == taken && !sounding());
   h.Wait(400);
   settle();
   assert(!sounding());
   assert(app.EndedOrphanNotes() == orphansBefore && synth::audio::ReleasedOrphanVoiceCount() == voicesBefore);
 
-  // Trying a sound plays straight notes and keeps nothing: not the arpeggiator, not the pattern with
-  // REC on, not a take.
+  // The audition plays a straight note and keeps nothing: not the arpeggiator, not the pattern with REC
+  // on, not a take.
   GoToScene(h, 1);
   auto& sequencer = app.Sequencer();
   synth::ArpSettings arp = sequencer.GetArpSettings(1);
@@ -743,11 +748,9 @@ void TestPresetPreview(Harness& h)
   sequencer.Play();
   h.Tap(Grid(1));
   h.Tap(kSub);
-  h.Down(pad);
-  settle();
+  rest();
   assert(sounding() && !sequencer.ArpActive(1));
-  h.Wait(300);
-  h.Up(pad);
+  quiet();
   h.Tap(kEsc);
   sequencer.Stop();
   sequencer.SetRecordArmed(false);
@@ -2591,11 +2594,20 @@ void TestSampleRecording(Harness& h)
     }
   };
 
-  // Opening the screen starts nothing; ENTER records, ENTER stops.
+  // Adjust input gain without starting a take, then adjust it again while recording.
   openRecord();
   assert(!sampler.BuildUiState(track).recording);
+  const int gain = sampler.RecordGainDb();
+  h.Tap(kAdd);
+  assert(sampler.RecordGainDb() == gain + 1);
+  h.Chord(kFn, Key{2, 11});  // FN + ; is up, like ADD
+  assert(sampler.RecordGainDb() == gain + 2);
+  h.Chord(kFn, Key{3, 11});
+  assert(sampler.RecordGainDb() == gain + 1);
   h.Tap(kEnter);
   assert(sampler.BuildUiState(track).recording);
+  h.Tap(kSub);
+  assert(sampler.RecordGainDb() == gain);
   feed(20);
   assert(sampler.BuildUiState(track).frameCount == 20 * 735);
   h.Tap(kEnter);
@@ -2612,9 +2624,11 @@ void TestSampleRecording(Harness& h)
   h.Tap(kEnter);
   assert(h.Modal() == nullptr && !sampler.BuildUiState(track).hasDraft);
 
-  // ESC cancels a running recording; the screen stays open and can start again.
+  // ESC cancels a running recording; the screen stays open and can start again. GRID 1 (REC on
+  // the screen) records like ENTER.
   openRecord();
-  h.Tap(kEnter);
+  h.Tap(Grid(0));
+  assert(sampler.BuildUiState(track).recording);
   feed(5);
   h.Tap(kEsc);
   assert(!sampler.BuildUiState(track).recording && !sampler.BuildUiState(track).hasDraft);

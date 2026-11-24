@@ -20,25 +20,24 @@ using widgets::CellSpan;
 using widgets::CellStyle;
 
 
-void Title(Gfx& g, const std::string& title, Color color)
-{
-  g.TextFit(kContentX, kContentY, kContentWidth - 50, title, color);
-}
-
 void DrawList(Gfx& g, const Controller& controller, Animator& animator, const Modal& modal, bool searchable)
 {
-  Title(g, modal.title, kTab);
-  int listTop = kContentY + 12;
+  const int listTop = kContentY + 12;
   if (searchable)
   {
-    const int x = g.Text(kContentX + 60, kContentY, "/", kFn);
+    const int x = g.Text(kContentX, kContentY, "/", kFn);
     const int end = g.Text(x + 2, kContentY, modal.search, kInk);
     if ((controller.State().now / 400) % 2 == 0) g.Fill(Rect{end, kContentY, 5, 7}, kInk);
-    if (modal.search.empty()) g.Text(x + 10, kContentY, "FN+F SEARCH", kFaint);
+    if (modal.search.empty())
+      g.Text(x + 10, kContentY, modal.kind == ModalKind::PresetBrowser ? "TYPE TO SEARCH" : "FN+F SEARCH", kFaint);
+    char count[16];
+    std::snprintf(count, sizeof(count), "%u/%u", static_cast<unsigned>(modal.Count() == 0 ? 0 : modal.cursor + 1), static_cast<unsigned>(modal.Count()));
+    g.Text(kContentRight - Gfx::Measure(count), kContentY, count, kDim);
   }
-  char count[16];
-  std::snprintf(count, sizeof(count), "%u/%u", static_cast<unsigned>(modal.Count() == 0 ? 0 : modal.cursor + 1), static_cast<unsigned>(modal.Count()));
-  g.Text(kContentRight - Gfx::Measure(count), kContentY, count, kDim);
+  else
+  {
+    g.TextFit(kContentX, kContentY, kContentWidth, modal.title, kInk);
+  }
   g.DottedHLine(kContentX, listTop - 2, kContentWidth, kFaint);
   if (modal.Count() == 0)
   {
@@ -74,7 +73,6 @@ void DrawList(Gfx& g, const Controller& controller, Animator& animator, const Mo
 
 void DrawTextEntry(Gfx& g, const Controller& controller, Animator& animator, const Modal& modal)
 {
-  Title(g, modal.title, kTab);
   const Rect box{kContentX, kContentY + 30, kContentWidth, 24};
   g.DottedHLine(box.x, box.y + box.height, box.width, kDim);
   const int advance = Gfx::Advance(Font::Large);
@@ -100,7 +98,7 @@ void DrawTextEntry(Gfx& g, const Controller& controller, Animator& animator, con
   char counter[24];
   std::snprintf(counter, sizeof(counter), "%u/%u", static_cast<unsigned>(modal.text.size()), static_cast<unsigned>(modal.maxLength));
   g.Text(kContentRight - Gfx::Measure(counter), kContentY, counter, kDim);
-  g.Text(kContentX, kContentY + 70, "A-Z 0-9 SPACE -", kFaint);
+  g.Text(kContentX, kContentY + 70, "A-Z 0-9 SPACE -   DEL ERASE", kFaint);
   g.Text(kContentX, kContentY + 80, "FN + , / MOVE   FN + ; . START / END   FN + DEL DELETE", kFaint);
 }
 
@@ -153,13 +151,12 @@ void DrawConfirm(Gfx& g, Animator& animator, const Modal& modal)
   g.Text(no.x + 20, no.y + 9, "ESC  NO", kInk, Font::Micro);
 }
 
-void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, const Modal& modal)
+void DrawEnginePicker(Gfx& g, Animator& animator, const Modal& modal)
 {
-  Title(g, "ENGINE  T" + std::to_string(controller.State().track + 1), kTab);
   static constexpr std::array<const char*, 4> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT"}};
   for (std::size_t index = 0; index < modal.items.size() && index < 4; ++index)
   {
-    const Rect cell = Cell(1, index);
+    const Rect cell = Cell(0, index);
     const bool selected = index == modal.cursor;
     const auto& item = modal.items[index];
     if (selected)
@@ -169,67 +166,170 @@ void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, 
     }
     else g.Stroke(cell, kFaint);
     g.TextFit(cell.x + 3, cell.y + 3, cell.width - 5, item.label, selected ? kBlack : kInk, Font::Small);
-    if (item.marked) g.Text(cell.x + 3, cell.y + 15, "NOW", selected ? kBlack : kTab);
+    if (item.marked) g.DrawGlyph(cell.x + 3, cell.y + 15, Glyph::Check, selected ? kBlack : kTab);
   }
   if (modal.cursor < kDetails.size())
-    fx::DecodeText(g, Cell(2, 0).x, Cell(2, 0).y + 6, kDetails[modal.cursor], kDim, Font::Micro,
+    fx::DecodeText(g, Cell(1, 0).x, Cell(1, 0).y + 6, kDetails[modal.cursor], kDim, Font::Micro,
                    fx::Progress(animator.Now(), animator.ModalOpenedAt(), 400), static_cast<std::uint32_t>(modal.cursor) + animator.Now() / 50);
-  g.Text(Cell(3, 0).x, Cell(3, 0).y + 6, "THE TRACK SOUND IS REPLACED", kFaint);
+  g.Text(Cell(2, 0).x, Cell(2, 0).y + 6, "THE TRACK SOUND IS REPLACED", kFaint);
 }
 
-void DrawSampleRecord(Gfx& g, const Controller& controller, Animator& animator)
+// SAMPLE RECORD keeps one layout in its three states. Row 0 is what the GRID's top row does: record
+// or stop, the gain ADD / SUB change and the time; with a take START, END, PLAY and SAVE. Rows 1-3
+// show the sound: the last moments while recording, the take after.
+
+// GRID 1 while there is no take: it records, and stops (on a red dither) while recording.
+void RecordKeyCell(Gfx& g, const Rect& cell, bool recording, bool pressed)
+{
+  const int y = cell.y + (cell.height - 7) / 2;
+  if (pressed) g.Fill(cell, kRec);
+  else if (recording)
+  {
+    g.Dither(cell, kRec, kDitherFill);
+    g.Stroke(cell, kRec);
+  }
+  else
+  {
+    g.DottedHLine(cell.x, cell.y, cell.width, kFaint);
+    g.DottedHLine(cell.x, cell.y + cell.height - 1, cell.width, kFaint);
+    g.DottedVLine(cell.x, cell.y, cell.height, kFaint);
+    g.DottedVLine(cell.x + cell.width - 1, cell.y, cell.height, kFaint);
+  }
+  const Color ink = pressed ? kBlack : kInk;
+  if (recording)
+  {
+    g.Fill(Rect{cell.x + 6, y, 7, 7}, ink);
+    g.Text(cell.x + 17, y, "STOP", ink);
+  }
+  else
+  {
+    g.DrawGlyph(cell.x + 6, y, Glyph::Rec, pressed ? kBlack : kRec);
+    g.Text(cell.x + 17, y, "REC", ink);
+  }
+}
+
+// A time with its unit set small, so 1.3S never reads as 1.35.
+void TimeText(Gfx& g, int x, int y, double seconds, Color color)
+{
+  char number[16];
+  std::snprintf(number, sizeof(number), "%.1f", seconds);
+  const int end = g.Text(x, y, number, color, Font::Large);
+  g.Text(end + 2, y + 5, "S", color == kInk ? kDim : color, Font::Small);
+}
+
+// The meter reads the newest bins of the scrolling waveform: a read of the microphone that found
+// nothing new does not drop it to zero.
+float RecentLevel(const synth::SamplerTrackUiState& sampler)
+{
+  const auto& bins = sampler.waveform;
+  return std::max({bins[bins.size() - 1], bins[bins.size() - 2], bins[bins.size() - 3]});
+}
+
+void InputMeter(Gfx& g, const Rect& rect, float level)
+{
+  const int filled = static_cast<int>(std::lround(fx::Clamp01(level) * static_cast<float>(rect.height)));
+  g.Dither(Rect{rect.x, rect.y, rect.width, rect.height - filled}, kFaint, 4);
+  g.Dither(Rect{rect.x, rect.y + rect.height - filled, rect.width, filled}, level > 0.95f ? kRec : kPlay, kDitherLevelOn);
+  g.HLine(rect.x - 2, rect.y, rect.width + 2, kDim);  // full scale
+}
+
+// The waveform's bins as bars: the last three quarters of a second while recording (newest on the
+// right, clipped bars red), the whole take after it, the part START / END leave out dim.
+void Bars(Gfx& g, const Rect& area, const synth::SamplerTrackUiState& sampler, float start, float end, bool live)
+{
+  const int mid = area.y + area.height / 2;
+  g.DottedHLine(area.x, mid, area.width, kFaint, 3);
+  const auto& bins = sampler.waveform;
+  const int count = static_cast<int>(bins.size());
+  const int pitch = area.width / count;
+  const int left = live ? area.x + area.width - pitch * count : area.x + (area.width - pitch * count) / 2;
+  const int span = pitch * count - 2;
+  const int startX = left + static_cast<int>(fx::Clamp01(start) * static_cast<float>(span));
+  const int endX = left + static_cast<int>(fx::Clamp01(end) * static_cast<float>(span));
+  for (int index = 0; index < count; ++index)
+  {
+    const float value = fx::Clamp01(bins[static_cast<std::size_t>(index)]);
+    const int half = static_cast<int>(value * static_cast<float>(area.height / 2 - (live ? 1 : 3)));
+    if (half <= 0) continue;
+    const int x = left + index * pitch;
+    const bool inside = live || (x + pitch - 2 > startX && x < endX);
+    const Color color = !inside ? kFaint : live && value >= 0.98f ? kRec : kInk;
+    g.Dither(Rect{x, mid - half, pitch - 2, half * 2 + 1}, color, inside ? kDitherLevelOn : 8);
+  }
+  if (live) return;
+  g.VLine(startX, area.y, area.height, kInk);
+  g.Fill(Rect{startX, area.y, 4, 3}, kInk);
+  g.VLine(endX, area.y, area.height, kInk);
+  g.Fill(Rect{endX - 3, area.y + area.height - 3, 4, 3}, kInk);
+}
+
+void DrawSampleRecord(Gfx& g, const Controller& controller)
 {
   const UiState& state = controller.State();
   const Host& host = controller.HostView();
-  const auto sampler = host.Sampler().BuildUiState(state.track);
-  const auto* engine = host.Engine(state.track);
-  const double maxSeconds = sampler.sampleRate > 0 ? static_cast<double>(sampler.recordMaxFrameCount) / sampler.sampleRate : 5.0;
-  if (sampler.recording)
-  {
-    const bool blink = (state.now / 300) % 2 == 0;
-    const float breath = 0.5f + 0.5f * std::sin(static_cast<float>(animator.Now()) / 110.0f);
-    g.Dither(Rect{kContentX - 2, kContentY + 2, 9, 11}, kRec, static_cast<int>(breath * 8.0f));
-    g.DrawGlyph(kContentX, kContentY + 4, Glyph::Rec, blink ? kRec : kFaint);
-    g.Text(kContentX + 10, kContentY + 2, "RECORDING", kRec, Font::Small);
-    char time[24];
-    std::snprintf(time, sizeof(time), "%.1f / %.1fS", static_cast<double>(sampler.recordProgress) * maxSeconds, maxSeconds);
-    g.Text(kContentX, kContentY + 22, time, kInk, Font::Large);
-    widgets::LevelBar(g, Rect{kContentX, kContentY + 46, kContentWidth, 6}, sampler.recordProgress, kRec, kFaint);
-    g.Text(kContentX, kContentY + 62, "INPUT", kDim);
-    widgets::LevelBar(g, Rect{kContentX + 36, kContentY + 63, kContentWidth - 36, 5}, sampler.inputLevel, sampler.inputLevel > 0.95f ? kRec : kPlay, kFaint);
-    return;
-  }
+  const auto& manager = host.Sampler();
+  const auto sampler = manager.BuildUiState(state.track);
+  const Rect panel = CellSpan(1, 0, 3, 4);
   if (sampler.hasDraft)
   {
-    Title(g, "TAKE", kTab);
-    char length[24];
-    std::snprintf(length, sizeof(length), "%.2fS", sampler.sampleRate > 0 ? static_cast<double>(sampler.frameCount) / sampler.sampleRate : 0.0);
-    g.Text(kContentRight - Gfx::Measure(length), kContentY, length, kDim);
+    const auto* engine = host.Engine(state.track);
     synth::SynthParameterInfo start, end;
     const bool hasStart = engine != nullptr && engine->GetParameterInfo("sample.start", start);
     const bool hasEnd = engine != nullptr && engine->GetParameterInfo("sample.end", end);
     const Modal* modal = controller.TopModal();
     const std::uint8_t marker = modal != nullptr ? modal->trimMarker : 0;
-    widgets::ParamCell(g, Cell(0, 0), "START", hasStart ? std::to_string(start.value) : "--", hasStart ? start.value / 127.0f : -1.0f,
+    widgets::ParamCell(g, Cell(0, 0), "START", hasStart ? engine->DescribeParameterValue("sample.start") : "--", hasStart ? start.value / 127.0f : -1.0f,
                        marker == 0 ? CellStyle::Focused : CellStyle::Normal);
-    widgets::ParamCell(g, Cell(0, 1), "END", hasEnd ? std::to_string(end.value) : "--", hasEnd ? end.value / 127.0f : -1.0f,
+    widgets::ParamCell(g, Cell(0, 1), "END", hasEnd ? engine->DescribeParameterValue("sample.end") : "--", hasEnd ? end.value / 127.0f : -1.0f,
                        marker == 1 ? CellStyle::Focused : CellStyle::Normal);
     widgets::ActionCell(g, Cell(0, 2), "PLAY", state.gridDown[2], kPlay);
     widgets::ActionCell(g, Cell(0, 3), "SAVE", state.gridDown[3], kTab);
-    const Rect wave = CellSpan(1, 0, 3, 4);
-    const float cursor = sampler.frameCount > 0 ? static_cast<float>(sampler.previewCursorFrame) / static_cast<float>(sampler.frameCount) : 0.0f;
-    widgets::Waveform(g, Rect{wave.x, wave.y + 4, wave.width, wave.height - 4}, sampler.waveform.data(), sampler.waveform.size(),
-                      hasStart ? start.value / 127.0f : 0.0f, hasEnd ? end.value / 127.0f : 1.0f, cursor, sampler.previewing);
+    char length[24];
+    std::snprintf(length, sizeof(length), "%.2fS", sampler.sampleRate > 0 ? static_cast<double>(sampler.frameCount) / sampler.sampleRate : 0.0);
+    g.Text(panel.x, panel.y + 1, "TAKE", kDim, Font::Micro);
+    g.Text(panel.x + panel.width - Gfx::Measure(length, Font::Micro), panel.y + 1, length, kDim, Font::Micro);
+    const Rect area{panel.x, panel.y + 10, panel.width, panel.height - 10};
+    Bars(g, area, sampler, hasStart ? start.value / 127.0f : 0.0f, hasEnd ? end.value / 127.0f : 1.0f, false);
+    if (sampler.previewing && sampler.frameCount > 0)
+    {
+      const float cursor = static_cast<float>(sampler.previewCursorFrame) / static_cast<float>(sampler.frameCount);
+      g.VLine(area.x + static_cast<int>(fx::Clamp01(cursor) * static_cast<float>(area.width - 1)), area.y, area.height, kPlay);
+    }
     return;
   }
-  Title(g, "RECORD SAMPLE  T" + std::to_string(state.track + 1), kTab);
-  g.Text(kContentX, kContentY + 22, "READY", kInk, Font::Large);
-  char limit[24];
-  std::snprintf(limit, sizeof(limit), "MIC  %uS MAX", static_cast<unsigned>(synth::SamplerManager::kMaxRecordSeconds));
-  g.Text(kContentX, kContentY + 44, limit, kDim);
-  g.Text(kContentX, kContentY + 62, "INPUT", kDim);
-  widgets::LevelBar(g, Rect{kContentX + 36, kContentY + 63, kContentWidth - 36, 5}, sampler.inputLevel, kPlay, kFaint);
-  if (sampler.phase == synth::SamplerTrackPhase::Error) g.TextFit(kContentX, kContentY + 78, kContentWidth, sampler.statusText, kRec);
+
+  const bool recording = sampler.recording;
+  RecordKeyCell(g, Cell(0, 0), recording, state.gridDown[0]);
+  const int gainDb = manager.RecordGainDb();
+  char gain[16];
+  std::snprintf(gain, sizeof(gain), "%s%d DB", gainDb > 0 ? "+" : "", gainDb);
+  widgets::ParamCell(g, Cell(0, 1), "GAIN", gain, static_cast<float>(gainDb) / synth::SamplerManager::kMaxRecordGainDb, CellStyle::Focused);
+
+  // The time against the limit: the card's, or what fits in RAM without one.
+  double limit = host.QuerySystem().storageReady ? synth::SamplerManager::kMaxRecordSeconds : synth::SamplerManager::kMaxRamRecordSeconds;
+  if (recording && sampler.sampleRate > 0) limit = static_cast<double>(sampler.recordMaxFrameCount) / sampler.sampleRate;
+  const double seconds = recording && sampler.sampleRate > 0 ? static_cast<double>(sampler.frameCount) / sampler.sampleRate : 0.0;
+  const Rect time = CellSpan(0, 2, 1, 2);
+  TimeText(g, time.x + 3, time.y + 3, seconds, recording ? kInk : kFaint);
+  char maxText[16];
+  std::snprintf(maxText, sizeof(maxText), "%.3gS MAX", limit);
+  g.Text(time.x + time.width - Gfx::Measure(maxText, Font::Micro) - 1, time.y + 2, maxText, kDim, Font::Micro);
+  widgets::LevelBar(g, Rect{time.x + 3, time.y + time.height - 3, time.width - 4, 2}, recording ? sampler.recordProgress : 0.0f, kRec, kFaint);
+
+  const Rect bars{panel.x, panel.y, panel.width - 10, panel.height};
+  InputMeter(g, Rect{panel.x + panel.width - 5, panel.y + 1, 5, panel.height - 2}, recording ? RecentLevel(sampler) : 0.0f);
+  if (recording)
+  {
+    Bars(g, bars, sampler, 0.0f, 1.0f, true);
+    return;
+  }
+  g.DottedHLine(bars.x, bars.y + bars.height / 2, bars.width, kFaint, 3);
+  const bool error = sampler.phase == synth::SamplerTrackPhase::Error;
+  const std::string_view text = error ? std::string_view(sampler.statusText) : std::string_view("MIC READY");
+  const int width = std::min(bars.width, Gfx::Measure(text, Font::Small) + 10);
+  const Rect label{bars.x + (bars.width - width) / 2, bars.y + bars.height / 2 - 6, width, 13};
+  g.Fill(label, kBlack);
+  g.TextAligned(label, text, error ? kRec : kDim, Font::Small, Align::Center);
 }
 
 // RECORD (hold OK in SEQ): the record settings on row 0, the captured takes on rows 1 and 2 (newest
@@ -354,8 +454,8 @@ void ModalContent(Gfx& g, const Controller& controller, Animator& animator, cons
     case ModalKind::PresetBrowser:
     case ModalKind::SampleBrowser: DrawList(g, controller, animator, modal, true); break;
     case ModalKind::SampleOptions: DrawList(g, controller, animator, modal, false); break;
-    case ModalKind::EnginePicker: DrawEnginePicker(g, controller, animator, modal); break;
-    case ModalKind::SampleRecord: DrawSampleRecord(g, controller, animator); break;
+    case ModalKind::EnginePicker: DrawEnginePicker(g, animator, modal); break;
+    case ModalKind::SampleRecord: DrawSampleRecord(g, controller); break;
     case ModalKind::Menu: MenuContent(g, controller, animator, 1.0f); break;
     case ModalKind::Record: DrawRecord(g, controller, animator); break;
     case ModalKind::None:
@@ -367,11 +467,21 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
 {
   switch (modal.kind)
   {
-    case ModalKind::TextEntry: return "ENTER OK   DEL ERASE   ESC CANCEL";
+    case ModalKind::TextEntry:
+      switch (modal.textPurpose)
+      {
+        case TextPurpose::ProjectSaveAs: return "ENTER SAVE PROJECT  ESC CANCEL";
+        case TextPurpose::PresetSaveAs: return "ENTER SAVE PRESET  ESC CANCEL";
+        case TextPurpose::SampleRename: return "ENTER RENAME  ESC CANCEL";
+        case TextPurpose::ProjectRename: return "ENTER RENAME PROJECT  ESC CANCEL";
+        case TextPurpose::Search: return "ENTER SEARCH  ESC CANCEL";
+      }
+      return "";
     case ModalKind::Confirm:
       if (modal.confirmPurpose == ConfirmPurpose::Notice) return "ENTER OR ESC CLOSES";
       return modal.danger ? "ENTER CONFIRM   ESC KEEP" : "ENTER YES   ESC NO";
-    case ModalKind::PresetBrowser: return "PADS PLAY IT  ENTER LOAD  ESC BACK";
+    case ModalKind::PresetBrowser:
+      return modal.search.empty() ? "ENTER LOAD PRESET  ESC BACK" : "ENTER LOAD  DEL ERASE  ESC CLEAR";
     case ModalKind::SampleBrowser: return "ENTER LOAD  FN+F SEARCH  FN+ENTER EDIT";
     case ModalKind::SampleOptions: return "ENTER CHOOSE   ESC BACK";
     case ModalKind::EnginePicker: return "GRID OR SUB ADD   ENTER SWITCH";
@@ -381,7 +491,7 @@ const char* ModalHint(const Controller& controller, const Modal& modal)
     {
       const auto sampler = controller.HostView().Sampler().BuildUiState(controller.State().track);
       if (sampler.recording) return "ENTER STOP   ESC CANCEL";
-      if (sampler.hasDraft) return "SUB ADD TRIM   ENTER START/END   ESC DISCARD";
+      if (sampler.hasDraft) return "ENTER START/END   ESC DISCARD";
       return "ENTER RECORD   ESC CLOSE";
     }
     case ModalKind::None:

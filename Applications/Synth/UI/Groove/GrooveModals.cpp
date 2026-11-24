@@ -47,12 +47,11 @@ void Controller::CloseModal()
   if (!state_.modals.empty()) state_.modals.pop_back();
 }
 
-void Controller::OpenTextEntry(TextPurpose purpose, const std::string& title, const std::string& initial, std::size_t maxLength)
+void Controller::OpenTextEntry(TextPurpose purpose, const std::string& initial, std::size_t maxLength)
 {
   Modal modal;
   modal.kind = ModalKind::TextEntry;
   modal.textPurpose = purpose;
-  modal.title = title;
   modal.maxLength = maxLength;
   std::string text;
   for (const char c : Upper(initial))
@@ -131,11 +130,47 @@ bool Controller::PresetBrowserOpen() const
 std::string Controller::PresetHeard() const
 {
   const synth::ISynthEngine* engine = ActiveEngine();
-  if (engine == nullptr) return {};
-  for (std::size_t index = 0; index < state_.padNote.size(); ++index)
-    if (state_.padNote[index] != kNoNote && state_.padTrack[index] == state_.track && state_.padChordCount[index] != 0)
-      return engine->CurrentPresetId();
-  return {};
+  const PresetAudition& audition = state_.presetAudition;
+  if (engine == nullptr || audition.note == kNoNote || audition.track != state_.track) return {};
+  return engine->CurrentPresetId();
+}
+
+void Controller::QueuePresetAudition()
+{
+  state_.presetAudition.dueAt = std::max<std::uint32_t>(1, state_.now + kPresetAuditionRestMs);
+}
+
+void Controller::EndPresetAuditionNote()
+{
+  PresetAudition& audition = state_.presetAudition;
+  if (audition.note == kNoNote) return;
+  host_.NoteOff(audition.track, audition.note);
+  audition.note = kNoNote;
+}
+
+void Controller::PresetAuditionTick()
+{
+  PresetAudition& audition = state_.presetAudition;
+  const Modal* modal = TopModal();
+  const bool browsing = modal != nullptr && modal->kind == ModalKind::PresetBrowser;
+  if (audition.note != kNoNote && (!browsing || state_.now >= audition.offAt)) EndPresetAuditionNote();
+  if (!browsing) audition.dueAt = 0;
+  if (audition.dueAt == 0 || state_.now < audition.dueAt) return;
+  audition.dueAt = 0;
+  // The last audition's note ends before another preset goes on the track (as pads do before a load).
+  EndPresetAuditionNote();
+  // The preset under the cursor on the track (or the track's own sound back, on its own row), then the
+  // note the bottom-left pad plays there: the keyboard's lowest key, or the first drum on a drum track.
+  // It waits behind the preset's voices on the render thread, as a pad's note would.
+  PreviewPreset();
+  int note = 0;
+  if (ActiveEngine() == nullptr || !PadNoteFor(kRows - 1, kPadFirstColumn, note)) return;
+  const bool drums = ActiveKind() == synth::SynthEngineKind::Drums;
+  const std::uint8_t velocity = drums ? kDrumRowVelocity[kRows - 1] : state_.keyboard.velocity;
+  audition.note = static_cast<std::uint8_t>(note);
+  audition.track = static_cast<std::uint8_t>(state_.track);
+  audition.offAt = state_.now + kPresetAuditionNoteMs;
+  host_.NoteOn(audition.track, audition.note, velocity);
 }
 
 void Controller::PreviewPreset()
@@ -156,7 +191,7 @@ void Controller::PreviewPreset()
   if (PresetPreviewKept(state_.track) == nullptr)
     preview_ = PresetPreview{state_.track, ActiveKind(), engine->CaptureChanges(), engine->HasEdits(), {}};
   // As loading a preset anywhere: notes of the last one end first. The heavy part (AMY building the
-  // voices) waits on the render thread for the output to be ahead; this pad's note waits behind it.
+  // voices) waits on the render thread for the output to be ahead; the audition's note waits behind it.
   ReleaseAllPads();
   const std::string id = row->id;
   if (!engine->LoadPreset(id))
@@ -209,7 +244,6 @@ void Controller::OpenPresetBrowser()
   if (ActiveEngine() == nullptr) return;
   Modal modal;
   modal.kind = ModalKind::PresetBrowser;
-  modal.title = "PRESETS";
   OpenModal(std::move(modal));
   RefreshPresetBrowser();
 }
@@ -262,7 +296,6 @@ void Controller::OpenEnginePicker()
 {
   Modal modal;
   modal.kind = ModalKind::EnginePicker;
-  modal.title = "ENGINE";
   const auto current = ActiveKind();
   const std::array<synth::SynthEngineKind, 4> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
                                                       synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums}};
@@ -279,7 +312,6 @@ void Controller::OpenSampleBrowser()
   if (ActiveKind() != synth::SynthEngineKind::Sampler) return;
   Modal modal;
   modal.kind = ModalKind::SampleBrowser;
-  modal.title = "SAMPLES";
   OpenModal(std::move(modal));
   RefreshSampleBrowser();
 }
@@ -301,7 +333,6 @@ void Controller::OpenSampleRecord()
 {
   Modal modal;
   modal.kind = ModalKind::SampleRecord;
-  modal.title = "RECORD";
   OpenModal(std::move(modal));
 }
 
@@ -327,17 +358,29 @@ void Controller::ModalAdjust(int delta, bool coarse)
       // picker is a row: ADD moves right.
       const int direction = modal->kind == ModalKind::EnginePicker ? delta : -delta;
       const int step = direction * (coarse ? 8 : 1);
+      const std::size_t before = modal->cursor;
       modal->cursor = static_cast<std::size_t>(std::clamp(static_cast<int>(modal->cursor) + step, 0, count - 1));
-      if (modal->kind == ModalKind::PresetBrowser) FillPresetRows(*modal);
+      if (modal->kind == ModalKind::PresetBrowser)
+      {
+        FillPresetRows(*modal);
+        // Scrolling plays the preset under the cursor once it rests (PresetAuditionTick).
+        if (modal->cursor != before) QueuePresetAudition();
+      }
       return;
     }
     case ModalKind::SampleRecord:
     {
-      const auto sampler = host_.Sampler().BuildUiState(state_.track);
-      synth::ISynthEngine* engine = ActiveEngine();
-      if (!sampler.hasDraft || engine == nullptr) return;
-      const char* id = modal->trimMarker == 0 ? "sample.start" : "sample.end";
-      (void)engine->AdjustParameterValue(id, delta * (coarse ? 8 : 1));
+      auto& sampler = host_.Sampler();
+      if (!sampler.BuildUiState(state_.track).hasDraft)
+      {
+        sampler.SetRecordGainDb(sampler.RecordGainDb() + delta * (coarse ? 6 : 1));
+        return;
+      }
+      if (synth::ISynthEngine* engine = ActiveEngine())
+      {
+        const char* id = modal->trimMarker == 0 ? "sample.start" : "sample.end";
+        (void)engine->AdjustParameterValue(id, delta * (coarse ? 8 : 1));
+      }
       return;
     }
     default:
@@ -409,7 +452,7 @@ void Controller::ModalEnter()
       if (action == "rename")
       {
         const auto dot = file.rfind('.');
-        OpenTextEntry(TextPurpose::SampleRename, "RENAME SAMPLE", dot == std::string::npos ? file : file.substr(0, dot), 18);
+        OpenTextEntry(TextPurpose::SampleRename, dot == std::string::npos ? file : file.substr(0, dot), 18);
         Top()->payload = file;
       }
       else OpenConfirm(ConfirmPurpose::DeleteSample, "DELETE " + Upper(file) + "?", "THE WAV FILE IS REMOVED FROM THE CARD", true, file);
@@ -527,11 +570,10 @@ void Controller::CommitText()
     // The browser underneath filters by it (an empty field shows everything again).
     CloseModal();
     Modal* browser = Top();
-    if (browser != nullptr && (browser->kind == ModalKind::PresetBrowser || browser->kind == ModalKind::SampleBrowser))
+    if (browser != nullptr && browser->kind == ModalKind::SampleBrowser)
     {
       browser->search = text;
-      browser->cursor = 0;
-      browser->kind == ModalKind::PresetBrowser ? RefreshPresetBrowser() : RefreshSampleBrowser();
+      RefreshSampleBrowser();
     }
     return;
   }

@@ -35,6 +35,10 @@ inline constexpr std::uint32_t kTransitionMs = 110;
 inline constexpr std::uint32_t kHudMs = 1100;
 // How long an FN menu tile stays lit after its key lets go.
 inline constexpr std::uint32_t kMenuPressMs = 350;
+// The preset browser's audition (scrolling plays the preset under the cursor): it waits for the cursor to
+// rest this long, so a held SUB does not load every preset on the way, and its note lasts this long.
+inline constexpr std::uint32_t kPresetAuditionRestMs = 150;
+inline constexpr std::uint32_t kPresetAuditionNoteMs = 600;
 
 enum class ToastKind : std::uint8_t { Info, Ok, Error };
 
@@ -105,7 +109,7 @@ enum class TextPurpose : std::uint8_t {
   PresetSaveAs,
   SampleRename,
   ProjectRename,  // payload: the project's name on the card
-  Search,  // the filter of the preset / sample browser underneath (FN + F)
+  Search,  // the filter of the sample browser underneath (FN + F)
 };
 
 enum class ConfirmPurpose : std::uint8_t {
@@ -235,7 +239,7 @@ inline std::size_t CellPickPad(const synth::SynthParameterInfo& info)
 
 // What ADD and SUB do right now, which the icons on the screen's right edge say: change a value, move
 // up and down a list, move sideways (steps, pages, tracks), erase text, or nothing.
-enum class AdjustMeaning : std::uint8_t { Value, List, Sideways, Erase, None };
+enum class AdjustMeaning : std::uint8_t { Value, List, Sideways, Erase, Search, None };
 
 // A drum pad or sequencer hit, for the wave it sends along its column.
 struct DrumHit {
@@ -402,6 +406,15 @@ struct StepAudition {
   std::uint8_t key = 0xFF;  // the GRID index of the step key; 0xFF = none
 };
 
+// The preset browser's audition: once the cursor rests after a scroll, the preset under it goes on the
+// track (PreviewPreset) and plays a note, the one the bottom-left pad plays (PresetAuditionTick).
+struct PresetAudition {
+  std::uint32_t dueAt = 0;      // the cursor moved: play once it has rested; 0 = nothing waits
+  std::uint32_t offAt = 0;      // the note ends then
+  std::uint8_t note = kNoNote;  // the note sounding; kNoNote = none
+  std::uint8_t track = 0;
+};
+
 struct UiState {
   // It boots on the instrument, first page (VOICE).
   Scene scene = Scene::Instrument;
@@ -416,6 +429,7 @@ struct UiState {
   std::array<std::uint8_t, kTrackCount> noteLane{{kNoNote, kNoNote, kNoNote, kNoNote}};
   std::array<StepKey, kGridCount> stepKeys{};
   StepAudition stepAudition;
+  PresetAudition presetAudition;
   std::size_t track = synth::kDefaultActiveTrack;
   KeyboardSettings keyboard{};
   // Each track's chord effect (INSTR CHORD).
@@ -637,13 +651,14 @@ public:
   // Pads that sound right now for the active track, base keys and chord notes.
   bool IsChordNoteHeld(int note) const;
 
-  // The preset browser's preview: a pad plays the preset under the cursor on the track's own engine
-  // (PreviewPreset). Meanwhile the track's own sound, its preset and edits as CaptureChanges has
-  // them, waits here and comes back when the browser closes without a choice: the autosave and a
-  // project take it for that track, not the preset on trial. Null when nothing is on trial there.
+  // The preset browser's preview: scrolling plays the preset under the cursor on the track's own engine
+  // (PreviewPreset, PresetAuditionTick). Meanwhile the track's own sound, its preset and edits as
+  // CaptureChanges has them, waits here and comes back when the browser closes without a choice: the
+  // autosave and a project take it for that track, not the preset on trial. Null when nothing is on
+  // trial there.
   const synth::SynthEngineState* PresetPreviewKept(std::size_t track) const;
-  // The preset the held pads play in the preset browser (the one on trial, or the track's own),
-  // empty when no pad is held: its row shows a play mark.
+  // The preset the browser's audition note plays (the one on trial, or the track's own), empty while it
+  // is silent: its row shows a play mark.
   std::string PresetHeard() const;
 
 private:
@@ -738,9 +753,15 @@ private:
   // picker it came from, so ESC goes back there.
   bool ConfirmLosingEdits(ConfirmPurpose purpose, const std::string& title, const std::string& payload);
   void ApplyPreset(const std::string& presetId);
-  // A pad pressed in the preset browser: the preset under the cursor goes on the track's engine (the
-  // track's own sound is set aside the first time, and comes back when the cursor is on its row).
+  // The preset under the browser's cursor goes on the track's engine (the track's own sound is set
+  // aside the first time, and comes back when the cursor is on its row).
   void PreviewPreset();
+  // Scrolling the preset browser: its audition waits for the cursor to rest (kPresetAuditionRestMs).
+  void QueuePresetAudition();
+  // Each tick: the audition note ends on time (or when the browser is gone); a rested cursor puts its
+  // preset on the track and plays the bottom-left pad's note with it.
+  void PresetAuditionTick();
+  void EndPresetAuditionNote();
   // The browser closed: `restore` puts the track's own sound back (ESC, a scene change), otherwise it
   // is dropped (a preset was chosen, or another project replaced the track).
   void EndPresetPreview(bool restore);
@@ -809,7 +830,7 @@ private:
   void OpenModal(Modal modal);
   void CloseModal();
   Modal* Top();
-  void OpenTextEntry(TextPurpose purpose, const std::string& title, const std::string& initial, std::size_t maxLength);
+  void OpenTextEntry(TextPurpose purpose, const std::string& initial, std::size_t maxLength);
   void OpenConfirm(ConfirmPurpose purpose, const std::string& title, const std::string& detail, bool danger, const std::string& payload = {});
   void OpenPresetBrowser();
   void RefreshPresetBrowser();

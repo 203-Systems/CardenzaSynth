@@ -10,6 +10,12 @@ namespace groove {
 
 namespace {
 
+constexpr std::size_t kSearchMaxLength = 16;
+
+constexpr bool IsTextCharacter(char value)
+{
+  return (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') || value == ' ' || value == '-';
+}
 
 constexpr std::size_t LeftIndex(KeyRole role)
 {
@@ -280,6 +286,9 @@ void Controller::AddHeldPadNotes(std::size_t track, std::array<std::uint32_t, 4>
       notes[note / 32] |= 1u << (note % 32);
     }
   }
+  // The preset browser's audition note (PresetAuditionTick ends it).
+  const PresetAudition& preset = state_.presetAudition;
+  if (preset.note != kNoNote && preset.track == track) notes[preset.note / 32] |= 1u << (preset.note % 32);
   // A step key held while stopped sounds its step (AuditionStep).
   const StepAudition& audition = state_.stepAudition;
   if (static_cast<std::size_t>(audition.track) != track) return;
@@ -293,6 +302,9 @@ void Controller::AddHeldPadNotes(std::size_t track, std::array<std::uint32_t, 4>
 void Controller::ReleaseAllPads()
 {
   StopStepAudition();
+  // The preset browser's audition note too: a preset load or the track's own sound coming back rebuilds
+  // AMY's voices, and a note-off sent after that finds no note to end (its voice would stay held).
+  EndPresetAuditionNote();
   for (std::size_t index = 0; index < state_.padNote.size(); ++index)
   {
     if (state_.padNote[index] == kNoNote) continue;
@@ -377,6 +389,9 @@ void Controller::KeyEvent(std::size_t row, std::size_t column, bool pressed, std
     case KeyRole::Add:
     case KeyRole::Enter:
     case KeyRole::Play:
+      if (pressed && modal != nullptr && modal->kind == ModalKind::PresetBrowser &&
+          !state_.left[LeftIndex(KeyRole::Fn)].down && (role == KeyRole::Add || role == KeyRole::Play) &&
+          HandleSearchKey(row, column)) return;
       pressed ? PressRight(role) : ReleaseRight(role);
       return;
     case KeyRole::Pad:
@@ -565,12 +580,6 @@ void Controller::PressPad(std::size_t row, std::size_t column)
   std::array<std::uint8_t, kMaxPadNotes> chord{};
   const std::size_t voices = PadNotes(state_.keyboard, state_.chords[state_.track], ActiveKind(), note, chord);
   if (voices == 0) return;
-  // In the preset browser a pad tries the preset under the cursor (it goes on the track first): its
-  // notes and chord as anywhere, but straight (no arpeggiator) and kept out of the pattern and the
-  // takes: the user is choosing a sound, not playing the part.
-  const Modal* top = TopModal();
-  const bool trying = top != nullptr && top->kind == ModalKind::PresetBrowser;
-  if (trying) PreviewPreset();
   auto& sequencer = host_.Sequencer();
   // On a drum track the row says how hard. On the drum page a pad also chooses what the GRID puts on
   // the steps: this drum, this hard.
@@ -599,16 +608,16 @@ void Controller::PressPad(std::size_t row, std::size_t column)
   state_.padChordCount[index] = static_cast<std::uint8_t>(voices);
   state_.padTrack[index] = static_cast<std::uint8_t>(state_.track);
   // Drums skip the arpeggiator: one hit per press.
-  state_.padArp[index] = audition && !trying && sequencer.GetArpSettings(state_.track).mode != synth::ArpMode::Off && ActiveKind() != synth::SynthEngineKind::Drums;
+  state_.padArp[index] = audition && sequencer.GetArpSettings(state_.track).mode != synth::ArpMode::Off && ActiveKind() != synth::SynthEngineKind::Drums;
   state_.lastTrackNoteAt[state_.track] = state_.now;
   if (!audition)
   {
     state_.padChordCount[index] = 0;  // edit only: nothing sounds, nothing to release
     return;
   }
-  SoundPad(index, true, !trying);
+  SoundPad(index, true);
   // The arpeggiator records its own notes; straight notes are recorded here.
-  if (!editing && !trying && !state_.padArp[index] && sequencer.RecordArmed() && sequencer.Playing())
+  if (!editing && !state_.padArp[index] && sequencer.RecordArmed() && sequencer.Playing())
   {
     for (std::size_t voice = 0; voice < voices; ++voice) sequencer.RecordNoteOn(state_.track, chord[voice], velocity);
     MarkDirty();
@@ -752,8 +761,7 @@ bool Controller::HandleTextKey(std::size_t row, std::size_t column)
     default:
       break;
   }
-  const bool allowed = (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') || value == ' ' || value == '-';
-  if (!allowed) return true;
+  if (!IsTextCharacter(value)) return true;
   if (value == ' ' && cursor == 0) return true;
   if (text.size() < modal->maxLength) text.insert(cursor++, 1, value);
   return true;
@@ -761,13 +769,30 @@ bool Controller::HandleTextKey(std::size_t row, std::size_t column)
 
 bool Controller::HandleSearchKey(std::size_t row, std::size_t column)
 {
-  // In the preset / sample browsers the pads and GRID do not type: searching is FN + F, a field one
-  // step away, so a stray key never starts a filter. The preset browser's pads play the preset under
-  // the cursor (PreviewPreset); the sample browser's stay silent.
-  const Modal* modal = TopModal();
+  // The preset browser types its search at once: the pads and the GRID's letters add to it, DEL (ADD)
+  // erases, PLAY is a space. Scrolling plays the preset under the cursor (QueuePresetAudition). The
+  // sample browser keeps its field one step away (FN + F) and its pads stay silent.
+  Modal* modal = Top();
   if (modal == nullptr) return false;
-  if (modal->kind == ModalKind::PresetBrowser) return RoleFor(row, column) != KeyRole::Pad;
-  return modal->kind == ModalKind::SampleBrowser;
+  if (modal->kind == ModalKind::SampleBrowser) return true;  // Sample files use their separate search field.
+  if (modal->kind != ModalKind::PresetBrowser) return false;
+
+  std::string& search = modal->search;
+  if (RoleFor(row, column) == KeyRole::Add)
+  {
+    // The top-right key reads DEL on the keycap. With no text to erase it still moves up the list.
+    if (search.empty()) return false;
+    search.pop_back();
+  }
+  else
+  {
+    const char value = LegendChar(row, column);
+    if (!IsTextCharacter(value) || search.size() >= kSearchMaxLength || (value == ' ' && search.empty()))
+      return true;
+    search.push_back(value);
+  }
+  RefreshPresetBrowser();
+  return true;
 }
 
 bool Controller::HandleFnKey(std::size_t row, std::size_t column)
@@ -784,10 +809,9 @@ bool Controller::HandleFnKey(std::size_t row, std::size_t column)
       case '/': ArrowKey(Arrow::Right); break;
       case 'F':
       {
-        // FN + F: the search field of a preset / sample browser.
         const Modal* browser = TopModal();
-        if (browser != nullptr && (browser->kind == ModalKind::PresetBrowser || browser->kind == ModalKind::SampleBrowser))
-          OpenTextEntry(TextPurpose::Search, "SEARCH", browser->search, 16);
+        if (browser != nullptr && browser->kind == ModalKind::SampleBrowser)
+          OpenTextEntry(TextPurpose::Search, browser->search, kSearchMaxLength);
         break;
       }
       default: break;
@@ -859,6 +883,8 @@ void Controller::Tick(std::uint32_t nowMs)
     else Adjust(repeat.direction * step, repeat.coarse);
   }
   if (!state_.toast.text.empty() && nowMs >= state_.toast.until) state_.toast.text.clear();
+  // The browser's audition: its note ends on time, a rested cursor plays its preset.
+  PresetAuditionTick();
   // The preset browser went without ESC or ENTER (a scene change, a lesson's start): the track gets
   // its own sound back, as after ESC.
   if (preview_ && !PresetBrowserOpen()) EndPresetPreview(true);
@@ -1004,6 +1030,7 @@ AdjustMeaning Controller::AdjustKeysMean() const
     switch (modal->kind)
     {
       case ModalKind::PresetBrowser:
+        return modal->search.empty() || state_.left[LeftIndex(KeyRole::Fn)].down ? AdjustMeaning::List : AdjustMeaning::Search;
       case ModalKind::SampleBrowser:
       case ModalKind::SampleOptions:
         return AdjustMeaning::List;
@@ -1110,7 +1137,8 @@ void Controller::ArrowKey(Arrow arrow)
   Modal* modal = Top();
   if (modal != nullptr)
   {
-    if (vertical != 0) ModalAdjust(vertical, false);
+    // Up does what ADD (the upper key) does: up a list, a value higher.
+    if (vertical != 0) ModalAdjust(-vertical, false);
     else if (modal->kind == ModalKind::SampleRecord) modal->trimMarker = horizontal < 0 ? 0 : 1;
     return;
   }
@@ -1232,9 +1260,10 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
   const Modal* modal = TopModal();
   const bool textEntry = modal != nullptr && modal->kind == ModalKind::TextEntry;
   const bool menuOpen = modal != nullptr && modal->kind == ModalKind::Menu;
-  // The sample browser lights the pads' letters (its search); in the preset browser the pads are the
-  // keyboard as everywhere: they play the preset under the cursor.
-  const bool searching = modal != nullptr && modal->kind == ModalKind::SampleBrowser;
+  // The browsers' keys type: the preset browser's at once (its search), the sample browser's letters
+  // light for its search field.
+  const bool presetBrowser = modal != nullptr && modal->kind == ModalKind::PresetBrowser;
+  const bool sampleBrowser = modal != nullptr && modal->kind == ModalKind::SampleBrowser;
   const std::size_t page = CurrentPage();
   auto set = [&](std::size_t index, std::uint8_t level, LedEffect effect = LedEffect::Steady) {
     frame[index] = LedCell{level, effect};
@@ -1300,7 +1329,8 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
   if (modal != nullptr && modal->kind == ModalKind::Confirm) set(enterKey, kLedFull, LedEffect::Blink);
   else if (modal == nullptr && state_.scene == Scene::Sequence && page == 0) set(enterKey, choice(View() == SeqView::Step));
   else set(enterKey, enterAction ? kLedHalf : kLedOff);
-  if (sequencer.RecordArmed()) set(playKey, kLedFull, LedEffect::Blink);
+  if (presetBrowser) set(playKey, kLedHalf);  // Space types into the preset filter.
+  else if (sequencer.RecordArmed()) set(playKey, kLedFull, LedEffect::Blink);
   else set(playKey, choice(seq.playing));
 
   if (textEntry)
@@ -1385,6 +1415,23 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
       }
     set(addKey, kLedHalf);
     set(subKey, kLedHalf);
+    finish();
+    return;
+  }
+  if (presetBrowser)
+  {
+    // The keys that type (the pads' and the GRID's letters, digits and -): half, full for a moment when
+    // typed; the rest of the pads and the GRID off. The bottom-left pad is full while the audition plays
+    // its note (it is the note that pad plays).
+    for (std::size_t row = 0; row < kRows; ++row)
+      for (std::size_t column = kPadFirstColumn; column < kColumns - 1; ++column)
+      {
+        if (!IsTextCharacter(LegendChar(row, column))) continue;
+        const std::size_t index = KeyIndex(row, column);
+        const std::uint32_t pressed = state_.keyPressedAt[index];
+        set(index, choice(pressed != 0 && state_.now - pressed < kLedPressFlashMs));
+      }
+    if (state_.presetAudition.note != kNoNote) set(KeyIndex(kRows - 1, kPadFirstColumn), kLedFull);
     finish();
     return;
   }
@@ -1473,9 +1520,9 @@ void Controller::ComputeSceneLeds(LedFrame& frame) const
     for (std::size_t column = kPadFirstColumn; column < kPadFirstColumn + kPadColumns; ++column)
     {
       const std::size_t index = KeyIndex(row, column);
-      if (searching)
+      if (sampleBrowser)
       {
-        // The browser search field: letters and digits type.
+        // The sample browser highlights the keys used in its search field.
         const char key = LegendChar(row, column);
         set(index, (key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9') || key == '-' ? kLedHalf : kLedOff);
         continue;
