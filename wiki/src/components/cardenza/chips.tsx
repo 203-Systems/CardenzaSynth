@@ -87,7 +87,7 @@ export function Led({state, children}: {state: string; children?: React.ReactNod
 }
 
 const SCENES: Record<string, string> = {INSTR: '1', SEQ: '2', TAPE: '3', SETUP: '0', FN: 'FN'};
-const TRACKS: Record<string, string> = {'1': 'DRUMS', '2': 'JUNO', '3': 'DX7', '4': 'SAMPLER'};
+const TRACKS: Record<string, string> = {'1': 'DRUMS', '2': 'HERA', '3': 'FM7', '4': 'SAMPLE'};
 
 export function Scene({name}: {name: string}) {
   const number = SCENES[name.toUpperCase()];

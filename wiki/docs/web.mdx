@@ -57,6 +57,6 @@ sidebar_position: 14
 - Settings, projects and sounds are stored in the browser (IndexedDB) in the same folders as on the SD card (`CardenzaSynth/…`), and survive a reload. Clearing the site's data deletes them.
 - The working state that the device keeps by itself ([Your work is kept](./projects.mdx#project-session)) is kept by the browser too: it is written as you go and when the page is hidden, and is still there after a reload or after closing the page, like pulling the power on the device. To keep it as a project, save with <Key k="FN+S" /> as usual.
 - On the simulator page, "Load project…" copies `.ccproj` files from a Cardenza's card into the browser (never over an existing project, a name already taken gets a number) and opens the first one; the others are in SETUP FILES.
-- "Load WAV…" puts audio files from your computer into the shared sample folder `Samples/`, where the SAMPLER's file list finds them. Anything that is not a mono 16-bit WAV (stereo, 24-bit, MP3…) is converted to mono 16-bit 44.1 kHz and cut to 5 seconds.
+- "Load WAV…" puts audio files from your computer into the shared sample folder `Samples/`, where the SAMPLE engine's file list finds them. Anything that is not a mono 16-bit WAV (stereo, 24-bit, MP3…) is converted to mono 16-bit 44.1 kHz and cut to 5 seconds.
 
 <Keywords k="browser storage, autosave, kept after reload, indexeddb, load wav, upload sample, load project, import project, ccproj, where is it saved, reload, 浏览器存储" />

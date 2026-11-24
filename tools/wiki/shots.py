@@ -108,7 +108,7 @@ def shot_script():
     s.act("tap 1,8").act("up fn").wait(60)
     # A tap on FN keeps the menu open.
     s.act("tap fn").shot("fn-menu-open", 30).act("tap fn").wait(40)
-    # INSTR on T2 (Juno): VOICE, CHORD, ARP, DCO, VCF, ENV, LFO, FX; and its FN menu.
+    # INSTR on T2 (HERA): VOICE, CHORD, ARP, DCO, VCF, ENV, LFO, FX; and its FN menu.
     s.scene(1).page(0).shot("instr-voice")
     s.act("down fn").shot("fn-menu-instr", 30).act("up fn").wait(40)
     s.act(f"tap {grid_key(0)}").shot("engine-picker").act("tap esc").wait(30)
@@ -126,11 +126,11 @@ def shot_script():
     s.act("down 3,1", "down 3,3", "down 3,5").shot("arp-running", 50).act("up 3,1", "up 3,3", "up 3,5")
     s.act(f"tap {grid_key(0)}", *["tap 1,13"] * 8).wait(20)
     for index, name in enumerate(["dco", "vcf", "env", "lfo", "fx"], start=3):
-        s.page(index).shot(f"instr-juno-{name}")
-    # T3 DX7: VOICE, CHORD, ARP, ALGO, LEVELS, OP1-OP6, LFO, FX.
+        s.page(index).shot(f"instr-hera-{name}")
+    # T3 FM7: VOICE, CHORD, ARP, ALGO, LEVELS, OP1-OP6, LFO, FX.
     s.track(3)
     for index, name in [(0, "voice"), (3, "algo"), (4, "levels"), (5, "op1"), (11, "lfo")]:
-        s.page(index).shot(f"instr-dx7-{name}")
+        s.page(index).shot(f"instr-fm7-{name}")
     # T1 drums (VOICE, KIT, FX), T4 sampler (VOICE, CHORD, ARP, SAMPLE, TONE, FX).
     s.track(1).page(1).shot("instr-drums-kit")
     s.track(4).page(3).shot("instr-sampler-sample")

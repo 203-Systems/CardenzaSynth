@@ -15,7 +15,7 @@ engine → DRIVE → CRUSH → FILTER → CHORUS → track fader ─┬─→ ou
 Three places to set effects:
 
 <Strip>
-  <Step shot="instr-juno-fx" at="cells:1,1-2,4"><Scene name="INSTR" /> <Page name="FX" />: the track's inserts and its two sends.</Step>
+  <Step shot="instr-hera-fx" at="cells:1,1-2,4"><Scene name="INSTR" /> <Page name="FX" />: the track's inserts and its two sends.</Step>
   <Step shot="tape-sends" at="cells:1,1-4,4"><Scene name="TAPE" /> <Page name="SENDS" />: all four tracks' FILTER, CHORUS and two sends on one screen.</Step>
   <Step shot="tape-fx" at="cells:1,1-3,4"><Scene name="TAPE" /> <Page name="FX" />: master delay, reverb, EQ, compressor, tape.</Step>
 </Strip>
@@ -26,18 +26,18 @@ Three places to set effects:
 
 On each engine's FX page (see [FX page: the track's effects](./instr.mdx#instr-fx)); FILTER and CHORUS of all four tracks are also on TAPE's SENDS page:
 
-<Shot name="instr-juno-fx">
+<Shot name="instr-hera-fx">
   <Mark at="cell:1,1">DRIVE: soft saturation, higher is dirtier</Mark>
   <Mark at="cell:1,2">CRUSH: sample-rate and bit reduction</Mark>
   <Mark at="cell:1,3">FILTER: 64 is off, low-pass below, high-pass above</Mark>
   <Mark at="cell:1,4">RESO: filter resonance</Mark>
-  <Mark at="cell:2,1">CHORUS: Juno-style I / II / I+II</Mark>
+  <Mark at="cell:2,1">CHORUS: I / II / I+II, the HERA's chorus</Mark>
   <Mark at="cells:2,2-2,3">DELAY / REVERB sends</Mark>
   <Mark at="cells:3,1-4,4">Signal chain: active effects light up</Mark>
   <Caption>The FX page: effect parameters on top, the track's signal chain below.</Caption>
 </Shot>
 
-They are sound parameters (`fx.*`), saved with the sound and the project; changing engine or sound resets them (Juno sounds bring their own chorus).
+They are sound parameters (`fx.*`), saved with the sound and the project; changing engine or sound resets them (HERA sounds bring their own chorus).
 
 <Keywords k="drive, distortion, saturation, bitcrush, lofi, filter, resonance, chorus, 失真" />
 
@@ -81,7 +81,7 @@ TAPE's FX page, part of the project (saved since project format v4):
 Effect buffers are taken the first time an effect is used and given back when it is not: the delay line 16 KB (32 KB for echoes longer than 743 ms) and the reverb about 8.8 KB, both in the device's 2 MB PSRAM, and 1 KB per track for its chorus.
 
 - If the delay or reverb cannot get memory, that bus is silent and the FX page and the signal chain show NO MEM. With every effect off, the output is bit-identical to having no effects.
-- Each track plays a few notes at once: DX7 4, JUNO and DRUMS 6, SAMPLER 4. When all are busy, a new note takes the voice of an older one, a released one first.
+- Each track plays a few notes at once: FM7 4, HERA and DRUMS 6, SAMPLE 4. When all are busy, a new note takes the voice of an older one, a released one first.
 - Audio has a budget of 5.8 ms per 256 frames, shared by both of the chip's cores. When a block would not fit, the device fades out the notes that matter least: always on the track with the most notes sounding, its released tails first, then its quietest held note. A track only ever gives way to itself, and the beat never slows or stops.
 
 :::warning
