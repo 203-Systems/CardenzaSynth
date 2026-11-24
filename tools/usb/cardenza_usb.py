@@ -4,7 +4,7 @@ this firmware’s app channel. Any firmware on CardenzaHAL answers list, command
 Talks only to devices with 203 Systems’ vendor ID: the HID system channel (report 0xCB), the firmware’s
 app reports (0xFF), MIDI ports and audio devices whose name contains "Cardenza".
 
-usage: python3 tools/usb/cardenza_usb.py list | command <identify|reboot|launcher|download> | stats
+usage: python3 tools/usb/cardenza_usb.py list | command <identify|reboot|launcher|download|seen> | stats
        | console <seconds> | test | guide
 
   list      the Cardenza’s HID, MIDI and audio devices
@@ -32,7 +32,7 @@ VENDOR_ID = 0x0203
 REPORT_SYSTEM = 0xCB
 REPORT_APP = 0xFF
 REPORT_SIZE = 63
-COMMANDS = {"launcher": 0x40, "reboot": 0x41, "download": 0x42, "console": 0x43, "identify": 0x44}
+COMMANDS = {"launcher": 0x40, "reboot": 0x41, "download": 0x42, "console": 0x43, "identify": 0x44, "seen": 0x46}
 NAME = "Cardenza"
 
 
