@@ -86,3 +86,11 @@ CONFIG_LWIP_IPV6=n
 CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y
 CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y
 CONFIG_LWIP_TCPIP_TASK_PRIO=4
+
+# The HAL's USB camera: the screen as a lossless stream on the WebUSB interface (Device.cpp presents it, with
+# USB audio recording only, within the ESP32-S3's four IN endpoints).
+CONFIG_CARDENZA_HAL_USB_CAMERA=y
+
+# The HAL goes back to the Launcher after early crashes in a row; the synth's own recovery (Session/restoring.txt:
+# the autosave is skipped at the 4th start after three that did not finish) comes first, so one crash more.
+CONFIG_CARDENZA_HAL_CRASH_LOOP_CRASHES=4

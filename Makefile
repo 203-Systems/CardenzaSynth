@@ -148,7 +148,8 @@ endif
 # release configuration plus the task watchdog (a hang becomes a crash report with its backtrace) and
 # the task list for the test's stall watcher. Flash it from its build folder (cd build/Cardenza-stress &&
 # esptool.py --chip esp32s3 -p <port> write_flash @flash_args) and read the `stress:` lines of the log.
-# Never ship this build.
+# Never ship this build. It goes on after its own crashes, so the HAL's way back to the Launcher after crashes
+# in a row is off in it.
 # STRESS_ONLY=card:DEMO-2,sampler (scenario names, comma separated) and STRESS_SECONDS=60 run those alone;
 # STRESS_START=3 begins 3 s after boot, STRESS_REPEAT=1 runs a scenario again after a restart
 # instead of going on to the next. STRESS_TRACE=worst traces the heap during that
@@ -164,6 +165,7 @@ ifeq ($(DEVICE),Cardenza)
 	     -e 's/^# CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1 is not set$$/CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y/' \
 	     -e 's/^# CONFIG_FREERTOS_USE_TRACE_FACILITY is not set$$/CONFIG_FREERTOS_USE_TRACE_FACILITY=y/' \
 	     -e 's/^# CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS is not set$$/CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y/' \
+	     -e 's/^CONFIG_CARDENZA_HAL_CRASH_LOOP_LAUNCHER=y$$/# CONFIG_CARDENZA_HAL_CRASH_LOOP_LAUNCHER is not set/' \
 	     $(DEVICE_PROJECT_DIR)/sdkconfig > $(STRESS_BUILD)/sdkconfig.next
 	@if [ -n "$(STRESS_TRACE)" ]; then \
 	  sed -i -e 's/^CONFIG_HEAP_TRACING_OFF=y$$/# CONFIG_HEAP_TRACING_OFF is not set/' \

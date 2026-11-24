@@ -425,17 +425,25 @@ std::string BackendName() {
 
 bool Init() {
   const bool initialized = CardenzaHAL::Init();
-  // One composite device: MIDI, audio both ways, HID, and the HAL's system channel (console, restart
-  // into the Launcher or the ROM download mode).
+  // One composite device: MIDI, audio both ways, HID, WebUSB, and the HAL's system channel on each of them
+  // (console, INFO, restart into the Launcher or the ROM download mode). CardenzaHAL::Init started it with the
+  // HAL's defaults a moment ago; this Init, within the HAL's second, is what the computer sees.
   CardenzaHAL::USB::Config usb;
-  // What a computer lists the device, its MIDI ports and its audio as. Host tools and the guide page
-  // find it by "Cardenza" in the name.
-  usb.product = "203 Systems Cardenza";
+  // This firmware's name in IDENTIFY and INFO. The USB names are the board's, the same in every mode ("203
+  // Systems" / "Cardenza", the MAC as the serial number); host tools and the guide page find the device by
+  // "Cardenza" in its MIDI port's name.
+  usb.product = "Cardenza Synth";
   // 0203:2040 (the HAL's default is 0x10C0). Host tools match the VID and the name, not this.
   usb.productId = 0x2040;
   // No HID keyboard: this firmware types nothing, and with one macOS lets host tools open the HID
   // interface only with the Input Monitoring permission.
   usb.keyboard = false;
+  // The screen as a lossless stream (the HAL's camera, on the WebUSB interface): with the sound recorded over
+  // USB audio, a tutorial or a live stream needs nothing else. It costs nothing until a page opens it. Its IN
+  // endpoint is the playback's: the computer plays nothing to this firmware (no line input since 2026-11-06),
+  // so USB audio is recording only, which also frees the bus time the playback reserved.
+  usb.camera = true;
+  usb.audioPlayback = false;
   if (CardenzaHAL::USB::Init(usb)) USB::InstallAppChannel();
   // The USB console reopened stdout and stderr on itself: the log ring goes in front of it again.
   Log::Hook();
