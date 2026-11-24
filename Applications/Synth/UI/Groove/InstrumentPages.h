@@ -42,8 +42,6 @@ enum class PageGraphic : std::uint8_t {
   Filter,
   Oscillator,        // Juno DCO scope
   Lfo,               // LFO shape, rate and delay
-  Macro,             // Braids: the model's waveform and what TIMBRE and COLOR do in it
-  ModEnvelope,       // Braids: the AD envelope and how far it moves TIMBRE, COLOR and the pitch
   Waveform,
   WaveShape,         // Wave: one oscillator's cycle at its POSITION (op 1 or 2: which oscillator)
   ChopFile,          // chop SAMPLE: the whole file and its slices

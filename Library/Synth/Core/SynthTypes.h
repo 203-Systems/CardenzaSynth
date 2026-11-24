@@ -11,23 +11,25 @@ enum class SynthEngineKind {
   Juno,
   Sampler,
   Drums = 4,
-  // Project files store these numbers: a kind keeps its own for good. The five engines below were
-  // written on separate branches (each first took 5) and numbered here when they were put together.
-  Braids = 5,  // Mutable Instruments' macro oscillator (Library/third_party/braids)
+  // Project files store these numbers: a kind keeps its own for good. 1-4 are the 0.1.0 release's.
+  // The engines below were written on separate branches and numbered when they were put together;
+  // on 2026-11-23, with Braids removed, the user had them renumbered in the picker's order (none had
+  // been released: projects that test builds saved with them before do not open). From here on a
+  // kind keeps its number, and a new engine takes the next.
   // The Plaits macro oscillator (Library/third_party/eurorack), rendered by the runtime itself like
-  // the sampler.
-  Plaits = 6,
+  // the sampler (MACRO on screen).
+  Plaits = 5,
   // A singer: pronunciations of a voice pack (Library/Synth/Audio/SynthVocal.h).
-  Vocal = 7,
-  Wave = 8,    // wavetable and classic oscillators through AMY (Library/Synth/Core/Engines/Wave)
+  Vocal = 6,
+  Wave = 7,    // wavetable and classic oscillators through AMY (Library/Synth/Core/Engines/Wave)
   // One sample cut into slices: a pad plays a part of the file, never a pitch (ChopSynthEngine).
-  Chop = 9,
+  Chop = 8,
   // One patch of a SoundFont (.sf2) file on the card (Library/Synth/Audio/SoundFont,
   // docs/sf2-engine-design.md), rendered by the runtime itself.
-  SoundFont = 10,
+  SoundFont = 9,
 };
 // One more than the highest kind: tables indexed by kind.
-inline constexpr std::size_t kSynthEngineKindCount = 11;
+inline constexpr std::size_t kSynthEngineKindCount = 10;
 
 enum class OverlayPage {
   None,

@@ -178,7 +178,7 @@ SF2 是"自己渲染音"的引擎，和采样器、Plaits、Vocal 同一类：�
 
 | 点 | 做法 |
 |---|---|
-| 引擎种类 | `SynthEngineKind::SoundFont`。编号在几个分支合并时统一定：现在 Braids、Plaits、Vocal 各自占了 5，Wave 用 8 |
+| 引擎种类 | `SynthEngineKind::SoundFont = 9`（2026-11-23 去掉 Braids 后按选择器顺序重排定的，之前是 10） |
 | 渲染入口 | 用 Plaits 和 Vocal 分支引入的"自渲染轨道"入口（`RenderOwnTrackNoLock`）。两个分支现在各改了一遍同样的地方、判断函数名字不同，建议合并时收成一个接口，SF2 实现它，不再加第四种特例 |
 | 预算 | 学习每个音的开销，从 AMY 的可用时间里扣掉；超了只淡出本轨的音，先松开的尾巴，再最轻的按住音（Plaits 分支的做法）。不像采样器和 Vocal 那样算进"其它开销" |
 | 音符 | 走事件队列（`NoteOn` / `NoteOff` / `AllNotesOff`）；按住的音经 `PublishHeldNotesNoLock` 交给 `EndOrphanNotes` |
@@ -280,7 +280,7 @@ P1 没有碰共用代码，只在 `tests/CMakeLists.txt` 里加了一个测试�
 
 ## 12. P2 的实现
 
-分支 `claude/sf2-engine-p2`，从合并了全部引擎的 `claude/synth-integration` 分出。SoundFont 是第 10 种引擎（`SynthEngineKind::SoundFont = 10`），引擎选择里排最后（SFONT）。界面和操作写在 `AGENT.md` 的「SoundFont」一节，文件和工程写在 `docs/app-storage-protocol.md`。
+分支 `claude/sf2-engine-p2`，从合并了全部引擎的 `claude/synth-integration` 分出。SoundFont 是引擎种类 9（`SynthEngineKind::SoundFont = 9`，2026-11-23 重排前是 10），引擎选择里排最后（SFONT）。界面和操作写在 `AGENT.md` 的「SoundFont」一节，文件和工程写在 `docs/app-storage-protocol.md`。
 
 | 位置 | 内容 |
 |---|---|
@@ -312,7 +312,7 @@ SF2 和 Plaits 一样只在音频核上渲染、开销不按模型估：每条�
 ### 和设计不一样的其它地方
 
 - **TONE 是八项**：CUTOFF、RESO、ATTACK、RELEASE、TUNE、FINE、LEVEL、VELO，都是加在音色自己的数值上的偏移。VELO（`amp.velocity`，0–127，默认 127）按比例缩小力度带来的衰减：127 是音色原样，0 每个音都和最重的一样响；力度落在哪个区间（选哪层采样）不变。换文件时保留，换音色时回到默认。
-- **工程里音色是预设编号，不是参数，也没有新格式**。bank 和 program 写成这条轨的预设 `sf.<bank>.<program>`，仍是格式 7；旧固件遇到种类 10 的轨道会拒绝整个工程，和别的新引擎一样。
+- **工程里音色是预设编号，不是参数，也没有新格式**。bank 和 program 写成这条轨的预设 `sf.<bank>.<program>`，仍是格式 7；旧固件遇到种类 9 的轨道会拒绝整个工程（或当成别的引擎而音色对不上），和别的新引擎一样。
 - **电平没有校**。现在直接用采样器的增益（`kSamplerVoiceGain`），没有按「GM 钢琴力度 100 约等于 Juno」校过，要在板上听了再定。
 - **用户音色没有测**。引擎走的是通用的音色保存（`Presets/SoundFont/user.ccpreset`），但一个用户音色只记得音色编号，不记得是哪个文件：换了文件它指向的就是另一个声音。按第 8 节这是 P4 的事，现在先不要依赖它。
 

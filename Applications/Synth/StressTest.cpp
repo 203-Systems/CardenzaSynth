@@ -76,7 +76,7 @@ struct Result {
   std::uint16_t lostHeld;     // held notes faded: a note missing
   std::uint16_t lostUnheard;  // notes left out before they sounded: a note missing
   std::uint16_t lostStolen;   // held notes whose voice a newer one took (the track's voices all held)
-  std::uint16_t dx7Us, junoUs, drumsUs, waveUs, braidsUs, overheadUs;  // the budget's model at the end
+  std::uint16_t dx7Us, junoUs, drumsUs, waveUs, overheadUs;  // the budget's model at the end
   std::uint16_t plaitsUs;  // a voice of the dearest Plaits track (0: none)
   std::uint16_t sf2Us;     // a voice of the dearest SoundFont track (0: none)
   std::uint16_t scalePercent;
@@ -98,11 +98,11 @@ struct Persist {
   Result results[kMaxScenarios];
 };
 static_assert(std::is_trivially_default_constructible_v<Persist>, "a constructor would clear it at every start");
-constexpr std::uint32_t kMagic = 0x53545234u;  // "STR4": Result gained the SoundFont voices' cost
+constexpr std::uint32_t kMagic = 0x53545235u;  // "STR5": Result lost the Braids voices' cost
 RTC_NOINIT_ATTR Persist g_persist;
 
 enum class Kind : std::uint8_t { Idle, Fixture, Generated, Card, LiveOps, UiStorm, Worst };
-enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, AmyBench, WaveStacks, Braids, Plaits, Vocal, Chop, SoundFont };
+enum class Variant : std::uint8_t { None, Dx7Chords, JunoPads, DrumsFast, Arps, Sampler, FxMax, MaxPatterns, AmyBench, WaveStacks, Plaits, Vocal, Chop, SoundFont };
 
 struct Scenario {
   std::string name;
@@ -142,7 +142,6 @@ std::string ProjectName(Variant variant)
     case Variant::MaxPatterns: return std::string(kPrefix) + "MAX";
     case Variant::AmyBench: return std::string(kPrefix) + "AMY";
     case Variant::WaveStacks: return std::string(kPrefix) + "WAVE";
-    case Variant::Braids: return std::string(kPrefix) + "BRAIDS";
     case Variant::Plaits: return std::string(kPrefix) + "PLAITS";
     case Variant::Vocal: return std::string(kPrefix) + "VOCAL";
     case Variant::Chop: return std::string(kPrefix) + "CHOP";
@@ -370,22 +369,6 @@ synth::ProjectData MakeProject(Variant variant, int bench = 0)
 #endif
       break;
     }
-    case Variant::Braids:
-    {
-      // Four Braids tracks, every voice of each busy, on its dearest models: the swarm of saws, four
-      // wavetable voices a note, the plucked strings (with their delay lines in PSRAM) and the bell's
-      // eleven partials, with a chorus and both sends on top.
-      const char* presets[] = {"braids.swarm", "braids.chord", "braids.pluck", "braids.bell"};
-      for (std::size_t track = 0; track < tracks.size(); ++track)
-      {
-        tracks[track] = TrackSpec{SynthEngineKind::Braids, presets[track], "", 4, track < 2 ? 2 : 1, track < 2 ? 96 : 24, 40 + 7 * static_cast<int>(track)};
-        tracks[track].chorus = 2;
-        tracks[track].reverb = 70;
-        tracks[track].delay = 40;
-      }
-      bpm = 140;
-      break;
-    }
     case Variant::Plaits:
     {
       // Plaits voices are the dearest there are and render on the audio core alone, after AMY's. Two
@@ -524,7 +507,6 @@ std::vector<Scenario> BuildScenarios()
   add("drums-300bpm", Kind::Generated, Variant::DrumsFast, 25);
   add("arps-1/32", Kind::Generated, Variant::Arps, 25);
   add("sampler", Kind::Generated, Variant::Sampler, 25);
-  add("braids", Kind::Generated, Variant::Braids, 30);
   add("chop", Kind::Generated, Variant::Chop, 30);
   add("fx-max", Kind::Generated, Variant::FxMax, 25);
   add("wave-stacks", Kind::Generated, Variant::WaveStacks, 25);
@@ -739,11 +721,11 @@ void PrintResult(std::size_t index)
   const Result& r = g_persist.results[index];
   static const char* const kStates[] = {"not run", "running", "done", "RESTARTED"};
   std::printf("stress: %2u %-18s %-9s %s render %u/%u us under %u | notes lost: held %u unheard %u stolen %u (tails %u) | ui max %u ms drops %u | "
-              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | voice us dx7 %u juno %u drums %u wave %u braids %u plaits %u sf2 %u, other %u, scale %u%% | %s\n",
+              "seq late %u us n %u | ram min %u KB psram %u KB | op %u ms under %u | voice us dx7 %u juno %u drums %u wave %u plaits %u sf2 %u, other %u, scale %u%% | %s\n",
               static_cast<unsigned>(index), index < g_runner.scenarios.size() ? g_runner.scenarios[index].name.c_str() : "?", kStates[r.state & 3],
               r.state == 2 ? (r.ok ? "ok  " : "FAIL") : "    ", r.avgRenderUs, r.maxRenderUs, r.underruns, r.lostHeld, r.lostUnheard, r.lostStolen,
               r.lostTails, r.uiMaxMs, r.uiDrops, r.seqLatestUs, r.seqLate, r.ramMinKb, r.psramMinKb, r.opMaxMs, r.opUnderruns, r.dx7Us, r.junoUs,
-              r.drumsUs, r.waveUs, r.braidsUs, r.plaitsUs, r.sf2Us, r.overheadUs, r.scalePercent, r.note);
+              r.drumsUs, r.waveUs, r.plaitsUs, r.sf2Us, r.overheadUs, r.scalePercent, r.note);
 }
 
 // One short line a scenario for the summary repeated at the end: the USB console drops long bursts.
@@ -989,7 +971,6 @@ void FinishWindow(GrooveApp& app, std::size_t index)
   result.junoUs = Cap16(static_cast<std::uint32_t>(model.junoMicros));
   result.drumsUs = Cap16(static_cast<std::uint32_t>(model.drumsMicros));
   result.waveUs = Cap16(static_cast<std::uint32_t>(model.waveMicros));
-  result.braidsUs = Cap16(static_cast<std::uint32_t>(model.braidsMicros));
   result.plaitsUs = Cap16(static_cast<std::uint32_t>(model.plaitsMicros));
   result.sf2Us = Cap16(static_cast<std::uint32_t>(model.soundFontMicros));
   result.overheadUs = Cap16(static_cast<std::uint32_t>(model.overheadMicros));
@@ -1062,7 +1043,7 @@ void LiveOperation(GrooveApp& app)
   // Every engine in turn, round after round: a Plaits track is set up with its four voices (their
   // memory and every model's tables) by the audio thread while the others play.
   const SynthEngineKind cycle[] = {SynthEngineKind::Juno, SynthEngineKind::Wave, SynthEngineKind::Sampler, SynthEngineKind::Drums,
-                                   SynthEngineKind::Dx7, SynthEngineKind::Braids, SynthEngineKind::Plaits, SynthEngineKind::Vocal,
+                                   SynthEngineKind::Dx7, SynthEngineKind::Plaits, SynthEngineKind::Vocal,
                                    SynthEngineKind::Chop, SynthEngineKind::SoundFont};
   constexpr std::uint32_t kCycle = sizeof(cycle) / sizeof(cycle[0]);
   switch (g_runner.op++ % 10)

@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "CardenzaBuildInfo.h"
-#include "Library/Synth/Audio/Braids/BraidsModels.h"
 #include "Library/Synth/Core/Engines/Chop/ChopSynthEngine.h"
 #include "Applications/Synth/UI/Groove/Render/Effects.h"
 #include "Applications/Synth/UI/Groove/Render/Theme.h"
@@ -441,59 +440,6 @@ void DrawFxChain(Gfx& g, const Controller& controller, Animator& animator, const
   }
 }
 
-// The Braids OSC page: what TIMBRE and COLOR do in this model, and two periods of its waveform as the
-// oscillator itself renders them at the current settings (Host::BraidsWave). The wave is rendered when
-// the model, TIMBRE or COLOR change, not every frame.
-void DrawMacro(Gfx& g, const Controller& controller, Animator& animator, const Rect& area)
-{
-  constexpr std::size_t kWaveSamples = 192;
-  struct Wave {
-    int model = -1, timbre = -1, color = -1;
-    bool drawn = false;
-    std::array<std::int8_t, kWaveSamples> samples{};
-  };
-  static Wave wave;
-  const Host& host = controller.HostView();
-  const std::size_t track = controller.State().track;
-  const auto* engine = host.Engine(track);
-  const int model = EngineRaw(engine, "osc.model");
-  const int timbre = EngineRaw(engine, "osc.timbre", 64);
-  const int color = EngineRaw(engine, "osc.color", 64);
-  if (model != wave.model || timbre != wave.timbre || color != wave.color)
-  {
-    wave.model = model;
-    wave.timbre = timbre;
-    wave.color = color;
-    wave.drawn = host.BraidsWave(model, timbre, color, wave.samples.data(), wave.samples.size());
-  }
-  const synth::braids::ModelInfo& info = synth::braids::Model(model);
-  const std::string colorRole = std::string("COLOR ") + info.color;
-  g.Text(area.x + 2, area.y, std::string("TIMBRE ") + info.timbre, kDim);
-  g.Text(area.x + area.width - Gfx::Measure(colorRole) - 2, area.y, colorRole, kDim);
-  const Rect scope{area.x + 2, area.y + 11, area.width - 4, area.height - 13};
-  const int mid = scope.y + scope.height / 2;
-  g.DottedHLine(scope.x, mid, scope.width, kFaint, 3);
-  if (!wave.drawn)
-  {
-    g.Text(scope.x + (scope.width - Gfx::Measure("NO MEM")) / 2, mid - 3, "NO MEM", kRec);
-    return;
-  }
-  // While the track sounds the wave takes the track's colour and the period's edge is marked.
-  const bool sounding = host.TrackActivity(track) > 0.02f;
-  const Color ink = sounding ? kTab : kInk;
-  const float half = static_cast<float>(scope.height / 2 - 1);
-  int previousY = mid;
-  for (int column = 0; column < scope.width; ++column)
-  {
-    const std::size_t index = std::min(kWaveSamples - 1, static_cast<std::size_t>(column) * kWaveSamples / static_cast<std::size_t>(scope.width));
-    const int y = mid - static_cast<int>(static_cast<float>(wave.samples[index]) * (1.0f / 127.0f) * half);
-    if (column > 0) g.Line(scope.x + column - 1, previousY, scope.x + column, y, ink);
-    previousY = y;
-  }
-  g.DottedVLine(scope.x + scope.width / 2, scope.y, scope.height, kFaint, 2);
-  (void)animator;
-}
-
 void DrawSystemInfo(Gfx& g, const Controller& controller, Animator& animator, const Rect& panel);
 
 // The chop's file. SAMPLE: all of it, its slices in play laid over it, the one the pads chose in the
@@ -819,14 +765,10 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
       // The LFO itself: shape, speed (cycles across the graph) and the delayed fade-in; it scrolls
       // at a speed that follows the rate.
       const bool dx7 = host.EngineKind(track) == synth::SynthEngineKind::Dx7;
-      const bool braids = host.EngineKind(track) == synth::SynthEngineKind::Braids;
       const float rate = Glide(animator, track, engine, dx7 ? "global.lfo_speed" : "lfo.rate");
-      const float delay = dx7 || braids ? 0.0f : 0.6f * Glide(animator, track, engine, "lfo.delay");
-      // Braids: as deep as the deepest of its three amounts, a faint line while all are off.
+      const float delay = dx7 ? 0.0f : 0.6f * Glide(animator, track, engine, "lfo.delay");
       const float depth = dx7 ? std::max(0.25f, std::max(Glide(animator, track, engine, "global.lfo_pitch"), Glide(animator, track, engine, "global.lfo_amp")))
-                          : braids ? std::max(0.15f, std::max(Glide(animator, track, engine, "lfo.timbre"),
-                                                            std::max(Glide(animator, track, engine, "lfo.color"), Glide(animator, track, engine, "lfo.pitch"))))
-                                   : 1.0f;
+                              : 1.0f;
       // The Wave engine's shapes (TRI, SINE, SAW, SQR) in the widget's order.
       const bool waveEngine = host.EngineKind(track) == synth::SynthEngineKind::Wave;
       static constexpr std::array<int, 4> kWaveLfoShapes{{0, 4, 1, 3}};
@@ -835,7 +777,7 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
       const float cycles = 1.0f + rate * 7.0f;
       const float phase = std::fmod(static_cast<float>(now) * (0.0002f + rate * 0.0012f), 1.0f);
       const Rect graph{area.x + 2, area.y + 9, area.width - 4, area.height - 11};
-      g.Text(area.x + 2, area.y, dx7 ? "LFO > PITCH / AMP" : braids ? "LFO > TIMBRE / COLOR / PITCH" : waveEngine ? "LFO > PITCH / POS / VCF" : "LFO > DCO / VCF", kDim);
+      g.Text(area.x + 2, area.y, dx7 ? "LFO > PITCH / AMP" : waveEngine ? "LFO > PITCH / POS / VCF" : "LFO > DCO / VCF", kDim);
       widgets::LfoShape(g, graph, wave, cycles, delay, depth, phase, activity > 0.02f ? kTab : kInk);
       break;
     }
@@ -871,29 +813,6 @@ void DrawGraphic(Gfx& g, const Controller& controller, Animator& animator, const
       const int scaleY = area.y + area.height - 3;
       g.DottedHLine(graph.x, scaleY, graph.width, kFaint, 1);
       g.Fill(Rect{graph.x + static_cast<int>(position * static_cast<float>(graph.width - 3)), scaleY - 1, 3, 3}, kInk);
-      break;
-    }
-    case PageGraphic::Macro:
-      DrawMacro(g, controller, animator, area);
-      break;
-    case PageGraphic::ModEnvelope:
-    {
-      // The AD envelope every note starts, and beside it how far it moves each of its three targets.
-      const Rect graph{area.x + 2, area.y + 4, area.width * 5 / 8 - 4, area.height - 6};
-      widgets::Envelope(g, graph, {{0.03f + Glide(animator, track, engine, "mod.attack"), 0.05f + Glide(animator, track, engine, "mod.decay"), 0.25f, 0.02f, 0.02f}},
-                        {{1.0f, 0.0f, 0.0f, 0.0f, 0.0f}}, kInk);
-      const int barsX = area.x + area.width * 5 / 8 + 6;
-      const int barsWidth = area.x + area.width - barsX - 2;
-      const std::array<const char*, 3> ids{{"mod.timbre", "mod.color", "mod.pitch"}};
-      const std::array<const char*, 3> tags{{"TIMBRE", "COLOR", "PITCH"}};
-      for (std::size_t index = 0; index < ids.size(); ++index)
-      {
-        // Glide gives 0..1 over the parameter's range: the middle is no movement.
-        const float amount = 2.0f * Glide(animator, track, engine, ids[index], 0.5f) - 1.0f;
-        const int y = area.y + 3 + static_cast<int>(index) * 16;
-        g.Text(barsX, y, tags[index], std::fabs(amount) > 0.01f ? kInk : kFaint);
-        widgets::BipolarBar(g, Rect{barsX, y + 9, barsWidth, 3}, amount, activity > 0.02f ? kTab : kInk, kFaint);
-      }
       break;
     }
     case PageGraphic::FxChain:

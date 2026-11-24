@@ -179,17 +179,18 @@ std::size_t PadNotes(const KeyboardSettings& settings, const ChordSettings& shap
   return written;
 }
 
+// The names on screen (the user, 2026-11-23): not the instruments' or modules' own names (the code keeps
+// those: Dx7, Juno, Plaits), and short enough for an engine picker tile (six letters).
 std::string_view EngineShortName(synth::SynthEngineKind kind)
 {
   switch (kind)
   {
-    case synth::SynthEngineKind::Dx7: return "DX7";
-    case synth::SynthEngineKind::Juno: return "JUNO";
-    case synth::SynthEngineKind::Sampler: return "SAMPLER";
+    case synth::SynthEngineKind::Dx7: return "FM7";
+    case synth::SynthEngineKind::Juno: return "HERA";
+    case synth::SynthEngineKind::Sampler: return "SAMPLE";
     case synth::SynthEngineKind::Drums: return "DRUMS";
     case synth::SynthEngineKind::Wave: return "WAVE";
-    case synth::SynthEngineKind::Braids: return "BRAIDS";
-    case synth::SynthEngineKind::Plaits: return "PLAITS";
+    case synth::SynthEngineKind::Plaits: return "MACRO";
     case synth::SynthEngineKind::Vocal: return "VOCAL";
     case synth::SynthEngineKind::Chop: return "CHOP";
     case synth::SynthEngineKind::SoundFont: return "SFONT";
@@ -202,13 +203,12 @@ std::string_view EngineCode(synth::SynthEngineKind kind)
 {
   switch (kind)
   {
-    case synth::SynthEngineKind::Dx7: return "DX7";
-    case synth::SynthEngineKind::Juno: return "JUN";
+    case synth::SynthEngineKind::Dx7: return "FM7";
+    case synth::SynthEngineKind::Juno: return "HRA";
     case synth::SynthEngineKind::Sampler: return "SMP";
     case synth::SynthEngineKind::Drums: return "DRM";
     case synth::SynthEngineKind::Wave: return "WAV";
-    case synth::SynthEngineKind::Braids: return "BRD";
-    case synth::SynthEngineKind::Plaits: return "PLT";
+    case synth::SynthEngineKind::Plaits: return "MAC";
     case synth::SynthEngineKind::Vocal: return "VOC";
     case synth::SynthEngineKind::Chop: return "CHP";
     case synth::SynthEngineKind::SoundFont: return "SF2";

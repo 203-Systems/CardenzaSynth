@@ -178,9 +178,8 @@ void DrawEnginePicker(Gfx& g, const Controller& controller, Animator& animator, 
 {
   Title(g, "ENGINE  T" + std::to_string(controller.State().track + 1), kTab);
   // Four to a row, each a row under its GRID key (the title takes the first), three rows at most.
-  static constexpr std::array<const char*, 10> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT", "MACRO OSCILLATOR  47 MODELS",
-                                                         "MACRO OSCILLATOR  24 MODELS", "SINGS WORDS", "WAVETABLE SYNTH", "SLICED SAMPLE",
-                                                         "SOUNDFONT (.SF2) PLAYER"}};
+  static constexpr std::array<const char*, 9> kDetails{{"6-OPERATOR FM", "ANALOG POLY", "SAMPLE PLAYER", "808 DRUM KIT", "MACRO OSCILLATOR  24 MODELS",
+                                                        "SINGS WORDS", "WAVETABLE SYNTH", "SLICED SAMPLE", "SOUNDFONT (.SF2) PLAYER"}};
   const std::size_t shown = (std::min)(modal.items.size(), std::size_t{3 * kGridColumns});
   for (std::size_t index = 0; index < shown; ++index)
   {

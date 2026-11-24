@@ -196,12 +196,12 @@ void Controller::OpenEnginePicker()
   const auto current = ActiveKind();
   // In the order the picker draws them (ModalRender: DrawEnginePicker), four to a row, each row
   // chosen by the GRID's row of the same number: the first row the engines of the first release, then
-  // the ones added since.
-  const std::array<synth::SynthEngineKind, 10> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
-                                                       synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums,
-                                                       synth::SynthEngineKind::Braids, synth::SynthEngineKind::Plaits,
-                                                       synth::SynthEngineKind::Vocal, synth::SynthEngineKind::Wave,
-                                                       synth::SynthEngineKind::Chop, synth::SynthEngineKind::SoundFont}};
+  // the ones added since (Braids, once after DRUMS, was removed on 2026-11-23).
+  const std::array<synth::SynthEngineKind, 9> kinds{{synth::SynthEngineKind::Dx7, synth::SynthEngineKind::Juno,
+                                                      synth::SynthEngineKind::Sampler, synth::SynthEngineKind::Drums,
+                                                      synth::SynthEngineKind::Plaits, synth::SynthEngineKind::Vocal,
+                                                      synth::SynthEngineKind::Wave, synth::SynthEngineKind::Chop,
+                                                      synth::SynthEngineKind::SoundFont}};
   for (std::size_t index = 0; index < kinds.size(); ++index)
   {
     modal.items.push_back({std::to_string(static_cast<int>(kinds[index])), std::string(EngineShortName(kinds[index])), kinds[index] == current});

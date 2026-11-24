@@ -23,7 +23,6 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
     Juno/user.ccpreset
     Sampler/user.ccpreset
     Drums/user.ccpreset
-    Braids/user.ccpreset
     Plaits/user.ccpreset
     Vocal/user.ccpreset
     Wave/user.ccpreset
@@ -73,14 +72,14 @@ This reference defines paths, formats, ownership and compatibility. Code: `OS/St
 
 Storage protocol 2 describes the layout and how settings are kept; it does not version the project,
 preset or WAV formats. Project format 6 added the keyboard and each track's chord and arpeggiator;
-format 7 gives every pattern its own length (up to 256 steps). A vocal track (engine kind 7, from the
+format 7 gives every pattern its own length (up to 256 steps). A vocal track (engine kind 6, from the
 firmware that has the Vocal engine) is written in the same format: the `TRACK` line's last field, a
 sampler track's sample, names its voice pack in `Voices/` (empty: the built-in voice). A word is a
 pronunciation of the pack, named by its place in the pack's list (0 for the first). The track's own
 word is the engine parameter `voice.word` on the `PARAM` lines, and the word a step sings is a note
 of that step, a word key: one of the notes 0–2 of the track, whose velocity says which word
 (word = note × 127 + velocity − 1). Firmware without the Vocal engine refuses a project with such a
-track. A SoundFont track (engine kind 10) is written in the same format too: the `TRACK` line's last
+track. A SoundFont track (engine kind 9) is written in the same format too: the `TRACK` line's last
 field names its file in `SoundFonts/` (empty: none), its preset id is the patch of that file,
 `sf.<bank>.<program>` with the numbers the file gives it (`sf.none`: no patch), and the `PARAM` lines
 carry what the track adds to the patch (`tone.cutoff`, `tone.reso`, `env.attack`, `env.release`,
@@ -210,7 +209,7 @@ wrong.
 | What | Where |
 |---|---|
 | projects `<name>.ccproj` | `Projects/` |
-| user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums,Braids,Plaits,Vocal,Wave,SoundFont}/` |
+| user preset banks `user.ccpreset` | `Presets/{DX7,Juno,Sampler,Drums,Plaits,Vocal,Wave,SoundFont}/` |
 | samples (WAV) | `Samples/` |
 | voice packs (`.vocal`) for vocal tracks | `Voices/` (created with the layout, filled by the user; read with `synth::LoadVoicePack`) |
 | SoundFont files (`.sf2`) for SoundFont tracks | `SoundFonts/` (created with the layout, filled by the user; listed and opened with `synth::ListSoundFonts`, `synth::OpenSoundFont`, the folder from `synth::storage::SoundFontDirectory`) |
@@ -234,10 +233,14 @@ them; older files have none and leave the current ones in place; NEW starts from
 line's LED brightness, `MASTER` and `SYSTEM` (backlight) are device settings: still written, ignored
 when a project loads. Named projects are only written by SAVE.
 
-A track's engine is a number in the file: 1 DX7, 2 Juno, 3 Sampler, 4 Drums, 5 Braids. Braids came
-after format 7 was fixed and changes nothing in the format itself: a firmware older than it does not
-know engine 5 and refuses a project (or an autosave) that has a Braids track, without changing the
-file; every project without one reads as before.
+A track's engine is a number in the file: 1 DX7, 2 Juno, 3 Sampler, 4 Drums, 5 Plaits, 6 Vocal,
+7 Wave, 8 Chop, 9 SoundFont. The folders and the file keep these names; the screen shows some
+engines under names of their own (FM7 for DX7, HERA for Juno, SAMPLE, MACRO for Plaits), which
+changes nothing on the card. The numbers after 4 were set on 2026-11-23, when Braids was removed:
+before, test builds wrote 5 Braids, 6 Plaits, 7 Vocal, 8 Wave, 9 Chop, 10 SoundFont. A project (or
+an autosave) such a build saved with one of those engines does not open, and the file is left as it
+is; 1-4 (the 0.1.0 release's) never changed. A `Presets/Braids/` folder an earlier build made is left
+alone.
 
 When opening a named project, a missing sample (including Chop), SoundFont or voice pack stops the
 load. The MISSING FILES screen lists the track and file name for every missing reference. At startup

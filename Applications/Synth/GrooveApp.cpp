@@ -30,7 +30,6 @@
 #include "Applications/Synth/UI/Groove/Render/GrooveRenderer.h"
 #include "Devices/Device.h"
 #include "Devices/LedLight.h"
-#include "Library/Synth/Audio/Braids/BraidsVoice.h"
 #include "Library/Synth/Audio/SynthAudioRuntime.h"
 #include "Library/Synth/Core/Engines/SoundFont/SoundFontSynthEngine.h"
 #include "Library/Synth/Core/Engines/Vocal/VocalSynthEngine.h"
@@ -95,7 +94,6 @@ std::size_t EngineEstimateBytes(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Chop: return 8 * 1024;
     case synth::SynthEngineKind::Drums: return 4 * 1024;
     case synth::SynthEngineKind::Wave: return 7 * 1024;
-    case synth::SynthEngineKind::Braids: return 6 * 1024;
     // The engine's parameters and presets only: its voices are the audio runtime's (PlaitsTrack),
     // which looks for their memory itself and plays with fewer, or none, when it is short.
     case synth::SynthEngineKind::Plaits: return 6 * 1024;
@@ -1157,11 +1155,6 @@ bool GrooveApp::FxBusAvailable(std::size_t bus) const
 void GrooveApp::WaveCycle(int wave, float position, std::int8_t* points, std::size_t count) const
 {
   synth::audio::WaveCycle(wave, position, points, count);
-}
-
-bool GrooveApp::BraidsWave(int model, int timbre, int color, std::int8_t* out, std::size_t count) const
-{
-  return synth::braids::RenderPreview(model, timbre, color, out, count);
 }
 
 int GrooveApp::PlaitsVoices(std::size_t track) const

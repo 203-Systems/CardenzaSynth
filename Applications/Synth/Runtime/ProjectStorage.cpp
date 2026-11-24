@@ -59,6 +59,9 @@ bool ValidText(const std::string& text, std::size_t maximum) {
   return text.size() <= maximum && std::all_of(text.begin(), text.end(), [](unsigned char c) { return c >= 32 && c < 127; });
 }
 
+// The kinds were renumbered on 2026-11-23 (Braids removed, the rest in the picker's order): a project a
+// test build saved before with a new engine is refused, or reads as another engine whose sound it then
+// does not have.
 bool IsProjectEngineKind(int kind) {
   switch (kind) {
     case static_cast<int>(SynthEngineKind::Dx7):
@@ -66,7 +69,6 @@ bool IsProjectEngineKind(int kind) {
     case static_cast<int>(SynthEngineKind::Sampler):
     case static_cast<int>(SynthEngineKind::Drums):
     case static_cast<int>(SynthEngineKind::Wave):
-    case static_cast<int>(SynthEngineKind::Braids):
     case static_cast<int>(SynthEngineKind::Plaits):
     case static_cast<int>(SynthEngineKind::Vocal):
     // Firmware before these engines does not know their kinds and refuses the file (INVALID SOUND).

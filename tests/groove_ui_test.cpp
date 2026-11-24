@@ -113,136 +113,6 @@ void GoToInstrumentPage(Harness& h, const char* tab)
   assert(std::string(h.App().Ui().CurrentInstrumentPage()->tab) == tab);
 }
 
-// The Braids engine through the UI: chosen in the ENGINE picker, its pages in signal order, the OSC
-// page's waveform for every model on every theme, a note played and let go, and a project that keeps it.
-void TestBraids(Harness& h)
-{
-  using Kind = synth::SynthEngineKind;
-  auto& app = h.App();
-  std::array<std::int16_t, 256> block{};
-  const auto render = [&](int blocks) { for (int index = 0; index < blocks; ++index) synth::audio::RenderFrames(block.data(), block.size()); };
-  const auto closeModals = [&]() { for (int i = 0; i < 6 && h.Modal() != nullptr; ++i) h.Tap(kEsc); };
-  closeModals();
-  GoToScene(h, 1);
-  h.Chord(kTab, Grid(1));  // T2
-  assert(h.State().track == 1);
-  {
-    // Whatever T2 holds, with no edits to ask about.
-    std::string error;
-    assert(app.EngineKind(1) == Kind::Juno || app.SwitchEngine(1, Kind::Juno, error));
-    assert(app.Engine(1)->LoadPreset(app.Engine(1)->CurrentPresetId()));
-  }
-  GoToInstrumentPage(h, "VOICE");
-  h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10);
-  assert(h.Modal()->items[4].label == "BRAIDS" && h.Modal()->items[1].marked);
-  h.Render();
-  // The fifth engine is the first key of the GRID's second row; its light shows it can be chosen
-  // (the row holds the four engines added since the first release).
-  app.UpdateLeds();
-  // The third row holds the chop and the SoundFont engine; the key after them is dark.
-  assert(Device::LED::Brightness(1, 9) != 0 && Device::LED::Brightness(1, 12) != 0 && Device::LED::Brightness(2, 10) != 0 &&
-         Device::LED::Brightness(2, 11) == 0);
-  h.Tap(Grid(4));
-  assert(h.Modal() == nullptr && app.EngineKind(1) == Kind::Braids);
-  assert(app.Engine(1)->CurrentPresetName() == "CS Saw" && !app.Engine(1)->HasEdits());
-  h.Render();
-
-  // Its pages: the preset, the track's MIDI effects, the oscillator, the envelopes, the LFO, the inserts.
-  const groove::InstrumentPageList pages = app.Ui().InstrumentPages();
-  const std::array<const char*, 8> tabs{{"VOICE", "CHORD", "ARP", "OSC", "ENV", "MOD", "LFO", "FX"}};
-  assert(pages.count == tabs.size());
-  for (std::size_t page = 0; page < pages.count; ++page) assert(std::string(pages.pages[page].tab) == tabs[page]);
-  // Every parameter of the engine is on a page (the effects on FX).
-  {
-    synth::SynthPageRequest request;
-    request.limit = 64;
-    for (const synth::SynthParameterInfo& parameter : app.Engine(1)->ListParameters(request).items)
-    {
-      bool shown = false;
-      for (std::size_t page = 0; page < pages.count; ++page)
-        for (const groove::Slot& slot : pages.pages[page].slots) shown = shown || (slot.IsParameter() && parameter.id == slot.id);
-      assert(shown);
-    }
-  }
-
-  // OSC: MODEL is a choice (ADD steps through the models), the waveform draws for every one of them,
-  // on every theme, with the delay-line models among them.
-  GoToInstrumentPage(h, "OSC");
-  assert(app.Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::Macro);
-  h.Tap(Grid(1));  // TIMBRE first: a tap on the cell in focus would step a choice
-  h.Tap(Grid(0));
-  assert(ParameterValue(app, 1, "osc.model") == 0);
-  h.Tap(kAdd);
-  assert(ParameterValue(app, 1, "osc.model") == 1 && app.Engine(1)->DescribeParameterValue("osc.model") == "MORPH");
-  assert(app.Engine(1)->HasEdits());
-  h.Tap(Grid(0));  // in focus now: the next model
-  assert(ParameterValue(app, 1, "osc.model") == 2);
-  h.Tap(kSub);
-  h.Tap(kSub);
-  h.Tap(kSub);
-  assert(ParameterValue(app, 1, "osc.model") == 0);
-  synth::SynthParameterInfo model;
-  assert(app.Engine(1)->GetParameterInfo("osc.model", model) && model.minValue == 0 && model.maxValue == 46);
-  const os::storage::Theme themeBefore = app.ScreenTheme();
-  for (const os::storage::Theme theme : {os::storage::Theme::Dark, os::storage::Theme::Light, os::storage::Theme::Retro})
-  {
-    app.SetScreenTheme(theme);
-    for (int value = model.minValue; value <= model.maxValue; ++value)
-    {
-      assert(app.Engine(1)->SetParameterValue("osc.model", value));
-      h.Frames();
-      h.Render();
-    }
-  }
-  app.SetScreenTheme(themeBefore);
-  std::array<std::int8_t, 192> wave{};
-  assert(app.BraidsWave(28, 64, 64, wave.data(), wave.size()));  // PLUCK: with delay lines
-  assert(app.BraidsWave(0, 40, 64, wave.data(), wave.size()));
-  assert(std::any_of(wave.begin(), wave.end(), [](std::int8_t sample) { return sample > 20; }) &&
-         std::any_of(wave.begin(), wave.end(), [](std::int8_t sample) { return sample < -20; }));
-  // The other pages draw too, with something set on each.
-  assert(app.Engine(1)->SetParameterValue("osc.model", 3) && app.Engine(1)->SetParameterValue("mod.timbre", 30) &&
-         app.Engine(1)->SetParameterValue("mod.pitch", -12) && app.Engine(1)->SetParameterValue("lfo.color", 50));
-  for (const char* tab : {"ENV", "MOD", "LFO", "FX"})
-  {
-    GoToInstrumentPage(h, tab);
-    h.Render();
-  }
-  assert(app.Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::FxChain);
-  GoToInstrumentPage(h, "MOD");
-  assert(app.Ui().CurrentInstrumentPage()->graphic == groove::PageGraphic::ModEnvelope);
-
-  // A pad plays it: the track sounds, holds its note, and lets it go.
-  render(4);
-  const Key pad{3, 4};
-  h.Down(pad);
-  render(8);
-  assert(app.TrackActivity(1) > 0.0f);
-  const synth::audio::NoteSet held = synth::audio::HeldNotes(1);
-  assert(std::any_of(held.begin(), held.end(), [](std::uint32_t word) { return word != 0; }));
-  h.Render();
-  h.Up(pad);
-  render(8);
-  const synth::audio::NoteSet released = synth::audio::HeldNotes(1);
-  assert(std::all_of(released.begin(), released.end(), [](std::uint32_t word) { return word == 0; }));
-
-  // A project keeps the engine and its sound: saved, replaced by a new project, loaded again.
-  groove::ProjectUiSettings settings = app.Ui().Settings();
-  std::string message;
-  assert(app.SaveProject("BRAIDS TEST", true, settings, message) == groove::SaveResult::Ok);
-  assert(app.NewProject(settings, message) && app.EngineKind(1) == Kind::Juno);
-  assert(app.LoadProject("BRAIDS TEST", settings, message));
-  assert(app.EngineKind(1) == Kind::Braids);
-  assert(ParameterValue(app, 1, "osc.model") == 3 && ParameterValue(app, 1, "mod.timbre") == 30 && ParameterValue(app, 1, "mod.pitch") == -12 &&
-         ParameterValue(app, 1, "lfo.color") == 50);
-  render(4);
-  // Back to the rack the other tests expect.
-  assert(app.NewProject(settings, message) && app.EngineKind(1) == Kind::Juno);
-  render(4);
-  h.Frames(4);
-}
-
 // Every engine: the preset list opens, every row draws, and a sound loads.
 void TestPresetBrowsers(Harness& h)
 {
@@ -636,7 +506,7 @@ void TestInstrument(Harness& h)
   assert(app.Engine(1)->HasEdits());
   h.Tap(Grid(0));
   assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm && h.Modal()->confirmPurpose == groove::ConfirmPurpose::ChangeEngine);
-  assert(h.Modal()->title == "SWITCH TO DX7?" && app.EngineKind(1) == synth::SynthEngineKind::Juno);
+  assert(h.Modal()->title == "SWITCH TO FM7?" && app.EngineKind(1) == synth::SynthEngineKind::Juno);
   h.Render();
   h.Tap(kEsc);
   assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && app.EngineKind(1) == synth::SynthEngineKind::Juno);
@@ -2697,9 +2567,9 @@ void TestChop(Harness& h)
   h.Chord(kTab, Grid(track));
   GoToInstrumentPage(h, "VOICE");
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
   h.Render();
-  h.Tap(Grid(8));
+  h.Tap(Grid(7));
   if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
   assert(app.EngineKind(track) == Kind::Chop && h.Modal() == nullptr);
   const auto& ui = app.Ui();
@@ -3525,7 +3395,7 @@ void TestPlaits(Harness& h)
   const auto pick = [&](std::size_t cell, synth::SynthEngineKind kind) {
     GoToInstrumentPage(h, "VOICE");
     h.Tap(Grid(0));
-    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10);
+    assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
     h.Render();
     h.Tap(Grid(cell));
     // A sound with edits asks before it is replaced.
@@ -3544,8 +3414,8 @@ void TestPlaits(Harness& h)
   h.Chord(kTab, Grid(1));
   assert(h.State().track == 1);
 
-  pick(5, synth::SynthEngineKind::Plaits);
-  assert(std::string(groove::EngineShortName(app.EngineKind(1))) == "PLAITS");
+  pick(4, synth::SynthEngineKind::Plaits);
+  assert(std::string(groove::EngineShortName(app.EngineKind(1))) == "MACRO");
   // A new Plaits track starts on the pair of analog waves.
   assert(app.Engine(1)->CurrentPresetId() == "plaits.analog" && app.Engine(1)->DescribeParameterValue("osc.model") == "ANALOG");
   (void)loudest(4);
@@ -3605,10 +3475,10 @@ void TestWaveEngineUi(Harness& h)
   assert(app.EngineKind(1) == Kind::Juno || app.SwitchEngine(1, Kind::Juno, error));
   while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10);
-  assert(h.Modal()->items[7].label == "WAVE");
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
+  assert(h.Modal()->items[6].label == "WAVE");
   h.Render();
-  h.Tap(Grid(7));
+  h.Tap(Grid(6));
   if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);  // the Juno had edits
   assert(app.EngineKind(1) == Kind::Wave && h.Modal() == nullptr);
   assert(app.Engine(1)->CurrentPresetId() == "wave.ppg" && !app.Engine(1)->HasEdits());
@@ -3669,10 +3539,9 @@ void TestEveryParameter(Harness& h)
     }
   };
   // Every engine on some track, and each new one beside the others.
-  const std::array<std::array<Kind, 4>, 7> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
+  const std::array<std::array<Kind, 4>, 6> rack{{{{Kind::Drums, Kind::Juno, Kind::Dx7, Kind::Sampler}},
                                                  {{Kind::Juno, Kind::Dx7, Kind::Sampler, Kind::Drums}},
                                                  {{Kind::Wave, Kind::Drums, Kind::Wave, Kind::Juno}},
-                                                 {{Kind::Braids, Kind::Drums, Kind::Braids, Kind::Juno}},
                                                  {{Kind::Plaits, Kind::Drums, Kind::Plaits, Kind::Juno}},
                                                  {{Kind::Vocal, Kind::Drums, Kind::Juno, Kind::Vocal}},
                                                  {{Kind::Chop, Kind::Juno, Kind::Chop, Kind::Drums}}}};
@@ -3795,9 +3664,9 @@ void TestVocal(Harness& h)
   h.Chord(kTab, Grid(1));
   while (app.Ui().CurrentPage() != 0) h.Tap(kCtrl);
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10);
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9);
   h.Render();
-  h.Tap(Grid(6));
+  h.Tap(Grid(5));
   if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
   h.Wait(100);
   assert(h.Modal() == nullptr && app.EngineKind(1) == synth::SynthEngineKind::Vocal);
@@ -4130,7 +3999,7 @@ void TestVocal(Harness& h)
   {
     std::ifstream file(synth::storage::ProjectDirectory() + "/VOCAL SONG.ccproj");
     const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    assert(text.find("CARDENZA_PROJECT 7\n") == 0 && text.find("TRACK 1 7 \"vocal.plain\" \"vocal.plain\" \"Plain\" \"Test Voice.vocal\"") != std::string::npos);
+    assert(text.find("CARDENZA_PROJECT 7\n") == 0 && text.find("TRACK 1 6 \"vocal.plain\" \"vocal.plain\" \"Plain\" \"Test Voice.vocal\"") != std::string::npos);
     assert(text.find("\"voice.word\" 9\n") != std::string::npos && text.find("\"word.") == std::string::npos);
     assert(text.find("\"lyric.01\" 9\n") != std::string::npos && text.find("\"lyric.02\" 12\n") != std::string::npos && text.find("\"lyric.03\" -1\n") != std::string::npos);
   }
@@ -4210,15 +4079,15 @@ void TestSoundFont(Harness& h)
   std::filesystem::remove_all(folder);
   std::filesystem::create_directories(folder);
 
-  // The tenth engine of the picker, on the GRID key under it. With no file on the card the track is
+  // The ninth engine of the picker, on the GRID key under it. With no file on the card the track is
   // silent and says where the files go.
   assert(app.EngineKind(track) == Kind::Juno || app.SwitchEngine(track, Kind::Juno, error));
   h.Chord(kTab, Grid(track));
   GoToInstrumentPage(h, "VOICE");
   h.Tap(Grid(0));
-  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 10 && h.Modal()->items[9].label == "SFONT");
+  assert(h.Modal() != nullptr && h.Modal()->kind == ModalKind::EnginePicker && h.Modal()->items.size() == 9 && h.Modal()->items[8].label == "SFONT");
   h.Render();
-  h.Tap(Grid(9));
+  h.Tap(Grid(8));
   if (h.Modal() != nullptr && h.Modal()->kind == ModalKind::Confirm) h.Tap(kEnter);
   assert(app.EngineKind(track) == Kind::SoundFont && h.Modal() == nullptr);
   auto* font = synth::SoundFontSynthEngine::From(app.Engine(track));
@@ -4335,7 +4204,7 @@ void TestSoundFont(Harness& h)
   {
     std::ifstream file(synth::storage::ProjectDirectory() + "/FONT SONG.ccproj");
     const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    assert(text.find("TRACK 1 10 \"sf.0.5\" \"sf.0.5\" \"000:005 Short\" \"Test Font.sf2\"") != std::string::npos);
+    assert(text.find("TRACK 1 9 \"sf.0.5\" \"sf.0.5\" \"000:005 Short\" \"Test Font.sf2\"") != std::string::npos);
     assert(text.find("\"tone.cutoff\" 60\n") != std::string::npos && text.find("\"tune.coarse\" 12\n") != std::string::npos);
   }
   assert(app.SwitchEngine(track, Kind::Juno, error));
@@ -4601,7 +4470,6 @@ int main()
   TestVocal(h);
   TestSoundFont(h);
   TestEveryParameter(h);
-  TestBraids(h);
   // Last: it runs every item of the SEQ menu, which changes the pattern.
   TestMenuFeedback(h);
 

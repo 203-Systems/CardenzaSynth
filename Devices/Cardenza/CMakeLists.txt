@@ -42,8 +42,6 @@ if(DEFINED COMPONENT_DIR)
     cardenza_collect_common_cpp_sources(${CARDENZA_ROOT} CARDENZA_COMMON_CPP_SOURCES)
     cardenza_collect_firmware_cpp_sources(${CARDENZA_ROOT} CARDENZA_FIRMWARE_CPP_SOURCES)
     cardenza_collect_amy_c_sources(${CARDENZA_ROOT} AMY_C_SOURCES)
-    # Braids' sources (among the common ones) include each other from their own root.
-    cardenza_braids_include_directory(${CARDENZA_ROOT} CARDENZA_BRAIDS_INCLUDE)
 
     idf_component_register(
         SRCS
@@ -54,8 +52,6 @@ if(DEFINED COMPONENT_DIR)
         INCLUDE_DIRS
             ${CARDENZA_ROOT}
             ${AMY_SRC_DIR}
-        PRIV_INCLUDE_DIRS
-            ${CARDENZA_BRAIDS_INCLUDE}
         LDFRAGMENTS
             audio_hot.lf
         REQUIRES

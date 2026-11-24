@@ -79,7 +79,6 @@ struct RenderModel {
   float junoMicros = 0.0f;
   float drumsMicros = 0.0f;
   float waveMicros = 0.0f;
-  float braidsMicros = 0.0f;
   // A voice of the dearest Plaits track (each track learns its own: the model decides it); 0 with none.
   float plaitsMicros = 0.0f;
   // A voice of the dearest SoundFont track (measured per track too: its patch decides it); 0 with none.

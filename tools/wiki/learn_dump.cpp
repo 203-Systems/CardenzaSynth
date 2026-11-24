@@ -61,12 +61,11 @@ const char* EngineName(synth::SynthEngineKind kind)
     case synth::SynthEngineKind::Drums: return "DRUMS";
     case synth::SynthEngineKind::Vocal: return "VOCAL";
     case synth::SynthEngineKind::SoundFont: return "SFONT";
-    case synth::SynthEngineKind::Juno: return "JUNO";
-    case synth::SynthEngineKind::Dx7: return "DX7";
-    case synth::SynthEngineKind::Sampler: return "SAMPLER";
+    case synth::SynthEngineKind::Juno: return "HERA";
+    case synth::SynthEngineKind::Dx7: return "FM7";
+    case synth::SynthEngineKind::Sampler: return "SAMPLE";
     case synth::SynthEngineKind::Wave: return "WAVE";
-    case synth::SynthEngineKind::Braids: return "BRAIDS";
-    case synth::SynthEngineKind::Plaits: return "PLAITS";
+    case synth::SynthEngineKind::Plaits: return "MACRO";
     default: return "ENGINE";
   }
 }
