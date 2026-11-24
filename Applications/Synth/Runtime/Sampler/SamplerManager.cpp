@@ -144,20 +144,6 @@ std::string SanitizedSampleName(std::string_view name)
   return sanitized;
 }
 
-std::string SampleFileName(std::string_view id)
-{
-  if (id.empty() || id.size() > 96 || id.find_first_of("/\\:") != std::string_view::npos ||
-      id.find('\0') != std::string_view::npos || id == "." || id == "..")
-  {
-    return {};
-  }
-  const bool hasExtension = id.size() >= 4 && id[id.size() - 4] == '.' &&
-      std::tolower(static_cast<unsigned char>(id[id.size() - 3])) == 'w' &&
-      std::tolower(static_cast<unsigned char>(id[id.size() - 2])) == 'a' &&
-      std::tolower(static_cast<unsigned char>(id[id.size() - 1])) == 'v';
-  return hasExtension ? std::string(id) : std::string(id) + ".wav";
-}
-
 std::string JoinPath(const std::string& left, const std::string& right)
 {
   if (left.empty())
@@ -706,6 +692,20 @@ bool SamplerManager::SelectBrowserSample(std::size_t trackIndex, std::string_vie
   }
 
   return ApplySample(trackIndex, sample);
+}
+
+std::string SamplerManager::SampleFileName(std::string_view id)
+{
+  if (id.empty() || id.size() > 96 || id.find_first_of("/\\:") != std::string_view::npos ||
+      id.find('\0') != std::string_view::npos || id == "." || id == "..")
+  {
+    return {};
+  }
+  const bool hasExtension = id.size() >= 4 && id[id.size() - 4] == '.' &&
+      std::tolower(static_cast<unsigned char>(id[id.size() - 3])) == 'w' &&
+      std::tolower(static_cast<unsigned char>(id[id.size() - 2])) == 'a' &&
+      std::tolower(static_cast<unsigned char>(id[id.size() - 1])) == 'v';
+  return hasExtension ? std::string(id) : std::string(id) + ".wav";
 }
 
 bool SamplerManager::PrepareSample(std::string_view id, PreparedSample& sample)

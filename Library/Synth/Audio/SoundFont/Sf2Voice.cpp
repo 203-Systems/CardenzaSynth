@@ -274,17 +274,8 @@ void Voice::ControlStep()
 {
   if (fading_ && fade_ <= 0)
   {
-    // The last control step took it to silence.
-    if (!hasPending_)
-    {
-      Stop();
-      return;
-    }
-    const Pending next = pending_;
-    const bool releasedBeforeStart = pendingReleased_;
-    Start(*next.region, next.data, next.key, next.velocity, next.tone, next.order);
-    if (releasedBeforeStart) Release();
-    if (!Active()) return;
+    stage_ = Stage::Off;
+    return;
   }
   if (fading_) fade_ = (std::max)(std::int32_t{0}, fade_ - fadeStep_);
 
@@ -357,21 +348,32 @@ void Voice::Render(std::int32_t* accumulator, std::size_t frames)
 {
   while (frames > 0 && Active())
   {
-    if (chunkLeft_ == 0)
+    if (chunkLeft_ == 0) ControlStep();
+    if (Active())
     {
-      ControlStep();
-      if (!Active()) return;
+      const std::size_t rendered = RenderRun(accumulator, (std::min)(frames, chunkLeft_));
+      accumulator += rendered;
+      frames -= rendered;
+      chunkLeft_ -= rendered;
     }
-    const std::size_t run = (std::min)(frames, chunkLeft_);
-    RenderRun(accumulator, run);
-    accumulator += run;
-    frames -= run;
-    chunkLeft_ -= run;
+    if (Active()) continue;
+    // The sample or its envelope may have ended before the fade. The waiting note owns the
+    // next output frame in all three cases, including in the middle of this render block.
+    if (!hasPending_)
+    {
+      Stop();
+      return;
+    }
+    const Pending next = pending_;
+    const bool releasedBeforeStart = pendingReleased_;
+    Start(*next.region, next.data, next.key, next.velocity, next.tone, next.order);
+    if (releasedBeforeStart) Release();
   }
 }
 
-void Voice::RenderRun(std::int32_t* out, std::size_t frames)
+std::size_t Voice::RenderRun(std::int32_t* out, std::size_t frames)
 {
+  const std::size_t requested = frames;
   const std::int16_t* const data = data_;
   std::uint32_t index = index_;
   std::uint32_t fraction = fraction_;
@@ -461,6 +463,7 @@ void Voice::RenderRun(std::int32_t* out, std::size_t frames)
   a3_ = a3;
   ic1_ = ic1;
   ic2_ = ic2;
+  return requested - frames;
 }
 
 }  // namespace synth::audio::sf2

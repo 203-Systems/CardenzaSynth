@@ -108,17 +108,43 @@ constexpr int kButtonGap = 10;
 constexpr int kButtonWidth = (kPanelWidth - kButtonGap) / 2;
 
 // A notice: the title, the first line of the detail as the warning it is, the rest dim, and one way out.
-void DrawNotice(Gfx& g, const Modal& modal)
+void DrawNotice(Gfx& g, const Modal& modal, std::uint32_t age)
 {
-  g.TextFit(kPanelX, kContentY + 14, kPanelWidth, modal.title, kInk, Font::Small);
-  std::string_view detail = modal.detail;
-  for (int line = 0; !detail.empty() && line < 2; ++line)
+  int buttonY = kContentY + 56;
+  if (!modal.items.empty())
   {
-    const std::size_t end = detail.find('\n');
-    g.TextFit(kPanelX, kContentY + 30 + line * 10, kPanelWidth, detail.substr(0, end), line == 0 ? kRec : kDim);
-    detail = end == std::string_view::npos ? std::string_view() : detail.substr(end + 1);
+    g.TextFit(kPanelX, kContentY + 5, kPanelWidth, modal.title, kRec, Font::Small);
+    const int nameX = kPanelX + 3 * Gfx::Advance(Font::Micro);
+    const std::size_t fit = static_cast<std::size_t>((kPanelX + kPanelWidth - nameX) / Gfx::Advance(Font::Micro));
+    int y = kContentY + 23;
+    for (const auto& row : modal.items)
+    {
+      g.Text(kPanelX, y, row.id, kDim);
+      std::string_view name = row.label;
+      if (name.size() > fit)
+      {
+        // Hold each end for a second so both the start and the extension can be read.
+        const std::size_t last = name.size() - fit;
+        const std::size_t tick = (age / 125) % (last + 17);
+        name.remove_prefix(std::min(last, tick > 8 ? tick - 8 : 0));
+      }
+      g.Text(nameX, y, name.substr(0, fit), kInk);
+      y += 12;
+    }
+    buttonY = y + 5;
   }
-  const Rect ok{kPanelX, kContentY + 56, kButtonWidth, 26};
+  else
+  {
+    g.TextFit(kPanelX, kContentY + 14, kPanelWidth, modal.title, kInk, Font::Small);
+    std::string_view detail = modal.detail;
+    for (int line = 0; !detail.empty() && line < 2; ++line)
+    {
+      const std::size_t end = detail.find('\n');
+      g.TextFit(kPanelX, kContentY + 30 + line * 10, kPanelWidth, detail.substr(0, end), line == 0 ? kRec : kDim);
+      detail = end == std::string_view::npos ? std::string_view() : detail.substr(end + 1);
+    }
+  }
+  const Rect ok{kPanelX, buttonY, kButtonWidth, 26};
   g.Fill(ok, kInk);
   g.DrawGlyph(ok.x + 8, ok.y + 10, Glyph::Enter, kBlack);
   g.Text(ok.x + 20, ok.y + 9, "ENTER  OK", kBlack, Font::Micro);
@@ -128,7 +154,7 @@ void DrawConfirm(Gfx& g, Animator& animator, const Modal& modal)
 {
   if (modal.confirmPurpose == ConfirmPurpose::Notice)
   {
-    DrawNotice(g, modal);
+    DrawNotice(g, modal, animator.Now() - animator.ModalOpenedAt());
     return;
   }
   const Color accent = modal.danger ? kRec : kInk;

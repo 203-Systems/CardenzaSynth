@@ -16,8 +16,6 @@ namespace {
 // The preset of a track without a patch: silent.
 constexpr const char* kNoPatchId = "sf.none";
 constexpr const char* kNoPatchName = "No Sound";
-// What has to stay free beside a patch while it is read (the reader's own tables).
-constexpr std::size_t kLoadMarginBytes = 96 * 1024;
 
 bool Digits(std::string_view text) { return !text.empty() && text.size() <= 5 && std::all_of(text.begin(), text.end(), [](unsigned char c) { return c >= '0' && c <= '9'; }); }
 
@@ -157,7 +155,7 @@ bool SoundFontSynthEngine::Select(const std::string& presetId, bool keepTone)
   {
     // In the background where the device can: the preset changes now, the patch before plays until
     // the new one is there (DispatchPendingMessages) and comes back if it cannot be read.
-    const std::uint32_t ticket = font_ ? font_->LoadLater(EngineIndex(), static_cast<std::size_t>(patch), Budget()) : 0;
+    const std::uint32_t ticket = font_ ? font_->LoadLater(EngineIndex(), static_cast<std::size_t>(patch), soundfont::kTrackBudgetBytes) : 0;
     if (ticket != 0)
     {
       if (!loading_) fallback_ = CaptureState();
@@ -172,8 +170,14 @@ bool SoundFontSynthEngine::Select(const std::string& presetId, bool keepTone)
       }
       return true;
     }
-    // Here and now, before anything changes: a patch that does not fit leaves the track playing what
-    // it has. (A read in the background for another preset ends with the state, OnRuntimeSynced.)
+    // A synchronous fallback can supersede an outstanding ticket too. The earlier request no
+    // longer owns a slot, so restore its starting point before trying the new patch.
+    if (loading_)
+    {
+      const SynthEngineState fallback = std::move(fallback_);
+      CancelLoading();
+      (void)RestoreState(fallback);
+    }
     std::string message;
     std::shared_ptr<const audio::sf2::Program> program = LoadProgram(static_cast<std::size_t>(patch), message);
     if (!program)
@@ -210,7 +214,7 @@ bool SoundFontSynthEngine::ApplyPresetState(const std::string& presetId, bool ke
 
 void SoundFontSynthEngine::CancelLoading()
 {
-  if (loading_ && font_) font_->CancelLoad(EngineIndex());
+  if (loading_ && font_) font_->CancelLoad(ticket_);
   loading_ = false;
   ticket_ = 0;
   loadingId_.clear();
@@ -376,21 +380,7 @@ std::shared_ptr<const audio::sf2::Program> SoundFontSynthEngine::LoadProgram(std
     message = "NO FONT";
     return {};
   }
-  return font_->Load(patch, Budget(), message);
-}
-
-// What the next patch may take: the track's share, less when the PSRAM is short. The patch it
-// replaces counts as free (it goes back once the new one plays), but the new one has to fit beside it
-// while it is read.
-std::size_t SoundFontSynthEngine::Budget() const
-{
-  std::size_t budget = soundfont::kTrackBudgetBytes;
-  if (!memory::HasSlow()) return budget;
-  const std::size_t leaving = program_ ? program_->Bytes() : 0;
-  const std::size_t free = memory::SlowFree();
-  const std::size_t afterwards = free + leaving;
-  budget = afterwards > soundfont::kSlowReserveBytes ? (std::min)(budget, afterwards - soundfont::kSlowReserveBytes) : 0;
-  return (std::min)(budget, free > kLoadMarginBytes ? free - kLoadMarginBytes : 0);
+  return font_->Load(patch, soundfont::kTrackBudgetBytes, message);
 }
 
 }  // namespace synth

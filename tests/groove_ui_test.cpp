@@ -4356,6 +4356,36 @@ void TestSoundFont(Harness& h)
   std::filesystem::rename(folder + "/Test Font.sf2", folder + "/Away.sf2");
   assert(app.SwitchEngine(track, Kind::Juno, error));
   assert(!app.LoadProject("FONT SONG", settings, message) && message == "FONT MISSING" && app.EngineKind(track) == Kind::Juno);
+  // Load through FILES with a missing asset on each track. All four rows belong to one notice.
+  {
+    synth::ProjectData broken;
+    assert(synth::LoadProjectFile("FONT SONG", broken) == synth::ProjectResult::Ok);
+    broken.kinds = {Kind::Sampler, Kind::SoundFont, Kind::Vocal, Kind::Chop};
+    broken.engines[0] = {"sampler.empty", "sampler.empty", "Empty Slot", {}};
+    broken.engines[2] = {"vocal.plain", "vocal.plain", "Plain", {}};
+    broken.engines[3] = {"chop.16", "chop.16", "16 Slices", {}};
+    broken.samples = {"Lost Kick", "Test Font.sf2", "Lost Voice.vocal", "Lost Break.wav"};
+    assert(synth::SaveProjectFile("MISSING TEST", broken, true) == synth::ProjectResult::Ok);
+    app.Ui().Restore(settings, "FONT SONG");
+    GoToSetupPage(h, groove::kSetupFiles);
+    const auto& projects = h.State().projects;
+    const auto found = std::find(projects.begin(), projects.end(), "MISSING TEST");
+    assert(found != projects.end());
+    const auto index = static_cast<std::size_t>(found - projects.begin());
+    while (h.State().fileCursor < index) h.Tap(kSub);
+    while (h.State().fileCursor > index) h.Tap(kAdd);
+    h.Tap(kEnter);
+    const auto* notice = h.Modal();
+    assert(notice && notice->confirmPurpose == groove::ConfirmPurpose::Notice && notice->title == "MISSING FILES");
+    assert(notice->items.size() == 4 && h.State().projectName == "FONT SONG" && app.EngineKind(track) == Kind::Juno);
+    const std::array<std::string, 4> names{"Lost Kick.wav", "Test Font.sf2", "Lost Voice.vocal", "Lost Break.wav"};
+    for (std::size_t row = 0; row < names.size(); ++row)
+      assert(notice->items[row].id == "T" + std::to_string(row + 1) && notice->items[row].label == names[row]);
+    h.Render();
+    h.Tap(kEsc);
+    assert(h.Modal() == nullptr);
+    std::filesystem::remove(synth::storage::ProjectDirectory() + "/MISSING TEST.ccproj");
+  }
   std::filesystem::rename(folder + "/Away.sf2", folder + "/Test Font.sf2");
   assert(app.LoadProject("FONT SONG", settings, message));
   app.Ui().Restore(settings, "FONT SONG");
@@ -4438,11 +4468,21 @@ void TestSoundFont(Harness& h)
   // screen says why.
   choose(kSub);
   assert(font->Loading() && font->CurrentPresetId() == "sf.0.5");
+  const auto autosavedPatch = [&]() {
+    synth::SessionInfo info;
+    synth::ProjectData project;
+    assert(synth::SessionStore::Load(info, project));
+    return project.engines[track].basePresetId;
+  };
+  app.FlushSession();
+  assert(autosavedPatch() == "sf.0.5");
   std::filesystem::rename(folder + "/Test Font.sf2", folder + "/Away.sf2");
   synth::RunDeferredSoundFontLoads();
   h.Frames(2);
   assert(!font->Loading() && font->CurrentPresetId() == "sf.0.0" && font->Loaded() && font->LoadMessage() == "FONT MISSING");
   assert(h.State().toast.text == "T2 FONT MISSING");
+  h.Frames(140);  // no further key to trigger a save
+  assert(autosavedPatch() == "sf.0.0");
   std::filesystem::rename(folder + "/Away.sf2", folder + "/Test Font.sf2");
   synth::DeferSoundFontLoadsForTests(false);
 
@@ -4470,7 +4510,24 @@ void TestSoundFont(Harness& h)
 
   // Back to a Juno, as the tests around this one expect; nothing is left sounding.
   render(8);
+  synth::DeferSoundFontLoadsForTests(true);
+  {
+    auto file = font->SharedFont();
+    const auto old = file->LoadLater(track, 0, synth::soundfont::kTrackBudgetBytes);
+    const auto latest = file->LoadLater(track, 1, synth::soundfont::kTrackBudgetBytes);
+    assert(old && latest && old != latest);
+    file->CancelLoad(old);
+    synth::RunDeferredSoundFontLoads();
+    std::shared_ptr<const sf2::Program> loaded;
+    assert(!file->TakeLoaded(track, old, loaded, message));
+    assert(file->TakeLoaded(track, latest, loaded, message) && loaded);
+  }
+  std::weak_ptr<synth::soundfont::Font> departing = font->SharedFont();
+  assert(font->LoadPatch(0, 0) && font->Loading());
+  synth::RunDeferredSoundFontLoads();  // result ready, UI has not collected it
   assert(app.SwitchEngine(track, Kind::Juno, error));
+  assert(departing.expired());
+  synth::DeferSoundFontLoadsForTests(false);
   render(4);
   std::filesystem::remove(synth::storage::ProjectDirectory() + "/FONT SONG.ccproj");
   std::filesystem::remove_all(folder);

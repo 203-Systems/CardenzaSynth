@@ -71,7 +71,9 @@ public:
   };
   // Reads the preset at `position` of the file's list. With more than `budgetBytes` of regions and
   // samples it is refused (TooBig) and nothing is loaded.
-  static Result Build(File& file, std::size_t position, std::size_t budgetBytes);
+  // The card loader can also check the space available at each allocation.
+  using RoomCheck = bool (*)(std::uint64_t bytes);
+  static Result Build(File& file, std::size_t position, std::size_t budgetBytes, RoomCheck roomFor = nullptr);
 
   std::size_t RegionCount() const { return regionCount_; }
   const Region& RegionAt(std::size_t index) const { return regions_[index]; }

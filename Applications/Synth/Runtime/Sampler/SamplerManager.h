@@ -59,6 +59,7 @@ public:
   // The app is going away, not the takes: a recording ends as a take and the files stay.
   void KeepTakesOnCard();
   SamplerTrackUiState BuildUiState(std::size_t trackIndex) const;
+  bool HasSample(std::size_t trackIndex) const { return trackIndex < tracks_.size() && tracks_[trackIndex].ui.hasSample; }
   // How loud `columns` equal stretches of [firstFrame, lastFrame) of the track's sample are, 0..255
   // (the chop's waveform at any zoom). Measured for a sample in RAM; for one played from the card, the
   // stretches looked at when it was loaded (a chop's) or nothing. False without a sample.
@@ -68,6 +69,7 @@ public:
   int RecordingTrack() const { return activeRecordingTrack_; }
   bool ConsumeTrimReset(std::size_t trackIndex);
   static bool ValidateSampleReference(std::string_view id);
+  static std::string SampleFileName(std::string_view id);
   static bool PrepareSample(std::string_view id, PreparedSample& sample);
   bool ApplySample(std::size_t trackIndex, const PreparedSample& sample);
 

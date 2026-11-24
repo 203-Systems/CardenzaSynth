@@ -53,8 +53,8 @@ public:
     (void)message;
     return false;
   }
-  // `owner` wants nothing read any more: a request is dropped, and what was read for it.
-  virtual void CancelLoad(std::size_t owner) { (void)owner; }
+  // Drop just this request, including a result already read. Its track may have changed hands.
+  virtual void CancelLoad(std::uint32_t ticket) { (void)ticket; }
 };
 
 // What a track's patch may take of the PSRAM, and what it leaves there for patterns and the other
@@ -144,7 +144,6 @@ private:
   int PatchOfId(std::string_view presetId) const;
   bool Select(const std::string& presetId, bool keepTone);
   std::shared_ptr<const audio::sf2::Program> LoadProgram(std::size_t patch, std::string& message);
-  std::size_t Budget() const;
   bool ApplyPresetState(const std::string& presetId, bool keepTone, int patch);
   void CancelLoading();
 

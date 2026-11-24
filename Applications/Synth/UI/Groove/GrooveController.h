@@ -594,6 +594,7 @@ public:
   // The device started without a card: nothing will be saved. A notice until ENTER or ESC closes it,
   // so it is still there to read after the boot animation.
   void ShowNoCardNotice();
+  bool ShowMissingFiles(const MissingProjectFiles& missing);
   void ComputeLeds(LedFrame& frame) const;
   // Levels only (no effects), for callers that do not animate.
   void ComputeLeds(std::array<std::uint8_t, kKeyCount>& levels) const;

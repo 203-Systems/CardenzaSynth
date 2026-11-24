@@ -85,7 +85,7 @@ field names its file in `SoundFonts/` (empty: none), its preset id is the patch 
 `sf.<bank>.<program>` with the numbers the file gives it (`sf.none`: no patch), and the `PARAM` lines
 carry what the track adds to the patch (`tone.cutoff`, `tone.reso`, `env.attack`, `env.release`,
 `tune.coarse`, `tune.fine`, `amp.level`, `amp.velocity`) and its effects. Nothing of the file is copied: a project
-needs its file on the card (`FONT MISSING`), and a file changed on a computer plays as it is then.
+needs its file on the card, and a file changed on a computer plays as it is then.
 Firmware without the SoundFont engine refuses a project with such a track. Version 5 was only written by
 unreleased development builds (its `PLAY` line is skipped). Format 8 adds HITS (a note fired 1–4
 times in its step): each `T` line gains the track's new-note hits after its new-note length, and every
@@ -239,6 +239,12 @@ after format 7 was fixed and changes nothing in the format itself: a firmware ol
 know engine 5 and refuses a project (or an autosave) that has a Braids track, without changing the
 file; every project without one reads as before.
 
+When opening a named project, a missing sample (including Chop), SoundFont or voice pack stops the
+load. The MISSING FILES screen lists the track and file name for every missing reference. At startup
+the autosave restores the available sounds and shows the same list. ENTER or ESC closes the notice.
+Saving the restored project keeps each missing file name and its track's preset. A later card
+mount can resolve it. Choosing a replacement file or changing the track's engine supersedes it.
+
 **Autosave.** The groovebox keeps its working state on the card, so the power can go at any moment.
 There is one autosave: `autosave.ccproj` is the whole project in the project format (sounds keep only
 what differs from their preset), `autosave.txt` says its generation, name and whether it was unsaved.
@@ -251,6 +257,8 @@ project under the name of the one before.
   have. A key that changed nothing writes nothing (the written state is compared first), and nothing
   is written while nothing changes. `Suspend()` writes it right away; so do the guide before it
   starts, room for a load or NEW (below), and the browser page when it is hidden.
+- If a SoundFont patch fails to load in the background, the track restores its previous sound and
+  schedules an autosave of that state, even if the last key press has already been saved.
 - When it fails: the screen says `AUTOSAVE FAILED: SD CARD ERROR` (or `NO SD CARD` when the card is
   out) once, the card is asked whether it still answers (`ReportCardIoError`), and the write is tried
   again two seconds later, then every 30 seconds after three failures in a row. A failure does not

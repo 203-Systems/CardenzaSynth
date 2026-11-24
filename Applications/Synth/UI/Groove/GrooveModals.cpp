@@ -125,6 +125,19 @@ void Controller::ShowNoCardNotice()
   std::printf("ui: no SD card: nothing will be saved\n");
 }
 
+bool Controller::ShowMissingFiles(const MissingProjectFiles& missing)
+{
+  Modal notice;
+  notice.kind = ModalKind::Confirm;
+  notice.confirmPurpose = ConfirmPurpose::Notice;
+  notice.title = "MISSING FILES";
+  for (std::size_t track = 0; track < missing.size(); ++track)
+    if (!missing[track].empty()) notice.items.push_back({"T" + std::to_string(track + 1), missing[track]});
+  if (notice.items.empty()) return false;
+  OpenModal(std::move(notice));
+  return true;
+}
+
 void Controller::OpenPresetBrowser()
 {
   if (ActiveEngine() == nullptr) return;

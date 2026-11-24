@@ -530,8 +530,10 @@ void Controller::LoadProjectNamed(const std::string& name)
   ProjectUiSettings settings;
   std::string message;
   ReleaseAllPads();
-  if (!host_.LoadProject(name, settings, message))
+  MissingProjectFiles missing;
+  if (!host_.LoadProject(name, settings, message, &missing))
   {
+    if (ShowMissingFiles(missing)) return;
     ShowToast(message.empty() ? "LOAD FAILED" : message, ToastKind::Error);
     return;
   }

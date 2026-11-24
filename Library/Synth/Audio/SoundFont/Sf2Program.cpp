@@ -248,7 +248,7 @@ bool SameRanges(const Region& a, const Region& b) { return a.keyLow == b.keyLow 
 
 }  // namespace
 
-Program::Result Program::Build(File& file, std::size_t position, std::size_t budgetBytes)
+Program::Result Program::Build(File& file, std::size_t position, std::size_t budgetBytes, RoomCheck roomFor)
 {
   Result result;
   if (position >= file.PresetCount())
@@ -272,6 +272,18 @@ Program::Result Program::Build(File& file, std::size_t position, std::size_t bud
     return result;
   }
 
+  struct SlotDraft {
+    std::uint16_t sample = 0;
+    std::uint32_t start = 0;
+    std::uint32_t end = 0;
+  };
+  const auto hasRoom = [roomFor](std::uint64_t bytes) { return roomFor == nullptr || roomFor(bytes); };
+  constexpr std::size_t scratchBytes = kMaxRegions * (sizeof(Region) + sizeof(Draft)) + kMaxSampleSlots * sizeof(SlotDraft);
+  if (!hasRoom(scratchBytes))
+  {
+    result.status = Status::NoMemory;
+    return result;
+  }
   std::unique_ptr<Region[]> regions(new (memory::slow) Region[kMaxRegions]);
   std::unique_ptr<Draft[]> drafts(new (memory::slow) Draft[kMaxRegions]);
   if (!regions || !drafts)
@@ -365,11 +377,6 @@ Program::Result Program::Build(File& file, std::size_t position, std::size_t bud
   }
 
   // A slot per sample: from the first frame any of its regions starts at to the last one reaches.
-  struct SlotDraft {
-    std::uint16_t sample = 0;
-    std::uint32_t start = 0;
-    std::uint32_t end = 0;
-  };
   std::unique_ptr<SlotDraft[]> slotDrafts(new (memory::slow) SlotDraft[kMaxSampleSlots]);
   if (!slotDrafts)
   {
@@ -411,7 +418,9 @@ Program::Result Program::Build(File& file, std::size_t position, std::size_t bud
   std::uint64_t bytes = sizeof(Program) + kept * sizeof(Region) + slotCount * sizeof(Slot);
   for (std::size_t slot = 0; slot < slotCount; ++slot) bytes += (std::uint64_t{slotDrafts[slot].end - slotDrafts[slot].start} + 1) * sizeof(std::int16_t);
   result.neededBytes = bytes > SIZE_MAX ? SIZE_MAX : static_cast<std::size_t>(bytes);
-  if (bytes > budgetBytes)
+  // Check live space with all three scratch tables allocated. Old or unread patches still own
+  // their memory, including those on other tracks.
+  if (bytes > budgetBytes || !hasRoom(bytes))
   {
     result.status = Status::TooBig;
     return result;
@@ -434,8 +443,9 @@ Program::Result Program::Build(File& file, std::size_t position, std::size_t bud
   {
     const std::uint32_t frames = slotDrafts[slot].end - slotDrafts[slot].start;
     program->slots_[slot].frames = frames;
-    program->slots_[slot].data.reset(new (memory::slow) std::int16_t[std::size_t{frames} + 1]);
-    if (!program->slots_[slot].data)
+    const std::size_t count = std::size_t{frames} + 1;
+    if (hasRoom(count * sizeof(std::int16_t))) program->slots_[slot].data.reset(new (memory::slow) std::int16_t[count]);
+    if (!program->slots_[slot].data || !hasRoom(0))
     {
       result.status = Status::NoMemory;
       return result;

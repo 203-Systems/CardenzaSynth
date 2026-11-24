@@ -198,7 +198,8 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
   // Volume, key LEDs and screen are device settings: the system applied them at boot.
   RestorePlaySettings();
   // The autosave is on the card: the working state comes back with it.
-  (void)RestoreSessionState();
+  groove::MissingProjectFiles missing;
+  (void)RestoreSessionState(&missing);
   cardWasMounted_ = os::storage::CardMounted();
   if (cardWasMounted_)
   {
@@ -208,6 +209,7 @@ void GrooveApp::Setup(const std::vector<std::string>& args)
   // Without a card nothing is kept: said in a notice that waits for ENTER or ESC, so it is still there
   // when the boot animation ends.
   if (os::storage::CardMissingThisRun()) controller_.ShowNoCardNotice();
+  else controller_.ShowMissingFiles(missing);
   initialized_ = true;
 }
 
@@ -281,7 +283,7 @@ synth::SessionInfo GrooveApp::NextSessionInfo()
   return info;
 }
 
-bool GrooveApp::RestoreSessionState()
+bool GrooveApp::RestoreSessionState(groove::MissingProjectFiles* missing)
 {
   // No card, no autosave. And none on it: nothing counted.
   synth::SessionInfo info;
@@ -295,7 +297,7 @@ bool GrooveApp::RestoreSessionState()
   std::string message;
   const bool found = synth::SessionStore::Load(info, project);
   sessionGeneration_ = std::max(sessionGeneration_, info.generation);
-  const bool restored = found && ReplaceSession(info.name, project, false, message, true);
+  const bool restored = found && ReplaceSession(info.name, project, false, message, true, missing);
   std::printf("Groove: autosave generation %u: %s\n", static_cast<unsigned>(info.generation),
               restored ? "restored" : found ? message.c_str() : "unreadable");
   if (restored)
@@ -351,36 +353,44 @@ void GrooveApp::ApplyPendingSamples()
 {
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
-    if (pendingSamples_[track].empty()) continue;
-    const std::string name = std::move(pendingSamples_[track]);
-    pendingSamples_[track].clear();
+    std::string& name = pendingSamples_[track];
+    if (name.empty()) continue;
     if (auto* vocal = synth::VocalSynthEngine::From(rack_.Slot(track).engine.get()))
     {
       // The voice the track sang with: its words are still the ones of that pack.
-      if (!vocal->BuiltinPack()) continue;
-      if (synth::vocal::PackRef pack = synth::LoadVoicePack(name)) vocal->SetPack(std::move(pack), name);
-      SyncTrackKeys();
+      if (vocal->BuiltinPack())
+      {
+        synth::vocal::PackRef pack = synth::LoadVoicePack(name);
+        if (!pack) continue;
+        vocal->SetPack(std::move(pack), name);
+        SyncTrackKeys();
+      }
+      name.clear();
       continue;
     }
     if (auto* font = synth::SoundFontSynthEngine::From(rack_.Slot(track).engine.get()))
     {
       // The patch the track played waits in the engine: it comes back with its file.
-      if (font->HasFont()) continue;
-      std::string message;
-      if (std::shared_ptr<synth::soundfont::Font> file = SharedSoundFont(track, name, message))
+      if (!font->HasFont())
       {
+        std::string message;
+        auto file = SharedSoundFont(track, name, message);
+        if (!file) continue;
         font->SetFont(std::move(file), name);
         if (!font->RetryPatch() && !font->PatchWaits()) (void)font->LoadFirstPatch();
       }
+      name.clear();
       continue;
     }
     const auto kind = rack_.Slot(track).kind;
-    if ((kind != synth::SynthEngineKind::Sampler && kind != synth::SynthEngineKind::Chop) || !sampler_.BuildUiState(track).sampleFileName.empty()) continue;
-    synth::SamplerManager::PreparedSample sample;
-    if (!synth::SamplerManager::PrepareSample(name, sample)) continue;
-    (void)sampler_.ApplySample(track, sample);
-    // The engine already carries the saved trim.
-    (void)sampler_.ConsumeTrimReset(track);
+    if ((kind == synth::SynthEngineKind::Sampler || kind == synth::SynthEngineKind::Chop) && !sampler_.HasSample(track))
+    {
+      synth::SamplerManager::PreparedSample sample;
+      if (!synth::SamplerManager::PrepareSample(name, sample) || !sampler_.ApplySample(track, sample)) continue;
+      // The engine already carries the saved trim.
+      (void)sampler_.ConsumeTrimReset(track);
+    }
+    name.clear();
   }
 }
 
@@ -623,22 +633,25 @@ void GrooveApp::Tick()
   animator_.Update(controller_, now);
   StorePlaySettings();
   CheckCard(now);
+  CheckSoundFontLoads(now);
   KeepSessionCurrent(now);
   EndOrphanNotes(now);
   CheckPlaitsVoices();
-  CheckSoundFontLoads();
 }
 
 // A patch read in the background that did not load: its track went back to what it played, and the
 // screen says why.
-void GrooveApp::CheckSoundFontLoads()
+void GrooveApp::CheckSoundFontLoads(std::uint32_t now)
 {
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
     auto* font = synth::SoundFontSynthEngine::From(rack_.Slot(track).engine.get());
     if (font == nullptr) continue;
     const std::string failure = font->TakeLoadFailure();
-    if (!failure.empty()) controller_.ReportTrackProblem(track, failure);
+    if (failure.empty()) continue;
+    // A snapshot taken while the read was pending may already be on the card.
+    MarkSessionChanged(now);
+    controller_.ReportTrackProblem(track, failure);
   }
 }
 
@@ -706,6 +719,7 @@ void GrooveApp::SyncSamplerTrim()
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
     const auto& slot = rack_.Slot(track);
+    if (!pendingSamples_[track].empty() && sampler_.HasSample(track)) pendingSamples_[track].clear();
     if (slot.kind != synth::SynthEngineKind::Sampler || slot.engine == nullptr) continue;
     if (sampler_.ConsumeTrimReset(track))
     {
@@ -803,12 +817,17 @@ void GrooveApp::RenderFrame()
 #endif
 }
 
+void GrooveApp::MarkSessionChanged(std::uint32_t now)
+{
+  if (!sessionChanged_) sessionChangedAt_ = now;
+  sessionChanged_ = true;
+}
+
 void GrooveApp::HandleMatrixKeyEvent(std::size_t row, std::size_t column, bool pressed)
 {
   const std::uint32_t now = NowMs();
   controller_.KeyEvent(row, column, pressed, now);
-  if (!sessionChanged_) sessionChangedAt_ = now;
-  sessionChanged_ = true;
+  MarkSessionChanged(now);
   lastKeyAt_ = now;
   keysHeld_ = pressed ? keysHeld_ + 1 : std::max(0, keysHeld_ - 1);
   // The lesson page follows every key, but not the ones it pressed itself.
@@ -871,6 +890,7 @@ bool GrooveApp::SwitchEngine(std::size_t track, synth::SynthEngineKind kind, std
   if (slot.kind == synth::SynthEngineKind::Vocal && sequencer_.ClearWords(track))
     std::printf("Groove: track %u is no vocal track any more: its steps lost their words\n", static_cast<unsigned>(track + 1));
   slot.kind = kind;
+  pendingSamples_[track].clear();
   sampler_.OnTrackEngineChanged(track, kind);
   SyncTrackKeys();
   // A SoundFont track starts with the first file on the card, so it sounds at once; without one it
@@ -1274,10 +1294,8 @@ bool GrooveApp::CaptureProject(const groove::ProjectUiSettings& settings, synth:
     const auto* vocal = synth::VocalSynthEngine::From(slot.engine.get());
     const auto* font = synth::SoundFontSynthEngine::From(slot.engine.get());
     project.samples[track] = vocal != nullptr ? vocal->PackFileName() : font != nullptr ? font->FontFileName() : sample.sampleFileName;
-    // Still waiting for the card it is on.
-    if (forSession && project.samples[track].empty() &&
-        (slot.kind == synth::SynthEngineKind::Sampler || slot.kind == synth::SynthEngineKind::Chop || vocal != nullptr || font != nullptr))
-      project.samples[track] = pendingSamples_[track];
+    // A manual save and an autosave both keep the reference until its file comes back.
+    if (project.samples[track].empty()) project.samples[track] = pendingSamples_[track];
   }
   project.sequence = sequencer_.CaptureState();
   if (!project.sequence)
@@ -1444,7 +1462,8 @@ std::unique_ptr<synth::ISynthEngine> GrooveApp::BuildEngine(synth::SynthEngineKi
   return engine;
 }
 
-bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message, bool workingState)
+bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message, bool workingState,
+                              groove::MissingProjectFiles* missing)
 {
   (void)name;
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
@@ -1529,6 +1548,29 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
     }
     if (probe) DropEngine(probe, probe->Descriptor().kind);
   }
+  // Look up every reference only after a read failed. A named load still stops before replacing
+  // any tracks, and a regular file that failed to decode is not listed as missing.
+  const auto listMissing = [&](const std::array<std::string, synth::kSynthTrackCount>& names) {
+    if (missing == nullptr) return;
+    for (std::size_t track = 0; track < names.size(); ++track)
+    {
+      if (names[track].empty()) continue;
+      std::string file = names[track];
+      std::string folder;
+      switch (project.kinds[track])
+      {
+        case synth::SynthEngineKind::Sampler:
+        case synth::SynthEngineKind::Chop:
+          file = synth::SamplerManager::SampleFileName(file);
+          folder = synth::storage::SampleDirectory();
+          break;
+        case synth::SynthEngineKind::Vocal: folder = synth::storage::VoiceDirectory(); break;
+        case synth::SynthEngineKind::SoundFont: folder = synth::storage::SoundFontDirectory(); break;
+        default: continue;
+      }
+      if (!file.empty() && !os::storage::IsFile(os::storage::JoinPath(folder, file))) (*missing)[track] = std::move(file);
+    }
+  };
   std::array<synth::SamplerManager::PreparedSample, synth::kSynthTrackCount> samples;
   std::array<std::string, synth::kSynthTrackCount> pending;
   // The voice packs of the vocal tracks (tracks naming the same file share one).
@@ -1547,6 +1589,7 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
       pending[track] = project.samples[track];
       continue;
     }
+    listMissing(project.samples);
     message = "VOICE MISSING";
     return false;
   }
@@ -1568,6 +1611,7 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
       pending[track] = project.samples[track];
       continue;
     }
+    listMissing(project.samples);
     message = "FONT MISSING";
     return false;
   }
@@ -1577,7 +1621,7 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
     if (project.samples[track].empty() || (project.kinds[track] != synth::SynthEngineKind::Sampler && project.kinds[track] != synth::SynthEngineKind::Chop)) continue;
     bool shared = false;
     for (std::size_t previous = 0; previous < track; ++previous)
-      if (project.samples[previous] == project.samples[track])
+      if (!samples[previous].fileName.empty() && project.samples[previous] == project.samples[track])
       {
         samples[track] = samples[previous];
         shared = true;
@@ -1592,6 +1636,7 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
         project.samples[track].clear();
         continue;
       }
+      listMissing(project.samples);
       message = "SAMPLE MISSING";
       return false;
     }
@@ -1621,6 +1666,7 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
     if (!engine || !engine->CanReplace(*slot.engine))
     {
       std::printf("Groove: track %u kept its engine while loading\n", static_cast<unsigned>(track + 1));
+      pending[track] = pendingSamples_[track];
       sampler_.OnTrackEngineChanged(track, slot.kind);
       if (engine) DropEngine(engine, project.kinds[track]);
       continue;
@@ -1645,6 +1691,7 @@ bool GrooveApp::ReplaceSession(const std::string& name, synth::ProjectData& proj
   soloed_ = project.mixer.soloed;
   ApplyMix();
   ApplyMasterFx(project.masterFx);
+  if (workingState) listMissing(pending);
   pendingSamples_ = std::move(pending);
   return true;
 }
@@ -1693,8 +1740,9 @@ bool GrooveApp::RestoreSessionPatterns()
   return restored;
 }
 
-bool GrooveApp::LoadProject(const std::string& name, groove::ProjectUiSettings& settings, std::string& message)
+bool GrooveApp::LoadProject(const std::string& name, groove::ProjectUiSettings& settings, std::string& message, groove::MissingProjectFiles* missing)
 {
+  if (missing != nullptr) *missing = {};
   if (!os::storage::CardPresent())
   {
     message = "NO SD CARD";
@@ -1715,13 +1763,13 @@ bool GrooveApp::LoadProject(const std::string& name, groove::ProjectUiSettings& 
   bool loaded = false;
   if (result == synth::ProjectResult::Ok)
   {
-    loaded = ReplaceSession(name, project, false, message);
+    loaded = ReplaceSession(name, project, false, message, false, missing);
     // NO MEMORY changed nothing yet: the room the current patterns and the effects hold may be what
     // is missing.
     if (!loaded && !cleared && message == "NO MEMORY" && MakeRoom(message))
     {
       cleared = true;
-      loaded = ReplaceSession(name, project, false, message);
+      loaded = ReplaceSession(name, project, false, message, false, missing);
     }
   }
   else if (result == synth::ProjectResult::NoMemory) message = "NO MEMORY";

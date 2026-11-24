@@ -173,6 +173,9 @@ struct LoadSlot {
 };
 struct Loads {
   std::mutex mutex;
+  // The UI can restore a project while the worker is reading another font. Only one builder
+  // may measure and spend the shared PSRAM at once. Enqueuing and cancelling never take this lock.
+  std::mutex buildMutex;
   std::array<LoadSlot, kSynthTrackCount> slots;
   std::uint32_t tickets = 0;
   bool deferred = false;  // tests
@@ -180,6 +183,12 @@ struct Loads {
 Loads g_loads;
 
 void ReadRequestedPatches();
+
+bool PatchFitsInPsram(std::uint64_t bytes)
+{
+  const std::size_t free = memory::SlowFree();
+  return free >= soundfont::kSlowReserveBytes && bytes <= free - soundfont::kSlowReserveBytes;
+}
 
 class CardFont final : public soundfont::Font, public std::enable_shared_from_this<CardFont> {
 public:
@@ -214,9 +223,7 @@ public:
 
   std::shared_ptr<const sf2::Program> Load(std::size_t index, std::size_t budgetBytes, std::string& message) override
   {
-    // One read of the file at a time: the background task and the UI thread (a project loading) may
-    // both want a patch of it.
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(g_loads.buildMutex);
     if (index >= count_)
     {
       message = Explain(sf2::Status::NotFound);
@@ -230,7 +237,7 @@ public:
       std::printf("Groove: font %s could not be opened for %u:%u\n", fileName_.c_str(), static_cast<unsigned>(patch.bank), static_cast<unsigned>(patch.program));
       return {};
     }
-    sf2::Program::Result result = sf2::Program::Build(file_, index, budgetBytes);
+    sf2::Program::Result result = sf2::Program::Build(file_, index, budgetBytes, memory::HasSlow() ? PatchFitsInPsram : nullptr);
     const bool failed = source_.Failed();
     source_.Close();
     if (failed) os::storage::ReportCardIoError();
@@ -273,7 +280,7 @@ public:
     }
     if (deferred || Device::Background::Run(&ReadRequestedPatches)) return ticket;
     // No task for it: the caller reads the patch itself.
-    CancelLoad(owner);
+    CancelLoad(ticket);
     return 0;
   }
 
@@ -291,20 +298,20 @@ public:
     return true;
   }
 
-  void CancelLoad(std::size_t owner) override
+  void CancelLoad(std::uint32_t ticket) override
   {
-    if (owner >= kSynthTrackCount) return;
-    std::shared_ptr<const sf2::Program> dropped;
-    std::shared_ptr<CardFont> font;
+    if (ticket == 0) return;
+    LoadSlot dropped;  // release the font and program after unlocking
     std::lock_guard<std::mutex> lock(g_loads.mutex);
-    LoadSlot& slot = g_loads.slots[owner];
-    dropped = std::move(slot.program);
-    font = std::move(slot.font);
-    slot = LoadSlot{};
+    for (LoadSlot& slot : g_loads.slots)
+      if (slot.ticket == ticket && slot.font.get() == this)
+      {
+        std::swap(dropped, slot);
+        return;
+      }
   }
 
 private:
-  std::mutex mutex_;
   std::string fileName_;
   CardFile source_;
   std::uint8_t window_[512] = {};

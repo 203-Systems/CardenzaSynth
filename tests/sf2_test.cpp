@@ -325,6 +325,28 @@ void TestFlatten()
   CHECK(small.status == sf2::Status::TooBig && small.neededBytes > 2000 && !small.program, "too big: %d, %zu bytes", static_cast<int>(small.status), small.neededBytes);
   CHECK(sf2::Program::Build(font->file, 99, 1u << 20).status == sf2::Status::NotFound, "no such preset");
 
+  // Simulate what the two reads see on a small board. Both requests allow the same patch, but
+  // when the second runs the first patch is resident and the reserve must still be respected.
+  {
+    SampleSpec sample;
+    sample.frames = Constant(1000, 200000);
+    auto shared = Open(SingleFont(sample, {}));
+    constexpr std::size_t ceiling = 512 * 1024;
+    static std::size_t available;
+    available = ceiling;
+    const auto roomFor = [](std::uint64_t bytes) { return bytes <= available; };
+    const auto first = sf2::Program::Build(shared->file, 0, ceiling, roomFor);
+    CHECK(first.program != nullptr, "first patch fits above reserve");
+    if (first.program)
+    {
+      available -= first.program->Bytes();
+      const auto second = sf2::Program::Build(shared->file, 0, ceiling, roomFor);
+      CHECK(!second.program && second.status == sf2::Status::TooBig && second.neededBytes == first.program->Bytes(), "second patch would spend the reserve");
+    }
+    available = 0;
+    CHECK(sf2::Program::Build(shared->file, 0, ceiling, roomFor).status == sf2::Status::NoMemory, "reader tables also need space above reserve");
+  }
+
   // Loop points: reversed are swapped, outside the sample are held in it, too short is no loop.
   SampleSpec dc;
   dc.name = "dc";
@@ -698,6 +720,28 @@ void TestTrack()
   pads.NoteOff(81);
   RenderTrack(pads, 256);
   CHECK(!pads.Holds(81), "released while waiting");
+  // All eight one-shots end ten frames into the next block, before a stolen voice's fade ends.
+  // The ninth note starts at that exact frame and renders through the rest of the block.
+  SampleSpec hit;
+  hit.frames = Constant(10000, 257);
+  auto oneShot = Open(SingleFont(hit, {G(sf2::kScaleTuning, 0)}));
+  auto hits = BuildPreset(*oneShot, 0, 0);
+  CHECK(hits != nullptr, "one-shot test preset");
+  if (hits)
+  {
+    sf2::Track shots;
+    shots.SetProgram(hits.get());
+    for (unsigned key = 60; key < 68; ++key) shots.NoteOn(key, 127);
+    RenderTrack(shots, 247);
+    shots.NoteOn(80, 127);
+    const auto stolen = RenderTrack(shots, 160);
+    sf2::Track reference;
+    reference.SetProgram(hits.get());
+    reference.NoteOn(80, 127);
+    const auto expected = RenderTrack(reference, 150);
+    CHECK(shots.StolenHeld() == 1 && shots.Holds(80) && shots.SoundingVoices() == 1, "new note outlives the eight one-shots");
+    CHECK(expected.back() > 0 && std::equal(expected.begin(), expected.end(), stolen.begin() + 10), "new note starts at sample end");
+  }
   // The render budget: a tail before a held note, the quieter tail first, and never one already fading.
   // (The pad's release is 4 s: Silence ends the voices before the test starts.)
   pads.Silence();

@@ -101,7 +101,7 @@ public:
   std::vector<std::string> ListProjects() const override;
   groove::SaveResult SaveProject(const std::string& name, bool overwrite, const groove::ProjectUiSettings& settings, std::string& message) override;
   groove::SaveResult RenameProject(const std::string& from, const std::string& to, std::string& message) override;
-  bool LoadProject(const std::string& name, groove::ProjectUiSettings& settings, std::string& message) override;
+  bool LoadProject(const std::string& name, groove::ProjectUiSettings& settings, std::string& message, groove::MissingProjectFiles* missing = nullptr) override;
   bool NewProject(groove::ProjectUiSettings& settings, std::string& message) override;
   void SetLedBrightness(std::uint8_t level) override;
   std::uint8_t LedBrightness() const override;
@@ -136,7 +136,8 @@ private:
   void ApplyMix();
   void ApplyMasterFx(const std::array<std::uint8_t, synth::fx::kMasterParamCount>& values);
   void SyncSamplerTrim();
-  bool ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message, bool workingState = false);
+  bool ReplaceSession(const std::string& name, synth::ProjectData& project, bool createNew, std::string& message, bool workingState = false,
+                      groove::MissingProjectFiles* missing = nullptr);
   // Memory for engines. A plain allocation that fails ends the program, and a whole engine is many
   // of them (a DX7 is about 10 KB), so an engine is only built with room for it: the heap now, the
   // size of its kind (the most one gave back here when it was destroyed, an estimate before that),
@@ -166,6 +167,7 @@ private:
   // key may have changed something, so after a key the autosave is written once the keys rest, playing
   // or not, on the device's background task. Failures are tried again without starting the wait over.
   void KeepSessionCurrent(std::uint32_t now);
+  void MarkSessionChanged(std::uint32_t now);
   // The autosave written now, in the system loop. False without a card or when it failed.
   bool SaveSessionState();
   // Two projects do not always fit in RAM side by side. The current patterns go to the autosave on the
@@ -175,7 +177,7 @@ private:
   // when the autosave cannot be written (no card).
   bool MakeRoom(std::string& message);
   bool RestoreSessionPatterns();
-  bool RestoreSessionState();
+  bool RestoreSessionState(groove::MissingProjectFiles* missing = nullptr);
   bool Quiet(std::uint32_t now) const;
   void CheckCard(std::uint32_t now);
   void ApplyPendingSamples();
@@ -237,7 +239,7 @@ private:
   // Each track's Plaits voices as last looked at (PlaitsVoices), to say a change in the log once.
   std::array<std::int8_t, synth::kSynthTrackCount> plaitsVoices_{};
   void CheckPlaitsVoices();
-  void CheckSoundFontLoads();
+  void CheckSoundFontLoads(std::uint32_t now);
   synth::SynthRack rack_;
   synth::SamplerManager sampler_;
   synth::SynthSequencer sequencer_;

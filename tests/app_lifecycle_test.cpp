@@ -18,6 +18,7 @@
 
 #include "Applications/Application.h"
 #include "Applications/Synth/GrooveApp.h"
+#include "Applications/Synth/Runtime/ProjectStorage.h"
 #include "Applications/Synth/Runtime/Sampler/SamplerWav.h"
 #include "Applications/Synth/UI/Groove/Render/Animator.h"
 #include "Devices/CardenzaSim/SimulatorInput.h"
@@ -230,7 +231,7 @@ void TestNoCardBoot(const fs::path& root)
 
 int main(int argc, char** argv)
 {
-  const auto root = fs::temp_directory_path() /
+  const auto root = fs::canonical(fs::temp_directory_path()) /
                     ("cardenza-lifecycle-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   fs::create_directories(root);
   fs::current_path(root);
@@ -691,10 +692,51 @@ int main(int argc, char** argv)
     assert(snapshot() == before);
   }
 
-  // An orderly shutdown suspends the app: the session is waiting for the next start.
-  os::system::Shutdown();
-  assert(os::system::ActiveApplication() == nullptr);
+  // Leaving the groovebox suspends it and writes the autosave. Starting it again runs Setup.
+  SwitchTo(kBlankId);
   assert(fs::is_regular_file(autosave) && fs::is_regular_file(autosaveInfo));
+  // Boot restores the other tracks and keeps the missing-file notice visible past the animation.
+  synth::ProjectData recovered;
+  assert(synth::LoadProjectFileAt(autosave.string(), recovered) == synth::ProjectResult::Ok);
+  recovered.kinds[1] = synth::SynthEngineKind::SoundFont;
+  recovered.engines[1] = {"sf.0.5", "sf.0.5", "000:005 Short", {}};
+  recovered.samples[1] = "Lost Font.sf2";
+  recovered.kinds[2] = synth::SynthEngineKind::Vocal;
+  recovered.engines[2] = {"vocal.plain", "vocal.plain", "Plain", {}};
+  recovered.samples[2] = "Lost Singer.vocal";
+  recovered.kinds[3] = synth::SynthEngineKind::Sampler;
+  recovered.engines[3] = {"sampler.empty", "sampler.empty", "Empty Slot", {}};
+  recovered.samples[3] = "Lost Take.wav";
+  assert(synth::SaveProjectFileAt(autosave.string(), recovered) == synth::ProjectResult::Ok);
+  SwitchTo("Cardenza/Synth");
+  auto& restoredApp = Groove();
+  Frames(static_cast<int>(groove::kBootMs / 16) + 120);
+  const auto* notice = restoredApp.Ui().TopModal();
+  assert(notice && notice->confirmPurpose == groove::ConfirmPurpose::Notice && notice->title == "MISSING FILES");
+  assert(notice->items.size() == 3);
+  for (std::size_t row = 0; row < 3; ++row)
+    assert(notice->items[row].id == "T" + std::to_string(row + 2) && notice->items[row].label == recovered.samples[row + 1]);
+  Tap(2, 13);  // ENTER
+  assert(Groove().Ui().TopModal() == nullptr);
+  // Remounting the card while all three assets are still absent must preserve a later Save As.
+  CardenzaSim::Input::SetCardInserted(false);
+  Frames(140);
+  CardenzaSim::Input::SetCardInserted(true);
+  Frames(140);
+  const auto saveCopy = [&]() {
+    assert(restoredApp.SaveProject("RECOVERED", true, restoredApp.Ui().Settings(), message) == groove::SaveResult::Ok);
+    synth::ProjectData saved;
+    assert(synth::LoadProjectFile("RECOVERED", saved) == synth::ProjectResult::Ok);
+    return saved;
+  };
+  const auto copy = saveCopy();
+  assert(copy.samples == recovered.samples && copy.engines[1].basePresetId == "sf.0.5");
+  assert(restoredApp.SwitchEngine(1, synth::SynthEngineKind::Juno, message));
+  assert(restoredApp.SetVoicePack(2, "", message));
+  const auto replaced = saveCopy();
+  assert(replaced.samples[1].empty() && replaced.samples[2].empty() && replaced.samples[3] == "Lost Take.wav");
+  os::system::Shutdown();
+  assert(os::system::ActiveApplication() == nullptr && fs::is_regular_file(autosave) && fs::is_regular_file(autosaveInfo));
   // Nothing went anywhere else: not the folders of the builds in between, not internal flash.
   assert(Snapshot(between) == betweenFiles && !fs::exists(root / "internal"));
 

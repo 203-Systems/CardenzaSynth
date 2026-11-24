@@ -71,7 +71,7 @@ private:
   void ControlStep();
   void AdvanceVolume();
   void AdvanceModulation();
-  void RenderRun(std::int32_t* accumulator, std::size_t frames);
+  std::size_t RenderRun(std::int32_t* accumulator, std::size_t frames);
 
   const Region* region_ = nullptr;
   const std::int16_t* data_ = nullptr;
