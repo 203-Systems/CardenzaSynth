@@ -118,10 +118,23 @@ int main() {
   assert(manager.BuildUiState(0).frameCount == original.size());
   assert(manager.BuildUiState(0).sampleRate == 22050);
   input.assign(4096, 321);
+  input[0] = 20000;
+  input[1] = -20000;
+  input[2] = 1000;
+  assert(manager.RecordGainDb() == 12);
   assert(manager.BeginRecord(0)); manager.Tick();
   assert(inputCursor == input.size()); // Drain more than 512 frames per UI tick.
+  assert(manager.BuildUiState(0).inputLevel >= 1.0f);
+  manager.SetRecordGainDb(0);
+  input.push_back(1000);
   assert(manager.StopRecord(0) && manager.BuildUiState(0).frameCount == input.size());
+  audio::SharedSampleBuffer take;
+  assert(sampler::ReadMono16Wav((testDirectory / "take-1.wav").string(), take, rate));
+  assert(take->frames[0] == 32767 && take->frames[1] == -32768 && take->frames[2] == 3981);
+  assert(take->frames[input.size() - 1] == 1000);
   manager.DiscardDraftTake(0);
+  manager.SetRecordGainDb(SamplerManager::kDefaultRecordGainDb);
+  input.assign(4096, 321);
   assert(manager.BuildUiState(0).frameCount == original.size());
   assert(manager.BuildUiState(0).sampleRate == 22050 && publishedRate == 22050);
   assert(manager.BeginRecord(0) && manager.StopRecord(0));

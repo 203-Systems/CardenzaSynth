@@ -21,7 +21,12 @@ public:
   // for good about once a second); without one it fits in what RAM is free. The file stays until the
   // take is saved or discarded, so a power cut loses at most the last second.
   static constexpr std::uint32_t kMaxRecordSeconds = 60;
+  // Without a card the take has to fit in RAM (less when RAM is short).
+  static constexpr std::uint32_t kMaxRamRecordSeconds = 5;
+  static constexpr int kDefaultRecordGainDb = 12;
+  static constexpr int kMaxRecordGainDb = 24;
 
+  SamplerManager();
   ~SamplerManager();
   struct PreparedSample {
     std::string fileName;
@@ -32,6 +37,8 @@ public:
   void OnTrackEngineChanged(std::size_t trackIndex, SynthEngineKind kind);
   void Tick();
 
+  int RecordGainDb() const { return recordGainDb_; }
+  void SetRecordGainDb(int gainDb);
   bool BeginRecord(std::size_t trackIndex, bool replaceDraft = false);
   bool StopRecord(std::size_t trackIndex);
   void CancelRecord(std::size_t trackIndex);
@@ -101,6 +108,8 @@ private:
   void RemoveTakeFile(std::size_t trackIndex);
 
   std::array<TrackState, kSynthTrackCount> tracks_{};
+  int recordGainDb_ = 0;
+  float recordGainLinear_ = 1.0f;
   int activeRecordingTrack_ = -1;
   std::FILE* takeFile_ = nullptr;
   bool keepTakes_ = false;

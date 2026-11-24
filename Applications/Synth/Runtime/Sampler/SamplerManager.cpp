@@ -27,8 +27,6 @@ namespace synth {
 
 namespace {
 
-// Without a card the take has to fit in RAM.
-constexpr std::uint32_t kMaxRamRecordSeconds = 5;
 constexpr std::size_t kInputReadFrames = 512;
 constexpr std::uint32_t kRecordingWaveformWindowMs = 750;
 constexpr std::size_t kWaveformProbeFrames = 512;
@@ -271,6 +269,11 @@ void BuildWaveform(std::array<float, kSamplerWaveformBinCount>& waveform, const 
 
 }  // namespace
 
+SamplerManager::SamplerManager()
+{
+  SetRecordGainDb(kDefaultRecordGainDb);
+}
+
 SamplerManager::~SamplerManager()
 {
   if (activeRecordingTrack_ >= 0)
@@ -362,6 +365,14 @@ void SamplerManager::Tick()
       StopPreview(trackIndex, state);
     }
   }
+}
+
+void SamplerManager::SetRecordGainDb(int gainDb)
+{
+  const int clamped = std::clamp(gainDb, 0, kMaxRecordGainDb);
+  if (clamped == recordGainDb_) return;
+  recordGainDb_ = clamped;
+  recordGainLinear_ = std::pow(10.0f, static_cast<float>(clamped) / 20.0f);
 }
 
 bool SamplerManager::BeginRecord(std::size_t trackIndex, bool replaceDraft)
@@ -980,6 +991,18 @@ void SamplerManager::PumpInput(TrackState& state)
     if (status != Device::Audio::InputStatus::Ready || framesRead == 0)
     {
       break;
+    }
+    // The meter, RAM take and WAV all use the gain-adjusted PCM.
+    const float gain = recordGainLinear_;
+    if (gain != 1.0f)
+    {
+      constexpr float kPcmMin = static_cast<float>(std::numeric_limits<std::int16_t>::min());
+      constexpr float kPcmMax = static_cast<float>(std::numeric_limits<std::int16_t>::max());
+      for (std::size_t frame = 0; frame < framesRead; ++frame)
+      {
+        const float amplified = static_cast<float>(destination[frame]) * gain;
+        destination[frame] = static_cast<std::int16_t>(std::clamp(amplified, kPcmMin, kPcmMax));
+      }
     }
     if (takeFile_ != nullptr && std::fwrite(destination, sizeof(std::int16_t), framesRead, takeFile_) != framesRead)
     {
