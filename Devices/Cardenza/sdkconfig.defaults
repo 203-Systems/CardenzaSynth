@@ -42,6 +42,10 @@ CONFIG_SPIRAM_USE_MEMMAP=y
 CONFIG_FATFS_SECTOR_512=y
 CONFIG_WL_SECTOR_SIZE_512=y
 
+# The 203 community's presence service: off (the user, 2026-11-23). Nothing of it or of CardenzaHAL's Net is
+# linked; the Wi-Fi and TLS settings below only matter when it is on again.
+CONFIG_CARDENZA_HAL_PRESENCE=n
+
 # The 203 community while the synth runs (CardenzaHAL's presence service, on by default; the device layer
 # tells it what the synth does: Devices/Cardenza/DevicePresence.h). Off in 0.2.1: Wi-Fi took 38.6 KB of
 # internal RAM and the synth kept 32 KB for itself, more than the 63-69 KB it left. On again (2026-11-18)
