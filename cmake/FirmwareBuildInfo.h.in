@@ -7,5 +7,7 @@ inline constexpr char kVersion[] = "@CARDENZA_VERSION@";
 inline constexpr char kHash[] = "@CARDENZA_BUILD_HASH@";
 inline constexpr bool kDirty = @CARDENZA_BUILD_DIRTY@;
 inline constexpr char kTimeUtc[] = "@CARDENZA_BUILD_TIME@";
+// The branch of a build from anything but main (or CARDENZA_BUILD_LABEL), upper case; empty for main.
+inline constexpr char kLabel[] = "@CARDENZA_BUILD_LABEL@";
 
 }  // namespace cardenza::build

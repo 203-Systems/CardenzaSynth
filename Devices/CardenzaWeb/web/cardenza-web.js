@@ -143,6 +143,12 @@
     wavButton: $('wav-button'),
     wavInput: $('wav-input'),
     storageInfo: $('storage-info'),
+    midiButton: $('midi-button'),
+    midiDot: $('midi-dot'),
+    midiLabel: $('midi-label'),
+    midiIn: $('midi-in'),
+    midiOut: $('midi-out'),
+    midiInfo: $('midi-info'),
     footer: $('footer'),
   };
 
@@ -285,10 +291,133 @@
     }
   }
 
+  // Web MIDI: this computer's MIDI ports stand in for the device's USB MIDI (WebMain.cpp,
+  // cardenza_web_midi_*). The input plays the device as over USB (channels 1-4 = tracks 1-4, other
+  // channels the current track; notes, CCs, program change, pitch bend, Start / Continue / Stop);
+  // the device's own notes go to the output. With neither chosen the device is unplugged. The ports
+  // chosen are remembered in this browser.
+  const midi = (() => {
+    const STORE = 'cardenza-midi';
+    let access = null;
+    let input = null;
+    let output = null;
+    let connected = false;
+
+    function remembered() {
+      try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (error) { return {}; }
+    }
+    function remember() {
+      try {
+        localStorage.setItem(STORE, JSON.stringify({ input: input ? input.name : '', output: output ? output.name : '' }));
+      } catch (error) { /* storage blocked: the choice lasts this visit */ }
+    }
+
+    function onMessage(event) {
+      if (!booted || !connected) return;
+      const data = event.data;
+      if (!data || data.length === 0) return;
+      const status = data[0];
+      if (status >= 0xf8) {
+        mod._cardenza_web_midi_in(status, 0, 0);
+        return;
+      }
+      if (status < 0x80 || status > 0xef) return;  // SysEx and system common: the firmware reads neither
+      mod._cardenza_web_midi_in(status, data.length > 1 ? data[1] : 0, data.length > 2 ? data[2] : 0);
+    }
+
+    function updateUi() {
+      ui.midiDot.classList.toggle('on', connected);
+      ui.midiLabel.textContent = access ? 'MIDI' : 'Enable MIDI';
+      if (!access) return;
+      ui.midiInfo.textContent = connected
+        ? 'USB MIDI connected' + (input ? ' · in: ' + input.name : '') + (output ? ' · out: ' + output.name : '')
+        : 'MIDI: choose an input or an output';
+    }
+
+    function connect() {
+      const wanted = booted && (input !== null || output !== null);
+      if (booted && wanted !== connected) {
+        mod._cardenza_web_midi_connect(wanted ? 1 : 0);
+        connected = wanted;
+      }
+      updateUi();
+    }
+
+    function fill(select, ports, chosen, prefix) {
+      select.textContent = '';
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = prefix + 'none';
+      select.appendChild(none);
+      for (const port of ports) {
+        const option = document.createElement('option');
+        option.value = port.id;
+        option.textContent = prefix + port.name;
+        option.selected = port.name === chosen;
+        select.appendChild(option);
+      }
+    }
+
+    function choose() {
+      const nextInput = ui.midiIn.value ? access.inputs.get(ui.midiIn.value) || null : null;
+      if (input && input !== nextInput) input.onmidimessage = null;
+      input = nextInput;
+      if (input) input.onmidimessage = onMessage;
+      output = ui.midiOut.value ? access.outputs.get(ui.midiOut.value) || null : null;
+      remember();
+      connect();
+    }
+
+    // Ports come and go (a controller plugged in): the lists follow, the choice stays by name.
+    function refresh() {
+      const saved = remembered();
+      fill(ui.midiIn, Array.from(access.inputs.values()), input ? input.name : saved.input, 'in: ');
+      fill(ui.midiOut, Array.from(access.outputs.values()), output ? output.name : saved.output, 'out: ');
+      choose();
+    }
+
+    async function enable() {
+      if (access) return;
+      if (typeof navigator.requestMIDIAccess !== 'function') {
+        ui.midiInfo.textContent = 'Web MIDI is not available in this browser (Chrome, Edge or Firefox have it)';
+        return;
+      }
+      try {
+        access = await navigator.requestMIDIAccess({ sysex: false });
+      } catch (error) {
+        ui.midiInfo.textContent = 'MIDI not allowed: ' + String(error && error.message || error);
+        return;
+      }
+      access.onstatechange = () => refresh();
+      ui.midiIn.hidden = false;
+      ui.midiOut.hidden = false;
+      refresh();
+    }
+
+    // What the device played since the last frame, to the output (drained even without one).
+    function pump() {
+      if (!connected) return;
+      for (let count = 0; count < 64; count++) {
+        const packed = mod._cardenza_web_midi_out();
+        if (!packed) break;
+        if (!output) continue;
+        const status = (packed >> 16) & 0xff;
+        const kind = status & 0xf0;
+        const message = status >= 0xf8 ? [status]
+          : (kind === 0xc0 || kind === 0xd0) ? [status, (packed >> 8) & 0x7f]
+          : [status, (packed >> 8) & 0x7f, packed & 0x7f];
+        try { output.send(message); } catch (error) { /* the port went away: refresh() follows */ }
+      }
+    }
+
+    return { enable, choose, pump, connect };
+  })();
+
   function present() {
     if (!booted) return;
     audio.onDeviceFrame();
     pumpGuide();
+    midi.pump();
     const frame = mod._cardenza_web_frame_counter();
     if (frame === lastPresented) return;
     lastPresented = frame;
@@ -407,6 +536,7 @@
     window.cardenzaBootMs = ms;
     present();
     audio.updateUi();
+    midi.connect(); // ports chosen while it loaded
     if (window.parent !== window) {
       window.parent.postMessage({ cardenza_sim: 'ready' }, '*');
       if (EMBED) window.parent.postMessage({ type: 'cardenza-booted', ms }, location.origin);
@@ -627,8 +757,16 @@
     ui.home.addEventListener('contextmenu', (event) => event.preventDefault());
 
     // Buttons must not keep focus: Space / Enter belong to the device.
-    for (const button of [ui.audioButton, ui.projectButton, ui.wavButton]) {
+    for (const button of [ui.audioButton, ui.projectButton, ui.wavButton, ui.midiButton]) {
       button.addEventListener('mouseup', () => button.blur());
+    }
+    ui.midiButton.addEventListener('click', () => midi.enable());
+    // A chosen port gives the keyboard back to the device.
+    for (const select of [ui.midiIn, ui.midiOut]) {
+      select.addEventListener('change', () => {
+        midi.choose();
+        select.blur();
+      });
     }
     ui.audioButton.addEventListener('click', () => audio.toggle());
     ui.projectButton.addEventListener('click', () => ui.projectInput.click());

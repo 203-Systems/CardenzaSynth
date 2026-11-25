@@ -625,7 +625,7 @@ void GrooveApp::EndOrphanNotes(std::uint32_t now)
     synth::audio::NoteSet owned{};
     controller_.AddHeldPadNotes(track, owned);
     sequencer_.AddSoundingNotes(track, owned);
-    for (std::size_t word = 0; word < owned.size(); ++word) owned[word] |= computerNotes_[track][word];
+    for (std::size_t word = 0; word < owned.size(); ++word) owned[word] |= computerNotes_[track][word] | deviceSustained_[track][word];
     // A sample preview plays the sample's root note, whichever that is.
     const bool preview = sampler_.Previewing(track);
     for (std::size_t word = 0; word < held.size(); ++word)
@@ -817,14 +817,30 @@ bool GrooveApp::SwitchEngine(std::size_t track, synth::SynthEngineKind kind, std
 
 void GrooveApp::NoteOn(std::size_t track, std::uint8_t note, std::uint8_t velocity)
 {
-  if (track >= synth::kSynthTrackCount) return;
+  if (track >= synth::kSynthTrackCount || note > 127) return;
+  // A note the computer's pedal holds, played again: its voice ends first, as one note has one voice.
+  auto& sustained = deviceSustained_[track][note / 32];
+  if (sustained & (1u << (note % 32)))
+  {
+    sustained &= ~(1u << (note % 32));
+    os::midi::Send(midi::MidiPacket::NoteOff(0, note, 0), rack_.PortForTrack(track));
+  }
   os::midi::Send(midi::MidiPacket::NoteOn(0, note, velocity), rack_.PortForTrack(track));
   SendComputerMidi(0x90, track, note, velocity);
 }
 
 void GrooveApp::NoteOff(std::size_t track, std::uint8_t note)
 {
-  if (track >= synth::kSynthTrackCount) return;
+  if (track >= synth::kSynthTrackCount || note > 127) return;
+  // The computer's sustain pedal (CC 64) holds the device's own notes on its track too, pads and step
+  // auditions alike (not the arpeggiator or the sequencer, which end their notes in time). The
+  // computer hears the key let go at once, as from any keyboard; the sound waits for the pedal.
+  if (computerSustain_[track])
+  {
+    deviceSustained_[track][note / 32] |= 1u << (note % 32);
+    SendComputerMidi(0x80, track, note, 0);
+    return;
+  }
   os::midi::Send(midi::MidiPacket::NoteOff(0, note, 0), rack_.PortForTrack(track));
   SendComputerMidi(0x80, track, note, 0);
 }
@@ -837,29 +853,71 @@ void GrooveApp::SendComputerMidi(std::uint8_t status, std::size_t track, std::ui
 }
 
 // A computer plays the device over USB: MIDI channels 1-4 are tracks 1-4, any other channel the current
-// track. Its notes are owned here (EndOrphanNotes) and end when it disconnects.
+// track. Its notes are owned here (EndOrphanNotes) and end when it disconnects. As AMY reads MIDI
+// (docs/midi-implementation-chart.txt): notes, sustain (CC 64), all notes off (CC 120 / 123), bank
+// select (CC 0) with program change, and pitch bend (±2 semitones), each per track.
 void GrooveApp::ReadComputerMidi()
 {
   const bool connected = Device::USB::Connected();
-  if (!connected && computerConnected_) ReleaseComputerNotes();
+  if (!connected && computerConnected_)
+  {
+    ReleaseComputerNotes();
+    for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) ResetComputerControllers(track);
+    computerBank_ = {};
+  }
   computerConnected_ = connected;
   std::uint8_t packet[4];
   for (int count = 0; count < 64 && Device::USB::ReadMidi(packet); ++count)
   {
+    const std::uint8_t code = packet[0] & 0x0F;
+    // System real time, one byte (code index number F): the transport. The device keeps its own
+    // tempo (MIDI clock, F8, is not followed), so a DAW's Start and the device's bar lines meet only
+    // at the start. A lesson's practice project follows the lesson page alone.
+    if (code == 0xF)
+    {
+      if (guide_) continue;
+      switch (packet[1])
+      {
+        case 0xFA:  // Start: from the beginning, also when already playing.
+          if (sequencer_.Playing()) sequencer_.Stop();
+          sequencer_.Play();
+          break;
+        case 0xFB:  // Continue: on from where Stop left the position.
+          if (!sequencer_.Playing()) sequencer_.Resume();
+          break;
+        case 0xFC:  // Stop
+          if (sequencer_.Playing()) sequencer_.Stop();
+          break;
+        default: break;
+      }
+      continue;
+    }
+    // Channel messages only (code index numbers 8-E): the pieces of a SysEx (4-7) carry data bytes
+    // where the status would be.
+    if (code < 0x8 || code > 0xE) continue;
     const std::uint8_t status = packet[1] & 0xF0;
     const std::uint8_t channel = packet[1] & 0x0F;
     const std::size_t track = channel < synth::kSynthTrackCount ? channel : controller_.State().track;
     const std::uint8_t data1 = packet[2] & 0x7F;
     const std::uint8_t data2 = packet[3] & 0x7F;
     auto& held = computerNotes_[track][data1 / 32];
+    auto& sustained = computerSustained_[track][data1 / 32];
     const std::uint32_t bit = 1u << (data1 % 32);
     if (status == 0x90 && data2 != 0)
     {
+      // A note the pedal holds, struck again: its voice ends first, as one note has one voice.
+      if (sustained & bit) synth::audio::NoteOff(track, data1);
+      sustained &= ~bit;
       synth::audio::NoteOn(track, data1, data2);
       held |= bit;
     }
     else if (status == 0x80 || status == 0x90)
     {
+      if (computerSustain_[track] && (held & bit))
+      {
+        sustained |= bit;
+        continue;
+      }
       synth::audio::NoteOff(track, data1);
       held &= ~bit;
     }
@@ -867,10 +925,77 @@ void GrooveApp::ReadComputerMidi()
     {
       ReleaseComputerNotes(track);
     }
+    else if (status == 0xB0 && data1 == 64)
+    {
+      computerSustain_[track] = data2 >= 64;
+      if (!computerSustain_[track]) ReleaseSustainedNotes(track);
+    }
+    else if (status == 0xB0 && data1 == 0)
+    {
+      computerBank_[track] = data2;
+    }
+    else if (status == 0xB0 && data1 == 11)
+    {
+      // Expression: a live level on top of the fader, never saved (a swell, not an edit).
+      computerExpressionCut_[track] = static_cast<std::uint8_t>(127 - data2);
+      ApplyMix();
+    }
+    else if (status == 0xB0 && data1 == 121)
+    {
+      ResetComputerControllers(track);
+    }
+    else if (status == 0xB0 && controller_.MidiControlChange(track, data1, data2))
+    {
+      MidiEdited();
+    }
     else if (status == 0xB0)
     {
       os::midi::Send(midi::MidiPacket::ControlChange(0, data1, data2), rack_.PortForTrack(track));
     }
+    else if (status == 0xC0)
+    {
+      const std::size_t index = static_cast<std::size_t>(computerBank_[track]) * 128 + data1;
+      if (!controller_.ProgramChange(track, index))
+      {
+        std::printf("Groove: MIDI program change refused: T%u bank %u program %u\n", static_cast<unsigned>(track + 1),
+                    static_cast<unsigned>(computerBank_[track]), static_cast<unsigned>(data1));
+        continue;
+      }
+      MidiEdited();
+    }
+    else if (status == 0xE0)
+    {
+      // 14 bits, 8192 the centre; as AMY, the full swing is ±2 semitones.
+      const int value = (static_cast<int>(data2) << 7) | data1;
+      synth::audio::SetPitchBend(track, static_cast<float>(value - 8192) * (2.0f / 8192.0f));
+    }
+  }
+}
+
+// A project change from the computer (a program change, a CC that edits), counted like a key's: the
+// autosave takes it once the input rests, so a knob turned for a while is written once, after.
+void GrooveApp::MidiEdited()
+{
+  const std::uint32_t now = NowMs();
+  if (!sessionChanged_) sessionChangedAt_ = now;
+  sessionChanged_ = true;
+  lastKeyAt_ = now;
+}
+
+// Reset all controllers (CC 121, and a USB disconnect): bend centred, pedal up (what it held ends),
+// expression full. Not the bank, and not the CCs that edit the sound: those are the project's.
+void GrooveApp::ResetComputerControllers(std::size_t track)
+{
+  synth::audio::SetPitchBend(track, 0.0f);
+  if (computerSustain_[track])
+  {
+    computerSustain_[track] = false;
+    ReleaseSustainedNotes(track);
+  }
+  if (computerExpressionCut_[track] != 0)
+  {
+    computerExpressionCut_[track] = 0;
+    ApplyMix();
   }
 }
 
@@ -883,7 +1008,32 @@ void GrooveApp::ReleaseComputerNotes(std::size_t onlyTrack)
       for (std::size_t bit = 0; bit < 32; ++bit)
         if (computerNotes_[track][word] & (1u << bit)) synth::audio::NoteOff(track, static_cast<std::uint8_t>(word * 32 + bit));
     computerNotes_[track] = {};
+    computerSustained_[track] = {};
+    ReleaseDeviceSustained(track);
   }
+}
+
+// The pedal lifted: the notes it held end; the keys still down keep sounding.
+void GrooveApp::ReleaseSustainedNotes(std::size_t track)
+{
+  for (std::size_t word = 0; word < computerSustained_[track].size(); ++word)
+  {
+    for (std::size_t bit = 0; bit < 32; ++bit)
+      if (computerSustained_[track][word] & (1u << bit)) synth::audio::NoteOff(track, static_cast<std::uint8_t>(word * 32 + bit));
+    computerNotes_[track][word] &= ~computerSustained_[track][word];
+  }
+  computerSustained_[track] = {};
+  ReleaseDeviceSustained(track);
+}
+
+// The device's own notes the pedal held: they end through the engine, as a pad's release would have.
+void GrooveApp::ReleaseDeviceSustained(std::size_t track)
+{
+  for (std::size_t word = 0; word < deviceSustained_[track].size(); ++word)
+    for (std::size_t bit = 0; bit < 32; ++bit)
+      if (deviceSustained_[track][word] & (1u << bit))
+        os::midi::Send(midi::MidiPacket::NoteOff(0, static_cast<std::uint8_t>(word * 32 + bit), 0), rack_.PortForTrack(track));
+  deviceSustained_[track] = {};
 }
 
 void GrooveApp::Panic()
@@ -891,6 +1041,9 @@ void GrooveApp::Panic()
   sequencer_.Stop();
   sequencer_.SetRecordArmed(false);
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track) synth::audio::AllNotesOff(track);
+  // Everything stopped: the pedal holds nothing any more (it holds new notes while still down).
+  deviceSustained_ = {};
+  computerSustained_ = {};
 }
 
 void GrooveApp::SendSequencerMidi(void* context, std::size_t trackIndex, const midi::MidiPacket& packet)
@@ -960,7 +1113,9 @@ void GrooveApp::ApplyMix()
   const bool anySolo = std::any_of(soloed_.begin(), soloed_.end(), [](bool soloed) { return soloed; });
   for (std::size_t track = 0; track < synth::kSynthTrackCount; ++track)
   {
-    synth::audio::SetTrackGain(track, static_cast<float>(levels_[track]) / 100.0f);
+    // The fader, times the computer's expression (CC 11, full unless it sent one).
+    synth::audio::SetTrackGain(track, static_cast<float>(levels_[track]) / 100.0f *
+                                          static_cast<float>(127 - computerExpressionCut_[track]) / 127.0f);
     synth::audio::SetTrackMuted(track, muted_[track] || (anySolo && !soloed_[track]));
   }
 }

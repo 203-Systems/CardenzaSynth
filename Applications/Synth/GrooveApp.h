@@ -114,6 +114,10 @@ private:
   void SendGuideState(std::uint32_t now, bool always);
   void SendGuideLeds(std::uint32_t now);
   void ReleaseComputerNotes(std::size_t onlyTrack = synth::kSynthTrackCount);
+  void ReleaseSustainedNotes(std::size_t track);
+  void ReleaseDeviceSustained(std::size_t track);
+  void MidiEdited();
+  void ResetComputerControllers(std::size_t track);
   static void SendComputerMidi(std::uint8_t status, std::size_t track, std::uint8_t data1, std::uint8_t data2);
   std::uint32_t NowMs() const;
   void ApplyMix();
@@ -190,6 +194,18 @@ private:
   std::array<synth::audio::NoteSet, synth::kSynthTrackCount> orphanNotes_{};
   // Notes a computer plays over USB MIDI and has not let go yet.
   std::array<synth::audio::NoteSet, synth::kSynthTrackCount> computerNotes_{};
+  // The computer's sustain pedal (CC 64) per track, and the notes it let go while the pedal held them
+  // (still in computerNotes_: they sound and are owned until the pedal lifts).
+  std::array<bool, synth::kSynthTrackCount> computerSustain_{};
+  std::array<synth::audio::NoteSet, synth::kSynthTrackCount> computerSustained_{};
+  // The device's own notes (pads, step auditions) let go while that pedal is down: their note-off
+  // waits for the pedal (GrooveApp::NoteOff), and they are owned until then.
+  std::array<synth::audio::NoteSet, synth::kSynthTrackCount> deviceSustained_{};
+  // The computer's bank select (CC 0) per track: a program change picks preset bank * 128 + program.
+  std::array<std::uint8_t, synth::kSynthTrackCount> computerBank_{};
+  // How far the computer's expression (CC 11) lowers each track below its fader: 127 - the value, so
+  // 0 (zeroed) is full.
+  std::array<std::uint8_t, synth::kSynthTrackCount> computerExpressionCut_{};
   bool computerConnected_ = false;
   bool orphanCandidates_ = false;
   std::uint32_t endedOrphanNotes_ = 0;
